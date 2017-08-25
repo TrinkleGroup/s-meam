@@ -15,43 +15,6 @@ from decimal import Decimal
 STYLE_FORMATS = {'atomic':'%d %d %f %f %f', 'charge':'%d %d %f %f %f %f',
         'full':'%d %d %d %f %f %f %f'}
 
-def cubic_spline(xs, ys):
-    """Creates a cubic spline fitting with knot points (xs,ys).
-    
-    Args:
-        xs  -   (np.arr) Nx1 list of x-coordinates of knot points
-        ys  -   (np.arr) Nx1 list of y-coordinates of knot points
-        
-    Returns:
-        spline  -   (interpolate.splrep) spline representation of the spline
-                    function"""
-
-def i_to_potl(itype):
-    """Maps element number i to an index of a 1D list; used for indexing spline
-    functions. Taken directly from pair_meam_spline.h
-    
-    Args:
-        itype   -   (int) the i-the element in the system (e.g. in Ti-O, Ti=1)
-        
-    Returns:
-        The array index for the given element"""
-
-    return itype-1
-
-def ij_to_potl(itype,jtype,ntypes):
-    """Maps i and j element numbers to a single index of a 1D list; used for
-    indexing spline functions. Taken directly from pair_meam_spline.h
-    
-    Args:
-        itype   -   (int) the i-th element in the system (e.g. in Ti-O, Ti=1)
-        jtype   -   (int) the j-th element in the system (e.g. in Ti-O, O=2)
-        ntypes  -   (int) the number of unique element types in the system
-        
-    Returns:
-        The mapping of ij into an index of a 1D 0-indexed list"""
-
-    return jtype - 1 + (itype-1)*ntypes - (itype-1)*itype/2
-
 def read_spline_meam(fname):
     """Builds MEAM potential using spline information from the given file
     
@@ -295,6 +258,23 @@ def atoms_from_lammps_data(fname, types):
     posx = data[:,2:5]                     # Extract position vectors
 
     atoms = Atoms(symbols=ids, positions=posx)
+    box, tlt = read_box_data(fname,True)
+
+    # Build a right-handed coordinate system; tlt = xy,xz,yz
+    a = (box[0][1]-box[0][0],0,0) # vector on x-axis
+    b = (tlt[0],box[1][1]-box[1][0],0) # vector in xy-plane
+    c = (tlt[1],tlt[2],box[2][1]-box[2][0]) # vector with positive z-component
+
+    norma = np.linalg.norm(a)
+    normb = np.linalg.norm(b)
+    normc = np.linalg.norm(c)
+
+    # Find angles between basis vectors (degrees)
+    theta1 = (180/np.pi)*np.arccos(np.dot(b,c)/normb/normc)
+    theta2 = (180/np.pi)*np.arccos(np.dot(a,c)/norma/normc)
+    theta3 = (180/np.pi)*np.arccos(np.dot(a,b)/norma/normb)
+
+    atoms.set_cell([norma, normb, normc, theta1, theta2, theta3])
 
     return atoms
 
