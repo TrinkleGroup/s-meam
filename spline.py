@@ -5,8 +5,8 @@ import numpy as np
 
 class Spline(CubicSpline):
 
-    def __init__(self,x,y):
-        super(Spline,self).__init__(x,y,bc_type='natural')#,bc_type=((1,d0),(1,dN)))
+    def __init__(self,x,y,bc_type='natural'):
+        super(Spline,self).__init__(x,y,bc_type=bc_type)#,bc_type=((1,d0),(1,dN)))
         self.cutoff = (x[0],x[len(x)-1])
         self.d0 = self(self.x[0],1)
         self._dN = self(self.x[-1],1)
@@ -41,17 +41,17 @@ class Spline(CubicSpline):
     def in_range(self, x):
         """Checks if a given value is within the spline's cutoff range"""
 
-        return (x > self.cutoff[0]) and (x < self.cutoff[1])
+        return (x >= self.cutoff[0]) and (x <= self.cutoff[1])
 
     def extrap(self, x):
         """Performs linear extrapolation past the endpoints of the spline"""
 
         if x < self.cutoff[0]:
             return self(self.x[0]) - self.d0*(self.x[0]-x)
-        elif x > self.cutoff[0]:
+        elif x > self.cutoff[1]:
             return self(self.x[-1]) + self.dN*(x-self.x[-1])
 
-    def plot(self):
+    def plot(self,xr=None,yr=None,xl=None,yl=None,saveName=None):
         """Plots the spline"""
 
         low,high = self.cutoff
@@ -62,17 +62,36 @@ class Spline(CubicSpline):
         y = map(lambda e: self(e) if self.in_range(e) else self.extrap(e), x)
         yi =map(lambda e: self(e), self.x)
 
+        plt.figure()
         plt.plot(self.x, yi, 'o', x, y)
-        plt.show()
 
-    #def __call__(self,x,i=None):
-    #    if i:
-    #        return super(Spline,self).__call__(x,i)
+        if xr: plt.xlim(xr)
+        if yr: plt.ylim(yr)
+        if xl: plt.xlabel(xl)
+        if yl: plt.ylabel(yl)
 
-    #    if self.in_range(x):
-    #        return super(Spline,self).__call__(x)
+        if saveName: plt.savefig(saveName)
+        else: plt.show()
+
+    #def eval(self, x):
+    #    """Evaluates the spline, extrapolating if necessary"""
+
+    #    if x < self.cutoff[0]:
+    #        return self(self.x[0]) - self.d0*(self.x[0]-x)
+    #    elif x > self.cutoff[1]:
+    #        return self(self.x[-1]) + self.dN*(x-self.x[-1])
     #    else:
-    #        if x < self.cutoff[0]:
-    #            return self(self.x[0]) - self.d0*(self.x[0]-x)
-    #        else:
-    #            return 0.0
+    #        return super(Spline,self).__call__(x)
+
+    def __call__(self,x,i=None):
+        """Evaluates the spline at the given point, linearly extrapolating if
+        outside of the spline cutoff. If 'i' is specified, evaluates the ith
+        derivative instead."""
+
+        if i:
+            return super(Spline,self).__call__(x,i)
+
+        if self.in_range(x):
+            return super(Spline,self).__call__(x)
+        else:
+            return self.extrap(x)

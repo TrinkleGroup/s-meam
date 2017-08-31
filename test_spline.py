@@ -1,7 +1,6 @@
 import unittest
 import numpy as np
 from spline import Spline
-from scipy.interpolate import CubicSpline
 
 class SplineTests(unittest.TestCase):
     """Test cases for Spline class"""
@@ -18,11 +17,22 @@ class SplineTests(unittest.TestCase):
         s.dN = 7
         self.assertEquals(s.dN, 7)
 
-    def test_constructor(self):
-        xi = np.arange(1,10)
+    def test_basic(self):
+        xi = np.linspace(0,2*np.pi,10)
         yi = np.sin(xi)
 
         s = Spline(xi,yi)
+
+        # Check knot values
+        for i in xrange(len(xi)):
+            self.assertAlmostEqual(s(xi[i]), yi[i])
+
+        # Check easy points
+        self.assertAlmostEqual(s(0), 0.0, places=3)
+        self.assertAlmostEqual(s(np.pi/2.), 1.0, places=3)
+        self.assertAlmostEqual(s(np.pi), 0.0, places=3)
+        self.assertAlmostEqual(s(3*np.pi/2.), -1.0, places=3)
+        self.assertAlmostEqual(s(2*np.pi), 0.0, places=3)
 
 suite = unittest.TestLoader().loadTestsFromTestCase(SplineTests)
 unittest.TextTestRunner(verbosity=2).run(suite)

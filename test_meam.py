@@ -57,7 +57,5 @@ class MEAMTests(unittest.TestCase):
             p = MEAM()
             rets = p.read_from_file("does_not_exist.txt")
 
-    def test_bc
-
 suite = unittest.TestLoader().loadTestsFromTestCase(MEAMTests)
 unittest.TextTestRunner(verbosity=2).run(suite)
