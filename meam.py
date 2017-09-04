@@ -34,6 +34,7 @@ class MEAM(Potential):
             self.us = [None]*ntypes
             self.fs = [None]*ntypes
             self.gs = [None]*((ntypes+1)*ntypes/2)
+            self.zero_atom_energies = [None]*ntypes
 
     @property
     def phis(self):
@@ -130,7 +131,7 @@ class MEAM(Potential):
         # counting 'bonds'
         # Using cutoff/2 because NeighborList builds a sphere around each atom
         # and checks if they intersect
-        print("Cutoff = %f" % self.cutoff)
+        #print("Cutoff = %f" % self.cutoff)
 
         atoms.set_pbc(True)
 
@@ -334,7 +335,6 @@ class MEAM(Potential):
                         tripcounter += 1
                     # end triplet loop
 
-                    #print(total_threebody)
                     #plot_three.append(total_threebody)
                     #ni_val = total_rho + total_threebody
                     #u_val = u(ni_val)
@@ -342,10 +342,12 @@ class MEAM(Potential):
                     #total_u += u_val
                 # end u loop
 
-                #print("ni_val = %f || " % total_ni),
+                print("ni_val = %f || " % total_ni),
                 print("%f" % u(total_ni))
+                #print("zero_atom_energy = %f" % self.zero_atom_energies[i_to_potl(itype)])
                 ucounts += 1
-                total_pe += total_phi + u(total_ni)
+                total_pe += total_phi + u(total_ni) -\
+                        self.zero_atom_energies[i_to_potl(itype)]
 
         #plt.figure()
         #plt.plot(np.arange(len(plot_three)), plot_three)
@@ -415,7 +417,7 @@ class MEAM(Potential):
 
         #plt.plot(plot_y,'o')
         #plt.show()
-        print("ucounts = %d" % ucounts)
+        #print("ucounts = %d" % ucounts)
         return(total_pe)
 
         ## Calculate manybody terms
@@ -588,7 +590,8 @@ class MEAM(Potential):
                             (i<nsplines-nphi)):
                         temp = Spline(xcoords,ycoords,bc_type =((1,d0),(1,dN)))
                     else:
-                        temp = Spline(xcoords,ycoords)
+                        #temp = Spline(xcoords,ycoords)
+                        temp = Spline(xcoords,ycoords,bc_type =((1,d0),(1,dN)))
 
                     temp.cutoff = (xcoords[0],xcoords[len(xcoords)-1])
                     splines.append(temp)
@@ -617,6 +620,11 @@ class MEAM(Potential):
                 self.fs = fs
                 self.gs = gs
                 self.cutoff = cutoff
+
+                self.zero_atom_energies =  [None]*self.ntypes
+                for i in xrange(self.ntypes):
+                    self.zero_atom_energies[i] = self.us[i](0.0)
+                    #print(self.us[i](0.0))
 
             except IOError as error:
                 raise IOError("Could not open file '" + fname + "'")

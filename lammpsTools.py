@@ -29,6 +29,8 @@ def read_spline_meam(fname):
         gs      -   (list) N angular term spline functions
         types   -   (list) names of elements in system (e.g. ['Ti', 'O']"""
 
+    print('WARNING: this method may not be up to date!')
+
     with open(fname, 'r') as f:
         f.readline()                    # Remove header
         temp = f.readline().split()     # 'meam/spline ...' line

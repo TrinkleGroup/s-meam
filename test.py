@@ -7,13 +7,13 @@ from ase.calculators.lammpsrun import LAMMPS
 from meam import MEAM
 
 atoms = lammpsTools.atoms_from_lammps_data('data.post_min_crowd.Ti', ['Ti'])
-p = MEAM('TiO.rho.spline')
+p = MEAM('TiO.meam.spline')
 print("PE = %f" % p.eval(atoms))
 
 splines = [p.phis, p.rhos, p.us, p.fs, p.gs]
 splines = [el for grp in splines for el in grp]
 
-plotting = False
+plotting = True
 
 if plotting:
     name = "phi_Ti.png"
