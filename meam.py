@@ -153,6 +153,9 @@ class MEAM(Potential):
             neighbors = nl.get_neighbors(i)[0]
             neighbors_noboth = nl_noboth.get_neighbors(i)[0]
 
+            print(nl.get_neighbors(i))
+            print(nl_noboth.get_neighbors(i))
+
             pairs = itertools.product([i], neighbors)
             pairs_noboth = itertools.product([i], neighbors_noboth)
             neighbors_without_j = neighbors_noboth

@@ -6,7 +6,7 @@ from ase import Atoms
 from ase.calculators.lammpsrun import LAMMPS
 from meam import MEAM
 
-atoms = lammpsTools.atoms_from_lammps_data('data.post_min_crowd.Ti', ['Ti'])
+atoms = lammpsTools.atoms_from_lammps_data('data.uc.Ti', ['Ti'])
 p = MEAM('TiO.meam.spline')
 print("PE = %f" % p.eval(atoms))
 

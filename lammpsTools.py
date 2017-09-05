@@ -31,6 +31,8 @@ def read_spline_meam(fname):
 
     print('WARNING: this method may not be up to date!')
 
+    # TODO: convert types to lowercase by default
+
     with open(fname, 'r') as f:
         f.readline()                    # Remove header
         temp = f.readline().split()     # 'meam/spline ...' line

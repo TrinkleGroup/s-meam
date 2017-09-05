@@ -1,3 +1,4 @@
+import os
 import unittest
 import meam
 import lammpsTools
@@ -5,6 +6,88 @@ from meam import MEAM
 
 class MEAMTests(unittest.TestCase):
     """Test cases for MEAM class"""
+
+    def test_uc_meam(self):
+        p = MEAM("TiO.meam.spline")
+        atoms = lammpsTools.atoms_from_lammps_data("data.uc.Ti", ['Ti'])
+
+        expected = -9.6613101
+        val = p.eval(atoms)
+        diff = (val-expected)/expected
+
+        self.assertAlmostEqual(val, expected, delta=0.1*expected)
+
+        print(("(py) %f (lmps) %f || diff = %f %%" % (val,e0,diff)))
+
+    def test_uc_nophi(self):
+        p = MEAM("TiO.nophi.spline")
+        atoms = lammpsTools.atoms_from_lammps_data("data.uc.Ti", ['Ti'])
+
+        expected = -6,361927
+        val = p.eval(atoms)
+        diff = (val-expected)/expected
+
+        self.assertAlmostEqual(val, expected, delta=0.1*expected)
+
+        print(("(py) %f (lmps) %f || diff = %f %%" % (val,e0,diff)))
+
+    def test_uc_phionly(self):
+        p = MEAM("TiO.phionly.spline")
+        atoms = lammpsTools.atoms_from_lammps_data("data.uc.Ti", ['Ti'])
+
+        expected = -3.1626209
+        val = p.eval(atoms)
+        diff = (val-expected)/expected
+
+        self.assertAlmostEqual(val, expected, delta=0.1*expected)
+
+        print(("(py) %f (lmps) %f || diff = %f %%" % (val,e0,diff)))
+
+    def test_uc_rhophi(self):
+        p = MEAM("TiO.rhophi.spline")
+        atoms = lammpsTools.atoms_from_lammps_data("data.uc.Ti", ['Ti'])
+
+        expected = -9.809552
+        val = p.eval(atoms)
+        diff = (val-expected)/expected
+
+        self.assertAlmostEqual(val, expected, delta=0.1*expected)
+
+        print(("(py) %f (lmps) %f || diff = %f %%" % (val,e0,diff)))
+
+    def test_uc_rho(self):
+        p = MEAM("TiO.rho.spline")
+        atoms = lammpsTools.atoms_from_lammps_data("data.uc.Ti", ['Ti'])
+
+        expected = -6.646931
+        val = p.eval(atoms)
+        diff = (val-expected)/expected
+
+        self.assertAlmostEqual(val, expected, delta=0.1*expected)
+
+        print(("(py) %f (lmps) %f || diff = %f %%" % (val,e0,diff)))
+
+
+#    def test_all_structs(self):
+#        p = MEAM("TiO.meam.spline")
+#        
+#        with open('lammps_results.dat', 'r') as f:
+#            line = f.readline()
+#
+#            while line:
+#                atoms = lammpsTools.atoms_from_lammps_data(line.strip(), ['Ti','O'])
+#                e0 = float(f.readline().split()[0])
+#
+#                delta = abs(0.1*e0)
+#
+#                val = p.eval(atoms)
+#                diff = (val-e0)/e0
+#                self.assertAlmostEqual(e0, val, delta=delta)
+#                line = f.readline()
+#
+#                print(line.strip()),
+#                print(" ... ok: (py) %f (lmps) %f || diff = %f %%" % (val,e0,diff))
+
 
     def test_spline_derivatives(self):
         p = MEAM("TiO.meam.spline")
@@ -109,13 +192,6 @@ class MEAMTests(unittest.TestCase):
                 ['Ti'])
         self.assertAlmostEqual(p.eval(atoms), -153.6551, delta=1.0)
 
-    def test_crowd_meam(self):
-        p = MEAM("TiO.meam.spline")
-
-        atoms = lammpsTools.atoms_from_lammps_data("data.post_min_crowd.Ti",\
-                ['Ti'])
-        self.assertAlmostEqual(p.eval(atoms), -463.71469, delta=1.0)
-
     def test_crowd_rho(self):
         p = MEAM("TiO.rho.spline")
 
@@ -132,4 +208,8 @@ class MEAMTests(unittest.TestCase):
 
 
 suite = unittest.TestLoader().loadTestsFromTestCase(MEAMTests)
+#suite = unittest.TestSuite()
+#suite.addTests(MEAMTests.test_read_file)
 unittest.TextTestRunner(verbosity=2).run(suite)
+#if "__name__" == "__main__":
+#    unittest.main()
