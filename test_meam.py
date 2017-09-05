@@ -9,20 +9,46 @@ class MEAMTests(unittest.TestCase):
     def test_spline_derivatives(self):
         p = MEAM("TiO.meam.spline")
 
-        self.assertAlmostEqual(p.phis[0].d0, -20, 1)
-        self.assertAlmostEqual(p.phis[0].dN, 0.0, 1)
+        # Assert endpoint values and derivatives, then perform extrapolation
+        phi = p.phis[0]
+        self.assertAlmostEqual(phi.d0, -20, 1)
+        self.assertAlmostEqual(phi.dN, 0.0, 1)
+        self.assertAlmostEqual(phi(phi.x[0]), 3.7443, 1)
+        self.assertAlmostEqual(phi(phi.x[-1]), 0.0, 1)
+        self.assertAlmostEqual(phi(phi.x[0]-1), 3.7443+20, 1)
+        self.assertAlmostEqual(phi(phi.x[-1]+1), 0.0, 1)
 
-        self.assertAlmostEqual(p.rhos[0].d0, -1.0, 1)
-        self.assertAlmostEqual(p.rhos[0].dN, 0.0, 1)
+        rho = p.rhos[0]
+        self.assertAlmostEqual(rho.d0, -1.0, 1)
+        self.assertAlmostEqual(rho.dN, 0.0, 1)
+        self.assertAlmostEqual(rho(rho.x[0]), 1.7475, 1)
+        self.assertAlmostEqual(rho(rho.x[-1]), 0.0, 1)
+        self.assertAlmostEqual(rho(rho.x[0]-1), 1.7475+1, 1)
+        self.assertAlmostEqual(rho(rho.x[-1]+1), 0.0, 1)
 
-        self.assertAlmostEqual(p.fs[0].d0, 2.7733, 1)
-        self.assertAlmostEqual(p.fs[0].dN, 0.0, 1)
+        f = p.fs[0]
+        self.assertAlmostEqual(f.d0, 2.7733, 1)
+        self.assertAlmostEqual(f.dN, 0.0, 1)
+        self.assertAlmostEqual(f(f.x[0]), -0.1485, 1)
+        self.assertAlmostEqual(f(f.x[-1]), 0.0, 1)
+        self.assertAlmostEqual(f(f.x[0]-1), -0.1485-2.7733, 1)
+        self.assertAlmostEqual(f(f.x[-1]+1), 0.0, 1)
 
-        self.assertAlmostEqual(p.us[0].d0, 0.0078, 1)
-        self.assertAlmostEqual(p.us[0].dN, 0.1052, 1)
+        u = p.us[0]
+        self.assertAlmostEqual(u.d0, 0.0078, 1)
+        self.assertAlmostEqual(u.dN, 0.1052, 1)
+        self.assertAlmostEqual(u(u.x[0]), -0.29746, 1)
+        self.assertAlmostEqual(u(u.x[-1]), 0.57343, 1)
+        self.assertAlmostEqual(u(u.x[0]-1), -0.29746-0.0078, 1)
+        self.assertAlmostEqual(u(u.x[-1]+1), 0.57343+0.1052, 1)
 
-        self.assertAlmostEqual(p.gs[0].d0, 8.3364, 1)
-        self.assertAlmostEqual(p.gs[0].dN, -60.4025, 1)
+        g = p.gs[0]
+        self.assertAlmostEqual(g.d0, 8.3364, 1)
+        self.assertAlmostEqual(g.dN, -60.4025, 1)
+        self.assertAlmostEqual(g(g.x[0]), 0.0765, 1)
+        self.assertAlmostEqual(g(g.x[-1]), -6.0091, 1)
+        self.assertAlmostEqual(g(g.x[0]-1), 0.0765-8.3364, 1)
+        self.assertAlmostEqual(g(g.x[-1]+1), -6.0091-60.4025, 1)
 
     def test_type_setter(self):
         p = MEAM()

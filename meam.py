@@ -123,23 +123,12 @@ class MEAM(Potential):
         # TODO: check that it's only iterating over lower triangle of
         #       distances array
 
-        # TODO: Check that all splines are not None #raise NotImplementedError, "eval() not implemented yet" #pair_counter_phi = np.zeros((len(atoms),len(atoms))) #pair_counter_rho = np.zeros((len(atoms),len(atoms)))
-        #trip_counter = np.zeros((len(atoms),len(atoms),len(atoms)))
+        # TODO: Check that all splines are not None
 
-        # Build the neighbor list and distances matrix
-        # nl should not be counting an atom as its own neighbor OR double
-        # counting 'bonds'
-        # Using cutoff/2 because NeighborList builds a sphere around each atom
-        # and checks if they intersect
-        #print("Cutoff = %f" % self.cutoff)
-
+        # TODO: this condition should be set OUTSIDE of the eval() fxn
         atoms.set_pbc(True)
 
         r = atoms.get_all_distances(mic=True)
-
-        #for i in xrange(len(atoms)):
-        #    print(nl.get_neighbors(i)[0])
-        #    print(len(nl.get_neighbors(i)[0]))
 
         # TODO: how to compute per-atom forces
         # TODO: is there anywhere that map() could help?
@@ -148,92 +137,7 @@ class MEAM(Potential):
         # Calculate for each atom; i = atom index
         total_pe = 0.0
         natoms = len(atoms)
-
-        # Calculate pair terms
-        #for i in xrange(natoms):
-        #    itype = symbol_to_type(atoms[i].symbol, self.types)
-
-        #    phi_val = 0.0
-        #    #for j in nl_noboth.get_neighbors(i)[0]:
-        #    #print("Atom %d's neighbors: " % i),
-        #    for j in xrange(i):
-        #        if r[i][j] <= self.cutoff:
-        #            #print(str(j)),
-        #            jtype = symbol_to_type(atoms[j].symbol, self.types)
-
-        #            phi = self.phis[ij_to_potl(itype,jtype,self.ntypes)]
-
-        #            #print("phi_val = %f" % phi(r[i][j]))
-        #            total_pe += phi(r[i][j])
-        #    #print("\n"),
-
-        #plot_x = np.arange(natoms)
-        #plot_y = np.ones(plot_x.shape)
-
-        ## Calculate three-body terms
-        #for i in xrange(natoms):
-        #    itype = symbol_to_type(atoms[i].symbol, self.types)
-
-        #    ni_val = 0.0
-        #    total_rho_val = 0.0
-        #    total_threebody_val = 0.0
-
-        #    # Calculate rho contribution to ni
-        #    for k in xrange(natoms):
-        #        r_ik = r[i][k]
-
-        #        if (k != i) and (r_ik <= self.cutoff):
-        #            ktype = symbol_to_type(atoms[k].symbol, self.types)
-
-        #            rho = self.rhos[i_to_potl(ktype)]
-
-        #            total_rho_val += rho(r_ik)
-
-        #    # Calculate threebody contribution to ni
-        #    for k in xrange(natoms):
-        #        r_ik = r[i][k]
-
-        #        if (k != i) and (r_ik <= self.cutoff):
-        #            ktype = symbol_to_type(atoms[k].symbol, self.types)
-        #            for j in xrange(k):
-        #                r_ij = r[i][j]
-
-        #                if (j != i) and (r_ij <= self.cutoff):
-        #                    jtype = symbol_to_type(atoms[j].symbol, self.types)
-
-        #                    fj = self.fs[i_to_potl(jtype)]
-        #                    fk = self.fs[i_to_potl(ktype)]
-        #                    gkj = self.gs[ij_to_potl(ktype,jtype,self.ntypes)]
-
-        #                    a = atoms[j].position-atoms[i].position
-        #                    b = atoms[k].position-atoms[i].position
-
-        #                    na = np.linalg.norm(a)
-        #                    nb = np.linalg.norm(b)
-
-        #                    cos_theta = np.dot(a,b)/na/nb
-
-        #                    #if (r_ij < fj.cutoff[0]) or (r_ik < fk.cutoff[0]):
-        #                    #    print("Extrap LHS value of %f" % r_ij)
-
-        #                    fj_val = fj(r_ij)
-        #                    fk_val = fk(r_ik)
-        #                    gkj_val = gkj(cos_theta)
-
-        #                    total_threebody_val += fj_val*fk_val*gkj_val
-
-        #    ni_val = total_rho_val + total_threebody_val
-        #    #print(ni_val)
-
-        #    u = self.us[i_to_potl(ktype)]
-        #    #if (ni_val > u.cutoff[1]):
-        #    #    print("Extrap RHS value of %f" % ni_val)
-
-        #    u_val = u(ni_val)
-        #    #print(u_val)
-
-        #    total_pe += u_val
-
+        
         nl = NeighborList(np.ones(len(atoms))*(self.cutoff/2),\
                 self_interaction=False, bothways=True, skin=0.0)
         nl_noboth = NeighborList(np.ones(len(atoms))*(self.cutoff/2),\
@@ -251,8 +155,7 @@ class MEAM(Potential):
 
             pairs = itertools.product([i], neighbors)
             pairs_noboth = itertools.product([i], neighbors_noboth)
-            neighbors_without_j = neighbors
-            #print(type(neighbors_without_j))
+            neighbors_without_j = neighbors_noboth
 
             # TODO: workaround for this if branch
             if len(neighbors) > 0:
@@ -275,23 +178,6 @@ class MEAM(Potential):
                     total_phi += phi(r_ij)
                 # end phi loop
 
-                # Calculate embedding term (rho)
-                #for pair in pairs:
-                #    _,j = pair
-                #    r_ij= r[i][j]
-                #    jtype = symbol_to_type(atoms[j].symbol, self.types)
-
-                #    rho = self.rhos[i_to_potl(jtype)]
-
-                #    total_rho += rho(r_ij)
-                ## end rho loop
-            
-                ## Re-instantiate since this is a generator
-                #pairs_noboth = itertools.product([i], neighbors)
-                    
-                # TODO: problem; times that u(ni_val) is calculated should be
-                # once for every atom, INDEPENDENT of # pairs
-                # Calculate threebody interactions (u)
                 for pair in pairs:
 
                     _,j = pair
@@ -300,21 +186,22 @@ class MEAM(Potential):
 
                     rho = self.rhos[i_to_potl(jtype)]
 
-                    total_ni += rho(r_ij)
+                    fj = self.fs[i_to_potl(jtype)]
+                    fj_val = fj(r_ij)
+                    #print("fj_val = %f" % fj_val)
 
                     # Iteratively kill atoms; avoid 2x counting triplets
+                    # TODO: how expensive is this rebuild?
                     neighbors_without_j = np.delete(neighbors_without_j,\
                             np.where(neighbors_without_j==j))
 
-                    # TODO: only delete after calculation, so that j==k is
-                    # included?
                     triplets = itertools.product(pair,neighbors_without_j)
 
+                    partialsum = 0.0
                     for _,k in triplets:
                         r_ik = r[i][k]
                         ktype = symbol_to_type(atoms[k].symbol, self.types)
 
-                        fj = self.fs[i_to_potl(jtype)]
                         fk = self.fs[i_to_potl(ktype)]
                         g = self.gs[ij_to_potl(jtype,ktype,self.ntypes)]
 
@@ -327,13 +214,15 @@ class MEAM(Potential):
                         # TODO: try get_dihedral() for angles
                         cos_theta = np.dot(a,b)/na/nb
 
-                        fj_val = fj(r_ij)
                         fk_val = fk(r_ik)
-                        g_val = g(r_ik)
+                        g_val = g(cos_theta)
 
-                        total_ni += fj_val*fk_val*g_val
+                        partialsum += fk_val*g_val
                         tripcounter += 1
                     # end triplet loop
+
+                    total_ni += fj_val*partialsum
+                    total_ni += rho(r_ij)
 
                     #plot_three.append(total_threebody)
                     #ni_val = total_rho + total_threebody
@@ -342,192 +231,15 @@ class MEAM(Potential):
                     #total_u += u_val
                 # end u loop
 
-                print("ni_val = %f || " % total_ni),
-                print("%f" % u(total_ni))
+                #print("ni_val = %f || " % total_ni),
+                #print("%f" % u(total_ni))
                 #print("zero_atom_energy = %f" % self.zero_atom_energies[i_to_potl(itype)])
+                #print("%d trips for atom %d" % (tripcounter, i))
                 ucounts += 1
                 total_pe += total_phi + u(total_ni) -\
                         self.zero_atom_energies[i_to_potl(itype)]
 
-        #plt.figure()
-        #plt.plot(np.arange(len(plot_three)), plot_three)
-        #plt.show()
-            #print("%d trips for atom %i" %(tripcounter,i))
-        # end atoms loop
-
-        # Pairs
-        #for k in neighbors:
-        #paircounter = 0
-        #total_threebody = 0.0
-        #for k in xrange(natoms):
-        #    rho_val = 0.0
-        #    r_ik = r[i][k]
-        #    if (k != i) and (r_ik < self.cutoff):
-        #        #print(r_ik)
-        #        # Don't need to check if k != i; nl does not include self
-        #        ktype = symbol_to_type(atoms[k].symbol, self.types)
-
-        #        rho = self.rhos[i_to_potl(ktype)]
-
-        #        rho_val += rho(r_ik)
-
-        #        # Triplets
-        #        threebody_val = 0.0
-        #        for j in xrange(k):
-        #            paircounter += 1
-        #            # DO need to check j != k since nl wasn't built for k
-        #            r_ij = r[i][j]
-
-        #            if (j != i) and (r_ij < self.cutoff):
-        #                jtype = symbol_to_type(atoms[j].symbol, self.types)
-
-        #                fj = self.fs[i_to_potl(jtype)]
-        #                fk = self.fs[i_to_potl(ktype)]
-        #                gkj = self.gs[ij_to_potl(ktype,jtype,self.ntypes)]
-
-        #                a = atoms[j].position-atoms[i].position
-        #                b = atoms[k].position-atoms[i].position
-
-        #                na = np.linalg.norm(a)
-        #                nb = np.linalg.norm(b)
-
-        #                cos_theta = np.dot(a,b)/na/nb
-
-        #                fj_val = fj(r_ij)
-        #                fk_val = fk(r_ik)
-        #                gkj_val = gkj(cos_theta)
-
-        #                threebody_val += fj_val*fk_val*gkj_val
-        #                total_threebody += threebody_val
-        #                #print('temp = %f' % (fj_val*fk_val*gkj_val))
-
-        #    #if abs(rho_val)>35.0: print("rho_val = %f" % rho_val)
-        #    #if abs(threebody_val)>0: print("threebody_val = %f" % threebody_val)
-        #    ni_val += rho_val + threebody_val
-        #    paircounter += 1
-        #
-        #print("total_threebody = %f" % total_threebody)
-        ##plot_y[i] = rho_val
-        #u = self.us[i_to_potl(ktype)]
-        #u_val = u(ni_val)
-        ##print('rho_val = %f' % rho_val)
-        ##print('ni_val = %f' % ni_val)
-        ##print('u_val = %f' % u_val)
-        #total_pe += u_val
-
-        #plt.plot(plot_y,'o')
-        #plt.show()
-        #print("ucounts = %d" % ucounts)
-        return(total_pe)
-
-        ## Calculate manybody terms
-        #for i in xrange(len(atoms)):
-        #    itype = symbol_to_type(atoms[i].symbol, self.types)
-
-        #    neighbors = nl.get_neighbors(i)[0]
-        #    pairs = itertools.product([i], neighbors)
-
-        #    # Get chemical symbol to index number
-
-        #    # TODO: for triplets, do all atoms need to be in cutoff of i?
-        #    # TODO: ensure no double-counting of triplets/pairs
-        #        # maybe do some kind of array counter
-
-        #    if len(neighbors)>0:
-        #        neighbors_without_j = neighbors
-        #        rho_val = 0.0
-        #        counter = 0
-        #        threebody_val = 0.0
-        #        for pair in pairs:
-        #            _,j = pair
-        #            r_ij = r[i][j]
-        #            jtype = symbol_to_type(atoms[j].symbol, self.types)
-
-        #            rho = self.rhos[i_to_potl(jtype)]
-        #            rho_val += rho(r_ij)
-        #            #print("rho = %f" % rho(r_ij))
-
-        #            #pair_counter_rho[i][j] += 1
-
-        #            neighbors_without_j =np.delete(neighbors_without_j,np.where(neighbors_without_j==j))
-        #            triplets = itertools.product(pair,neighbors_without_j)
-
-        #            for _,k in triplets:
-        #                r_ik = r[i][k]
-        #                ktype = symbol_to_type(atoms[k].symbol, self.types)
-
-        #                #print("r_ik = %f" % r_ik)
-
-        #                a = atoms[j].position-atoms[i].position
-        #                b = atoms[k].position-atoms[i].position
-
-        #                na = np.linalg.norm(a)
-        #                nb = np.linalg.norm(b)
-
-        #                cos_theta = np.dot(a,b)/na/nb
-
-        #                #print("cos_theta = %f" % cos_theta)
-
-        #                fj = self.fs[i_to_potl(jtype)]
-        #                fk = self.fs[i_to_potl(ktype)]
-        #                gjk = self.gs[ij_to_potl(jtype,ktype,self.ntypes)]
-
-        #                fj_val = fj(r_ij)
-
-        #                fk_val = fk(r_ik)
-
-        #                gjk_val = gjk(r_ik)
-
-        #                #fj_val = fj(r_ij) if fj.in_range(r_ij) else 0.0
-        #                #fk_val = fk(r_ik) if fk.in_range(r_ik) else 0.0
-        #                #gjk_val=gjk(cos_theta)if gjk.in_range(cos_theta)else 0.0
-
-        #                #fj_val = fj(r_ij)
-        #                #fk_val = fk(r_ik)
-        #                #gjk_val=gjk(cos_theta)
-
-        #                #print("cos_theta = %s" % cos_theta)
-        #                #print("fj.cutoff = %f %f" % fj.cutoff)
-        #                #print("fj_val = %f" % fj_val)
-        #                #print("fk_val= %f" % fk_val)
-        #                #print("gjk_val = %f" % gjk_val)
-
-        #                threebody_val += fj_val*fk_val*gjk_val
-
-        #                #trip_counter[i][j][k] += 1
-        #        
-        #            ni = rho_val + threebody_val
-        #            #print("U.cutoff = %f %f" % self.us[i_to_potl(itype)].cutoff)
-        #            #print("ni = %f" % ni)
-        #            #print("U(ni) = %.16f" % self.us[i_to_potl(itype)](ni))
-        #            #print("Phi = %f" %\
-        #            #        self.phis[ij_to_potl(itype,jtype,self.ntypes)](r_ij))
-        #            #val =\
-        #            #        self.phis[ij_to_potl(itype,jtype,self.ntypes)](r_ij)+\
-        #            #        self.us[i_to_potl(itype)](ni)
-        #            #print(i,val)
-
-        #            phi = self.phis[ij_to_potl(itype,jtype,self.ntypes)]
-        #            u = self.us[ij_to_potl(itype,jtype,self.ntypes)]
-
-        #            if phi.in_range(r_ij):
-        #                phi_val = phi(r_ij)
-        #            else:
-        #                phi_val = phi.extrap(r_ij)
-
-        #            if u.in_range(ni):
-        #                u_val = u(ni)
-        #            else:
-        #                u_val = u.extrap(ni)
-
-        #            counter += phi_val+u_val
-
-        #            total_pe += phi_val + u_val
-        #            #pair_counter_phi[i][j] += 1
-        #        #print("Atom %d contribution: %f" % (i, counter))
-
-        #print(total_pe)
-        #return total_pe
+        return total_pe
 
     def read_from_file(self, fname, fmt='lammps'):
         """Builds MEAM potential using spline information from the given LAMMPS
