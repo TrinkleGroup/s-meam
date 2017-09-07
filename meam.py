@@ -116,6 +116,9 @@ class MEAM(Potential):
                 phis, gs: Ti-Ti, Ti-O, O-O
                 rhos, us, fs: Ti, O"""
 
+        #for i in xrange(41):
+        #    print("U(%f) = %f" % (1.5+i*.1, self.us[0](1.5+i*.1)))
+
         # TODO: currently, this is the WORST case scenario in terms of runtime
         # TODO: avoid passing whole array? generator?
         # TODO: double check indexing is correct; consult ij_to_potl
@@ -153,8 +156,8 @@ class MEAM(Potential):
             neighbors = nl.get_neighbors(i)[0]
             neighbors_noboth = nl_noboth.get_neighbors(i)[0]
 
-            print(nl.get_neighbors(i))
-            print(nl_noboth.get_neighbors(i))
+            #print(len(nl.get_neighbors(i)[0]))
+            #print(len(nl_noboth.get_neighbors(i)[0]))
 
             pairs = itertools.product([i], neighbors)
             pairs_noboth = itertools.product([i], neighbors_noboth)
@@ -178,6 +181,7 @@ class MEAM(Potential):
 
                     phi = self.phis[ij_to_potl(itype,jtype,self.ntypes)]
 
+                    #print("phi_val = %.9f" % phi(r_ij))
                     total_phi += phi(r_ij)
                 # end phi loop
 
@@ -208,6 +212,9 @@ class MEAM(Potential):
                         fk = self.fs[i_to_potl(ktype)]
                         g = self.gs[ij_to_potl(jtype,ktype,self.ntypes)]
 
+                        # TODO: need shifted positions from NeighborList in
+                        # order for these to be nonzero
+                        # TODO: why does stk40TiO0 stall? eng ~ 200 eV
                         a = atoms[j].position-atoms[i].position
                         b = atoms[k].position-atoms[i].position
 
@@ -230,15 +237,20 @@ class MEAM(Potential):
                     #plot_three.append(total_threebody)
                     #ni_val = total_rho + total_threebody
                     #u_val = u(ni_val)
+                    #print("u_val = %f" % u_val)
 
                     #total_u += u_val
                 # end u loop
 
                 #print("ni_val = %f || " % total_ni),
                 #print("%f" % u(total_ni))
-                #print("zero_atom_energy = %f" % self.zero_atom_energies[i_to_potl(itype)])
+                #print("zero_atom_energy[%d] = %f" %\
+                #        (i,self.zero_atom_energies[i_to_potl(itype)]))
                 #print("%d trips for atom %d" % (tripcounter, i))
                 ucounts += 1
+                #print("total_phi = %.9f" % total_phi)
+                #print("total_u = %.9f" % (u(total_ni) -\
+                #    self.zero_atom_energies[i_to_potl(itype)]))
                 total_pe += total_phi + u(total_ni) -\
                         self.zero_atom_energies[i_to_potl(itype)]
 
@@ -303,10 +315,11 @@ class MEAM(Potential):
 
                     if (i<nphi+ntypes) or ((i>=nphi+2*ntypes) and\
                             (i<nsplines-nphi)):
-                        temp = Spline(xcoords,ycoords,bc_type =((1,d0),(1,dN)))
+                        temp = Spline(xcoords,ycoords,bc_type =((1,d0),(1,dN)),\
+                                derivs=(d0,dN))
                     else:
                         #temp = Spline(xcoords,ycoords)
-                        temp = Spline(xcoords,ycoords,bc_type =((1,d0),(1,dN)))
+                        temp = Spline(xcoords,ycoords,derivs=(d0,dN))#,bc_type =((1,d0),(1,dN)))
 
                     temp.cutoff = (xcoords[0],xcoords[len(xcoords)-1])
                     splines.append(temp)
@@ -409,6 +422,6 @@ if __name__ == "__main__":
     import lammpsTools
 
     p = MEAM('TiO.meam.spline')
-    atoms = lammpsTools.atoms_from_lammps_data('Ti_only_crowd.Ti', ['Ti'])
+    atoms = lammpsTools.atoms_from_file('Ti_only_crowd.Ti', ['Ti'])
     
     print(p.eval(atoms))

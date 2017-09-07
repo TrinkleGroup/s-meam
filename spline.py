@@ -5,17 +5,18 @@ import numpy as np
 
 class Spline(CubicSpline):
 
-    def __init__(self,x,y,bc_type='natural'):
+    def __init__(self,x,y,bc_type='natural', derivs=(0,0)):
 
         super(Spline,self).__init__(x,y,bc_type=bc_type)#,bc_type=((1,d0),(1,dN)))
         self.cutoff = (x[0],x[len(x)-1])
 
-        if type(bc_type) == tuple:
-            self.d0 = bc_type[0][1]
-            self.dN = bc_type[1][1]
-        else:
-            self.d0 = self(self.x[0],1)
-            self.dN = self(self.x[-1],1)
+        self.d0, self.dN = derivs
+        #if type(bc_type) == tuple:
+        #    self.d0 = bc_type[0][1]
+        #    self.dN = bc_type[1][1]
+        #else:
+        #    self.d0 = self(self.x[0],1)
+        #    self.dN = self(self.x[-1],1)
 
     @property
     def cutoff(self):

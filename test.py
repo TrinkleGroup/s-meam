@@ -2,18 +2,25 @@ import os, shutil
 import numpy as np
 import time
 import lammpsTools
+import ase.io
 from ase import Atoms
 from ase.calculators.lammpsrun import LAMMPS
 from meam import MEAM
 
-atoms = lammpsTools.atoms_from_lammps_data('data.uc.Ti', ['Ti'])
-p = MEAM('TiO.meam.spline')
-print("PE = %f" % p.eval(atoms))
+types = ['Ti','O']
+
+#atoms = lammpsTools.atoms_from_file('data.uc.Ti', ['Ti'])
+#atoms = lammpsTools.atoms_from_file('../all-structs/stk40TiO0.Ti', ['Ti'])
+atoms = ase.io.read("data.trimer.Ti", format="lammps-data",\
+        style="atomic")
+atoms.set_chemical_symbols([types[i-1] for i in atoms.get_atomic_numbers()])
+p = MEAM('TiO.nophi.spline')
+print("PE = %.16f" % p.eval(atoms))
 
 splines = [p.phis, p.rhos, p.us, p.fs, p.gs]
 splines = [el for grp in splines for el in grp]
 
-plotting = True
+plotting = False
 
 if plotting:
     name = "phi_Ti.png"
