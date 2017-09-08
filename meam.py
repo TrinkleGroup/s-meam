@@ -325,6 +325,9 @@ class MEAM(Potential):
                     #else:
                     #    #temp = Spline(xcoords,ycoords)
                     #    temp = Spline(xcoords,ycoords,derivs=(d0,dN))#,bc_type =((1,d0),(1,dN)))
+                    #if i in [1,4,8]:
+                    #    temp = Spline(xcoords,ycoords, derivs=(d0,dN))
+                    #else:
                     temp = Spline(xcoords,ycoords,bc_type =((1,d0),(1,dN)),\
                             derivs=(d0,dN))
 
