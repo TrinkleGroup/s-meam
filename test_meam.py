@@ -8,44 +8,44 @@ class MEAMTests(unittest.TestCase):
     """Test cases for MEAM class"""
 
     def test_bulk_vac_nophi(self):
-        p = MEAM("TiO.nophi.spline")
-        atoms = lammpsTools.atoms_from_file("data.bulk_vac.Ti", ['Ti'])
+        p = MEAM("../test-files/TiO.nophi.spline")
+        atoms = lammpsTools.atoms_from_file("../test-files/data.bulk_vac.Ti", ['Ti'])
 
         expected = -19.522211
         val = p.eval(atoms)
 
-        self.assertAlmostEqual(val, expected, 8)
+        self.assertAlmostEqual(val, expected, 6)
 
     def test_bulk_vac_rhophi(self):
-        p = MEAM("TiO.rhophi.spline")
-        atoms = lammpsTools.atoms_from_file("data.bulk_vac.Ti", ['Ti'])
+        p = MEAM("../test-files/TiO.rhophi.spline")
+        atoms = lammpsTools.atoms_from_file("../test-files/data.bulk_vac.Ti", ['Ti'])
 
         expected = -440.02272
         val = p.eval(atoms)
 
-        self.assertAlmostEqual(val, expected, 8)
+        self.assertAlmostEqual(val, expected, 5)
 
     def test_bulk_vac_phionly(self):
-        p = MEAM("TiO.phionly.spline")
-        atoms = lammpsTools.atoms_from_file("data.bulk_vac.Ti", ['Ti'])
+        p = MEAM("../test-files/TiO.phionly.spline")
+        atoms = lammpsTools.atoms_from_file("../test-files/data.bulk_vac.Ti", ['Ti'])
 
         expected = -369.72476
         val = p.eval(atoms)
 
-        self.assertAlmostEqual(val, expected, 8)
+        self.assertAlmostEqual(val, expected, 5)
 
     def test_bulk_vac_meam(self):
-        p = MEAM("TiO.meam.spline")
-        atoms = lammpsTools.atoms_from_file("data.bulk_vac.Ti", ['Ti'])
+        p = MEAM("../test-files/TiO.meam.spline")
+        atoms = lammpsTools.atoms_from_file("../test-files/data.bulk_vac.Ti", ['Ti'])
 
         expected = -389.24697
         val = p.eval(atoms)
 
-        self.assertAlmostEqual(val, expected, 8)
+        self.assertAlmostEqual(val, expected, 5)
 
     def test_trimer_meam(self):
-        p = MEAM("TiO.meam.spline")
-        atoms = lammpsTools.atoms_from_file("data.trimer.Ti", ['Ti'])
+        p = MEAM("../test-files/TiO.meam.spline")
+        atoms = lammpsTools.atoms_from_file("../test-files/data.trimer.Ti", ['Ti'])
 
         expected = -0.28895358
         val = p.eval(atoms)
@@ -53,17 +53,17 @@ class MEAMTests(unittest.TestCase):
         self.assertAlmostEqual(val, expected, 8)
 
     def test_trimer_nophi(self):
-        p = MEAM("TiO.nophi.spline")
-        atoms = lammpsTools.atoms_from_file("data.trimer.Ti", ['Ti'])
+        p = MEAM("../test-files/TiO.nophi.spline")
+        atoms = lammpsTools.atoms_from_file("../test-files/data.trimer.Ti", ['Ti'])
 
         expected = -0.087967085
         val = p.eval(atoms)
 
-        self.assertAlmostEqual(val, expected, 8)
+        self.assertAlmostEqual(val, expected, 9)
 
     def test_trimer_phionly(self):
-        p = MEAM("TiO.phionly.spline")
-        atoms = lammpsTools.atoms_from_file("data.trimer.Ti", ['Ti'])
+        p = MEAM("../test-files/TiO.phionly.spline")
+        atoms = lammpsTools.atoms_from_file("../test-files/data.trimer.Ti", ['Ti'])
 
         expected = -0.20098649
         val = p.eval(atoms)
@@ -71,8 +71,8 @@ class MEAMTests(unittest.TestCase):
         self.assertAlmostEqual(val, expected, 8)
 
     def test_trimer_rhophi(self):
-        p = MEAM("TiO.rhophi.spline")
-        atoms = lammpsTools.atoms_from_file("data.trimer.Ti", ['Ti'])
+        p = MEAM("../test-files/TiO.rhophi.spline")
+        atoms = lammpsTools.atoms_from_file("../test-files/data.trimer.Ti", ['Ti'])
 
         expected = -0.28013609
         val = p.eval(atoms)
@@ -80,123 +80,113 @@ class MEAMTests(unittest.TestCase):
         self.assertAlmostEqual(val, expected, 8)
 
     def test_trimer_rho(self):
-        p = MEAM("TiO.rho.spline")
-        atoms = lammpsTools.atoms_from_file("data.trimer.Ti", ['Ti'])
+        p = MEAM("../test-files/TiO.rho.spline")
+        atoms = lammpsTools.atoms_from_file("../test-files/data.trimer.Ti", ['Ti'])
 
-        expected = -0.079189595
+        expected = -0.0791495949193
         val = p.eval(atoms)
 
-        self.assertAlmostEqual(val, expected, 8)
+        self.assertAlmostEqual(val, expected, 9)
 
 
     def test_dimer_meam(self):
-        p = MEAM("TiO.meam.spline")
-        atoms = lammpsTools.atoms_from_file("data.dimer.Ti", ['Ti'])
+        p = MEAM("../test-files/TiO.meam.spline")
+        atoms = lammpsTools.atoms_from_file("../test-files/data.dimer.Ti", ['Ti'])
 
         expected = -0.093377425
         val = p.eval(atoms)
 
-        self.assertAlmostEqual(val, expected, 8)
+        self.assertAlmostEqual(val, expected, 9)
 
     def test_dimer_nophi(self):
-        p = MEAM("TiO.nophi.spline")
-        atoms = lammpsTools.atoms_from_file("data.dimer.Ti", ['Ti'])
+        p = MEAM("../test-files/TiO.nophi.spline")
+        atoms = lammpsTools.atoms_from_file("../test-files/data.dimer.Ti", ['Ti'])
 
         expected = -0.026382567
         val = p.eval(atoms)
 
-        self.assertAlmostEqual(val, expected, 8)
+        self.assertAlmostEqual(val, expected, 9)
 
     def test_dimer_phionly(self):
-        p = MEAM("TiO.phionly.spline")
-        atoms = lammpsTools.atoms_from_file("data.dimer.Ti", ['Ti'])
+        p = MEAM("../test-files/TiO.phionly.spline")
+        atoms = lammpsTools.atoms_from_file("../test-files/data.dimer.Ti", ['Ti'])
 
         expected = -0.066994858
         val = p.eval(atoms)
 
-        self.assertAlmostEqual(val, expected, 8)
+        self.assertAlmostEqual(val, expected, 9)
 
     def test_dimer_rhophi(self):
-        p = MEAM("TiO.rhophi.spline")
-        atoms = lammpsTools.atoms_from_file("data.dimer.Ti", ['Ti'])
+        p = MEAM("../test-files/TiO.rhophi.spline")
+        atoms = lammpsTools.atoms_from_file("../test-files/data.dimer.Ti", ['Ti'])
 
         expected = -0.093377425
         val = p.eval(atoms)
 
-        self.assertAlmostEqual(val, expected, 8)
+        self.assertAlmostEqual(val, expected, 9)
 
     def test_dimer_rho(self):
-        p = MEAM("TiO.rho.spline")
-        atoms = lammpsTools.atoms_from_file("data.dimer.Ti", ['Ti'])
+        p = MEAM("../test-files/TiO.rho.spline")
+        atoms = lammpsTools.atoms_from_file("../test-files/data.dimer.Ti", ['Ti'])
 
         expected = -0.026382567
         val = p.eval(atoms)
 
-        self.assertAlmostEqual(val, expected, 8)
+        self.assertAlmostEqual(val, expected, 9)
 
 #    def test_uc_meam(self):
-#        p = MEAM("TiO.meam.spline")
-#        atoms = lammpsTools.atoms_from_file("data.uc.Ti", ['Ti'])
+#        p = MEAM("../test-files/TiO.meam.spline")
+#        atoms = lammpsTools.atoms_from_file("../test-files/data.uc.Ti", ['Ti'])
 #
 #        expected = -9.6613101
 #        val = p.eval(atoms)
 #        diff = (val-expected)/expected
 #
-#        self.assertAlmostEqual(val, expected, delta=0.1*expected)
-#
-#        print(("(py) %f (lmps) %f || diff = %f %%" % (val,e0,diff)))
+#        self.assertAlmostEqual(val, expected, 7)
 #
 #    def test_uc_nophi(self):
-#        p = MEAM("TiO.nophi.spline")
-#        atoms = lammpsTools.atoms_from_file("data.uc.Ti", ['Ti'])
+#        p = MEAM("../test-files/TiO.nophi.spline")
+#        atoms = lammpsTools.atoms_from_file("../test-files/data.uc.Ti", ['Ti'])
 #
 #        expected = -6,361927
 #        val = p.eval(atoms)
 #        diff = (val-expected)/expected
 #
-#        self.assertAlmostEqual(val, expected, delta=0.1*expected)
-#
-#        print(("(py) %f (lmps) %f || diff = %f %%" % (val,e0,diff)))
+#        self.assertAlmostEqual(val, expected, 6)
 #
 #    def test_uc_phionly(self):
-#        p = MEAM("TiO.phionly.spline")
-#        atoms = lammpsTools.atoms_from_file("data.uc.Ti", ['Ti'])
+#        p = MEAM("../test-files/TiO.phionly.spline")
+#        atoms = lammpsTools.atoms_from_file("../test-files/data.uc.Ti", ['Ti'])
 #
 #        expected = -3.1626209
 #        val = p.eval(atoms)
 #        diff = (val-expected)/expected
 #
-#        self.assertAlmostEqual(val, expected, delta=0.1*expected)
-#
-#        print(("(py) %f (lmps) %f || diff = %f %%" % (val,e0,diff)))
+#        self.assertAlmostEqual(val, expected, 7)
 #
 #    def test_uc_rhophi(self):
-#        p = MEAM("TiO.rhophi.spline")
-#        atoms = lammpsTools.atoms_from_file("data.uc.Ti", ['Ti'])
+#        p = MEAM("../test-files/TiO.rhophi.spline")
+#        atoms = lammpsTools.atoms_from_file("../test-files/data.uc.Ti", ['Ti'])
 #
 #        expected = -9.809552
 #        val = p.eval(atoms)
 #        diff = (val-expected)/expected
 #
-#        self.assertAlmostEqual(val, expected, delta=0.1*expected)
-#
-#        print(("(py) %f (lmps) %f || diff = %f %%" % (val,e0,diff)))
+#        self.assertAlmostEqual(val, expected, 6)
 #
 #    def test_uc_rho(self):
-#        p = MEAM("TiO.rho.spline")
-#        atoms = lammpsTools.atoms_from_file("data.uc.Ti", ['Ti'])
+#        p = MEAM("../test-files/TiO.rho.spline")
+#        atoms = lammpsTools.atoms_from_file("../test-files/data.uc.Ti", ['Ti'])
 #
 #        expected = -6.646931
 #        val = p.eval(atoms)
 #        diff = (val-expected)/expected
 #
-#        self.assertAlmostEqual(val, expected, delta=0.1*expected)
-#
-#        print(("(py) %f (lmps) %f || diff = %f %%" % (val,e0,diff)))
+#        self.assertAlmostEqual(val, expected, 6)
 
 
     #def test_all_structs(self):
-    #    p = MEAM("TiO.meam.spline")
+    #    p = MEAM("../test-files/TiO.meam.spline")
     #    
     #    print("")
     #    with open('lammps_results.dat', 'r') as f:
@@ -218,7 +208,7 @@ class MEAMTests(unittest.TestCase):
     #            line = f.readline()
 
     def test_spline_derivatives(self):
-        p = MEAM("TiO.meam.spline")
+        p = MEAM("../test-files/TiO.meam.spline")
 
         # Assert endpoint values and derivatives, then perform extrapolation
         phi = p.phis[0]
@@ -299,7 +289,7 @@ class MEAMTests(unittest.TestCase):
         self.assertEquals(2, len(p.fs))
         self.assertEquals(3, len(p.gs))
 
-        p = MEAM("TiO.meam.spline")
+        p = MEAM("../test-files/TiO.meam.spline")
         self.assertGreater(p.cutoff, 0.0)   # a > b
         self.assertEquals(2, len(p.types))
         self.assertEquals(3, len(p.phis))
@@ -314,32 +304,32 @@ class MEAMTests(unittest.TestCase):
             rets = p.read_from_file("does_not_exist.txt")
 
     def test_crowd_phionly(self):
-        p = MEAM("TiO.phionly.spline")
+        p = MEAM("../test-files/TiO.phionly.spline")
 
-        atoms = lammpsTools.atoms_from_file("data.post_min_crowd.Ti",\
+        atoms = lammpsTools.atoms_from_file("../test-files/data.post_min_crowd.Ti",\
                 ['Ti'])
-        self.assertAlmostEqual(p.eval(atoms), -153.6551, 8)
+        self.assertAlmostEqual(p.eval(atoms), -153.6551, 4)
 
     def test_crowd_rho(self):
-        p = MEAM("TiO.rho.spline")
+        p = MEAM("../test-files/TiO.rho.spline")
 
-        atoms = lammpsTools.atoms_from_file("data.post_min_crowd.Ti",\
+        atoms = lammpsTools.atoms_from_file("../test-files/data.post_min_crowd.Ti",\
                 ['Ti'])
-        self.assertAlmostEqual(p.eval(atoms), -316.97704, 8)
+        self.assertAlmostEqual(p.eval(atoms), -316.97704, 5)
 
     def test_crowd_rhophi(self):
-        p = MEAM("TiO.rhophi.spline")
+        p = MEAM("../test-files/TiO.rhophi.spline")
 
-        atoms = lammpsTools.atoms_from_file("data.post_min_crowd.Ti",\
+        atoms = lammpsTools.atoms_from_file("../test-files/data.post_min_crowd.Ti",\
                 ['Ti'])
-        self.assertAlmostEqual(p.eval(atoms), -470.63215, 8)
+        self.assertAlmostEqual(p.eval(atoms), -470.63215, 5)
 
     def test_crowd_meam(self):
-        p = MEAM("TiO.rhophi.spline")
+        p = MEAM("../test-files/TiO.rhophi.spline")
 
-        atoms = lammpsTools.atoms_from_file("data.post_min_crowd.Ti",\
+        atoms = lammpsTools.atoms_from_file("../test-files/data.post_min_crowd.Ti",\
                 ['Ti'])
-        self.assertAlmostEqual(p.eval(atoms), -470.63215, 8)
+        self.assertAlmostEqual(p.eval(atoms), -470.63215, 5)
 
 
 suite = unittest.TestLoader().loadTestsFromTestCase(MEAMTests)

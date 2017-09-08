@@ -161,7 +161,7 @@ class MEAM(Potential):
 
             pairs = itertools.product([i], neighbors)
             pairs_noboth = itertools.product([i], neighbors_noboth)
-            neighbors_without_j = neighbors_noboth
+            neighbors_without_j = neighbors
 
             # TODO: workaround for this if branch
             if len(neighbors) > 0:
@@ -194,7 +194,6 @@ class MEAM(Potential):
                     rho = self.rhos[i_to_potl(jtype)]
 
                     fj = self.fs[i_to_potl(jtype)]
-                    fj_val = fj(r_ij)
                     #print("fj_val = %f" % fj_val)
 
                     # Iteratively kill atoms; avoid 2x counting triplets
@@ -202,7 +201,7 @@ class MEAM(Potential):
                     neighbors_without_j = np.delete(neighbors_without_j,\
                             np.where(neighbors_without_j==j))
 
-                    triplets = itertools.product(pair,neighbors_without_j)
+                    triplets = itertools.product([pair],neighbors_without_j)
 
                     partialsum = 0.0
                     for _,k in triplets:
@@ -226,11 +225,16 @@ class MEAM(Potential):
 
                         fk_val = fk(r_ik)
                         g_val = g(cos_theta)
+                        #print("bondk.f = %f" % fk_val)
+                        #print("cos_theta = %f || g_val = %f" % (cos_theta,g_val))
+                        #print(i,j,k)
 
                         partialsum += fk_val*g_val
                         tripcounter += 1
                     # end triplet loop
 
+                    fj_val = fj(r_ij)
+                    #print("fj_val = %f" % fj_val)
                     total_ni += fj_val*partialsum
                     total_ni += rho(r_ij)
 
@@ -313,13 +317,16 @@ class MEAM(Potential):
                     else:                           # g
                         bc = 'natural'
 
-                    if (i<nphi+ntypes) or ((i>=nphi+2*ntypes) and\
-                            (i<nsplines-nphi)):
-                        temp = Spline(xcoords,ycoords,bc_type =((1,d0),(1,dN)),\
-                                derivs=(d0,dN))
-                    else:
-                        #temp = Spline(xcoords,ycoords)
-                        temp = Spline(xcoords,ycoords,derivs=(d0,dN))#,bc_type =((1,d0),(1,dN)))
+                    # phi, rho, f have fixed boundary conditions
+                    #if (i<nphi+ntypes) or ((i>=nphi+2*ntypes) and\
+                    #        (i<nsplines-nphi+1)):
+                    #    temp = Spline(xcoords,ycoords,bc_type =((1,d0),(1,dN)),\
+                    #            derivs=(d0,dN))
+                    #else:
+                    #    #temp = Spline(xcoords,ycoords)
+                    #    temp = Spline(xcoords,ycoords,derivs=(d0,dN))#,bc_type =((1,d0),(1,dN)))
+                    temp = Spline(xcoords,ycoords,bc_type =((1,d0),(1,dN)),\
+                            derivs=(d0,dN))
 
                     temp.cutoff = (xcoords[0],xcoords[len(xcoords)-1])
                     splines.append(temp)
