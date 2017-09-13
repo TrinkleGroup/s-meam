@@ -245,50 +245,30 @@ def read_box_data(fname, tilt):
     else:
         return dims
 
-def atoms_from_file(fname, types, fmt='lammps-data', style='atomic'):
-    """Creates an ASE Atoms object using the positions and types from a LAMMPS
-    data file
+def atoms_from_file(fname, types, fmt='lammps-data', style='atomic', pbc=True):
+    """Wrapper for ase.io.read() function that also sets chemical symbols.
+    Creates an ASE Atoms object using the positions and types from a LAMMPS
+    data file.
     
     Args:
-        fname   -   (str) the name of the input file
-        types   -   (list) a list of strings specifying atom types; should be
-                    ordered to match LAMMPS types (e.g. LAMMPS type 1 == 'Ti',
-                    type 2 == 'Au')
+        fname (str):
+            the name of the input file
+        types (list):
+            a list of strings specifying atom types; should be ordered to match
+            LAMMPS types (e.g. LAMMPS type 1 == 'Ti', type 2 == 'Au')
+        fmt (str):
+            ASE data file format
                     
     Returns:
-        atoms   -   (Atoms) collection of atoms"""
+        atoms (Atoms):
+            collection of atoms"""
 
     # TODO: use **kwargs, like in ase.io.read()
     atoms = ase.io.read(fname, format=fmt, style=style)
     atoms.set_chemical_symbols([types[i-1] for i in atoms.get_atomic_numbers()])
+    atoms.set_pbc(pbc)
 
     return atoms
-
-    #data = read_data(fname, style='atomic')
-
-    #ids = [types[int(x)-1] for x in data[:,1]]  # Convert atom types to symbols
-    #posx = data[:,2:5]                     # Extract position vectors
-
-    #atoms = Atoms(symbols=ids, positions=posx)
-    #box, tlt = read_box_data(fname,True)
-
-    ## Build a right-handed coordinate system; tlt = xy,xz,yz
-    #a = (box[0][1]-box[0][0],0,0) # vector on x-axis
-    #b = (tlt[0],box[1][1]-box[1][0],0) # vector in xy-plane
-    #c = (tlt[1],tlt[2],box[2][1]-box[2][0]) # vector with positive z-component
-
-    #norma = np.linalg.norm(a)
-    #normb = np.linalg.norm(b)
-    #normc = np.linalg.norm(c)
-
-    ## Find angles between basis vectors (degrees)
-    #theta1 = (180/np.pi)*np.arccos(np.dot(b,c)/normb/normc)
-    #theta2 = (180/np.pi)*np.arccos(np.dot(a,c)/norma/normc)
-    #theta3 = (180/np.pi)*np.arccos(np.dot(a,b)/norma/normb)
-
-    #atoms.set_cell([norma, normb, normc, theta1, theta2, theta3])
-
-    #return atoms
 
 def read_forces(fname):
     """Reads in the atomic forces from a file with the following format:
@@ -331,16 +311,11 @@ def calc_forces(atoms, calc):
 def main():
 
     allFiles = glob.glob('./Database-Structures/crowd_*.Ti')
-    #allFiles = ['Database-Structures/crowd.Ti']
     allFiles = ['Database-Structures/force_crowd.Ti']
 
     types = ['Ti', 'O']
     
     for f in allFiles:
-        #print(len(read_data(f, 'atomic')))
-        #dims,tilt = read_box_data(f, True)
-        #print("Box dimensions = " + str(dims))
-        #print("Tilt factors = " + str(tilt))
         w,d = read_forces(f)
         print(w)
         print(d)

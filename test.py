@@ -14,7 +14,7 @@ types = ['Ti','O']
 atoms = ase.io.read("data.uc.Ti", format="lammps-data",\
         style="atomic")
 atoms.set_chemical_symbols([types[i-1] for i in atoms.get_atomic_numbers()])
-p = MEAM('TiO.meam.spline')
+p = MEAM('TiO.nophi.spline')
 print("PE = %.16f" % p.eval(atoms))
 
 splines = [p.phis, p.rhos, p.us, p.fs, p.gs]
