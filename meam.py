@@ -131,7 +131,7 @@ class MEAM(Potential):
         # TODO: this condition should be set OUTSIDE of the eval() fxn
         atoms.set_pbc(True)
 
-        r = atoms.get_all_distances(mic=True)
+        #r = atoms.get_all_distances(mic=True)
 
         # TODO: how to compute per-atom forces
         # TODO: is there anywhere that map() could help?
@@ -153,18 +153,33 @@ class MEAM(Potential):
         for i in xrange(natoms):
             itype = symbol_to_type(atoms[i].symbol, self.types)
 
-            neighbors = nl.get_neighbors(i)[0]
-            neighbors_noboth = nl_noboth.get_neighbors(i)[0]
+            neighbors = nl.get_neighbors(i)
+            num_neighbors = len(neighbors[0])
+            # neighbors_shifted = list of shifted positions of neighbors
+            neighbors_noboth = nl_noboth.get_neighbors(i)
 
-            #print(len(nl.get_neighbors(i)[0]))
-            #print(len(nl_noboth.get_neighbors(i)[0]))
+            cellx,celly,cellz = atoms.get_cell()
 
-            pairs = itertools.product([i], neighbors)
-            pairs_noboth = itertools.product([i], neighbors_noboth)
+            # Build the distance list for all neighbors
+            r_i = []
+            for l in xrange(len(neighbors)):
+                shiftx,shifty,shiftz = neighbors[1][l]
+                neigh_pos = atoms[l].position + shiftx*cellx + shifty*celly +\
+                        shiftz*cellz
+
+                r_i.append(np.linalg.norm(atoms[i].position-neigh_pos))
+
+            print(nl.get_neighbors(i))
+            print(nl_noboth.get_neighbors(i))
+
+            # pair=(i,j) where j=index of neighbor
+            pairs = itertools.product([i], np.arange(len(neighbors[0])))
+            pairs_noboth = itertools.product([i],\
+                    np.arange(len(neighbors_noboth[0])))
             neighbors_without_j = neighbors
 
             # TODO: workaround for this if branch
-            if len(neighbors) > 0:
+            if len(neighbors[0]) > 0:
                 tripcounter = 0
                 total_phi = 0.0
                 total_u = 0.0
@@ -174,9 +189,15 @@ class MEAM(Potential):
                 u = self.us[i_to_potl(itype)]
 
                 # Calculate pair interactions (phi)
-                for pair in pairs_noboth:
-                    _,j = pair
-                    r_ij = r[i][j]
+                #for pair in pairs_noboth:
+                for j in xrange(num_neighbors): # j = index for neighbor list
+                    #print(pair)
+                    #_,j = pair
+                    #print(i,j)
+                    j = neighbors[0][j]  # now j = id of neighbor
+                    #r_ij = r[i][j]
+                    r_ij = r_i[j]
+
                     jtype = symbol_to_type(atoms[j].symbol, self.types)
 
                     phi = self.phis[ij_to_potl(itype,jtype,self.ntypes)]
@@ -185,52 +206,93 @@ class MEAM(Potential):
                     total_phi += phi(r_ij)
                 # end phi loop
 
-                for pair in pairs:
+                #print("pairs = ")
 
-                    _,j = pair
-                    r_ij = r[i][j]
+                #for pair in pairs:
+                for j in xrange(num_neighbors):
+
+                    jx,jy,jz =\
+                            neighbors[1][j]
+                    #_,j = pair
+                    j = neighbors[0][j]
                     jtype = symbol_to_type(atoms[j].symbol, self.types)
+                    #r_ij = r[i][j]
+                    r_ij = r_i[j]
 
                     rho = self.rhos[i_to_potl(jtype)]
+
+                    #print("\t"),
+                    #print(i,j)
 
                     fj = self.fs[i_to_potl(jtype)]
                     #print("fj_val = %f" % fj_val)
 
                     # Iteratively kill atoms; avoid 2x counting triplets
                     # TODO: how expensive is this rebuild?
-                    neighbors_without_j = np.delete(neighbors_without_j,\
-                            np.where(neighbors_without_j==j))
+                    # TODO: does it delete ALL or only first occurence?
+                    #neighbors_without_j = np.delete(neighbors_without_j, 0)
+                    #print("neighbors_without_j"),
+                    #print(neighbors_without_j)
 
-                    triplets = itertools.product([pair],neighbors_without_j)
+                    #triplets = itertools.product([pair],\
+                    #        np.arange(j+1,len(neighbors)))
 
+                    #print("\ttriplets =")
                     partialsum = 0.0
-                    for _,k in triplets:
-                        r_ik = r[i][k]
-                        ktype = symbol_to_type(atoms[k].symbol, self.types)
+                    #for tmp in triplets:
+                    for k in xrange(j,num_neighbors):
+                        #print(tmp)
+                        #_,k = tmp
 
-                        fk = self.fs[i_to_potl(ktype)]
-                        g = self.gs[ij_to_potl(jtype,ktype,self.ntypes)]
+                        if k != j:
 
-                        # TODO: need shifted positions from NeighborList in
-                        # order for these to be nonzero
-                        # TODO: why does stk40TiO0 stall? eng ~ 200 eV
-                        a = atoms[j].position-atoms[i].position
-                        b = atoms[k].position-atoms[i].position
+                            kx,ky,kz =\
+                                    neighbors[1][k]
 
-                        na = np.linalg.norm(a)
-                        nb = np.linalg.norm(b)
+                            k = neighbors[0][k]
+                            ktype = symbol_to_type(atoms[k].symbol, self.types)
+                            r_ik = r[i][k]
 
-                        # TODO: try get_dihedral() for angles
-                        cos_theta = np.dot(a,b)/na/nb
+                            fk = self.fs[i_to_potl(ktype)]
+                            g = self.gs[ij_to_potl(jtype,ktype,self.ntypes)]
 
-                        fk_val = fk(r_ik)
-                        g_val = g(cos_theta)
-                        #print("bondk.f = %f" % fk_val)
-                        #print("cos_theta = %f || g_val = %f" % (cos_theta,g_val))
-                        #print(i,j,k)
+                            # TODO: need the whole thing for neighbors
+                            # TODO: need shifted positions from NeighborList in
+                            # order for these to be nonzero
+                            
+                            #print("i,j,k = " + str(i)+',' + str(j)+',' + str(k))
+                            #print(jx,jy,jz)
+                            #print(kx,ky,kz)
 
-                        partialsum += fk_val*g_val
-                        tripcounter += 1
+                            jshifted = atoms[j].position + jx*cellx+ jy*celly+\
+                                    jz*cellz
+                            kshifted = atoms[k].position + kx*cellx+ ky*celly+\
+                                    kz*cellz
+
+                            #print(jshifted)
+                            #print("kshifted = " + str(kshifted))
+
+                            a = jshifted-atoms[i].position
+                            b = kshifted-atoms[i].position
+
+                            #print('a = ' + str(a))
+                            #print('b = ' + str(b))
+
+                            na = np.linalg.norm(a)
+                            nb = np.linalg.norm(b)
+
+                            # TODO: try get_dihedral() for angles
+                            cos_theta = np.dot(a,b)/na/nb
+
+                            fk_val = fk(r_ik)
+                            g_val = g(cos_theta)
+                            #print("bondk.f = %f" % fk_val)
+                            #print("cos_theta = %f || g_val = %f" % (cos_theta,g_val))
+                            #print("\t\t"),
+                            #print(j,i,k)
+
+                            partialsum += fk_val*g_val
+                            tripcounter += 1
                     # end triplet loop
 
                     fj_val = fj(r_ij)
@@ -250,11 +312,12 @@ class MEAM(Potential):
                 #print("%f" % u(total_ni))
                 #print("zero_atom_energy[%d] = %f" %\
                 #        (i,self.zero_atom_energies[i_to_potl(itype)]))
-                #print("%d trips for atom %d" % (tripcounter, i))
+                print("%d trips for atom %d" % (tripcounter, i))
                 ucounts += 1
                 #print("total_phi = %.9f" % total_phi)
                 #print("total_u = %.9f" % (u(total_ni) -\
                 #    self.zero_atom_energies[i_to_potl(itype)]))
+                print(u)
                 total_pe += total_phi + u(total_ni) -\
                         self.zero_atom_energies[i_to_potl(itype)]
 

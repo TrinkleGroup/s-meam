@@ -11,7 +11,7 @@ types = ['Ti','O']
 
 #atoms = lammpsTools.atoms_from_file('data.uc.Ti', ['Ti'])
 #atoms = lammpsTools.atoms_from_file('../all-structs/stk40TiO0.Ti', ['Ti'])
-atoms = ase.io.read("data.trimer.Ti", format="lammps-data",\
+atoms = ase.io.read("data.uc.Ti", format="lammps-data",\
         style="atomic")
 atoms.set_chemical_symbols([types[i-1] for i in atoms.get_atomic_numbers()])
 p = MEAM('TiO.meam.spline')

@@ -311,58 +311,58 @@ class dimer_ti_only(unittest.TestCase):
 
         self.assertAlmostEqual(val, expected, 9)
 
-#class uc_ti_only(unittest.TestCase):
-#    """Test cases for a small unit cell of ONLY Ti atoms"""
-#
-#    def test_uc_meam(self):
-#        p = MEAM("./test-files/TiO.meam.spline")
-#        atoms = lammpsTools.atoms_from_file("./test-files/data.uc.Ti", ['Ti'])
-#
-#        expected = -9.6613101
-#        val = p.eval(atoms)
-#        diff = (val-expected)/expected
-#
-#        self.assertAlmostEqual(val, expected, 7)
-#
-#    def test_uc_nophi(self):
-#        p = MEAM("./test-files/TiO.nophi.spline")
-#        atoms = lammpsTools.atoms_from_file("./test-files/data.uc.Ti", ['Ti'])
-#
-#        expected = -6,361927
-#        val = p.eval(atoms)
-#        diff = (val-expected)/expected
-#
-#        self.assertAlmostEqual(val, expected, 6)
-#
-#    def test_uc_phionly(self):
-#        p = MEAM("./test-files/TiO.phionly.spline")
-#        atoms = lammpsTools.atoms_from_file("./test-files/data.uc.Ti", ['Ti'])
-#
-#        expected = -3.1626209
-#        val = p.eval(atoms)
-#        diff = (val-expected)/expected
-#
-#        self.assertAlmostEqual(val, expected, 7)
-#
-#    def test_uc_rhophi(self):
-#        p = MEAM("./test-files/TiO.rhophi.spline")
-#        atoms = lammpsTools.atoms_from_file("./test-files/data.uc.Ti", ['Ti'])
-#
-#        expected = -9.809552
-#        val = p.eval(atoms)
-#        diff = (val-expected)/expected
-#
-#        self.assertAlmostEqual(val, expected, 6)
-#
-#    def test_uc_rho(self):
-#        p = MEAM("./test-files/TiO.rho.spline")
-#        atoms = lammpsTools.atoms_from_file("./test-files/data.uc.Ti", ['Ti'])
-#
-#        expected = -6.646931
-#        val = p.eval(atoms)
-#        diff = (val-expected)/expected
-#
-#        self.assertAlmostEqual(val, expected, 6)
+class uc_ti_only(unittest.TestCase):
+    """Test cases for a small unit cell of ONLY Ti atoms"""
+
+    def test_uc_meam(self):
+        p = MEAM("./test-files/TiO.meam.spline")
+        atoms = lammpsTools.atoms_from_file("./test-files/data.uc.Ti", ['Ti'])
+
+        expected = -9.6613101
+        val = p.eval(atoms)
+        diff = (val-expected)/expected
+
+        self.assertAlmostEqual(val, expected, 7)
+
+    def test_uc_nophi(self):
+        p = MEAM("./test-files/TiO.nophi.spline")
+        atoms = lammpsTools.atoms_from_file("./test-files/data.uc.Ti", ['Ti'])
+
+        expected = -6,361927
+        val = p.eval(atoms)
+        diff = (val-expected)/expected
+
+        self.assertAlmostEqual(val, expected, 6)
+
+    def test_uc_phionly(self):
+        p = MEAM("./test-files/TiO.phionly.spline")
+        atoms = lammpsTools.atoms_from_file("./test-files/data.uc.Ti", ['Ti'])
+
+        expected = -3.1626209
+        val = p.eval(atoms)
+        diff = (val-expected)/expected
+
+        self.assertAlmostEqual(val, expected, 7)
+
+    def test_uc_rhophi(self):
+        p = MEAM("./test-files/TiO.rhophi.spline")
+        atoms = lammpsTools.atoms_from_file("./test-files/data.uc.Ti", ['Ti'])
+
+        expected = -9.809552
+        val = p.eval(atoms)
+        diff = (val-expected)/expected
+
+        self.assertAlmostEqual(val, expected, 6)
+
+    def test_uc_rho(self):
+        p = MEAM("./test-files/TiO.rho.spline")
+        atoms = lammpsTools.atoms_from_file("./test-files/data.uc.Ti", ['Ti'])
+
+        expected = -6.646931
+        val = p.eval(atoms)
+        diff = (val-expected)/expected
+
+        self.assertAlmostEqual(val, expected, 6)
 
 class crowd_ti_only(unittest.TestCase):
     """Test cases for bulk Ti in hexagonal structure"""
