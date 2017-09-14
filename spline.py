@@ -11,12 +11,6 @@ class Spline(CubicSpline):
         self.cutoff = (x[0],x[len(x)-1])
 
         self.d0, self.dN = derivs
-        #if type(bc_type) == tuple:
-        #    self.d0 = bc_type[0][1]
-        #    self.dN = bc_type[1][1]
-        #else:
-        #    self.d0 = self(self.x[0],1)
-        #    self.dN = self(self.x[-1],1)
 
     @property
     def cutoff(self):
@@ -79,16 +73,6 @@ class Spline(CubicSpline):
 
         if saveName: plt.savefig(saveName)
         else: plt.show()
-
-    #def eval(self, x):
-    #    """Evaluates the spline, extrapolating if necessary"""
-
-    #    if x < self.cutoff[0]:
-    #        return self(self.x[0]) - self.d0*(self.x[0]-x)
-    #    elif x > self.cutoff[1]:
-    #        return self(self.x[-1]) + self.dN*(x-self.x[-1])
-    #    else:
-    #        return super(Spline,self).__call__(x)
 
     def __call__(self,x,i=None):
         """Evaluates the spline at the given point, linearly extrapolating if

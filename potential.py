@@ -1,4 +1,5 @@
 class Potential(object):
+    """Potential class for classical MD potentials"""
 
     def __init__(self):
         self.cutoff = 0.0

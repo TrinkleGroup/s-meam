@@ -34,5 +34,5 @@ class SplineTests(unittest.TestCase):
         self.assertAlmostEqual(s(3*np.pi/2.), -1.0, places=3)
         self.assertAlmostEqual(s(2*np.pi), 0.0, places=3)
 
-suite = unittest.TestLoader().loadTestsFromTestCase(SplineTests)
-unittest.TextTestRunner(verbosity=2).run(suite)
+if __name__ == "__main__":
+    unittest.main()

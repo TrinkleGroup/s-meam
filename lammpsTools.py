@@ -20,15 +20,22 @@ def read_spline_meam(fname):
     """Builds MEAM potential using spline information from the given file
     
     Args:
-        fname   -   (str) the name of the input file
+        fname (str):
+            the name of the input file
         
     Returns:
-        phis    -   (list) N pair interaction spline functions
-        rhos    -   (list) N atom electronic density spline functions
-        us      -   (list) N embedding spline functions
-        fs      -   (list) N additional spline functions
-        gs      -   (list) N angular term spline functions
-        types   -   (list) names of elements in system (e.g. ['Ti', 'O']"""
+        phis (list):
+            pair interaction Splines
+        rhos (list):
+            electron density Splines
+        us (list):
+            embedding Splines
+        fs (list):
+            three-body corrector Splines
+        gs (list):
+            angular Splines
+        types (list):
+            elemental names of system components (e.g. ['Ti', 'O'])"""
 
     print('WARNING: this method may not be up to date!')
 
@@ -105,15 +112,25 @@ def write_spline_meam(fname, phis, rhos, us, fs, gs, types):
 
     Each <coordinate> is a set (x,y,2nd deriv of y). See i_to_potl() and
     ij_to_potl for ordering of function blocks.
+
+    See scipy.interpolate.CubicSpline  and spline.py for documentation of Spline
+    object
     
     Args:
-        fname   -   (str) the name of the output potential file
-        phis    -   (list) N pair interaction spline functions
-        rhos    -   (list) N atom electronic density spline functions
-        us      -   (list) N embedding spline functions
-        fs      -   (list) N additional spline functions
-        gs      -   (list) N angular term spline functions
-        types   -   (list) names of elements in system (e.g. ['Ti', 'O'])
+        fname (str):
+            the name of the output potential file
+        phis (list):
+            pair interaction Splines
+        rhos (list):
+            electron density Splines
+        us (list):
+            embedding Splines
+        fs (list):
+            three-body corrector Splines
+        gs (list):
+            angular Splines
+        types (list):
+            elemental names of system components (e.g. ['Ti', 'O'])
         
     Returns:
         None; output is a potential file with the given fname"""
@@ -126,7 +143,6 @@ def write_spline_meam(fname, phis, rhos, us, fs, gs, types):
         f.write("meam/spline %d %s\n" % (ntypes, " ".join(types)))
 
         def write_spline(s):
-            # See scipy.interpolate.CubicSpline for documentation of fxn object
 
             # Write additional spline info
             nknots = len(s.x)
@@ -170,11 +186,14 @@ def read_data(fname, style):
     information in the data file is written with atom_style 'style'
     
     Args:
-        fname   -   (str) the name of the input file
-        style   -   (str) LAMMPS atom_style in input file
+        fname (str):
+            the name of the input file
+        style (str):
+            LAMMPS atom_style in input file
         
     Returns:
-        data    -   (np.arr) atomic information in atom_style 'style' """
+        data (np.arr):
+            atomic information in atom_style style"""
 
     headerSize = 0
     with open(fname, 'r') as f:
@@ -192,12 +211,16 @@ def read_box_data(fname, tilt):
     """Reads in simulation box information from a LAMMPS data file.
     
     Args:
-        fname   -   (str) the name of the input file
-        tilt    -   (bool) True if tilt factor line should be read
+        fname (str):
+            the name of the input file
+        filt (bool):
+            True if a tilt factor line should be read
         
     Returns:
-        dims    -   (tuple) tuple of tuples of (lo,hi) for each dimension
-        tlt     -   (tuple) xy,xz,yz"""
+        dims (tuple):
+            tuple of (lo,hi) for each dimension
+        tlt (tuple):
+            xy,xz,yz"""
 
     with open(fname, 'r') as f:
         line = f.readline()
@@ -257,7 +280,12 @@ def atoms_from_file(fname, types, fmt='lammps-data', style='atomic', pbc=True):
             a list of strings specifying atom types; should be ordered to match
             LAMMPS types (e.g. LAMMPS type 1 == 'Ti', type 2 == 'Au')
         fmt (str):
-            ASE data file format
+            ASE data file format. Default 'lammps-data'
+        style (str):
+            LAMMPS atom_style. Default 'atomic'
+        pbc (bool):
+            Boolean or len()==3 list of booleans defining periodic boundary
+            conditions along each cell basis vector
                     
     Returns:
         atoms (Atoms):
@@ -294,19 +322,6 @@ def read_forces(fname):
     data = np.genfromtxt(fname, skip_header=1)
 
     return data[:,0], data[:,1:]    # w, data
-
-def calc_forces(atoms, calc):
-    """Calculates the atomic forces using the given ASE calculator.
-    
-    Args:
-        atoms   -   (ase.Atoms) the set of ase.Atom objects defining the system
-        calc    -   (ase.calculator) the MD calculator
-        
-    Returns:
-        forces  -   (np.arr) Nx3 array of force vectors"""
-
-    atoms.set_cal
-    forces = atoms.get_forces()
 
 def main():
 

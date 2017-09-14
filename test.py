@@ -9,8 +9,6 @@ from meam import MEAM
 
 types = ['Ti','O']
 
-#atoms = lammpsTools.atoms_from_file('data.uc.Ti', ['Ti'])
-#atoms = lammpsTools.atoms_from_file('../all-structs/stk40TiO0.Ti', ['Ti'])
 atoms = ase.io.read("data.uc.Ti", format="lammps-data",\
         style="atomic")
 atoms.set_chemical_symbols([types[i-1] for i in atoms.get_atomic_numbers()])
@@ -102,38 +100,3 @@ if plotting:
     yl = "$g_{O}(r)$ [eV]"
     xl = "r [$\AA$]"
     splines[11].plot(yl=yl,xl=xl,saveName=name)
-#
-#import timeit
-#from spline import Phi
-#import numpy as np
-#import matplotlib.pyplot as plt
-#from scipy.interpolate import CubicSpline
-#
-#xi = np.arange(1,10)
-#yi = np.sin(xi)
-#x = np.linspace(0,10,100000)
-#
-#p = Phi(xi,yi,0,0)
-#cs = CubicSpline(xi,yi)
-#
-#def wrapper(func, *args, **kwargs):
-#    def wrapped():
-#        return func(*args, **kwargs)
-#    return wrapped
-#
-#def fxn1(p, x):
-#    map(lambda e: p(e), x)
-#
-#def fxn2(cs, x):
-#    #cs(x)
-#    map(lambda e: cs(e),x)
-#
-#wrapped1 = wrapper(fxn1,p,x)
-#wrapped2 = wrapper(fxn2,cs,x)
-#
-#t1 = float(timeit.timeit(wrapped1,number=1))
-#t2 = float(timeit.timeit(wrapped2,number=1))
-#
-#print("Phi time = %f" % t1)
-#print("CubicSpline time = %f" % t2)
-#print("Ratio t1/t2 = %f" % (t1/t2))

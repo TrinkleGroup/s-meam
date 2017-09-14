@@ -26,5 +26,5 @@ class PotentialTests(unittest.TestCase):
         with self.assertRaises(NotImplementedError):
             p.eval()
 
-suite = unittest.TestLoader().loadTestsFromTestCase(PotentialTests)
-unittest.TextTestRunner(verbosity=2).run(suite)
+if __name__ == "__main__":
+    unittest.main()
