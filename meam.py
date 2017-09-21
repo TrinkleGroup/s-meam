@@ -143,8 +143,6 @@ class MEAM(Potential):
         cellx,celly,cellz = atoms.get_cell()
         
         for i in xrange(natoms):
-            force_on_atom = np.zeros((3,))
-
             itype = symbol_to_type(atoms[i].symbol, self.types)
             ipos = atoms[i].position
 
@@ -177,6 +175,7 @@ class MEAM(Potential):
                     jpos = neighbor_shifted_positions[j]
                     jdel = jpos - ipos 
                     r_ij = np.linalg.norm(jdel)
+                    jdel /= r_ij
 
                     fj_val = self.fs[i_to_potl(jtype)](r_ij)
                     fj_prime = self.fs[i_to_potl(jtype)](r_ij,1)
@@ -192,14 +191,19 @@ class MEAM(Potential):
                             ktype = symbol_to_type(\
                                     atoms[neighbors[0][k]].symbol, self.types)
                             kpos = neighbor_shifted_positions[k]
+                            #print(kpos)
+                            #print(ipos)
                             kdel = kpos - ipos
                             r_ik = np.linalg.norm(kdel)
+                            kdel /= r_ik
 
+                            # TODO: b == kdel
                             b = neighbor_shifted_positions[k]-ipos
                             nb = np.linalg.norm(b)
 
                             # TODO: try get_dihedral() for angles
                             cos_theta = np.dot(a,b)/na/nb
+                            #print("cos_theta = %f" % (cos_theta*180/np.pi))
 
                             fk_val = self.fs[i_to_potl(ktype)](r_ik)
                             g_val = self.gs[ij_to_potl(jtype,ktype,self.ntypes)\
@@ -218,11 +222,20 @@ class MEAM(Potential):
                             fij += prefactor_ij * cos_theta
                             fik += prefactor_ik * cos_theta
 
+                            #print("k = %d" % neighbors[0][k])
+                            #print("r_ij = %.16f" % r_ij)
+                            #print("r_ik = %.16f" % r_ik)
+                            #print("prefactor_ij = %.16f" % prefactor_ij)
+                            #print("prefactor_ik = %.16f" % prefactor_ik)
+                            #print("kdel = [%.16f, %.16f, %.16f]" %\
+                            #        (kdel[0],kdel[1],kdel[2]))
+                            #print("jdel = [%.16f, %.16f, %.16f]" %\
+                            #        (jdel[0],jdel[1],jdel[2]))
                             fj = jdel*fij - kdel*prefactor_ij
                             forces_j += fj
 
                             fk = kdel*fik - jdel*prefactor_ik
-                            forces_i += fk
+                            forces_i -= fk
 
                             self.forces[neighbors[0][k]] += fk
 
@@ -230,12 +243,13 @@ class MEAM(Potential):
 
                     self.forces[i] -= forces_j
                     self.forces[neighbors[0][j]] += forces_j
-                    print("trip %d - %d:\t[%.16f, %.16f, %.16f]" %\
-                            (i,neighbors[0][j],forces_j[0],forces_j[1],forces_j[2]))
-                    print("trip %d + %d:\t[%.16f, %.16f, %.16f]" %\
-                            (neighbors[0][j],neighbors[0][j],forces_j[0],forces_j[1],forces_j[2]))
+                    #print("trip %d - %d:\t[%.16f, %.16f, %.16f]" %\
+                    #        (i,neighbors[0][j],forces_j[0],forces_j[1],forces_j[2]))
+                    #print("trip %d + %d:\t[%.16f, %.16f, %.16f]" %\
+                    #        (neighbors[0][j],neighbors[0][j],forces_j[0],forces_j[1],forces_j[2]))
 
                 # end pair loop
+                self.forces[i] += forces_i
 
                 # TODO: cleanup; no need to assign splines to vars, just
                 # call and evaluate them
@@ -249,9 +263,10 @@ class MEAM(Potential):
                     r_ij = np.linalg.norm(jdel)
 
                     rho_prime_i = self.rhos[i_to_potl(itype)](r_ij,1)
-                    rho_prime_j = self.rhos[i_to_potl(itype)](r_ij,1)
+                    rho_prime_j = self.rhos[i_to_potl(jtype)](r_ij,1)
 
-                    fpair = rho_prime_j*self.uprimes[i] + rho_prime_i*self.uprimes[j]
+                    fpair = rho_prime_j*self.uprimes[i] +\
+                            rho_prime_i*self.uprimes[neighbors_noboth[0][j]]
                     #print("rho_prime_j = %.16f" % rho_prime_j)
                     #print("uprime[i] = %.16f" % self.uprimes[i])
                     #print("r_ij = %.16f" % r_ij)
@@ -260,6 +275,7 @@ class MEAM(Potential):
 
                     phi_prime = self.phis[ij_to_potl(itype,jtype,self.ntypes)]\
                             (r_ij,1)
+                    #print("phi_prime = %.16f" % phi_prime)
 
                     fpair += phi_prime
                     #print("fpair add = %.16f" % fpair)

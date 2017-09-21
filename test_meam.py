@@ -13,7 +13,7 @@ class forces_data_trimer_Ti(unittest.TestCase):
 
     dataName = "trimer.Ti"
 
-    def test_meam_forces(self):
+    def test_trimer_ti_meam_forces(self):
         ptype = "meam"
         p = MEAM("./test-files/TiO." + ptype + ".spline")
         atoms = lammpsTools.atoms_from_file("./test-files/data."+self.dataName,\
@@ -25,7 +25,7 @@ class forces_data_trimer_Ti(unittest.TestCase):
 
         np.testing.assert_allclose(val, data, atol=1e-6)
 
-    def test_nophi_forces(self):
+    def test_trimer_ti_nophi_forces(self):
         ptype = "nophi"
         p = MEAM("./test-files/TiO." + ptype + ".spline")
         atoms = lammpsTools.atoms_from_file("./test-files/data."+self.dataName,\
@@ -37,7 +37,7 @@ class forces_data_trimer_Ti(unittest.TestCase):
 
         np.testing.assert_allclose(val, data, atol=1e-6)
 
-    def test_phionly_forces(self):
+    def test_trimer_ti_phionly_forces(self):
         ptype = "phionly"
         p = MEAM("./test-files/TiO." + ptype + ".spline")
         atoms = lammpsTools.atoms_from_file("./test-files/data."+self.dataName,\
@@ -49,7 +49,7 @@ class forces_data_trimer_Ti(unittest.TestCase):
 
         np.testing.assert_allclose(val, data, atol=1e-6)
 
-    def test_rho_forces(self):
+    def test_trimer_ti_rho_forces(self):
         ptype = "rho"
         p = MEAM("./test-files/TiO." + ptype + ".spline")
         atoms = lammpsTools.atoms_from_file("./test-files/data."+self.dataName,\
@@ -60,8 +60,32 @@ class forces_data_trimer_Ti(unittest.TestCase):
         val = p.compute_forces(atoms)
 
         np.testing.assert_allclose(val, data, atol=1e-6)
+    
+    def test_trimer_ti_norho_forces(self):
+        ptype = "norho"
+        p = MEAM("./test-files/TiO." + ptype + ".spline")
+        atoms = lammpsTools.atoms_from_file("./test-files/data."+self.dataName,\
+                ['Ti','O'])
 
-    def test_rhophi_forces(self):
+        data = np.genfromtxt("./test-files/" + self.dataName + "_" + ptype +\
+                "_forces.dat")
+        val = p.compute_forces(atoms)
+
+        np.testing.assert_allclose(val, data, atol=1e-6)
+
+    def test_trimer_ti_norhophi_forces(self):
+        ptype = "norhophi"
+        p = MEAM("./test-files/TiO." + ptype + ".spline")
+        atoms = lammpsTools.atoms_from_file("./test-files/data."+self.dataName,\
+                ['Ti','O'])
+
+        data = np.genfromtxt("./test-files/" + self.dataName + "_" + ptype +\
+                "_forces.dat")
+        val = p.compute_forces(atoms)
+
+        np.testing.assert_allclose(val, data, atol=1e-6)
+
+    def test_trimer_ti_rhophi_forces(self):
         ptype = "rhophi"
         p = MEAM("./test-files/TiO." + ptype + ".spline")
         atoms = lammpsTools.atoms_from_file("./test-files/data."+self.dataName,\
@@ -78,11 +102,11 @@ class forces_data_uc_Ti(unittest.TestCase):
 
     dataName = "uc.Ti"
 
-    def test_meam_forces(self):
+    def test_uc_meam_forces(self):
         ptype = "meam"
         p = MEAM("./test-files/TiO." + ptype + ".spline")
         atoms = lammpsTools.atoms_from_file("./test-files/data."+self.dataName,\
-                ['Ti','O'])
+                ['Ti'])
 
         data = np.genfromtxt("./test-files/" + self.dataName + "_" + ptype +\
                 "_forces.dat")
@@ -90,11 +114,11 @@ class forces_data_uc_Ti(unittest.TestCase):
 
         np.testing.assert_allclose(val, data, atol=1e-6)
 
-    def test_nophi_forces(self):
+    def test_uc_nophi_forces(self):
         ptype = "nophi"
         p = MEAM("./test-files/TiO." + ptype + ".spline")
         atoms = lammpsTools.atoms_from_file("./test-files/data."+self.dataName,\
-                ['Ti','O'])
+                ['Ti'])
 
         data = np.genfromtxt("./test-files/" + self.dataName + "_" + ptype +\
                 "_forces.dat")
@@ -102,11 +126,11 @@ class forces_data_uc_Ti(unittest.TestCase):
 
         np.testing.assert_allclose(val, data, atol=1e-6)
 
-    def test_phionly_forces(self):
+    def test_uc_phionly_forces(self):
         ptype = "phionly"
         p = MEAM("./test-files/TiO." + ptype + ".spline")
         atoms = lammpsTools.atoms_from_file("./test-files/data."+self.dataName,\
-                ['Ti','O'])
+                ['Ti'])
 
         data = np.genfromtxt("./test-files/" + self.dataName + "_" + ptype +\
                 "_forces.dat")
@@ -114,11 +138,11 @@ class forces_data_uc_Ti(unittest.TestCase):
 
         np.testing.assert_allclose(val, data, atol=1e-6)
 
-    def test_rho_forces(self):
+    def test_uc_rho_forces(self):
         ptype = "rho"
         p = MEAM("./test-files/TiO." + ptype + ".spline")
         atoms = lammpsTools.atoms_from_file("./test-files/data."+self.dataName,\
-                ['Ti','O'])
+                ['Ti'])
 
         data = np.genfromtxt("./test-files/" + self.dataName + "_" + ptype +\
                 "_forces.dat")
@@ -126,11 +150,11 @@ class forces_data_uc_Ti(unittest.TestCase):
 
         np.testing.assert_allclose(val, data, atol=1e-6)
 
-    def test_rhophi_forces(self):
+    def test_uc_rhophi_forces(self):
         ptype = "rhophi"
         p = MEAM("./test-files/TiO." + ptype + ".spline")
         atoms = lammpsTools.atoms_from_file("./test-files/data."+self.dataName,\
-                ['Ti','O'])
+                ['Ti'])
 
         data = np.genfromtxt("./test-files/" + self.dataName + "_" + ptype +\
                 "_forces.dat")
@@ -143,7 +167,7 @@ class forces_data_trimer1Ti2O_TiO(unittest.TestCase):
 
     dataName = "trimer1Ti2O.TiO"
 
-    def test_meam_forces(self):
+    def test_data_trimer1ti2o_meam_forces(self):
         ptype = "meam"
         p = MEAM("./test-files/TiO." + ptype + ".spline")
         atoms = lammpsTools.atoms_from_file("./test-files/data."+self.dataName,\
@@ -155,7 +179,7 @@ class forces_data_trimer1Ti2O_TiO(unittest.TestCase):
 
         np.testing.assert_allclose(val, data, atol=1e-6)
 
-    def test_nophi_forces(self):
+    def test_data_trimer1ti2o_nophi_forces(self):
         ptype = "nophi"
         p = MEAM("./test-files/TiO." + ptype + ".spline")
         atoms = lammpsTools.atoms_from_file("./test-files/data."+self.dataName,\
@@ -167,7 +191,7 @@ class forces_data_trimer1Ti2O_TiO(unittest.TestCase):
 
         np.testing.assert_allclose(val, data, atol=1e-6)
 
-    def test_phionly_forces(self):
+    def test_data_trimer1ti2o_phionly(self):
         ptype = "phionly"
         p = MEAM("./test-files/TiO." + ptype + ".spline")
         atoms = lammpsTools.atoms_from_file("./test-files/data."+self.dataName,\
@@ -179,7 +203,7 @@ class forces_data_trimer1Ti2O_TiO(unittest.TestCase):
 
         np.testing.assert_allclose(val, data, atol=1e-6)
 
-    def test_rho_forces(self):
+    def test_data_trimer1ti2o_rho_forces(self):
         ptype = "rho"
         p = MEAM("./test-files/TiO." + ptype + ".spline")
         atoms = lammpsTools.atoms_from_file("./test-files/data."+self.dataName,\
@@ -191,7 +215,7 @@ class forces_data_trimer1Ti2O_TiO(unittest.TestCase):
 
         np.testing.assert_allclose(val, data, atol=1e-6)
 
-    def test_rhophi_forces(self):
+    def test_data_trimer1ti2o_rhophi_forces(self):
         ptype = "rhophi"
         p = MEAM("./test-files/TiO." + ptype + ".spline")
         atoms = lammpsTools.atoms_from_file("./test-files/data."+self.dataName,\
@@ -208,7 +232,7 @@ class forces_data_dimer_Ti(unittest.TestCase):
 
     dataName = "dimer.Ti"
 
-    def test_meam_forces(self):
+    def test_dimer_ti_meam_forces(self):
         ptype = "meam"
         p = MEAM("./test-files/TiO." + ptype + ".spline")
         atoms = lammpsTools.atoms_from_file("./test-files/data."+self.dataName,\
@@ -220,7 +244,7 @@ class forces_data_dimer_Ti(unittest.TestCase):
 
         np.testing.assert_allclose(val, data, atol=1e-6)
 
-    def test_nophi_forces(self):
+    def test_dimer_ti_nophi_forces(self):
         ptype = "nophi"
         p = MEAM("./test-files/TiO." + ptype + ".spline")
         atoms = lammpsTools.atoms_from_file("./test-files/data."+self.dataName,\
@@ -232,7 +256,7 @@ class forces_data_dimer_Ti(unittest.TestCase):
 
         np.testing.assert_allclose(val, data, atol=1e-6)
 
-    def test_phionly_forces(self):
+    def test_dimer_ti_phionly_forces(self):
         ptype = "phionly"
         p = MEAM("./test-files/TiO." + ptype + ".spline")
         atoms = lammpsTools.atoms_from_file("./test-files/data."+self.dataName,\
@@ -244,7 +268,7 @@ class forces_data_dimer_Ti(unittest.TestCase):
 
         np.testing.assert_allclose(val, data, atol=1e-6)
 
-    def test_rho_forces(self):
+    def test_dimer_ti_rho_forces(self):
         ptype = "rho"
         p = MEAM("./test-files/TiO." + ptype + ".spline")
         atoms = lammpsTools.atoms_from_file("./test-files/data."+self.dataName,\
@@ -256,7 +280,7 @@ class forces_data_dimer_Ti(unittest.TestCase):
 
         np.testing.assert_allclose(val, data, atol=1e-6)
 
-    def test_rhophi_forces(self):
+    def test_dimer_ti_rhophi_forces(self):
         ptype = "rhophi"
         p = MEAM("./test-files/TiO." + ptype + ".spline")
         atoms = lammpsTools.atoms_from_file("./test-files/data."+self.dataName,\
@@ -273,7 +297,7 @@ class forces_data_post_min_crowd_Ti(unittest.TestCase):
 
     dataName = "post_min_crowd.Ti"
 
-    def test_meam_forces(self):
+    def test_crowd_meam_forces(self):
         ptype = "meam"
         p = MEAM("./test-files/TiO." + ptype + ".spline")
         atoms = lammpsTools.atoms_from_file("./test-files/data."+self.dataName,\
@@ -285,7 +309,7 @@ class forces_data_post_min_crowd_Ti(unittest.TestCase):
 
         np.testing.assert_allclose(val, data, atol=1e-6)
 
-    def test_nophi_forces(self):
+    def test_crowd_nophi_forces(self):
         ptype = "nophi"
         p = MEAM("./test-files/TiO." + ptype + ".spline")
         atoms = lammpsTools.atoms_from_file("./test-files/data."+self.dataName,\
@@ -297,7 +321,7 @@ class forces_data_post_min_crowd_Ti(unittest.TestCase):
 
         np.testing.assert_allclose(val, data, atol=1e-6)
 
-    def test_phionly_forces(self):
+    def test_crowd_phionly_forces(self):
         ptype = "phionly"
         p = MEAM("./test-files/TiO." + ptype + ".spline")
         atoms = lammpsTools.atoms_from_file("./test-files/data."+self.dataName,\
@@ -309,7 +333,7 @@ class forces_data_post_min_crowd_Ti(unittest.TestCase):
 
         np.testing.assert_allclose(val, data, atol=1e-6)
 
-    def test_rho_forces(self):
+    def test_crowd_rho_forces(self):
         ptype = "rho"
         p = MEAM("./test-files/TiO." + ptype + ".spline")
         atoms = lammpsTools.atoms_from_file("./test-files/data."+self.dataName,\
@@ -321,7 +345,7 @@ class forces_data_post_min_crowd_Ti(unittest.TestCase):
 
         np.testing.assert_allclose(val, data, atol=1e-6)
 
-    def test_rhophi_forces(self):
+    def test_crowd_rhophi_forces(self):
         ptype = "rhophi"
         p = MEAM("./test-files/TiO." + ptype + ".spline")
         atoms = lammpsTools.atoms_from_file("./test-files/data."+self.dataName,\
@@ -338,7 +362,7 @@ class forces_data_bulk_vac_Ti(unittest.TestCase):
 
     dataName = "bulk_vac.Ti"
 
-    def test_meam_forces(self):
+    def test_bulk_ti_meam_forces(self):
         ptype = "meam"
         p = MEAM("./test-files/TiO." + ptype + ".spline")
         atoms = lammpsTools.atoms_from_file("./test-files/data."+self.dataName,\
@@ -350,7 +374,7 @@ class forces_data_bulk_vac_Ti(unittest.TestCase):
 
         np.testing.assert_allclose(val, data, atol=1e-6)
 
-    def test_nophi_forces(self):
+    def test_bulk_ti_nophi_forces(self):
         ptype = "nophi"
         p = MEAM("./test-files/TiO." + ptype + ".spline")
         atoms = lammpsTools.atoms_from_file("./test-files/data."+self.dataName,\
@@ -362,7 +386,7 @@ class forces_data_bulk_vac_Ti(unittest.TestCase):
 
         np.testing.assert_allclose(val, data, atol=1e-6)
 
-    def test_phionly_forces(self):
+    def test_bulk_ti_phionly_forces(self):
         ptype = "phionly"
         p = MEAM("./test-files/TiO." + ptype + ".spline")
         atoms = lammpsTools.atoms_from_file("./test-files/data."+self.dataName,\
@@ -374,7 +398,7 @@ class forces_data_bulk_vac_Ti(unittest.TestCase):
 
         np.testing.assert_allclose(val, data, atol=1e-6)
 
-    def test_rho_forces(self):
+    def test_bulk_ti_rho_forces(self):
         ptype = "rho"
         p = MEAM("./test-files/TiO." + ptype + ".spline")
         atoms = lammpsTools.atoms_from_file("./test-files/data."+self.dataName,\
@@ -386,7 +410,7 @@ class forces_data_bulk_vac_Ti(unittest.TestCase):
 
         np.testing.assert_allclose(val, data, atol=1e-6)
 
-    def test_rhophi_forces(self):
+    def test_bulk_ti_rhophi_forces(self):
         ptype = "rhophi"
         p = MEAM("./test-files/TiO." + ptype + ".spline")
         atoms = lammpsTools.atoms_from_file("./test-files/data."+self.dataName,\
@@ -403,7 +427,7 @@ class forces_data_dimer_TiO(unittest.TestCase):
 
     dataName = "dimer.TiO"
 
-    def test_meam_forces(self):
+    def test_dimer_tio_meam_forces(self):
         ptype = "meam"
         p = MEAM("./test-files/TiO." + ptype + ".spline")
         atoms = lammpsTools.atoms_from_file("./test-files/data."+self.dataName,\
@@ -415,7 +439,7 @@ class forces_data_dimer_TiO(unittest.TestCase):
 
         np.testing.assert_allclose(val, data, atol=1e-6)
 
-    def test_nophi_forces(self):
+    def test_dimer_tio_nophi_forces(self):
         ptype = "nophi"
         p = MEAM("./test-files/TiO." + ptype + ".spline")
         atoms = lammpsTools.atoms_from_file("./test-files/data."+self.dataName,\
@@ -427,7 +451,7 @@ class forces_data_dimer_TiO(unittest.TestCase):
 
         np.testing.assert_allclose(val, data, atol=1e-6)
 
-    def test_phionly_forces(self):
+    def test_dimer_tio_phionly_forces(self):
         ptype = "phionly"
         p = MEAM("./test-files/TiO." + ptype + ".spline")
         atoms = lammpsTools.atoms_from_file("./test-files/data."+self.dataName,\
@@ -439,7 +463,7 @@ class forces_data_dimer_TiO(unittest.TestCase):
 
         np.testing.assert_allclose(val, data, atol=1e-6)
 
-    def test_rho_forces(self):
+    def test_dimer_tio_rho_forces(self):
         ptype = "rho"
         p = MEAM("./test-files/TiO." + ptype + ".spline")
         atoms = lammpsTools.atoms_from_file("./test-files/data."+self.dataName,\
@@ -451,7 +475,7 @@ class forces_data_dimer_TiO(unittest.TestCase):
 
         np.testing.assert_allclose(val, data, atol=1e-6)
 
-    def test_rhophi_forces(self):
+    def test_dimer_tio_rhophi_forces(self):
         ptype = "rhophi"
         p = MEAM("./test-files/TiO." + ptype + ".spline")
         atoms = lammpsTools.atoms_from_file("./test-files/data."+self.dataName,\
@@ -468,7 +492,7 @@ class forces_data_trimer2Ti1O_TiO(unittest.TestCase):
 
     dataName = "trimer2Ti1O.TiO"
 
-    def test_meam_forces(self):
+    def test_trimer2ti1o_meam_forces(self):
         ptype = "meam"
         p = MEAM("./test-files/TiO." + ptype + ".spline")
         atoms = lammpsTools.atoms_from_file("./test-files/data."+self.dataName,\
@@ -480,7 +504,7 @@ class forces_data_trimer2Ti1O_TiO(unittest.TestCase):
 
         np.testing.assert_allclose(val, data, atol=1e-6)
 
-    def test_nophi_forces(self):
+    def test_trimer2ti1o_nophi_forces(self):
         ptype = "nophi"
         p = MEAM("./test-files/TiO." + ptype + ".spline")
         atoms = lammpsTools.atoms_from_file("./test-files/data."+self.dataName,\
@@ -492,7 +516,7 @@ class forces_data_trimer2Ti1O_TiO(unittest.TestCase):
 
         np.testing.assert_allclose(val, data, atol=1e-6)
 
-    def test_phionly_forces(self):
+    def test_trimer2ti1o_phionly_forces(self):
         ptype = "phionly"
         p = MEAM("./test-files/TiO." + ptype + ".spline")
         atoms = lammpsTools.atoms_from_file("./test-files/data."+self.dataName,\
@@ -504,7 +528,7 @@ class forces_data_trimer2Ti1O_TiO(unittest.TestCase):
 
         np.testing.assert_allclose(val, data, atol=1e-6)
 
-    def test_rho_forces(self):
+    def test_trimer2ti1o_rho_forces(self):
         ptype = "rho"
         p = MEAM("./test-files/TiO." + ptype + ".spline")
         atoms = lammpsTools.atoms_from_file("./test-files/data."+self.dataName,\
@@ -516,7 +540,7 @@ class forces_data_trimer2Ti1O_TiO(unittest.TestCase):
 
         np.testing.assert_allclose(val, data, atol=1e-6)
 
-    def test_rhophi_forces(self):
+    def test_trimer2ti1o_rhophi_forces(self):
         ptype = "rhophi"
         p = MEAM("./test-files/TiO." + ptype + ".spline")
         atoms = lammpsTools.atoms_from_file("./test-files/data."+self.dataName,\
@@ -533,7 +557,7 @@ class forces_data_bulk_vac_TiO(unittest.TestCase):
 
     dataName = "bulk_vac.TiO"
 
-    def test_meam_forces(self):
+    def test_bulk_tio_meam_forces(self):
         ptype = "meam"
         p = MEAM("./test-files/TiO." + ptype + ".spline")
         atoms = lammpsTools.atoms_from_file("./test-files/data."+self.dataName,\
@@ -545,7 +569,7 @@ class forces_data_bulk_vac_TiO(unittest.TestCase):
 
         np.testing.assert_allclose(val, data, atol=1e-6)
 
-    def test_nophi_forces(self):
+    def test_bulk_tio_nophi_forces(self):
         ptype = "nophi"
         p = MEAM("./test-files/TiO." + ptype + ".spline")
         atoms = lammpsTools.atoms_from_file("./test-files/data."+self.dataName,\
@@ -557,7 +581,7 @@ class forces_data_bulk_vac_TiO(unittest.TestCase):
 
         np.testing.assert_allclose(val, data, atol=1e-6)
 
-    def test_phionly_forces(self):
+    def test_bulk_tio_phionly_forces(self):
         ptype = "phionly"
         p = MEAM("./test-files/TiO." + ptype + ".spline")
         atoms = lammpsTools.atoms_from_file("./test-files/data."+self.dataName,\
@@ -569,7 +593,7 @@ class forces_data_bulk_vac_TiO(unittest.TestCase):
 
         np.testing.assert_allclose(val, data, atol=1e-6)
 
-    def test_rho_forces(self):
+    def test_bulk_tio_rho_forces(self):
         ptype = "rho"
         p = MEAM("./test-files/TiO." + ptype + ".spline")
         atoms = lammpsTools.atoms_from_file("./test-files/data."+self.dataName,\
@@ -581,7 +605,7 @@ class forces_data_bulk_vac_TiO(unittest.TestCase):
 
         np.testing.assert_allclose(val, data, atol=1e-6)
 
-    def test_rhophi_forces(self):
+    def test_bulk_tio_rhophi_forces(self):
         ptype = "rhophi"
         p = MEAM("./test-files/TiO." + ptype + ".spline")
         atoms = lammpsTools.atoms_from_file("./test-files/data."+self.dataName,\

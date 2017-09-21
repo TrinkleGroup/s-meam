@@ -7,14 +7,19 @@ from ase import Atoms
 from ase.calculators.lammpsrun import LAMMPS
 from meam import MEAM
 
-types = ['Ti','O']
+#types = ['Ti','O']
+types = ['Ti']
 
-atoms = ase.io.read("test-files/data.trimer.Ti", format="lammps-data",\
+atoms = ase.io.read("test-files/data.uc.Ti", format="lammps-data",\
         style="atomic")
 atoms.set_chemical_symbols([types[i-1] for i in atoms.get_atomic_numbers()])
-p = MEAM('test-files/TiO.nophi.spline')
+ptype = "norhophi"
+p = MEAM('test-files/TiO.' + ptype + '.spline')
 #print("PE = %.16f" % p.compute_energies(atoms))
+print(ptype)
 print(p.compute_forces(atoms))
+#p.compute_forces(atoms)
+#print("||||||||||||||||||||||||||||||||||||||||||||||||||||||||||")
 
 splines = [p.phis, p.rhos, p.us, p.fs, p.gs]
 splines = [el for grp in splines for el in grp]
