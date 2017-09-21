@@ -16,5 +16,8 @@ class Potential(object):
         else:
             self._cutoff = cutoff
 
-    def eval(self):
+    def compute_energies(self):
+        raise NotImplementedError
+
+    def compute_forces(self):
         raise NotImplementedError

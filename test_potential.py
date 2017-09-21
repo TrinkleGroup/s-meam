@@ -20,11 +20,11 @@ class PotentialTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             p.cutoff = -1.0
 
-    def test_unimplemented_eval(self):
+    def test_unimplemented_compute_energies(self):
         p = Potential()
 
         with self.assertRaises(NotImplementedError):
-            p.eval()
+            p.compute_energies()
 
 if __name__ == "__main__":
     unittest.main()

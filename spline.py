@@ -3,6 +3,8 @@ from scipy.interpolate import CubicSpline
 import matplotlib.pyplot as plt
 import numpy as np
 
+# TODO: binning for non-grid knot values
+
 class Spline(CubicSpline):
 
     def __init__(self,x,y,bc_type='natural', derivs=(0,0)):
@@ -80,7 +82,12 @@ class Spline(CubicSpline):
         derivative instead."""
 
         if i:
-            return super(Spline,self).__call__(x,i)
+            if x <= self.cutoff[0]:
+                return self.d0
+            elif x >= self.cutoff[1]:
+                return self.dN
+            else:
+                return super(Spline,self).__call__(x,i)
 
         if self.in_range(x):
             return super(Spline,self).__call__(x)

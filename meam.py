@@ -12,11 +12,22 @@ from potential import Potential
 from spline import Spline
 from ase.neighborlist import NeighborList
 
+class MEAM2Body(object):
+    """Helper class for storing bond information to organize force calculations.
+    """
+
+    def __init__(self):
+        self.tag = -1
+        self.r = -1
+        self.f = -1
+        self.fprime = -1
+        self.dot = [-1,-1,-1] # helper values for rapid dot evaluation
+
 class MEAM(Potential):
     """MEAM potential object
        
     Note:
-        For indexing of splines, see notes in eval() method"""
+        For indexing of splines, see notes in compute_energies() method"""
 
     def  __init__(self, fname=None, fmt='lammps', types=[]):
         Potential.__init__(self)
@@ -32,7 +43,11 @@ class MEAM(Potential):
             self.us = [None]*ntypes
             self.fs = [None]*ntypes
             self.gs = [None]*((ntypes+1)*ntypes/2)
+
             self.zero_atom_energies = [None]*ntypes
+            self.uprimes = None
+            self.forces = None
+            self.energies = None
 
     @property
     def phis(self):
@@ -98,7 +113,176 @@ class MEAM(Potential):
     def ntypes(self, n):
         raise AttributeError, "To set the number of elements in the system, specify the types using the MEAM.types attribute"
 
-    def eval(self, atoms):
+    def compute_forces(self, atoms):
+        """Evaluates the energies for the given system using the MEAM potential,
+        following the notation specified in the LAMMPS spline/meam documentation
+        Args:
+            atoms (Atoms):
+                ASE Atoms object containing all atomic information
+        
+        Note that splines are indexed as follows:
+            phis, gs: 11,12,...,1N,22,...,2N,...,NN
+            rhos, us, fs: 1,2,...,N
+            
+            e.g. for Ti-O where Ti is atom type 1, O atom type 2
+                phis, gs: Ti-Ti, Ti-O, O-O
+                rhos, us, fs: Ti, O"""
+
+        self.compute_energies(atoms)
+
+        nl = NeighborList(np.ones(len(atoms))*(self.cutoff/2),\
+                self_interaction=False, bothways=True, skin=0.0)
+        nl_noboth = NeighborList(np.ones(len(atoms))*(self.cutoff/2),\
+                self_interaction=False, bothways=False, skin=0.0)
+        nl.build(atoms)
+        nl_noboth.build(atoms)
+
+        natoms = len(atoms)
+
+        self.forces = np.zeros((natoms,3))
+        cellx,celly,cellz = atoms.get_cell()
+        
+        for i in xrange(natoms):
+            force_on_atom = np.zeros((3,))
+
+            itype = symbol_to_type(atoms[i].symbol, self.types)
+            ipos = atoms[i].position
+
+            Uprime_i = self.uprimes[i]
+            # Pull atom-specific neighbor lists
+            neighbors = nl.get_neighbors(i)
+            neighbors_noboth = nl_noboth.get_neighbors(i)
+
+            num_neighbors = len(neighbors[0])
+            num_neighbors_noboth = len(neighbors_noboth[0])
+
+            # Build the list of shifted positions for atoms outside of unit cell
+            neighbor_shifted_positions = []
+            bonds = []
+            for l in xrange(len(neighbors[0])):
+                shiftx,shifty,shiftz = neighbors[1][l]
+                neigh_pos = atoms[neighbors[0][l]].position + shiftx*cellx + shifty*celly +\
+                        shiftz*cellz
+
+                neighbor_shifted_positions.append(neigh_pos)
+            # end shifted positions loop
+
+            # TODO: workaround for this if branch; do we even need it??
+
+            forces_i = np.zeros((3,))
+            if len(neighbors[0]) > 0:
+                for j in xrange(num_neighbors):
+                    jtype = symbol_to_type(atoms[neighbors[0][j]].symbol, self.types)
+
+                    jpos = neighbor_shifted_positions[j]
+                    jdel = jpos - ipos 
+                    r_ij = np.linalg.norm(jdel)
+
+                    fj_val = self.fs[i_to_potl(jtype)](r_ij)
+                    fj_prime = self.fs[i_to_potl(jtype)](r_ij,1)
+
+                    forces_j = np.zeros((3,))
+
+                    # Used for triplet calculations
+                    a = neighbor_shifted_positions[j]-ipos
+                    na = np.linalg.norm(a)
+                    
+                    for k in xrange(j,num_neighbors):
+                        if k != j:
+                            ktype = symbol_to_type(\
+                                    atoms[neighbors[0][k]].symbol, self.types)
+                            kpos = neighbor_shifted_positions[k]
+                            kdel = kpos - ipos
+                            r_ik = np.linalg.norm(kdel)
+
+                            b = neighbor_shifted_positions[k]-ipos
+                            nb = np.linalg.norm(b)
+
+                            # TODO: try get_dihedral() for angles
+                            cos_theta = np.dot(a,b)/na/nb
+
+                            fk_val = self.fs[i_to_potl(ktype)](r_ik)
+                            g_val = self.gs[ij_to_potl(jtype,ktype,self.ntypes)\
+                                    ](cos_theta)
+
+                            fk_prime = self.fs[i_to_potl(ktype)](r_ik,1)
+                            g_prime = self.gs[ij_to_potl(jtype,ktype,\
+                                    self.ntypes)](cos_theta,1)
+
+                            fij = -Uprime_i*g_val*fk_val*fj_prime
+                            fik = -Uprime_i*g_val*fj_val*fk_prime
+
+                            prefactor = Uprime_i*fj_val*fk_val*g_prime
+                            prefactor_ij = prefactor / r_ij
+                            prefactor_ik = prefactor / r_ik
+                            fij += prefactor_ij * cos_theta
+                            fik += prefactor_ik * cos_theta
+
+                            fj = jdel*fij - kdel*prefactor_ij
+                            forces_j += fj
+
+                            fk = kdel*fik - jdel*prefactor_ik
+                            forces_i += fk
+
+                            self.forces[neighbors[0][k]] += fk
+
+                    # end triplet loop
+
+                    self.forces[i] -= forces_j
+                    self.forces[neighbors[0][j]] += forces_j
+                    print("trip %d - %d:\t[%.16f, %.16f, %.16f]" %\
+                            (i,neighbors[0][j],forces_j[0],forces_j[1],forces_j[2]))
+                    print("trip %d + %d:\t[%.16f, %.16f, %.16f]" %\
+                            (neighbors[0][j],neighbors[0][j],forces_j[0],forces_j[1],forces_j[2]))
+
+                # end pair loop
+
+                # TODO: cleanup; no need to assign splines to vars, just
+                # call and evaluate them
+
+                # Calculate pair interactions (phi)
+                for j in xrange(num_neighbors_noboth): # j = index for neighbor list
+                    jtype = symbol_to_type(\
+                            atoms[neighbors_noboth[0][j]].symbol, self.types)
+                    jpos = neighbor_shifted_positions[j]
+                    jdel = jpos - ipos 
+                    r_ij = np.linalg.norm(jdel)
+
+                    rho_prime_i = self.rhos[i_to_potl(itype)](r_ij,1)
+                    rho_prime_j = self.rhos[i_to_potl(itype)](r_ij,1)
+
+                    fpair = rho_prime_j*self.uprimes[i] + rho_prime_i*self.uprimes[j]
+                    #print("rho_prime_j = %.16f" % rho_prime_j)
+                    #print("uprime[i] = %.16f" % self.uprimes[i])
+                    #print("r_ij = %.16f" % r_ij)
+                    #print("rho_prime_i =  %.16f" % rho_prime_i)
+                    #print("fpair init = %.16f" % fpair)
+
+                    phi_prime = self.phis[ij_to_potl(itype,jtype,self.ntypes)]\
+                            (r_ij,1)
+
+                    fpair += phi_prime
+                    #print("fpair add = %.16f" % fpair)
+                    fpair /= r_ij
+                    #print("fpair div = %.16f" % fpair)
+
+                    self.forces[i] += jdel*fpair
+                    self.forces[neighbors_noboth[0][j]] -= jdel*fpair
+                    #print("jdel = [%.16f, %.16f, %.16f] || fpair = %.16f" %\
+                    #        (jdel[0],jdel[1],jdel[2],fpair))
+                    #print("product = [%.16f, %.16f, %.16f]" %\
+                    #        (jdel[0]*fpair,jdel[1]*fpair,jdel[2]*fpair))
+                    #print("pair %d + %d:\t[%.16f, %.16f, %.16f]" %\
+                    #        (i,neighbors_noboth[0][j],jdel[0]*fpair,jdel[1]*fpair,jdel[2]*fpair))
+                    #print("pair %d - %d:\t[%.16f, %.16f, %.16f]" %\
+                    #        (neighbors_noboth[0][j],neighbors_noboth[0][j],jdel[0]*fpair,jdel[1]*fpair,jdel[2]*fpair))
+                # end phi loop
+
+            # end atom loop
+
+        return self.forces
+
+    def compute_energies(self, atoms):
         """Evaluates the energies for the given system using the MEAM potential,
         following the notation specified in the LAMMPS spline/meam documentation
         Args:
@@ -129,11 +313,14 @@ class MEAM(Potential):
 
         total_pe = 0.0
         natoms = len(atoms)
+        self.energies = np.zeros((natoms,))
+        self.uprimes = [None]*natoms
+
         cellx,celly,cellz = atoms.get_cell()
         
         for i in xrange(natoms):
             itype = symbol_to_type(atoms[i].symbol, self.types)
-            iposx = atoms[i].position
+            ipos = atoms[i].position
 
             # Pull atom-specific neighbor lists
             neighbors = nl.get_neighbors(i)
@@ -166,7 +353,7 @@ class MEAM(Potential):
                 for j in xrange(num_neighbors_noboth): # j = index for neighbor list
                     jtype = symbol_to_type(\
                             atoms[neighbors_noboth[0][j]].symbol, self.types)
-                    r_ij = np.linalg.norm(iposx-neighbor_shifted_positions[j])
+                    r_ij = np.linalg.norm(ipos-neighbor_shifted_positions[j])
 
                     phi = self.phis[ij_to_potl(itype,jtype,self.ntypes)]
 
@@ -175,13 +362,13 @@ class MEAM(Potential):
 
                 for j in xrange(num_neighbors):
                     jtype = symbol_to_type(atoms[neighbors[0][j]].symbol, self.types)
-                    r_ij = np.linalg.norm(iposx-neighbor_shifted_positions[j])
+                    r_ij = np.linalg.norm(ipos-neighbor_shifted_positions[j])
 
                     rho = self.rhos[i_to_potl(jtype)]
                     fj = self.fs[i_to_potl(jtype)]
 
                     # Used for triplet calculations
-                    a = neighbor_shifted_positions[j]-iposx
+                    a = neighbor_shifted_positions[j]-ipos
                     na = np.linalg.norm(a)
                     
                     partialsum = 0.0
@@ -189,10 +376,10 @@ class MEAM(Potential):
                         if k != j:
                             ktype = symbol_to_type(\
                                     atoms[neighbors[0][k]].symbol, self.types)
-                            r_ik = np.linalg.norm(iposx-\
+                            r_ik = np.linalg.norm(ipos-\
                                     neighbor_shifted_positions[k])
 
-                            b = neighbor_shifted_positions[k]-iposx
+                            b = neighbor_shifted_positions[k]-ipos
 
                             fk = self.fs[i_to_potl(ktype)]
                             g = self.gs[ij_to_potl(jtype,ktype,self.ntypes)]
@@ -214,8 +401,12 @@ class MEAM(Potential):
                     total_ni += rho(r_ij)
                 # end u loop
 
-                total_pe += total_phi + u(total_ni) -\
+                atom_e = total_phi + u(total_ni) -\
                         self.zero_atom_energies[i_to_potl(itype)]
+                self.energies[i] = atom_e
+                total_pe += atom_e
+
+                self.uprimes[i] = u(total_ni,1)
             # end atom loop
 
         return total_pe
@@ -373,4 +564,4 @@ if __name__ == "__main__":
     p = MEAM('TiO.meam.spline')
     atoms = lammpsTools.atoms_from_file('Ti_only_crowd.Ti', ['Ti'])
     
-    print(p.eval(atoms))
+    print(p.compute_energies(atoms))

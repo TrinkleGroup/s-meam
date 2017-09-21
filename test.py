@@ -9,11 +9,12 @@ from meam import MEAM
 
 types = ['Ti','O']
 
-atoms = ase.io.read("data.uc.Ti", format="lammps-data",\
+atoms = ase.io.read("test-files/data.trimer.Ti", format="lammps-data",\
         style="atomic")
 atoms.set_chemical_symbols([types[i-1] for i in atoms.get_atomic_numbers()])
-p = MEAM('TiO.nophi.spline')
-print("PE = %.16f" % p.eval(atoms))
+p = MEAM('test-files/TiO.nophi.spline')
+#print("PE = %.16f" % p.compute_energies(atoms))
+print(p.compute_forces(atoms))
 
 splines = [p.phis, p.rhos, p.us, p.fs, p.gs]
 splines = [el for grp in splines for el in grp]
