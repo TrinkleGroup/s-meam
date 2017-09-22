@@ -10,14 +10,17 @@ from meam import MEAM
 #types = ['Ti','O']
 types = ['Ti']
 
-atoms = ase.io.read("test-files/data.uc.Ti", format="lammps-data",\
+atoms = ase.io.read("test-files/data.med_bulk.Ti", format="lammps-data",\
         style="atomic")
 atoms.set_chemical_symbols([types[i-1] for i in atoms.get_atomic_numbers()])
-ptype = "norhophi"
+ptype = "meam"
 p = MEAM('test-files/TiO.' + ptype + '.spline')
 #print("PE = %.16f" % p.compute_energies(atoms))
 print(ptype)
-print(p.compute_forces(atoms))
+val = p.compute_forces(atoms)
+print(np.linalg.norm(val))
+for el in val:
+    print el
 #p.compute_forces(atoms)
 #print("||||||||||||||||||||||||||||||||||||||||||||||||||||||||||")
 

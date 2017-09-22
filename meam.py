@@ -147,6 +147,7 @@ class MEAM(Potential):
             ipos = atoms[i].position
 
             Uprime_i = self.uprimes[i]
+
             # Pull atom-specific neighbor lists
             neighbors = nl.get_neighbors(i)
             neighbors_noboth = nl_noboth.get_neighbors(i)
@@ -157,7 +158,7 @@ class MEAM(Potential):
             # Build the list of shifted positions for atoms outside of unit cell
             neighbor_shifted_positions = []
             bonds = []
-            for l in xrange(len(neighbors[0])):
+            for l in xrange(num_neighbors):
                 shiftx,shifty,shiftz = neighbors[1][l]
                 neigh_pos = atoms[neighbors[0][l]].position + shiftx*cellx + shifty*celly +\
                         shiftz*cellz
@@ -165,13 +166,15 @@ class MEAM(Potential):
                 neighbor_shifted_positions.append(neigh_pos)
             # end shifted positions loop
 
-            # TODO: workaround for this if branch; do we even need it??
+            # TODO: workaround for this if branch
+            # TODO: add more thorough in-line documentation
 
             forces_i = np.zeros((3,))
             if len(neighbors[0]) > 0:
                 for j in xrange(num_neighbors):
                     jtype = symbol_to_type(atoms[neighbors[0][j]].symbol, self.types)
 
+                    # TODO: make a j_tag variable; too easy to make mistakes
                     jpos = neighbor_shifted_positions[j]
                     jdel = jpos - ipos 
                     r_ij = np.linalg.norm(jdel)
@@ -203,7 +206,6 @@ class MEAM(Potential):
 
                             # TODO: try get_dihedral() for angles
                             cos_theta = np.dot(a,b)/na/nb
-                            #print("cos_theta = %f" % (cos_theta*180/np.pi))
 
                             fk_val = self.fs[i_to_potl(ktype)](r_ik)
                             g_val = self.gs[ij_to_potl(jtype,ktype,self.ntypes)\
@@ -222,15 +224,6 @@ class MEAM(Potential):
                             fij += prefactor_ij * cos_theta
                             fik += prefactor_ik * cos_theta
 
-                            #print("k = %d" % neighbors[0][k])
-                            #print("r_ij = %.16f" % r_ij)
-                            #print("r_ik = %.16f" % r_ik)
-                            #print("prefactor_ij = %.16f" % prefactor_ij)
-                            #print("prefactor_ik = %.16f" % prefactor_ik)
-                            #print("kdel = [%.16f, %.16f, %.16f]" %\
-                            #        (kdel[0],kdel[1],kdel[2]))
-                            #print("jdel = [%.16f, %.16f, %.16f]" %\
-                            #        (jdel[0],jdel[1],jdel[2]))
                             fj = jdel*fij - kdel*prefactor_ij
                             forces_j += fj
 
@@ -238,21 +231,13 @@ class MEAM(Potential):
                             forces_i -= fk
 
                             self.forces[neighbors[0][k]] += fk
-
                     # end triplet loop
 
                     self.forces[i] -= forces_j
                     self.forces[neighbors[0][j]] += forces_j
-                    #print("trip %d - %d:\t[%.16f, %.16f, %.16f]" %\
-                    #        (i,neighbors[0][j],forces_j[0],forces_j[1],forces_j[2]))
-                    #print("trip %d + %d:\t[%.16f, %.16f, %.16f]" %\
-                    #        (neighbors[0][j],neighbors[0][j],forces_j[0],forces_j[1],forces_j[2]))
-
                 # end pair loop
-                self.forces[i] += forces_i
 
-                # TODO: cleanup; no need to assign splines to vars, just
-                # call and evaluate them
+                self.forces[i] += forces_i
 
                 # Calculate pair interactions (phi)
                 for j in xrange(num_neighbors_noboth): # j = index for neighbor list
@@ -267,31 +252,15 @@ class MEAM(Potential):
 
                     fpair = rho_prime_j*self.uprimes[i] +\
                             rho_prime_i*self.uprimes[neighbors_noboth[0][j]]
-                    #print("rho_prime_j = %.16f" % rho_prime_j)
-                    #print("uprime[i] = %.16f" % self.uprimes[i])
-                    #print("r_ij = %.16f" % r_ij)
-                    #print("rho_prime_i =  %.16f" % rho_prime_i)
-                    #print("fpair init = %.16f" % fpair)
 
                     phi_prime = self.phis[ij_to_potl(itype,jtype,self.ntypes)]\
                             (r_ij,1)
-                    #print("phi_prime = %.16f" % phi_prime)
 
                     fpair += phi_prime
-                    #print("fpair add = %.16f" % fpair)
                     fpair /= r_ij
-                    #print("fpair div = %.16f" % fpair)
 
                     self.forces[i] += jdel*fpair
                     self.forces[neighbors_noboth[0][j]] -= jdel*fpair
-                    #print("jdel = [%.16f, %.16f, %.16f] || fpair = %.16f" %\
-                    #        (jdel[0],jdel[1],jdel[2],fpair))
-                    #print("product = [%.16f, %.16f, %.16f]" %\
-                    #        (jdel[0]*fpair,jdel[1]*fpair,jdel[2]*fpair))
-                    #print("pair %d + %d:\t[%.16f, %.16f, %.16f]" %\
-                    #        (i,neighbors_noboth[0][j],jdel[0]*fpair,jdel[1]*fpair,jdel[2]*fpair))
-                    #print("pair %d - %d:\t[%.16f, %.16f, %.16f]" %\
-                    #        (neighbors_noboth[0][j],neighbors_noboth[0][j],jdel[0]*fpair,jdel[1]*fpair,jdel[2]*fpair))
                 # end phi loop
 
             # end atom loop

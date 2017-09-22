@@ -293,6 +293,7 @@ def atoms_from_file(fname, types, fmt='lammps-data', style='atomic', pbc=True):
 
     # TODO: use **kwargs, like in ase.io.read()
     atoms = ase.io.read(fname, format=fmt, style=style)
+    atoms.set_tags(range(1,len(atoms)+1))
     atoms.set_chemical_symbols([types[i-1] for i in atoms.get_atomic_numbers()])
     atoms.set_pbc(pbc)
 
