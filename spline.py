@@ -13,6 +13,30 @@ class Spline(CubicSpline):
         self.cutoff = (x[0],x[len(x)-1])
 
         self.d0, self.dN = derivs
+        self._h = x[1]-x[0]
+        self._knotsx = x
+        self._knotsy = y
+
+        self._knotsy1 = np.array([super(Spline,self).__call__(z,1) for z in x])
+        self._knotsy2 = np.array([super(Spline,self).__call__(z,2) for z in x])
+
+    @property
+    def knotsx(self):
+        return self._knotsx
+
+    @property
+    def knotsy(self):
+        return self._knotsy
+
+    @property
+    def knotsy1(self):
+        """First derivatives"""
+        return self._knotsy1
+
+    @property
+    def knotsy2(self):
+        """Second derivatives"""
+        return self._knotsy2
 
     @property
     def cutoff(self):
@@ -40,6 +64,16 @@ class Spline(CubicSpline):
     @dN.setter
     def dN(self,val):
         self._dN = val
+
+    @property
+    def h(self):
+        """Knot spacing"""
+        # TODO: checks for non-grid knots
+        return self._h
+
+    @h.setter
+    def h(self,h):
+        raise AttributeError, "h is defined by knot spacings and cannot be manually changed."
 
     def in_range(self, x):
         """Checks if a given value is within the spline's cutoff range"""
@@ -93,3 +127,14 @@ class Spline(CubicSpline):
             return super(Spline,self).__call__(x)
         else:
             return self.extrap(x)
+            #return super(Spline,self).__call__(x,extrapolate=True)
+
+    # TODO: add a to_matrix() function for matrix form?
+
+class ZeroSpline(Spline):
+    """Used to easily create a zero spline"""
+
+    def __init__(self):
+
+        super(ZeroSpline,self).__init__(np.arange(3,dtype=float),np.zeros(3),\
+                derivs=(0,0))

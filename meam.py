@@ -29,11 +29,39 @@ class MEAM(Potential):
     Note:
         For indexing of splines, see notes in compute_energies() method"""
 
-    def  __init__(self, fname=None, fmt='lammps', types=[]):
+    def  __init__(self, fname=None, fmt='lammps', types=[], splines=[]):
         Potential.__init__(self)
 
         if fname:
+            if splines:
+                raise AttributeError, "Can only specify either fname or splines"
             self.read_from_file(fname, fmt)
+        elif splines:
+            self.types = types
+            ntypes = self.ntypes
+
+            if len(splines) != ((ntypes+4)*ntypes):
+                raise AttributeError, "Incorrect number of splines for given number of system components"
+
+            # Calculate the number of splines for phi/g each
+            nphi = (ntypes+1)*ntypes/2
+
+            # Separate splines for each unique function
+            idx = 0                         # bookkeeping
+            self.phis = splines[0:nphi]          # first nphi are phi
+            
+            idx += nphi
+            self.rhos = splines[idx:idx+ntypes]  # next ntypes are rho
+
+            idx += ntypes
+            self.us = splines[idx:idx+ntypes]    # next ntypes are us
+
+            idx += ntypes
+            self.fs = splines[idx:idx+ntypes]    # next ntypes are fs
+
+            idx += ntypes
+            self.gs = splines[idx:]              # last nphi are gs
+
         else:
             ntypes = len(types)
             # self.ntypes is set in @setter.types
@@ -48,6 +76,19 @@ class MEAM(Potential):
             self.uprimes = None
             self.forces = None
             self.energies = None
+            return
+
+        splines = [self.phis,self.rhos,self.fs]
+        endpoints = [max(fxn.x) for ftype in splines for fxn in ftype]
+        self.cutoff = max(endpoints)
+
+        self.zero_atom_energies =  [None]*self.ntypes
+        for i in xrange(self.ntypes):
+            self.zero_atom_energies[i] = self.us[i](0.0)
+
+        self.uprimes = None
+        self.forces = None
+        self.energies = None
 
     @property
     def phis(self):
@@ -316,11 +357,16 @@ class MEAM(Potential):
 
             # Build the list of shifted positions for atoms outside of unit cell
             neighbor_shifted_positions = []
-            for l in xrange(len(neighbors[0])):
-                shiftx,shifty,shiftz = neighbors[1][l]
-                neigh_pos = atoms[neighbors[0][l]].position + shiftx*cellx + shifty*celly +\
-                        shiftz*cellz
+            #for l in xrange(len(neighbors[0])):
+            #    shiftx,shifty,shiftz = neighbors[1][l]
+            #    neigh_pos = atoms[neighbors[0][l]].position + shiftx*cellx + shifty*celly +\
+            #            shiftz*cellz
 
+            #    neighbor_shifted_positions.append(neigh_pos)
+            indices, offsets = nl.get_neighbors(i)
+            for idx, offset in zip(indices,offsets):
+                neigh_pos = atoms.positions[idx] + np.dot(offset,\
+                        atoms.get_cell())
                 neighbor_shifted_positions.append(neigh_pos)
             # end shifted positions loop
 
@@ -396,6 +442,55 @@ class MEAM(Potential):
 
         return total_pe
 
+    def write_to_file(self, fname, fmt='lammps'):
+        """Writes the potential to a file"""
+        types = self.types
+        ntypes = len(types)
+
+        with open(fname, 'w') as f:
+            # Write header lines
+            f.write("# meam/spline potential parameter file produced by MEAM object\n")
+            f.write("meam/spline %d %s\n" % (ntypes, " ".join(types)))
+
+            def write_spline(s):
+
+                # Write additional spline info
+                nknots = len(s.x)
+                knotsx = s.knotsx              # x-pos of knots
+                knotsy = s.knotsy             # y-pos of knots
+                knotsy2 = s.knotsy2         # second derivative at knots
+                f.write("spline3eq\n")
+                f.write("%d\n" % nknots)
+
+                der = s.knotsy1
+                d0 = der[0]; dN = der[nknots-1]
+                #f.write("%.16f %.16f\n" % (d0,dN))
+
+                # TODO: need to ensure precision isn't changed between read/write
+
+                str1 = ("%.16f" % d0).rstrip('0').rstrip('.')
+                str2 = ("%.16f" % dN).rstrip('0').rstrip('.')
+                f.write(str1 + ' ' + str2 + '\n')
+
+                # Write knot info
+                for i in xrange(nknots):
+                    str1 = ("%.16f" % knotsx[i]).rstrip('0').rstrip('.')
+                    str2 = ("%.16f" % knotsy[i]).rstrip('0').rstrip('.')
+                    str3 = ("%.16f" % knotsy2[i]).rstrip('0').rstrip('.')
+                    f.write(str1 + ' ' + str2 + ' ' + str3 + '\n')
+
+            # Output all splines
+            for fxn in self.phis:
+                write_spline(fxn)
+            for fxn in self.rhos:
+                write_spline(fxn)
+            for fxn in self.us:
+                write_spline(fxn)
+            for fxn in self.fs:
+                write_spline(fxn)
+            for fxn in self.gs:
+                write_spline(fxn)
+
     def read_from_file(self, fname, fmt='lammps'):
         """Builds MEAM potential using spline information from the given LAMMPS
         potential file.
@@ -450,6 +545,8 @@ class MEAM(Potential):
                         xcoords.append(x)
                         ycoords.append(y)
 
+                    # TODO: should be able to remove these checks since all are
+                    # clamped
                     if i < nphi+ntypes:             # phi and rho
                         bc = ('natural', (1,0.0))
                     elif i < nphi+2*ntypes:         # u
@@ -490,12 +587,17 @@ class MEAM(Potential):
                 self.gs = gs
                 self.cutoff = cutoff
 
-                self.zero_atom_energies =  [None]*self.ntypes
-                for i in xrange(self.ntypes):
-                    self.zero_atom_energies[i] = self.us[i](0.0)
-
             except IOError as error:
                 raise IOError("Could not open file '" + fname + "'")
+
+    def plot(self):
+        """Generates plots of all splines"""
+
+        ntypes = self.ntypes
+
+        for i in range(self.phis):
+            pass
+                # TODO: finish this for generic system, not just binary/unary
 
 def symbol_to_type(symbol, types):
     """Returns the numerical atom type, given its chemical symbol

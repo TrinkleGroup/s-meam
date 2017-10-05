@@ -66,6 +66,7 @@ def read_spline_meam(fname):
                 xcoords.append(x)
                 ycoords.append(y)
 
+            # TODO: this needs to use homemade Spline objects
             # Create a 'natural' spline with endpoint derivatives d0,dN
             splines.append(CubicSpline(xcoords,ycoords,bc_type=((1,d0),(1,dN))))
         print xcoords
