@@ -8,6 +8,8 @@ import sys
 import numpy as np
 import itertools
 import matplotlib.pyplot as plt
+import lammpsTools
+
 from potential import Potential
 from spline import Spline
 from ase.neighborlist import NeighborList
@@ -184,7 +186,7 @@ class MEAM(Potential):
         cellx,celly,cellz = atoms.get_cell()
         
         for i in xrange(natoms):
-            itype = symbol_to_type(atoms[i].symbol, self.types)
+            itype = lammpsTools.symbol_to_type(atoms[i].symbol, self.types)
             ipos = atoms[i].position
 
             Uprime_i = self.uprimes[i]
@@ -213,7 +215,7 @@ class MEAM(Potential):
             forces_i = np.zeros((3,))
             if len(neighbors[0]) > 0:
                 for j in xrange(num_neighbors):
-                    jtype = symbol_to_type(atoms[neighbors[0][j]].symbol, self.types)
+                    jtype = lammpsTools.symbol_to_type(atoms[neighbors[0][j]].symbol, self.types)
 
                     # TODO: make a j_tag variable; too easy to make mistakes
                     jpos = neighbor_shifted_positions[j]
@@ -232,7 +234,7 @@ class MEAM(Potential):
                     
                     for k in xrange(j,num_neighbors):
                         if k != j:
-                            ktype = symbol_to_type(\
+                            ktype = lammpsTools.symbol_to_type(\
                                     atoms[neighbors[0][k]].symbol, self.types)
                             kpos = neighbor_shifted_positions[k]
                             #print(kpos)
@@ -282,7 +284,7 @@ class MEAM(Potential):
 
                 # Calculate pair interactions (phi)
                 for j in xrange(num_neighbors_noboth): # j = index for neighbor list
-                    jtype = symbol_to_type(\
+                    jtype = lammpsTools.symbol_to_type(\
                             atoms[neighbors_noboth[0][j]].symbol, self.types)
                     jpos = neighbor_shifted_positions[j]
                     jdel = jpos - ipos 
@@ -345,7 +347,7 @@ class MEAM(Potential):
         cellx,celly,cellz = atoms.get_cell()
         
         for i in xrange(natoms):
-            itype = symbol_to_type(atoms[i].symbol, self.types)
+            itype = lammpsTools.symbol_to_type(atoms[i].symbol, self.types)
             ipos = atoms[i].position
 
             # Pull atom-specific neighbor lists
@@ -382,7 +384,7 @@ class MEAM(Potential):
 
                 # Calculate pair interactions (phi)
                 for j in xrange(num_neighbors_noboth): # j = index for neighbor list
-                    jtype = symbol_to_type(\
+                    jtype = lammpsTools.symbol_to_type(\
                             atoms[neighbors_noboth[0][j]].symbol, self.types)
                     r_ij = np.linalg.norm(ipos-neighbor_shifted_positions[j])
 
@@ -392,7 +394,7 @@ class MEAM(Potential):
                 # end phi loop
 
                 for j in xrange(num_neighbors):
-                    jtype = symbol_to_type(atoms[neighbors[0][j]].symbol, self.types)
+                    jtype = lammpsTools.symbol_to_type(atoms[neighbors[0][j]].symbol, self.types)
                     r_ij = np.linalg.norm(ipos-neighbor_shifted_positions[j])
 
                     rho = self.rhos[i_to_potl(jtype)]
@@ -405,7 +407,7 @@ class MEAM(Potential):
                     partialsum = 0.0
                     for k in xrange(j,num_neighbors):
                         if k != j:
-                            ktype = symbol_to_type(\
+                            ktype = lammpsTools.symbol_to_type(\
                                     atoms[neighbors[0][k]].symbol, self.types)
                             r_ik = np.linalg.norm(ipos-\
                                     neighbor_shifted_positions[k])
@@ -594,26 +596,11 @@ class MEAM(Potential):
         """Generates plots of all splines"""
 
         ntypes = self.ntypes
+        splines = self.phis + self.rhos + self.us + self.fs + self.gs
 
-        for i in range(self.phis):
-            pass
+        for i,s in enumerate(splines):
+            s.plot(saveName=str(i+1)+'.png')
                 # TODO: finish this for generic system, not just binary/unary
-
-def symbol_to_type(symbol, types):
-    """Returns the numerical atom type, given its chemical symbol
-    
-    Args:
-        symbol (str):
-            Elemental symbol
-        types (list):
-            Ordered list of chemical symbols to search
-            
-    Returns:
-        LAMMPS style atom type
-        
-        e.g. for ['Ti', 'O'], symbol_to_type('Ti',types) returns 1"""
-
-    return np.where(np.array(types)==symbol)[0][0] + 1
 
 def ij_to_potl(itype,jtype,ntypes):
     """Maps i and j element numbers to a single index of a 1D list; used for

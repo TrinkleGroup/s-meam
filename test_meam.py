@@ -5,6 +5,9 @@ import lammpsTools
 import numpy as np
 from meam import MEAM
 
+ERR = 1e-13 # 1e-13 chosen to account for tests whose per atom differences are
+            # on the orderof 1e-15, but accumulate in Numpy testing
+
 all_structs = False
 all_structs_forces = False
 
@@ -25,7 +28,7 @@ class forces_data_trimer_ti(unittest.TestCase):
 
         valnorm = np.linalg.norm(val)
         datanorm = np.linalg.norm(data)
-        np.testing.assert_allclose(data,val,atol=1e-15)
+        np.testing.assert_allclose(data,val,rtol=0.0,atol=ERR)
 
     def test_trimer_ti_nophi_forces(self):
         ptype = "nophi"
@@ -39,7 +42,7 @@ class forces_data_trimer_ti(unittest.TestCase):
 
         valnorm = np.linalg.norm(val)
         datanorm = np.linalg.norm(data)
-        np.testing.assert_allclose(data,val,atol=1e-15)
+        np.testing.assert_allclose(data,val,rtol=0.0,atol=ERR)
 
     def test_trimer_ti_phionly_forces(self):
         ptype = "phionly"
@@ -53,7 +56,7 @@ class forces_data_trimer_ti(unittest.TestCase):
 
         valnorm = np.linalg.norm(val)
         datanorm = np.linalg.norm(data)
-        np.testing.assert_allclose(data,val,atol=1e-15)
+        np.testing.assert_allclose(data,val,rtol=0.0,atol=ERR)
 
     def test_trimer_ti_rho_forces(self):
         ptype = "rho"
@@ -67,7 +70,7 @@ class forces_data_trimer_ti(unittest.TestCase):
 
         valnorm = np.linalg.norm(val)
         datanorm = np.linalg.norm(data)
-        np.testing.assert_allclose(data,val,atol=1e-15)
+        np.testing.assert_allclose(data,val,rtol=0.0,atol=ERR)
     
     def test_trimer_ti_norho_forces(self):
         ptype = "norho"
@@ -81,7 +84,7 @@ class forces_data_trimer_ti(unittest.TestCase):
 
         valnorm = np.linalg.norm(val)
         datanorm = np.linalg.norm(data)
-        np.testing.assert_allclose(data,val,atol=1e-15)
+        np.testing.assert_allclose(data,val,rtol=0.0,atol=ERR)
 
     def test_trimer_ti_norhophi_forces(self):
         ptype = "norhophi"
@@ -95,7 +98,7 @@ class forces_data_trimer_ti(unittest.TestCase):
 
         valnorm = np.linalg.norm(val)
         datanorm = np.linalg.norm(data)
-        np.testing.assert_allclose(data,val,atol=1e-15)
+        np.testing.assert_allclose(data,val,rtol=0.0,atol=ERR)
 
     def test_trimer_ti_rhophi_forces(self):
         ptype = "rhophi"
@@ -109,7 +112,7 @@ class forces_data_trimer_ti(unittest.TestCase):
 
         valnorm = np.linalg.norm(val)
         datanorm = np.linalg.norm(data)
-        np.testing.assert_allclose(data,val,atol=1e-15)
+        np.testing.assert_allclose(data,val,rtol=0.0,atol=ERR)
 
 class forces_data_uc_ti(unittest.TestCase):
     """ Test force calculations for data.uc """
@@ -128,7 +131,7 @@ class forces_data_uc_ti(unittest.TestCase):
 
         valnorm = np.linalg.norm(val)
         datanorm = np.linalg.norm(data)
-        np.testing.assert_allclose(data,val,atol=1e-15)
+        np.testing.assert_allclose(data,val,rtol=0.0,atol=ERR)
 
     def test_uc_nophi_forces(self):
         ptype = "nophi"
@@ -142,7 +145,7 @@ class forces_data_uc_ti(unittest.TestCase):
 
         valnorm = np.linalg.norm(val)
         datanorm = np.linalg.norm(data)
-        np.testing.assert_allclose(data,val,atol=1e-15)
+        np.testing.assert_allclose(data,val,rtol=0.0,atol=ERR)
 
     def test_uc_phionly_forces(self):
         ptype = "phionly"
@@ -156,7 +159,7 @@ class forces_data_uc_ti(unittest.TestCase):
 
         valnorm = np.linalg.norm(val)
         datanorm = np.linalg.norm(data)
-        np.testing.assert_allclose(data,val,atol=1e-15)
+        np.testing.assert_allclose(data,val,rtol=0.0,atol=ERR)
 
     def test_uc_rho_forces(self):
         ptype = "rho"
@@ -170,7 +173,7 @@ class forces_data_uc_ti(unittest.TestCase):
 
         valnorm = np.linalg.norm(val)
         datanorm = np.linalg.norm(data)
-        np.testing.assert_allclose(data,val,atol=1e-15)
+        np.testing.assert_allclose(data,val,rtol=0.0,atol=ERR)
 
     def test_uc_rhophi_forces(self):
         ptype = "rhophi"
@@ -184,7 +187,7 @@ class forces_data_uc_ti(unittest.TestCase):
 
         valnorm = np.linalg.norm(val)
         datanorm = np.linalg.norm(data)
-        np.testing.assert_allclose(data,val,atol=1e-15)
+        np.testing.assert_allclose(data,val,rtol=0.0,atol=ERR)
 
 class forces_data_trimer1ti2o_tio(unittest.TestCase):
     """ Test force calculations for data.trimer1Ti2O """
@@ -203,7 +206,7 @@ class forces_data_trimer1ti2o_tio(unittest.TestCase):
 
         valnorm = np.linalg.norm(val)
         datanorm = np.linalg.norm(data)
-        np.testing.assert_allclose(data,val,atol=1e-15)
+        np.testing.assert_allclose(data,val,rtol=0.0,atol=ERR)
 
     def test_data_trimer1ti2o_nophi_forces(self):
         ptype = "nophi"
@@ -217,7 +220,7 @@ class forces_data_trimer1ti2o_tio(unittest.TestCase):
 
         valnorm = np.linalg.norm(val)
         datanorm = np.linalg.norm(data)
-        np.testing.assert_allclose(data,val,atol=1e-15)
+        np.testing.assert_allclose(data,val,rtol=0.0,atol=ERR)
 
     def test_data_trimer1ti2o_phionly(self):
         ptype = "phionly"
@@ -231,7 +234,7 @@ class forces_data_trimer1ti2o_tio(unittest.TestCase):
 
         valnorm = np.linalg.norm(val)
         datanorm = np.linalg.norm(data)
-        np.testing.assert_allclose(data,val,atol=1e-15)
+        np.testing.assert_allclose(data,val,rtol=0.0,atol=ERR)
 
     def test_data_trimer1ti2o_rho_forces(self):
         ptype = "rho"
@@ -245,7 +248,7 @@ class forces_data_trimer1ti2o_tio(unittest.TestCase):
 
         valnorm = np.linalg.norm(val)
         datanorm = np.linalg.norm(data)
-        np.testing.assert_allclose(data,val,atol=1e-15)
+        np.testing.assert_allclose(data,val,rtol=0.0,atol=ERR)
 
     def test_data_trimer1ti2o_rhophi_forces(self):
         ptype = "rhophi"
@@ -259,7 +262,7 @@ class forces_data_trimer1ti2o_tio(unittest.TestCase):
 
         valnorm = np.linalg.norm(val)
         datanorm = np.linalg.norm(data)
-        np.testing.assert_allclose(data,val,atol=1e-15)
+        np.testing.assert_allclose(data,val,rtol=0.0,atol=ERR)
 
 class forces_data_dimer_ti(unittest.TestCase):
     """ Test force calculations for data.dimer """
@@ -278,7 +281,7 @@ class forces_data_dimer_ti(unittest.TestCase):
 
         valnorm = np.linalg.norm(val)
         datanorm = np.linalg.norm(data)
-        np.testing.assert_allclose(data,val,atol=1e-15)
+        np.testing.assert_allclose(data,val,rtol=0.0,atol=ERR)
 
     def test_dimer_ti_nophi_forces(self):
         ptype = "nophi"
@@ -292,7 +295,7 @@ class forces_data_dimer_ti(unittest.TestCase):
 
         valnorm = np.linalg.norm(val)
         datanorm = np.linalg.norm(data)
-        np.testing.assert_allclose(data,val,atol=1e-15)
+        np.testing.assert_allclose(data,val,rtol=0.0,atol=ERR)
 
     def test_dimer_ti_phionly_forces(self):
         ptype = "phionly"
@@ -306,7 +309,7 @@ class forces_data_dimer_ti(unittest.TestCase):
 
         valnorm = np.linalg.norm(val)
         datanorm = np.linalg.norm(data)
-        np.testing.assert_allclose(data,val,atol=1e-15)
+        np.testing.assert_allclose(data,val,rtol=0.0,atol=ERR)
 
     def test_dimer_ti_rho_forces(self):
         ptype = "rho"
@@ -320,7 +323,7 @@ class forces_data_dimer_ti(unittest.TestCase):
 
         valnorm = np.linalg.norm(val)
         datanorm = np.linalg.norm(data)
-        np.testing.assert_allclose(data,val,atol=1e-15)
+        np.testing.assert_allclose(data,val,rtol=0.0,atol=ERR)
 
     def test_dimer_ti_rhophi_forces(self):
         ptype = "rhophi"
@@ -334,7 +337,7 @@ class forces_data_dimer_ti(unittest.TestCase):
 
         valnorm = np.linalg.norm(val)
         datanorm = np.linalg.norm(data)
-        np.testing.assert_allclose(data,val,atol=1e-15)
+        np.testing.assert_allclose(data,val,rtol=0.0,atol=ERR)
 
 class forces_data_post_min_crowd_ti(unittest.TestCase):
     """ Test force calculations for data.post_min_crowd """
@@ -353,7 +356,7 @@ class forces_data_post_min_crowd_ti(unittest.TestCase):
 
         valnorm = np.linalg.norm(val)
         datanorm = np.linalg.norm(data)
-        np.testing.assert_allclose(data,val,atol=1e-15)
+        np.testing.assert_allclose(data,val,rtol=0.0,atol=ERR)
 
     def test_crowd_nophi_forces(self):
         ptype = "nophi"
@@ -367,7 +370,7 @@ class forces_data_post_min_crowd_ti(unittest.TestCase):
 
         valnorm = np.linalg.norm(val)
         datanorm = np.linalg.norm(data)
-        np.testing.assert_allclose(data,val,atol=1e-15)
+        np.testing.assert_allclose(data,val,rtol=0.0,atol=ERR)
 
     def test_crowd_phionly_forces(self):
         ptype = "phionly"
@@ -381,7 +384,7 @@ class forces_data_post_min_crowd_ti(unittest.TestCase):
 
         valnorm = np.linalg.norm(val)
         datanorm = np.linalg.norm(data)
-        np.testing.assert_allclose(data,val,atol=1e-15)
+        np.testing.assert_allclose(data,val,rtol=0.0,atol=ERR)
 
     def test_crowd_rho_forces(self):
         ptype = "rho"
@@ -395,7 +398,7 @@ class forces_data_post_min_crowd_ti(unittest.TestCase):
 
         valnorm = np.linalg.norm(val)
         datanorm = np.linalg.norm(data)
-        np.testing.assert_allclose(data,val,atol=1e-15)
+        np.testing.assert_allclose(data,val,rtol=0.0,atol=ERR)
 
     def test_crowd_rhophi_forces(self):
         ptype = "rhophi"
@@ -409,7 +412,7 @@ class forces_data_post_min_crowd_ti(unittest.TestCase):
 
         valnorm = np.linalg.norm(val)
         datanorm = np.linalg.norm(data)
-        np.testing.assert_allclose(data,val,atol=1e-15)
+        np.testing.assert_allclose(data,val,rtol=0.0,atol=ERR)
 
 class forces_data_bulk_vac_ti(unittest.TestCase):
     """ Test force calculations for data.bulk_vac """
@@ -428,7 +431,7 @@ class forces_data_bulk_vac_ti(unittest.TestCase):
 
         valnorm = np.linalg.norm(val)
         datanorm = np.linalg.norm(data)
-        np.testing.assert_allclose(data,val,atol=1e-15)
+        np.testing.assert_allclose(data,val,rtol=0.0,atol=ERR)
 
     def test_bulk_ti_nophi_forces(self):
         ptype = "nophi"
@@ -442,7 +445,7 @@ class forces_data_bulk_vac_ti(unittest.TestCase):
 
         valnorm = np.linalg.norm(val)
         datanorm = np.linalg.norm(data)
-        np.testing.assert_allclose(data,val,atol=1e-15)
+        np.testing.assert_allclose(data,val,rtol=0.0,atol=ERR)
 
     def test_bulk_ti_phionly_forces(self):
         ptype = "phionly"
@@ -456,7 +459,7 @@ class forces_data_bulk_vac_ti(unittest.TestCase):
 
         valnorm = np.linalg.norm(val)
         datanorm = np.linalg.norm(data)
-        np.testing.assert_allclose(data,val,atol=1e-15)
+        np.testing.assert_allclose(data,val,rtol=0.0,atol=ERR)
 
     def test_bulk_ti_rho_forces(self):
         ptype = "rho"
@@ -470,7 +473,7 @@ class forces_data_bulk_vac_ti(unittest.TestCase):
 
         valnorm = np.linalg.norm(val)
         datanorm = np.linalg.norm(data)
-        np.testing.assert_allclose(data,val,atol=1e-15)
+        np.testing.assert_allclose(data,val,rtol=0.0,atol=ERR)
 
     def test_bulk_ti_rhophi_forces(self):
         ptype = "rhophi"
@@ -484,7 +487,7 @@ class forces_data_bulk_vac_ti(unittest.TestCase):
 
         valnorm = np.linalg.norm(val)
         datanorm = np.linalg.norm(data)
-        np.testing.assert_allclose(data,val,atol=1e-15)
+        np.testing.assert_allclose(data,val,rtol=0.0,atol=ERR)
 
 class forces_data_dimer_tio(unittest.TestCase):
     """ Test force calculations for data.dimer """
@@ -503,7 +506,7 @@ class forces_data_dimer_tio(unittest.TestCase):
 
         valnorm = np.linalg.norm(val)
         datanorm = np.linalg.norm(data)
-        np.testing.assert_allclose(data,val,atol=1e-15)
+        np.testing.assert_allclose(data,val,rtol=0.0,atol=ERR)
 
     def test_dimer_tio_nophi_forces(self):
         ptype = "nophi"
@@ -517,7 +520,7 @@ class forces_data_dimer_tio(unittest.TestCase):
 
         valnorm = np.linalg.norm(val)
         datanorm = np.linalg.norm(data)
-        np.testing.assert_allclose(data,val,atol=1e-15)
+        np.testing.assert_allclose(data,val,rtol=0.0,atol=ERR)
 
     def test_dimer_tio_rho_forces(self):
         ptype = "rho"
@@ -531,7 +534,7 @@ class forces_data_dimer_tio(unittest.TestCase):
 
         valnorm = np.linalg.norm(val)
         datanorm = np.linalg.norm(data)
-        np.testing.assert_allclose(data,val,atol=1e-15)
+        np.testing.assert_allclose(data,val,rtol=0.0,atol=ERR)
 
     def test_dimer_tio_rhophi_forces(self):
         ptype = "rhophi"
@@ -545,7 +548,7 @@ class forces_data_dimer_tio(unittest.TestCase):
 
         valnorm = np.linalg.norm(val)
         datanorm = np.linalg.norm(data)
-        np.testing.assert_allclose(data,val,atol=1e-15)
+        np.testing.assert_allclose(data,val,rtol=0.0,atol=ERR)
 
 class forces_data_trimer2ti1o_tio(unittest.TestCase):
     """ Test force calculations for data.trimer2Ti1O """
@@ -564,7 +567,7 @@ class forces_data_trimer2ti1o_tio(unittest.TestCase):
 
         valnorm = np.linalg.norm(val)
         datanorm = np.linalg.norm(data)
-        np.testing.assert_allclose(data,val,atol=1e-15)
+        np.testing.assert_allclose(data,val,rtol=0.0,atol=ERR)
 
     def test_trimer2ti1o_nophi_forces(self):
         ptype = "nophi"
@@ -578,7 +581,7 @@ class forces_data_trimer2ti1o_tio(unittest.TestCase):
 
         valnorm = np.linalg.norm(val)
         datanorm = np.linalg.norm(data)
-        np.testing.assert_allclose(data,val,atol=1e-15)
+        np.testing.assert_allclose(data,val,rtol=0.0,atol=ERR)
 
     def test_trimer2ti1o_phionly_forces(self):
         ptype = "phionly"
@@ -592,7 +595,7 @@ class forces_data_trimer2ti1o_tio(unittest.TestCase):
 
         valnorm = np.linalg.norm(val)
         datanorm = np.linalg.norm(data)
-        np.testing.assert_allclose(data,val,atol=1e-15)
+        np.testing.assert_allclose(data,val,rtol=0.0,atol=ERR)
 
     def test_trimer2ti1o_rho_forces(self):
         ptype = "rho"
@@ -606,7 +609,7 @@ class forces_data_trimer2ti1o_tio(unittest.TestCase):
 
         valnorm = np.linalg.norm(val)
         datanorm = np.linalg.norm(data)
-        np.testing.assert_allclose(data,val,atol=1e-15)
+        np.testing.assert_allclose(data,val,rtol=0.0,atol=ERR)
 
     def test_trimer2ti1o_rhophi_forces(self):
         ptype = "rhophi"
@@ -620,7 +623,7 @@ class forces_data_trimer2ti1o_tio(unittest.TestCase):
 
         valnorm = np.linalg.norm(val)
         datanorm = np.linalg.norm(data)
-        np.testing.assert_allclose(data,val,atol=1e-15)
+        np.testing.assert_allclose(data,val,rtol=0.0,atol=ERR)
 
 class forces_data_bulk_vac_tio(unittest.TestCase):
     """ Test force calculations for data.bulk_vac """
@@ -639,7 +642,7 @@ class forces_data_bulk_vac_tio(unittest.TestCase):
 
         valnorm = np.linalg.norm(val)
         datanorm = np.linalg.norm(data)
-        np.testing.assert_allclose(data,val,atol=1e-15)
+        np.testing.assert_allclose(data,val,rtol=0.0,atol=ERR)
 
     def test_bulk_tio_nophi_forces(self):
         ptype = "nophi"
@@ -653,7 +656,7 @@ class forces_data_bulk_vac_tio(unittest.TestCase):
 
         valnorm = np.linalg.norm(val)
         datanorm = np.linalg.norm(data)
-        np.testing.assert_allclose(data,val,atol=1e-15)
+        np.testing.assert_allclose(data,val,rtol=0.0,atol=ERR)
 
     def test_bulk_tio_phionly_forces(self):
         ptype = "phionly"
@@ -667,7 +670,7 @@ class forces_data_bulk_vac_tio(unittest.TestCase):
 
         valnorm = np.linalg.norm(val)
         datanorm = np.linalg.norm(data)
-        np.testing.assert_allclose(data,val,atol=1e-15)
+        np.testing.assert_allclose(data,val,rtol=0.0,atol=ERR)
 
     def test_bulk_tio_rho_forces(self):
         ptype = "rho"
@@ -681,7 +684,7 @@ class forces_data_bulk_vac_tio(unittest.TestCase):
 
         valnorm = np.linalg.norm(val)
         datanorm = np.linalg.norm(data)
-        np.testing.assert_allclose(data,val,atol=1e-15)
+        np.testing.assert_allclose(data,val,rtol=0.0,atol=ERR)
 
     def test_bulk_tio_rhophi_forces(self):
         ptype = "rhophi"
@@ -695,7 +698,7 @@ class forces_data_bulk_vac_tio(unittest.TestCase):
 
         valnorm = np.linalg.norm(val)
         datanorm = np.linalg.norm(data)
-        np.testing.assert_allclose(data,val,atol=1e-15)
+        np.testing.assert_allclose(data,val,rtol=0.0,atol=ERR)
 
 class bulk_vac_tio(unittest.TestCase):
     """Test cases for a 2-Ti 1-O trimer in a vacuum"""

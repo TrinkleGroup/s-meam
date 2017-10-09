@@ -300,6 +300,39 @@ def atoms_from_file(fname, types, fmt='lammps-data', style='atomic', pbc=True):
 
     return atoms
 
+def atoms_to_LAMMPS_file(fname, atoms):
+    """Writes atoms to a LAMMPS style data file. Assumes box starts at origin"""
+
+    if not atoms.get_cell().any():
+        raise AttributeError, "Must specify cell size"
+
+    types = atoms.get_chemical_symbols()
+    types_idx = range(1, len(types)+1)
+    p = atoms.positions
+
+    # Converts cell vectors to LAMMPS format
+    print(atoms.get_cell())
+    a,b,c = atoms.get_cell()
+    x = a[0]; y = b[1]; z = c[2]
+    xy = b[0]; xz = c[0]; yz = c[1]
+
+    with open(fname, 'w') as f:
+        f.write('Written using lammpsTools.py\n\n')
+
+        f.write('%d atoms\n' % len(atoms))
+        f.write('%d atom types\n\n' % len(set(types)))
+
+        f.write("0.0 %.16f xlo xhi\n" % x)
+        f.write("0.0 %.16f ylo yhi\n" % y)
+        f.write("0.0 %.16f zlo zhi\n" % z)
+        f.write("%.16f %.16f %.16f xy xz yz\n\n" % (xy,xz,yz))
+
+        f.write("Atoms\n\n")
+
+        for i in range(len(types_idx)):
+            f.write("%d %d %.16f %.16f %.16f\n" % (i+1,\
+                symbol_to_type(types[i],types),p[i][0],p[i][1],p[i][2]))
+
 def read_forces(fname):
     """Reads in the atomic forces from a file with the following format:
     <file name>
@@ -324,6 +357,22 @@ def read_forces(fname):
     data = np.genfromtxt(fname, skip_header=1)
 
     return data[:,0], data[:,1:]    # w, data
+
+def symbol_to_type(symbol, types):
+    """Returns the numerical atom type, given its chemical symbol
+    
+    Args:
+        symbol (str):
+            Elemental symbol
+        types (list):
+            Ordered list of chemical symbols to search
+            
+    Returns:
+        LAMMPS style atom type
+        
+        e.g. for ['Ti', 'O'], symbol_to_type('Ti',types) returns 1"""
+
+    return np.where(np.array(types)==symbol)[0][0] + 1
 
 def main():
 
