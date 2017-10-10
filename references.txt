@@ -1,0 +1,2 @@
+lammpsrun.py edits for non-orthogonal cells:
+    https://github.com/bohumir/ase-atomistic-potential-tests/blob/master/ASE_modif/lammps.py
