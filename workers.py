@@ -1,4 +1,7 @@
 import numpy as np
+import lammpsTools
+import meam
+
 from numpy.polynomial.polynomial import polyval
 from ase.neighborlist import NeighborList
 
@@ -25,10 +28,10 @@ class Worker(object):
     def coefficients(self,c):
         self._coefficients = c
 
-    def compute_energies(self):
+    def compute_energies(self,structs):
         raise NotImplementedError
 
-    def compute_forces(self):
+    def compute_forces(self,structs):
         raise NotImplementedError
 
 class WorkerManyPotentialsOneStruct(Worker):
@@ -40,22 +43,12 @@ class WorkerManyPotentialsOneStruct(Worker):
 
     # TODO: an assumption is made that all potentials have the same cutoffs
 
-    def __init__(self,x=[],potentials=[]):
+    def __init__(self,struct,potentials=[]):
         # TODO: c should instead be a list of MEAM potentials
         super(Worker,self).__init__()
-        
-        x = np.asarray(x)
-        self.struct = x
+
+        self.structs = [struct]
         self.potentials = potentials
-
-    @property
-    def structs(self):
-        """ASE Atoms object defining the system"""
-        return self._struct
-
-    @struct.setter
-    def structs(self, struct):
-        self._struct = struct
 
     @property
     def potentials(self):
@@ -65,8 +58,62 @@ class WorkerManyPotentialsOneStruct(Worker):
     @potentials.setter
     def potentials(self, p):
         self._potentials = p
-        self.cutoff = p[0].cutoff
-        self.types = p[0].types
+        self._cutoff = p[0].cutoff
+        self._types = p[0].types
+        self._ntypes = len(self.types)
+
+        N = len(p)
+        self.phis   = [p[i].phis for i in range(N)]
+        self.rhos   = [p[i].rhos for i in range(N)]
+        self.us     = [p[i].us for i in range(N)]
+        self.fs     = [p[i].fs for i in range(N)]
+        self.gs     = [p[i].gs for i in range(N)]
+
+    @property
+    def phis(self):
+        """NxM list where N = #potentials, M = #spline intervals"""
+        return self._phis
+
+    # Individual splines will need to be tunable during optimization
+    @phis.setter
+    def phis(self, p):
+        self._phis = p
+
+    @property
+    def rhos(self):
+        """NxM list where N = #potentials, M = #spline intervals"""
+        return self._rhos
+
+    @rhos.setter
+    def rhos(self, p):
+        self._rhos = p
+
+    @property
+    def us(self):
+        """NxM list where N = #potentials, M = #spline intervals"""
+        return self._us
+
+    @us.setter
+    def us(self, p):
+        self._us = p
+
+    @property
+    def fs(self):
+        """NxM list where N = #potentials, M = #spline intervals"""
+        return self._fs
+
+    @fs.setter
+    def fs(self, p):
+        self._fs = p
+
+    @property
+    def gs(self):
+        """NxM list where N = #potentials, M = #spline intervals"""
+        return self._gs
+
+    @gs.setter
+    def gs(self, p):
+        self._gs = p
 
     @property
     def cutoff(self):
@@ -94,12 +141,12 @@ class WorkerManyPotentialsOneStruct(Worker):
 
 
     def compute_energies(self):
-        atoms = self.struct
+        atoms = self.structs[0]
         natoms = len(atoms)
 
         nl_noboth = NeighborList(np.ones(len(atoms))*(self.cutoff/2.),\
                 self_interaction=False, bothways=False, skin=0.0)
-        nl.build(atoms)
+        nl_noboth.build(atoms)
 
         # TODO: only getting phi working first; bothways=True not needed yet
         # nl = NeighborList(np.ones(len(atoms))*(self.cutoff/2.),\
@@ -111,16 +158,16 @@ class WorkerManyPotentialsOneStruct(Worker):
         energies = np.zeros(len(self.potentials))
 
         for i in range(natoms):
-            itype = meam.symbol_to_type(atoms[i].symbol, self.types)
+            itype = lammpsTools.symbol_to_type(atoms[i].symbol, self.types)
             ipos = atoms[i].position
 
-            neighbors, offsets = nl_noboth.get_neighbors(i)
+            neighbors_noboth, offsets = nl_noboth.get_neighbors(i)
             num_neighbors_noboth = len(neighbors_noboth)
             # TODO: build a proper distance matrix using shifted positions
 
             # Calculate pair interactions (phi)
-            for j,offset in zip(neighbors,offsets):
-                jtype = meam.symbol_to_type(atoms[j].symbol, self.types)
+            for j,offset in zip(neighbors_noboth,offsets):
+                jtype = lammpsTools.symbol_to_type(atoms[j].symbol, self.types)
                 jpos = atoms[j].position + np.dot(offset,atoms.get_cell())
 
                 rij = np.linalg.norm(ipos -jpos)
@@ -130,13 +177,16 @@ class WorkerManyPotentialsOneStruct(Worker):
 
                 # Finds interval of spline
                 h = self.potentials[0].phis[pot_idx].h
-                spline_num = int(np.floor(rij,h))
+                spline_num = int(np.floor(rij/h))
 
-                phis = [self.potentials[l].phis[pot_idx] for l in\
-                        range(len(self.potentials))]
+                phis = self.phis
+
+                # rzm: incorrect index somewhere in phi_coeffs; also, is
+                # returning all zeros, check evaluations pycharm
 
                 # Extracts coefficients
-                phi_coeffs= np.array([phis[l].c[:,spline_num] for l in range(len(phis))])
+                phi_coeffs = np.array([phis[potnum][pot_idx].c[:,spline_num]\
+                        for potnum in range(len(phis))])
                 phi_coeffs = phi_coeffs.transpose() # ordering for polyval()
 
                 energies += polyval(rij, phi_coeffs)

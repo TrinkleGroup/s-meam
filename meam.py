@@ -237,8 +237,6 @@ class MEAM(Potential):
                             ktype = lammpsTools.symbol_to_type(\
                                     atoms[neighbors[0][k]].symbol, self.types)
                             kpos = neighbor_shifted_positions[k]
-                            #print(kpos)
-                            #print(ipos)
                             kdel = kpos - ipos
                             r_ik = np.linalg.norm(kdel)
                             kdel /= r_ik

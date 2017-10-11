@@ -240,6 +240,7 @@ class LAMMPS:
             lammps_log_fd = open(lammps_log, 'w')
             fd = special_tee(lmp_handle.stdout, lammps_log_fd)
         else:
+            #print("READ_LAMMPS_LOG: reading from " + str(lmp_handle.stdout))
             fd = lmp_handle.stdout
         thr_read_log = Thread(target=self.read_lammps_log, args=(fd,))
         thr_read_log.start()
@@ -395,6 +396,7 @@ class LAMMPS:
         else:
             f.write('fix fix_nve all nve\n')
         f.write('dump dump_all all custom 1 %s id type x y z vx vy vz fx fy fz\n' % lammps_trj)
+        f.write('dump_modify dump_all format line "%d %d %.16f %.16f %.16f %.16f %.16f %.16f %.16f %.16f %.16f"\n')
         f.write('thermo_style custom {0}\n'
                 'thermo_modify flush yes format line "{1}"\n'
                 'thermo 1\n'.format(
