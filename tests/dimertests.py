@@ -4,9 +4,9 @@ import lammpsTools
 
 from meam import MEAM
 from ase.calculators.lammpsrun import LAMMPS
-from structs import dimers
-from potentials import meams,nophis,phionlys,rhos,norhos,norhophis,rhophis
-from globalVars import DIGITS
+from .structs import dimers
+from .potentials import meams,nophis,phionlys,rhos,norhos,norhophis,rhophis
+from .globalVars import DIGITS
 
 class DimerTests(unittest.TestCase):
 

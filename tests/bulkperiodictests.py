@@ -4,9 +4,9 @@ import os
 import lammpsTools
 
 from ase.calculators.lammpsrun import LAMMPS
-from structs import bulk_periodic, bulk_periodic_rhombo
-from potentials import meams,nophis,phionlys,rhos,norhos,norhophis,rhophis
-from globalVars import DIGITS
+from .structs import bulk_periodic, bulk_periodic_rhombo
+from .potentials import meams,nophis,phionlys,rhos,norhos,norhophis,rhophis
+from .globalVars import DIGITS
 
 class BulkVacTests(unittest.TestCase):
 

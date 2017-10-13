@@ -1,17 +1,16 @@
 """Generates N random potentials and 'subtypes' potentials for use in testing"""
 import numpy as np
-import globalVars
 
 from spline import Spline
 from spline import ZeroSpline
 from meam import MEAM
+from .globalVars import a0
 
 N = 10
 
 # Random potential cutoff in range [1,10]; atomic distances 
 # Default atomic spacing is set as a0/2
 # Default vacuum is a0*2
-a0 = globalVars.a0
 
 meams       = [None]*N # contributing functions: phi, u, rho, f, g
 nophis      = [None]*N # contributing functions:      u, rho, f, g
@@ -46,10 +45,10 @@ for n in range(N):
 
     meams[n] = MEAM(splines=splines, types=['H','He'])
 
-    splines = [tmp_splines[i] if (i<3) else ZeroSpline() for i in range(12)]
+    splines = [tmp_splines[i] if (i>=3) else ZeroSpline() for i in range(12)]
     nophis[n] = MEAM(splines = splines, types=['H','He'])
 
-    splines = [tmp_splines[i] if (i>=3) else ZeroSpline() for i in range(12)]
+    splines = [tmp_splines[i] if (i<3) else ZeroSpline() for i in range(12)]
     phionlys[n] = MEAM(splines = splines, types=['H','He'])
 
     splines = [tmp_splines[i] if ((i>=3) and (i<7)) else ZeroSpline() for i in range(12)]

@@ -12,7 +12,7 @@ class Potential(object):
     @cutoff.setter
     def cutoff(self, cutoff):
         if cutoff < 0:
-            raise ValueError, "Cannot set cutoff to be negative."
+            raise ValueError("Cannot set cutoff to be negative.")
         else:
             self._cutoff = cutoff
 

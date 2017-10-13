@@ -51,7 +51,7 @@ def read_spline_meam(fname):
 
         # Build all splines; separate into different types later
         splines = []
-        for i in xrange(nsplines):
+        for i in range(nsplines):
             f.readline()                # throwaway 'spline3eq' line
             nknots = int(f.readline())
 
@@ -59,7 +59,7 @@ def read_spline_meam(fname):
             
             xcoords = []                # x-coordinates of knots
             ycoords = []                # y-coordinates of knots
-            for j in xrange(nknots):
+            for j in range(nknots):
                 # still unsure why y2 is in the file... why store if it's
                 # recalculated again later??
                 x,y,y2 = [np.float(el) for el in f.readline().split()]
@@ -69,7 +69,7 @@ def read_spline_meam(fname):
             # TODO: this needs to use homemade Spline objects
             # Create a 'natural' spline with endpoint derivatives d0,dN
             splines.append(CubicSpline(xcoords,ycoords,bc_type=((1,d0),(1,dN))))
-        print xcoords
+        print(xcoords)
 
     # Calculate the number of splines for phi/g each
     nphi = (ntypes+1)*ntypes/2
@@ -164,7 +164,7 @@ def write_spline_meam(fname, phis, rhos, us, fs, gs, types):
             f.write(str1 + ' ' + str2 + '\n')
 
             # Write knot info
-            for i in xrange(nknots):
+            for i in range(nknots):
                 str1 = ("%.16f" % knotsx[i]).rstrip('0').rstrip('.')
                 str2 = ("%.16f" % knotsy[i]).rstrip('0').rstrip('.')
                 str3 = ("%.16f" % knotsy2[i]).rstrip('0').rstrip('.')
@@ -304,7 +304,7 @@ def atoms_to_LAMMPS_file(fname, atoms):
     """Writes atoms to a LAMMPS style data file. Assumes box starts at origin"""
 
     if not atoms.get_cell().any():
-        raise AttributeError, "Must specify cell size"
+        raise AttributeError("Must specify cell size")
 
     types = atoms.get_chemical_symbols()
     types_idx = range(1, len(types)+1)

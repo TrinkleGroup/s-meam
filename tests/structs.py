@@ -1,17 +1,13 @@
 """Creates test structures"""
 import numpy as np
 import ase.build
-import globalVars
-import lammpsTools
+from .globalVars import a0, vac
 
 from ase import Atoms
 
 nstructs = 0
 
 # Builds dimers/trimers of H/He in vacuum; atom type has no impact
-a0 = globalVars.a0
-vac = globalVars.vac
-
 dimers = []
 trimers = []
 

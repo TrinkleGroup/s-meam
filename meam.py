@@ -36,17 +36,17 @@ class MEAM(Potential):
 
         if fname:
             if splines:
-                raise AttributeError, "Can only specify either fname or splines"
+                raise AttributeError("Can only specify either fname or splines")
             self.read_from_file(fname, fmt)
         elif splines:
             self.types = types
             ntypes = self.ntypes
 
             if len(splines) != ((ntypes+4)*ntypes):
-                raise AttributeError, "Incorrect number of splines for given number of system components"
+                raise AttributeError("Incorrect number of splines for given number of system components")
 
             # Calculate the number of splines for phi/g each
-            nphi = (ntypes+1)*ntypes/2
+            nphi = int((ntypes+1)*ntypes/2)
 
             # Separate splines for each unique function
             idx = 0                         # bookkeeping
@@ -85,7 +85,7 @@ class MEAM(Potential):
         self.cutoff = max(endpoints)
 
         self.zero_atom_energies =  [None]*self.ntypes
-        for i in xrange(self.ntypes):
+        for i in range(self.ntypes):
             self.zero_atom_energies[i] = self.us[i](0.0)
 
         self.uprimes = None
@@ -154,7 +154,7 @@ class MEAM(Potential):
 
     @ntypes.setter
     def ntypes(self, n):
-        raise AttributeError, "To set the number of elements in the system, specify the types using the MEAM.types attribute"
+        raise AttributeError("To set the number of elements in the system, specify the types using the MEAM.types attribute")
 
     def compute_forces(self, atoms):
         """Evaluates the energies for the given system using the MEAM potential,
@@ -185,7 +185,7 @@ class MEAM(Potential):
         self.forces = np.zeros((natoms,3))
         cellx,celly,cellz = atoms.get_cell()
         
-        for i in xrange(natoms):
+        for i in range(natoms):
             itype = lammpsTools.symbol_to_type(atoms[i].symbol, self.types)
             ipos = atoms[i].position
 
@@ -201,7 +201,7 @@ class MEAM(Potential):
             # Build the list of shifted positions for atoms outside of unit cell
             neighbor_shifted_positions = []
             bonds = []
-            for l in xrange(num_neighbors):
+            for l in range(num_neighbors):
                 shiftx,shifty,shiftz = neighbors[1][l]
                 neigh_pos = atoms[neighbors[0][l]].position + shiftx*cellx + shifty*celly +\
                         shiftz*cellz
@@ -214,7 +214,7 @@ class MEAM(Potential):
 
             forces_i = np.zeros((3,))
             if len(neighbors[0]) > 0:
-                for j in xrange(num_neighbors):
+                for j in range(num_neighbors):
                     jtype = lammpsTools.symbol_to_type(atoms[neighbors[0][j]].symbol, self.types)
 
                     # TODO: make a j_tag variable; too easy to make mistakes
@@ -232,7 +232,7 @@ class MEAM(Potential):
                     a = neighbor_shifted_positions[j]-ipos
                     na = np.linalg.norm(a)
                     
-                    for k in xrange(j,num_neighbors):
+                    for k in range(j,num_neighbors):
                         if k != j:
                             ktype = lammpsTools.symbol_to_type(\
                                     atoms[neighbors[0][k]].symbol, self.types)
@@ -281,7 +281,7 @@ class MEAM(Potential):
                 self.forces[i] += forces_i
 
                 # Calculate pair interactions (phi)
-                for j in xrange(num_neighbors_noboth): # j = index for neighbor list
+                for j in range(num_neighbors_noboth): # j = index for neighbor list
                     jtype = lammpsTools.symbol_to_type(\
                             atoms[neighbors_noboth[0][j]].symbol, self.types)
                     jpos = neighbor_shifted_positions[j]
@@ -344,7 +344,7 @@ class MEAM(Potential):
 
         cellx,celly,cellz = atoms.get_cell()
         
-        for i in xrange(natoms):
+        for i in range(natoms):
             itype = lammpsTools.symbol_to_type(atoms[i].symbol, self.types)
             ipos = atoms[i].position
 
@@ -357,7 +357,7 @@ class MEAM(Potential):
 
             # Build the list of shifted positions for atoms outside of unit cell
             neighbor_shifted_positions = []
-            #for l in xrange(len(neighbors[0])):
+            #for l in range(len(neighbors[0])):
             #    shiftx,shifty,shiftz = neighbors[1][l]
             #    neigh_pos = atoms[neighbors[0][l]].position + shiftx*cellx + shifty*celly +\
             #            shiftz*cellz
@@ -381,7 +381,7 @@ class MEAM(Potential):
                 u = self.us[i_to_potl(itype)]
 
                 # Calculate pair interactions (phi)
-                for j in xrange(num_neighbors_noboth): # j = index for neighbor list
+                for j in range(num_neighbors_noboth): # j = index for neighbor list
                     jtype = lammpsTools.symbol_to_type(\
                             atoms[neighbors_noboth[0][j]].symbol, self.types)
                     r_ij = np.linalg.norm(ipos-neighbor_shifted_positions[j])
@@ -391,7 +391,7 @@ class MEAM(Potential):
                     total_phi += phi(r_ij)
                 # end phi loop
 
-                for j in xrange(num_neighbors):
+                for j in range(num_neighbors):
                     jtype = lammpsTools.symbol_to_type(atoms[neighbors[0][j]].symbol, self.types)
                     r_ij = np.linalg.norm(ipos-neighbor_shifted_positions[j])
 
@@ -403,7 +403,7 @@ class MEAM(Potential):
                     na = np.linalg.norm(a)
                     
                     partialsum = 0.0
-                    for k in xrange(j,num_neighbors):
+                    for k in range(j,num_neighbors):
                         if k != j:
                             ktype = lammpsTools.symbol_to_type(\
                                     atoms[neighbors[0][k]].symbol, self.types)
@@ -473,7 +473,7 @@ class MEAM(Potential):
                 f.write(str1 + ' ' + str2 + '\n')
 
                 # Write knot info
-                for i in xrange(nknots):
+                for i in range(nknots):
                     str1 = ("%.16f" % knotsx[i]).rstrip('0').rstrip('.')
                     str2 = ("%.16f" % knotsy[i]).rstrip('0').rstrip('.')
                     str3 = ("%.16f" % knotsy2[i]).rstrip('0').rstrip('.')
@@ -530,7 +530,7 @@ class MEAM(Potential):
 
                 # Build all splines; separate into different types later
                 splines = []
-                for i in xrange(nsplines):
+                for i in range(nsplines):
                     f.readline()                # throwaway 'spline3eq' line
                     nknots = int(f.readline())
 
@@ -538,7 +538,7 @@ class MEAM(Potential):
                     
                     xcoords = []                # x-coordinates of knots
                     ycoords = []                # y-coordinates of knots
-                    for j in xrange(nknots):
+                    for j in range(nknots):
                         # still unsure why y2 is in the file... why store if it's
                         # recalculated again later??
                         x,y,y2 = [np.float(el) for el in f.readline().split()]
@@ -615,7 +615,7 @@ def ij_to_potl(itype,jtype,ntypes):
     Returns:
         The mapping of ij into an index of a 1D 0-indexed list"""
 
-    return jtype - 1 + (itype-1)*ntypes - (itype-1)*itype/2
+    return int(jtype - 1 + (itype-1)*ntypes - (itype-1)*itype/2)
 
 def i_to_potl(itype):
     """Maps element number i to an index of a 1D list; used for indexing spline
@@ -628,7 +628,7 @@ def i_to_potl(itype):
     Returns:
         The array index for the given element"""
 
-    return itype-1
+    return int(itype-1)
 
 if __name__ == "__main__":
     import lammpsTools

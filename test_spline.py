@@ -24,7 +24,7 @@ class SplineTests(unittest.TestCase):
         s = Spline(xi,yi)
 
         # Check knot values
-        for i in xrange(len(xi)):
+        for i in range(len(xi)):
             self.assertAlmostEqual(s(xi[i]), yi[i])
 
         # Check easy points

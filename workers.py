@@ -121,7 +121,7 @@ class WorkerManyPotentialsOneStruct(Worker):
 
     @cutoff.setter
     def cutoff(self, c):
-        raise AttributeError, "cutoff can only be set by setting the 'potentials' property"
+        raise AttributeError("cutoff can only be set by setting the 'potentials' property")
 
     @property
     def types(self):
@@ -129,7 +129,7 @@ class WorkerManyPotentialsOneStruct(Worker):
 
     @types.setter
     def types(self, c):
-        raise AttributeError, "types can only be set by setting the 'potentials' property"
+        raise AttributeError("types can only be set by setting the 'potentials' property")
 
     @property
     def ntypes(self):
@@ -137,7 +137,7 @@ class WorkerManyPotentialsOneStruct(Worker):
 
     @ntypes.setter
     def ntypes(self, n):
-        raise AttributeError, "ntypes can only be set by setting the 'potentials' property"
+        raise AttributeError("ntypes can only be set by setting the 'potentials' property")
 
 
     def compute_energies(self):
@@ -171,6 +171,10 @@ class WorkerManyPotentialsOneStruct(Worker):
                 jpos = atoms[j].position + np.dot(offset,atoms.get_cell())
 
                 rij = np.linalg.norm(ipos -jpos)
+                #print(rij)
+                #print(self.phis[0][0])
+                #print(self.phis[0][0].cutoff)
+                #print(self.cutoff)
 
                 # Finds correct type of phi fxn
                 pot_idx = meam.ij_to_potl(itype,jtype,self.ntypes)
@@ -178,17 +182,28 @@ class WorkerManyPotentialsOneStruct(Worker):
                 # Finds interval of spline
                 h = self.potentials[0].phis[pot_idx].h
                 spline_num = int(np.floor(rij/h))
+                # rzm: interval search seems to be working properly, but isn't evaluating correctly
+                # scipy doesn't order coeffs same way as numpy
 
                 phis = self.phis
 
-                # rzm: incorrect index somewhere in phi_coeffs; also, is
-                # returning all zeros, check evaluations pycharm
+                #for grp in phis:
+                #    for p in grp:
+                #        p.plot()
+
+                # TODO: splines will need extrapolation coefficients; meaning
+                # there will be two additional splines for endpoints
 
                 # Extracts coefficients
-                phi_coeffs = np.array([phis[potnum][pot_idx].c[:,spline_num]\
+                p = phis[0][pot_idx]
+                rij -= p.knotsx[spline_num] # Spline.c coefficients assume spline starts at 0
+                phi_coeffs =np.array([phis[potnum][pot_idx].c[:,spline_num]\
                         for potnum in range(len(phis))])
-                phi_coeffs = phi_coeffs.transpose() # ordering for polyval()
 
+                phi_coeffs = phi_coeffs.transpose() # ordering for polyval()
+                phi_coeffs = phi_coeffs[::-1]
+
+                val = polyval(rij, phi_coeffs)
                 energies += polyval(rij, phi_coeffs)
 
                 # TODO: is it actually faster to create matrix of coefficients,

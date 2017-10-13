@@ -4,9 +4,9 @@ import lammpsTools
 
 from meam import MEAM
 from ase.calculators.lammpsrun import LAMMPS
-from structs import trimers
-from potentials import meams,nophis,phionlys,rhos,norhos,norhophis,rhophis
-from globalVars import DIGITS
+from .structs import trimers
+from .potentials import meams,nophis,phionlys,rhos,norhos,norhophis,rhophis
+from .globalVars import DIGITS
 
 class TrimerTests(unittest.TestCase):
 

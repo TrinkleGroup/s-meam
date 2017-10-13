@@ -73,7 +73,7 @@ class Spline(CubicSpline):
 
     @h.setter
     def h(self,h):
-        raise AttributeError, "h is defined by knot spacings and cannot be manually changed."
+        raise AttributeError("h is defined by knot spacings and cannot be manually changed.")
 
     def in_range(self, x):
         """Checks if a given value is within the spline's cutoff range"""

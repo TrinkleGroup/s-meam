@@ -17,10 +17,12 @@ suite = unittest.TestSuite()
 #suite.addTests(loader.loadTestsFromModule(tests.bulkperiodictests))
 suite.addTests(loader.loadTestsFromModule(tests.workertests))
 
-runner = unittest.TextTestRunner(verbosity=2)
+runner = unittest.TextTestRunner()
+#runner = unittest.TextTestRunner()
 result = runner.run(suite)
 
 # TODO: NOT within machine precision; THINK precision is being affected by the
 # read/write methods in ASE LAMMPS() calculator
 
 # TODO: add warnings that LAMMPS must be pre-installed
+# TODO: build LAMMPS results outside of individual tests; call from tests
