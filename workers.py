@@ -9,7 +9,7 @@ class Worker(object):
 
     def __init__(self):
         self.structs = []
-        self.coefficients = []
+        self.potentials = []
 
     @property
     def structs(self):
@@ -21,12 +21,12 @@ class Worker(object):
         self._structs = structs
 
     @property
-    def coefficients(self):
-        return self._coefficients
+    def potentials(self):
+        return self._potentials
 
-    @coefficients.setter
-    def coefficients(self,c):
-        self._coefficients = c
+    @potentials.setter
+    def potentials(self,c):
+        raise NotImplementedError
 
     def compute_energies(self,structs):
         raise NotImplementedError
@@ -49,6 +49,12 @@ class WorkerManyPotentialsOneStruct(Worker):
 
         self.structs = [struct]
         self.potentials = potentials
+
+        # Initialize zero-point embedding energies
+        self.zero_atom_energies = np.zeros((len(potentials),self.ntypes))
+        for i,p in enumerate(self.potentials):
+            for j in range(self.ntypes):
+                self.zero_atom_energies[i][j] = p.us[j](0.0)
 
     @property
     def potentials(self):
@@ -149,68 +155,144 @@ class WorkerManyPotentialsOneStruct(Worker):
         nl_noboth.build(atoms)
 
         # TODO: only getting phi working first; bothways=True not needed yet
-        # nl = NeighborList(np.ones(len(atoms))*(self.cutoff/2.),\
-        #         self_interaction=False, bothways=True, skin=0.0)
-
+        nl = NeighborList(np.ones(len(atoms))*(self.cutoff/2.),\
+                self_interaction=False, bothways=True, skin=0.0)
+        nl.build(atoms)
 
         # energies[z] corresponds to the energy as calculated by the k-th
         # potential
         energies = np.zeros(len(self.potentials))
 
         for i in range(natoms):
+            total_ni = np.zeros(len(self.potentials))
+
             itype = lammpsTools.symbol_to_type(atoms[i].symbol, self.types)
             ipos = atoms[i].position
 
-            neighbors_noboth, offsets = nl_noboth.get_neighbors(i)
-            num_neighbors_noboth = len(neighbors_noboth)
-            # TODO: build a proper distance matrix using shifted positions
+            neighbors_noboth, offsets_noboth = nl_noboth.get_neighbors(i)
+            neighbors, offsets = nl.get_neighbors(i)
+
+            # rzm: build u coefficient matrices
+
+            # TODO: requires knowledge of ni to get interval
+            #u_coeffs = np.array([us[potnum][idx].cmat[:,]])
 
             # Calculate pair interactions (phi)
-            for j,offset in zip(neighbors_noboth,offsets):
+            for j,offset in zip(neighbors_noboth,offsets_noboth):
                 jtype = lammpsTools.symbol_to_type(atoms[j].symbol, self.types)
                 jpos = atoms[j].position + np.dot(offset,atoms.get_cell())
 
                 rij = np.linalg.norm(ipos -jpos)
-                #print(rij)
-                #print(self.phis[0][0])
-                #print(self.phis[0][0].cutoff)
-                #print(self.cutoff)
 
                 # Finds correct type of phi fxn
-                pot_idx = meam.ij_to_potl(itype,jtype,self.ntypes)
+                phi_idx = meam.ij_to_potl(itype,jtype,self.ntypes)
 
-                # Finds interval of spline
-                h = self.potentials[0].phis[pot_idx].h
-                spline_num = int(np.floor(rij/h))
-                # rzm: interval search seems to be working properly, but isn't evaluating correctly
-                # scipy doesn't order coeffs same way as numpy
+                phi_coeffs, spline_num = coeffs_from_splines(self.phis,rij,
+                                                             phi_idx)
 
-                phis = self.phis
+                # knot index != cmat index
+                rij -= self.phis[0][phi_idx].knotsx[spline_num-1]
 
-                #for grp in phis:
-                #    for p in grp:
-                #        p.plot()
-
-                # TODO: splines will need extrapolation coefficients; meaning
-                # there will be two additional splines for endpoints
-
-                # Extracts coefficients
-                p = phis[0][pot_idx]
-                rij -= p.knotsx[spline_num] # Spline.c coefficients assume spline starts at 0
-                phi_coeffs =np.array([phis[potnum][pot_idx].c[:,spline_num]\
-                        for potnum in range(len(phis))])
-
-                phi_coeffs = phi_coeffs.transpose() # ordering for polyval()
-                phi_coeffs = phi_coeffs[::-1]
-
-                val = polyval(rij, phi_coeffs)
                 energies += polyval(rij, phi_coeffs)
 
                 # TODO: is it actually faster to create matrix of coefficients,
                 # then use np.polynomial.polynomial.polyval() (Horner's) than to just use
                 # CubicSpline.__call__() (unknown method; from LAPACK)?
 
+            # Calculate three-body contributions
+            for j,offset in zip(neighbors,offsets):
+                jtype = lammpsTools.symbol_to_type(atoms[j].symbol, self.types)
+                jpos = atoms[j].position + np.dot(offset,atoms.get_cell())
+
+                a = np.dot(offset, atoms.get_cell()) - ipos
+                na = np.linalg.norm(a)
+
+                rij = np.linalg.norm(ipos -jpos)
+
+                rho_idx = meam.i_to_potl(itype)
+                fj_idx = meam.i_to_potl(jtype)
+
+                rho_coeffs, spline_num = coeffs_from_splines(self.rhos,rij,
+                                                             rho_idx)
+                fj_coeffs,_ = coeffs_from_splines(self.fs,rij,
+                                                             fj_idx)
+                # assumes rho and f knots are in same positions
+                rij -= self.rhos[0][0].knotsx[spline_num-1]
+
+                total_ni += polyval(rij, rho_coeffs)
+
+            u_idx = meam.i_to_potl(itype)
+
+            #u_coeffs, u_spline_num = coeffs_from_splines(self.us, total_ni,
+            #                                             u_idx)
+            # rzm: total_ni is an array b/c it depends on unique rhos
+
+            u_coeffs = np.zeros((4,len(self.potentials)))
+            for k,p in enumerate(self.potentials):
+                knots = p.us[0].knotsx
+
+                h = p.us[0].h
+
+                u_spline_num = int(np.floor(total_ni[k]/h)) + 1
+
+                if u_spline_num < 0:
+                    u_spline_num = 0
+                elif u_spline_num > len(knots):
+                    u_spline_num = len(knots) + 1
+
+                #print(k,u_idx,u_spline_num)
+                u_coeffs[:,k] = p.us[u_idx].cmat[:,u_spline_num]
+                total_ni[k] -= knots[u_spline_num-1]
+
+            u_coeffs = u_coeffs[::-1]
+
+            energies += polyval(total_ni, u_coeffs,tensor=False) -\
+                        self.zero_atom_energies[:,u_idx]
+
         return energies
 
     def compute_forces(self):
         pass
+
+def coeffs_from_splines(splines, x, pot_type):
+    """Extracts the coefficient matrix for an interval corresponding to a
+    given value of x. Assumes linear extrapolation outside of knots and fixed
+    knot positions.
+
+    Args:
+        splines (list):
+            a 2D list of splines where each row corresponds to a unique MEAM
+            potential, and each column is a spline interval
+        x (float):
+            the point used to find the spline interval
+        pot_type (int):
+            index identifying the potential type, ordered as seen in meam.py
+
+    Returns:
+        coeffs (np.arr):
+            4xN array of coefficients where coeffs[i][j] is the i-th
+            coefficient of the N-th potential. Formatted to work with
+            np.polynomial.polynomial.polyval()
+        spline_num (int):
+            index of spline interval"""
+
+    knots = splines[0][0].knotsx
+
+    h = splines[0][0].h
+
+    # Find spline interval; +1 to account for extrapolation
+    spline_num = int(np.floor(x/h)) + 1
+
+    if spline_num < 0: spline_num = 0; print('EXTRAPOLATING')
+    elif spline_num > len(knots): spline_num = len(knots) + 1; print(
+        'EXTRAPOLATING')
+
+    # Pull coefficients from Spline.cmat variable
+    coeffs = np.array([splines[i][pot_type].cmat[:,spline_num] for i in
+                       range(len(splines))])
+
+    # Adjust to match polyval() ordering
+    coeffs = coeffs.transpose()
+    coeffs = coeffs[::-1]
+
+    return coeffs, spline_num

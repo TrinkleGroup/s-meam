@@ -63,7 +63,9 @@ trimers.append(trimer_baa)
 trimers.append(trimer_aba)
 
 # Builds H/He bulk structures with/without vacuum
-orthogonal = ['sc','fcc','bcc','hcp','diamond']
+#orthogonal = ['sc','fcc','bcc','hcp','diamond']
+orthogonal = ['sc']
+# TODO: need to also randomize the bulk rhombohedral atoms
 
 bulk_vac = []              # bulk materials in a vacuum
 bulk_periodic = []         # bulk with no vacuum
@@ -74,6 +76,7 @@ for s in orthogonal:
     atoms.rattle()
     atoms.center(vacuum=0)
     atoms.set_pbc(True)
+    print('using seed')
     atoms.set_chemical_symbols\
             (np.random.randint(1,3,size=len(atoms)))
 

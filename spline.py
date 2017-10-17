@@ -20,6 +20,26 @@ class Spline(CubicSpline):
         self._knotsy1 = np.array([super(Spline,self).__call__(z,1) for z in x])
         self._knotsy2 = np.array([super(Spline,self).__call__(z,2) for z in x])
 
+        # Add coefficients for extrapolating splines; can't edit self.c itself
+        self._cmat = np.copy(self.c)
+        self._cmat = np.insert(self.c,0,np.array([0,0,self.d0,self.knotsx[
+            0]]),axis=1)
+        self._cmat = np.insert(self.cmat,self.cmat.shape[1],np.array([0,0,\
+                        self.dN, self.knotsx[-1]]),axis=1)
+
+    @property
+    def cmat(self):
+        """Duplicate of coefficient matrix that has extrapolating splines
+        included; can't use self.c directly because it is needed for
+        __call__()"""
+        return self._cmat
+
+    @cmat.setter
+    def cmat(self):
+        raise AttributeError("cmat can only be altered by setting splines")
+
+    # TODO: update_cmat() for changing single spline
+
     @property
     def knotsx(self):
         return self._knotsx
@@ -96,8 +116,9 @@ class Spline(CubicSpline):
         high += abs(0.2*high)
 
         x = np.linspace(low,high,1000)
-        y = map(lambda e: self(e) if self.in_range(e) else self.extrap(e), x)
-        yi =map(lambda e: self(e), self.x)
+        y = list(map(lambda e: self(e) if self.in_range(e) else self.extrap(
+            e), x))
+        yi = list(map(lambda e: self(e), self.x))
 
         plt.figure()
         plt.plot(self.x, yi, 'o', x, y)
@@ -134,7 +155,7 @@ class Spline(CubicSpline):
 class ZeroSpline(Spline):
     """Used to easily create a zero spline"""
 
-    def __init__(self):
+    def __init__(self,knotsx):
 
-        super(ZeroSpline,self).__init__(np.arange(3,dtype=float),np.zeros(3),\
+        super(ZeroSpline,self).__init__(knotsx,np.zeros(knotsx.shape[0]),\
                 derivs=(0,0))

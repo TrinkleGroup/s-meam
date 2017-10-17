@@ -68,11 +68,11 @@ class MEAM(Potential):
             ntypes = len(types)
             # self.ntypes is set in @setter.types
             self.types = types
-            self.phis = [None]*((ntypes+1)*ntypes/2)
-            self.rhos = [None]*ntypes
-            self.us = [None]*ntypes
-            self.fs = [None]*ntypes
-            self.gs = [None]*((ntypes+1)*ntypes/2)
+            self.phis = [None]*int(((ntypes+1)*ntypes/2))
+            self.rhos = [None]*int(ntypes)
+            self.us = [None]*int(ntypes)
+            self.fs = [None]*int(ntypes)
+            self.gs = [None]*int(((ntypes+1)*ntypes/2))
 
             self.zero_atom_energies = [None]*ntypes
             self.uprimes = None
@@ -526,7 +526,7 @@ class MEAM(Potential):
                 nsplines = ntypes*(ntypes+4)    # Based on how fxns in MEAM are defined
 
                 # Calculate the number of splines for phi/g each
-                nphi = (ntypes+1)*ntypes/2
+                nphi = int((ntypes+1)*ntypes/2)
 
                 # Build all splines; separate into different types later
                 splines = []

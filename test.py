@@ -2,6 +2,8 @@
 import unittest
 import numpy as np
 
+np.random.seed(42)
+
 import tests.dimertests
 import tests.trimertests
 import tests.bulkvactests

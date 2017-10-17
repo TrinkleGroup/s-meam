@@ -20,6 +20,7 @@ class WorkerManyPotentialsOneStructTests(unittest.TestCase):
     def setUpClass(cls):
 
         if os.path.isfile('lammps_energies.dat'):
+            # TODO: check if energies matches number of potentials; else rebuild
             duration, cls.energies = pickle.load(open('lammps_energies.dat', 'rb'))
             #cls.forces = pickle.load(open('lammps_forces.dat', 'r'))
         else:
@@ -28,7 +29,8 @@ class WorkerManyPotentialsOneStructTests(unittest.TestCase):
             pickle.dump((duration, cls.energies), open('lammps_energies.dat', 'wb'))
             #pickle.dump(cls.forces, open('lammps_forces.dat', 'w'))
 
-        logger.info('LAMMPS build time (accounting for file writing time): ({}s)'.format(round(duration,3)))
+        logger.info('LAMMPS build time (accounting for file writing time):({'
+                    '}s)'.format(round(duration,3)))
 
     def setUp(self):
         self.start = time.time()
@@ -39,11 +41,6 @@ class WorkerManyPotentialsOneStructTests(unittest.TestCase):
 
     def runner(self, ptype):
         exec('pots = ' + ptype, globals())
-
-        #pots[0].plot()
-        #print(len(pots))
-        #for p in pots:
-        #    p.plot()
 
         for i,atoms in enumerate(allstructs):
             w = worker(atoms,pots)
@@ -69,11 +66,10 @@ class WorkerManyPotentialsOneStructTests(unittest.TestCase):
     #def test_norhophis(self):
     #    self.runner('norhophis')
 
-    #def test_rhophis(self):
-    #    self.runner('rhophis')
+    def test_rhophis(self):
+        self.runner('rhophis')
 
 def getLammpsResults():
-    # TODO: store with json; only rebuild if necessary
 
     start = time.time()
 

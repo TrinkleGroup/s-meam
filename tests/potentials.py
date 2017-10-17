@@ -12,6 +12,8 @@ N = 10
 # Default atomic spacing is set as a0/2
 # Default vacuum is a0*2
 
+# TODO: create a special method that can take in a potential (or file) and test
+
 meams       = [None]*N # contributing functions: phi, u, rho, f, g
 nophis      = [None]*N # contributing functions:      u, rho, f, g
 phionlys    = [None]*N # contributing functions: phi
@@ -45,22 +47,22 @@ for n in range(N):
 
     meams[n] = MEAM(splines=splines, types=['H','He'])
 
-    splines = [tmp_splines[i] if (i>=3) else ZeroSpline() for i in range(12)]
+    splines = [tmp_splines[i] if (i>=3) else ZeroSpline(knots_x) for i in range(12)]
     nophis[n] = MEAM(splines = splines, types=['H','He'])
 
-    splines = [tmp_splines[i] if (i<3) else ZeroSpline() for i in range(12)]
+    splines = [tmp_splines[i] if (i<3) else ZeroSpline(knots_x) for i in range(12)]
     phionlys[n] = MEAM(splines = splines, types=['H','He'])
 
-    splines = [tmp_splines[i] if ((i>=3) and (i<7)) else ZeroSpline() for i in range(12)]
+    splines = [tmp_splines[i] if ((i>=3) and (i<7)) else ZeroSpline(knots_x) for i in range(12)]
     rhos[n] = MEAM(splines = splines, types=['H','He'])
 
-    splines = [tmp_splines[i] if ((i<3) or (i>4)) else ZeroSpline() for i in range(12)]
+    splines = [tmp_splines[i] if ((i<3) or (i>4)) else ZeroSpline(knots_x) for i in range(12)]
     norhos[n] = MEAM(splines = splines, types=['H','He'])
 
-    splines = [tmp_splines[i] if (i>4) else ZeroSpline() for i in range(12)]
+    splines = [tmp_splines[i] if (i>4) else ZeroSpline(knots_x) for i in range(12)]
     norhophis[n] = MEAM(splines = splines, types=['H','He'])
 
-    splines = [tmp_splines[i] if (i<7) else ZeroSpline() for i in range(12)]
+    splines = [tmp_splines[i] if (i<7) else ZeroSpline(knots_x) for i in range(12)]
     rhophis[n] = MEAM(splines = splines, types=['H','He'])
 
 allPotentials = {'meams':meams, 'nophis':nophis, 'phionlys':phionlys,\
