@@ -209,7 +209,7 @@ class WorkerManyPotentialsOneStruct(Worker):
 
                 rij = np.linalg.norm(ipos -jpos)
 
-                rho_idx = meam.i_to_potl(itype)
+                rho_idx = meam.i_to_potl(jtype)
                 fj_idx = meam.i_to_potl(jtype)
 
                 rho_coeffs, spline_num = coeffs_from_splines(self.rhos,rij,
