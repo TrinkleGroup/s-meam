@@ -1,4 +1,5 @@
 """Testing suite for all structures and potentials"""
+import nose
 import unittest
 import numpy as np
 
@@ -21,7 +22,12 @@ suite.addTests(loader.loadTestsFromModule(tests.workertests))
 
 runner = unittest.TextTestRunner()
 #runner = unittest.TextTestRunner()
-result = runner.run(suite)
+#result = runner.run(suite)
+
+config = nose.config.Config(verbosity=2, stopOnError=False)
+result = nose.run(module=tests.workertests, config=config)
+
+
 
 # TODO: NOT within machine precision; THINK precision is being affected by the
 # read/write methods in ASE LAMMPS() calculator

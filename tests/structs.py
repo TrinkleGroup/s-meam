@@ -14,13 +14,9 @@ trimers = []
 r0 = a0/4.
 
 dimer_aa = Atoms([1,1], positions=[[0,0,0],[r0,0,0]])
-dimer_aa.center(vacuum=a0*2)
 dimer_bb = Atoms([2,2], positions=[[0,0,0],[r0,0,0]])
 dimer_ab = Atoms([1,2], positions=[[0,0,0],[r0,0,0]])
 
-dimer_aa.center(vacuum=vac)
-dimer_bb.center(vacuum=vac)
-dimer_ab.center(vacuum=vac)
 dimer_aa.center(vacuum=vac)
 dimer_bb.center(vacuum=vac)
 dimer_ab.center(vacuum=vac)
@@ -28,6 +24,7 @@ dimer_ab.center(vacuum=vac)
 dimers.append(dimer_aa)
 dimers.append(dimer_bb)
 dimers.append(dimer_ab)
+
 
 trimer_aaa = Atoms([1,1,1],
         positions=[[0,0,0],[r0,0,0],[r0/2,np.sqrt(3)*r0/2,0]])
@@ -64,7 +61,7 @@ trimers.append(trimer_aba)
 
 # Builds H/He bulk structures with/without vacuum
 #orthogonal = ['sc','fcc','bcc','hcp','diamond']
-orthogonal = ['sc']
+orthogonal = ['sc','fcc']
 # TODO: need to also randomize the bulk rhombohedral atoms
 
 bulk_vac = []              # bulk materials in a vacuum
@@ -76,7 +73,6 @@ for s in orthogonal:
     atoms.rattle()
     atoms.center(vacuum=0)
     atoms.set_pbc(True)
-    print('using seed')
     atoms.set_chemical_symbols\
             (np.random.randint(1,3,size=len(atoms)))
 
@@ -122,12 +118,20 @@ bulk_periodic_rhombo.append(diamond111)
 diamond111.center(vacuum=a0*2)
 bulk_vac_rhombo.append(diamond111)
 
+for atoms in bulk_vac_rhombo:
+    atoms.set_chemical_symbols(np.random.randint(1,3,size=len(atoms)))
+
+for atoms in bulk_vac_rhombo:
+    atoms.set_chemical_symbols(np.random.randint(1,3,size=len(atoms)))
+
 allstructs = dimers + trimers + bulk_vac + bulk_periodic + bulk_vac_rhombo + \
         bulk_periodic_rhombo
+#allstructs = [trimer_bbb]
 
 nsmall = len(dimers) + len(trimers)
 nbig = len(bulk_periodic) + len(bulk_vac) + len(bulk_vac_rhombo) +\
         len(bulk_periodic_rhombo)
 
-print("Created %d total structures (%d dimers/trimers, %d bulk)" %(nbig+nsmall,\
-            nsmall, nbig))
+#print("Created %d total structures (%d dimers/trimers, %d bulk)" %(
+## nbig+nsmall,\#
+            #nsmall, nbig))

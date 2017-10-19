@@ -6,7 +6,7 @@ from spline import ZeroSpline
 from meam import MEAM
 from .globalVars import a0
 
-N = 10
+N = 20
 
 # Random potential cutoff in range [1,10]; atomic distances 
 # Default atomic spacing is set as a0/2
@@ -22,7 +22,7 @@ norhos      = [None]*N # contributing functions: phi, u,      f, g
 norhophis   = [None]*N # contributing functions:      u,      f, g
 rhophis     = [None]*N # contributing functions: phi, u, rho
 
-num_knots = 10
+num_knots = 9
 knots_x = np.linspace(0,a0, num=num_knots)
 for n in range(N):
     # Generate splines with 10 knots, random y-coords of knots, equally

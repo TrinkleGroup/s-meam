@@ -1,73 +1,41 @@
 import unittest
+NOSE_PARAMETERIZED_NO_WARN=1
+from nose_parameterized import parameterized
 import numpy as np
 import time
 import pickle
 import os
 import logging
 
+np.random.seed(42)
+
 from workers import WorkerManyPotentialsOneStruct as worker
 from ase.calculators.lammpsrun import LAMMPS
 from .structs import allstructs
-from .potentials import meams,nophis,phionlys,rhos,norhos,norhophis,rhophis, N
+from .potentials import meams,nophis,phionlys,rhos,norhos,norhophis,rhophis
 from .globalVars import ATOL
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-class WorkerManyPotentialsOneStructTests(unittest.TestCase):
+#def setUp(self):
+#    self.start = time.time()
+#
+#def tearDown(self):
+#    elapsed = time.time() - self.start
+#    logger.info('{} ({}s)'.format(self.id(), round(elapsed,3)))
 
-    @classmethod
-    def setUpClass(cls):
+def runner(ptype):
+    exec('pots = ' + ptype, globals())
 
-        if os.path.isfile('lammps_energies.dat'):
-            # TODO: check if energies matches number of potentials; else rebuild
-            duration, cls.energies = pickle.load(open('lammps_energies.dat', 'rb'))
-            #cls.forces = pickle.load(open('lammps_forces.dat', 'r'))
-        else:
-            duration, cls.energies,_  = getLammpsResults()
+    calculated = {}
+    for s,atoms in enumerate(allstructs):
+        name = atoms.get_chemical_formula() + '_' + str(s)
 
-            pickle.dump((duration, cls.energies), open('lammps_energies.dat', 'wb'))
-            #pickle.dump(cls.forces, open('lammps_forces.dat', 'w'))
+        w = worker(atoms,pots)
+        calculated[name] = w.compute_energies()
 
-        logger.info('LAMMPS build time (accounting for file writing time):({'
-                    '}s)'.format(round(duration,3)))
-
-    def setUp(self):
-        self.start = time.time()
-
-    def tearDown(self):
-        elapsed = time.time() - self.start
-        logger.info('{} ({}s)'.format(self.id(), round(elapsed,3)))
-
-    def runner(self, ptype):
-        exec('pots = ' + ptype, globals())
-
-        for i,atoms in enumerate(allstructs):
-            w = worker(atoms,pots)
-            allVals = w.compute_energies()
-
-            np.testing.assert_allclose(allVals, self.energies[i][ptype], atol=ATOL)
-
-    #def test_meam(self):
-    #    self.runner('meams')
-
-    #def test_nophis(self):
-    #    self.runner('nophis')
-
-    def test_phionlys(self):
-        self.runner('phionlys')
-
-    #def test_rhos(self):
-    #    self.runner('rhos')
-
-    #def test_norhos(self):
-    #    self.runner('norhos')
-
-    #def test_norhophis(self):
-    #    self.runner('norhophis')
-
-    def test_rhophis(self):
-        self.runner('rhophis')
+    return calculated
 
 def getLammpsResults():
 
@@ -79,6 +47,7 @@ def getLammpsResults():
     forces = {}
 
     types = ['H','He']
+    #types = ['He','H']
 
     params = {}
     params['boundary'] = 'p p p'
@@ -92,12 +61,16 @@ def getLammpsResults():
 
     ptypes = ['meams', 'nophis', 'phionlys', 'rhos', 'norhos', 'norhophis', 'rhophis' ]
 
-    energies = {k:v for (k,v) in [(i,{}) for i in range(len(allstructs))]}
+    #energies = {k:v for (k,v) in [(i.get_chemical_formula()+'_'+str(i),{}) for
+    #                                                        i in allstructs]}
 
-    for i in range(len(allstructs)):
+    for s,atoms in enumerate(allstructs):
+        key = atoms.get_chemical_formula() + '_' + str(s)
+        energies[key] = {}
         for ptype in ptypes:
-            energies[i][ptype] = np.array([])
+            energies[key][ptype] = np.array([])
 
+    temp = rhophis
     for ptype in ptypes:
 
         exec('pots = ' + ptype, globals())
@@ -110,10 +83,13 @@ def getLammpsResults():
             calc = LAMMPS(no_data_file=True, parameters=params, \
                           keep_tmp_files=False,specorder=types,files=['test.meam.spline'])
 
-            for i,atoms in enumerate(allstructs):
+            # counter for unique keys
+            for s,atoms in enumerate(allstructs):
 
                 cstart = time.time()
-                energies[i][ptype] = np.append(energies[i][ptype], calc.get_potential_energy(atoms))
+                key = atoms.get_chemical_formula() + '_' + str(s)
+                energies[key][ptype] = np.append(energies[key][ptype],
+                                               calc.get_potential_energy(atoms))
                 calcduration += float(time.time() - cstart)
 
                 # TODO: LAMMPS runtimes are inflated due to ASE internal read/write
@@ -121,8 +97,54 @@ def getLammpsResults():
 
             j += 1
             calc.clean()
+            os.remove('test.meam.spline')
 
     #logging.info("Time spent writing potentials: {}s".format(round(writeduration,3)))
     #logging.info("Time spent calculating in LAMMPS: {}s".format(round(calcduration,3)))
 
     return calcduration, energies, forces
+
+def load_energies():
+    if os.path.isfile('lammps_energies.dat'):
+        # TODO: check if energies matches number of potentials; else rebuild
+        duration, energies = pickle.load(open('lammps_energies.dat', 'rb'))
+        #cls.forces = pickle.load(open('lammps_forces.dat', 'r'))
+    else:
+        duration, energies,_  = getLammpsResults()
+
+        pickle.dump((duration, energies), open('lammps_energies.dat', 'wb'))
+        #pickle.dump(cls.forces, open('lammps_forces.dat', 'w'))
+
+    #logger.info('LAMMPS build time (accounting for file writing time):({'
+    #            '}s)'.format(round(duration,3)))
+
+    return energies
+
+def load_phionlys():
+    energies = load_energies()
+
+    calculated = runner('phionlys')
+
+    tests = []
+    for name in calculated.keys():
+        test_name = 'test_phionly_' + name
+        tests.append((test_name, calculated[name], energies[name]['phionlys']))
+
+    return tests
+
+@parameterized.expand(load_phionlys)
+def test_phionly(name,a,b):
+    np.testing.assert_allclose(a,b,atol=ATOL)
+
+#def test_rhos(self):
+#    self.runner('rhos')
+
+#def test_norhos(self):
+#    self.runner('norhos')
+
+#def test_norhophis(self):
+#    self.runner('norhophis')
+
+#def test_rhophis(self):
+#    self.runner('rhophis')
+
