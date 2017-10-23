@@ -1,9 +1,13 @@
 import numpy as np
 import lammpsTools
 import meam
+import logging
 
 from numpy.polynomial.polynomial import polyval
 from ase.neighborlist import NeighborList
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 class Worker(object):
 
@@ -172,8 +176,6 @@ class WorkerManyPotentialsOneStruct(Worker):
             neighbors_noboth, offsets_noboth = nl_noboth.get_neighbors(i)
             neighbors, offsets = nl.get_neighbors(i)
 
-            # rzm: build u coefficient matrices
-
             # TODO: requires knowledge of ni to get interval
             #u_coeffs = np.array([us[potnum][idx].cmat[:,]])
 
@@ -200,11 +202,14 @@ class WorkerManyPotentialsOneStruct(Worker):
                 # CubicSpline.__call__() (unknown method; from LAPACK)?
 
             # Calculate three-body contributions
+            j_counter = 1 # for tracking neighbor
             for j,offset in zip(neighbors,offsets):
+
                 jtype = lammpsTools.symbol_to_type(atoms[j].symbol, self.types)
                 jpos = atoms[j].position + np.dot(offset,atoms.get_cell())
 
-                a = np.dot(offset, atoms.get_cell()) - ipos
+                #a = np.dot(offset, atoms.get_cell()) - ipos
+                a = jpos - ipos
                 na = np.linalg.norm(a)
 
                 rij = np.linalg.norm(ipos -jpos)
@@ -212,37 +217,74 @@ class WorkerManyPotentialsOneStruct(Worker):
                 rho_idx = meam.i_to_potl(jtype)
                 fj_idx = meam.i_to_potl(jtype)
 
-                rho_coeffs, spline_num = coeffs_from_splines(self.rhos,rij,
+                rho_coeffs, rho_spline_num = coeffs_from_splines(self.rhos,rij,
                                                              rho_idx)
-                fj_coeffs,_ = coeffs_from_splines(self.fs,rij,
+                fj_coeffs, fj_spline_num = coeffs_from_splines(self.fs,rij,
                                                              fj_idx)
                 # assumes rho and f knots are in same positions
-                rij -= self.rhos[0][0].knotsx[spline_num-1]
+                rij -= self.rhos[0][0].knotsx[rho_spline_num-1]
 
                 total_ni += polyval(rij, rho_coeffs)
 
+                rij += self.rhos[0][0].knotsx[rho_spline_num-1]
+
+                partialsum = np.zeros(len(self.potentials))
+                for k,offset in zip(neighbors[j_counter:], offsets[j_counter:]):
+                    if k != j:
+                        ktype = lammpsTools.symbol_to_type(atoms[k].symbol,
+                                                           self.types)
+
+                        kpos = atoms[k].position + np.dot(offset,
+                                                          atoms.get_cell())
+                        rik = np.linalg.norm(ipos-kpos)
+
+                        fk_idx = meam.i_to_potl(ktype)
+
+                        b = kpos - ipos
+                        nb = np.linalg.norm(b)
+
+                        cos_theta = np.dot(a,b)/na/nb
+
+                        fk_coeffs, fk_spline_num = coeffs_from_splines(self.fs,
+                                                                     rik,fk_idx)
+                        g_coeffs, g_spline_num = coeffs_from_splines(self.gs,
+                            cos_theta, meam.ij_to_potl(jtype,ktype,self.ntypes))
+
+                        rik -= self.fs[0][0].knotsx[fk_spline_num-1]
+                        cos_theta -= self.gs[0][0].knotsx[g_spline_num-1]
+
+                        partialsum += polyval(rik, fk_coeffs)*polyval(
+                            cos_theta, g_coeffs)
+
+                j_counter += 1
+                rij -= self.fs[0][0].knotsx[fj_spline_num-1]
+                total_ni += polyval(rij, fj_coeffs)*partialsum
+
+                rij += self.fs[0][0].knotsx[fj_spline_num-1]
+
             u_idx = meam.i_to_potl(itype)
 
-            #u_coeffs, u_spline_num = coeffs_from_splines(self.us, total_ni,
-            #                                             u_idx)
-            # rzm: total_ni is an array b/c it depends on unique rhos
-
+            # Build U coefficient matrix
             u_coeffs = np.zeros((4,len(self.potentials)))
-            for k,p in enumerate(self.potentials):
+            for l,p in enumerate(self.potentials):
                 knots = p.us[0].knotsx
 
                 h = p.us[0].h
 
-                u_spline_num = int(np.floor(total_ni[k]/h)) + 1
+                u_spline_num = int(np.floor(total_ni[l]/h)) + 1
 
                 if u_spline_num < 0:
+                    #str = "EXTRAP: total_ni = {0}".format(total_ni)
+                    #logging.info(str)
                     u_spline_num = 0
                 elif u_spline_num > len(knots):
-                    u_spline_num = len(knots) + 1
+                    #str = "EXTRAP: total_ni = {0}".format(total_ni)
+                    #logging.info(str)
+                    u_spline_num = len(knots)
 
-                #print(k,u_idx,u_spline_num)
-                u_coeffs[:,k] = p.us[u_idx].cmat[:,u_spline_num]
-                total_ni[k] -= knots[u_spline_num-1]
+                #logging.infoprint(k,u_idx,u_spline_num)
+                u_coeffs[:,l] = p.us[u_idx].cmat[:,u_spline_num]
+                total_ni[l] -= knots[u_spline_num-1]
 
             u_coeffs = u_coeffs[::-1]
 

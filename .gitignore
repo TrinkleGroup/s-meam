@@ -213,3 +213,9 @@ $RECYCLE.BIN/
 
 # Ignore tmp folder
 tmp/*
+
+# Other random files
+*.dat
+*.spline
+*.out
+*poop*

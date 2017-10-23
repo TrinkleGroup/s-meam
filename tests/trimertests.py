@@ -32,7 +32,7 @@ class TrimerTests(unittest.TestCase):
 
             for atoms in trimers:
                 expected = calc.get_potential_energy(atoms)
-                val = p.compute_energies(atoms)
+                val = p.compute_energies
 
                 self.assertAlmostEquals(val, expected, DIGITS)
 

@@ -4,14 +4,11 @@ Contact: jvita2@illinois.edu"""
 
 # TODO: will need to be able to set individual splines, not just the whole set
 
-import sys
 import numpy as np
-import itertools
-import matplotlib.pyplot as plt
 import lammpsTools
 
 from potential import Potential
-from spline import Spline
+from spline import Spline, ZeroSpline
 from ase.neighborlist import NeighborList
 
 class MEAM2Body(object):
@@ -31,7 +28,7 @@ class MEAM(Potential):
     Note:
         For indexing of splines, see notes in compute_energies() method"""
 
-    def  __init__(self, fname=None, fmt='lammps', types=[], splines=[]):
+    def  __init__(self, fname=None, types=[], fmt='lammps', splines=[]):
         Potential.__init__(self)
 
         if fname:
@@ -599,6 +596,134 @@ class MEAM(Potential):
         for i,s in enumerate(splines):
             s.plot(saveName=str(i+1)+'.png')
                 # TODO: finish this for generic system, not just binary/unary
+
+
+# TODO: all subtype functions are assuming a 2-component system
+def phionly_subtype(pot):
+    """Returns the phionly version of pot
+
+    Args:
+        pot (MEAM):
+            the original potential
+
+    Returns:
+        phionly (MEAM):
+            the phionly version of pot"""
+
+    N = pot.ntypes          # number of components in the system
+    nphi = int((N+1)*N/2)   # number of each phi and u splines
+
+    original = pot.phis + pot.rhos + pot.us + pot.fs + pot.gs
+
+    splines = [original[i] if (i<nphi) else ZeroSpline(original[i].knotsx)
+               for i in range(N*(N+4))]
+
+    return MEAM(splines=splines, types=pot.types)
+
+def nophi_subtype(pot):
+    """Returns the nophi version of pot
+
+    Args:
+        pot (MEAM):
+            the original potential
+
+    Returns:
+        nophi (MEAM):
+            the nophi version of pot"""
+
+    N = pot.ntypes          # number of components in the system
+    nphi = int((N+1)*N/2)   # number of each phi and u splines
+
+    original = pot.phis + pot.rhos + pot.us + pot.fs + pot.gs
+
+    splines = [original[i] if (i>=nphi) else ZeroSpline(original[i].knotsx)
+               for i in range(N*(N+4))]
+
+    return MEAM(splines=splines, types=pot.types)
+
+def rhophi_subtype(pot):
+    """Returns the rhophi version of pot
+
+    Args:
+        pot (MEAM):
+            the original potential
+
+    Returns:
+        rhophi (MEAM):
+            the rhophi version of pot"""
+
+    N = pot.ntypes          # number of components in the system
+    nphi = int((N+1)*N/2)   # number of each phi and u splines
+
+    original = pot.phis + pot.rhos + pot.us + pot.fs + pot.gs
+
+    splines = [original[i] if (i<(nphi+N+N)) else ZeroSpline(original[
+                                        i].knotsx) for i in range(N*(N+4))]
+
+    return MEAM(splines=splines, types=pot.types)
+
+def norhophi_subtype(pot):
+    """Returns the norhophi version of pot
+
+    Args:
+        pot (MEAM):
+            the original potential
+
+    Returns:
+        norhophi (MEAM):
+            the norhophi version of pot"""
+
+    N = pot.ntypes          # number of components in the system
+    nphi = int((N+1)*N/2)   # number of each phi and u splines
+
+    original = pot.phis + pot.rhos + pot.us + pot.fs + pot.gs
+
+    splines = [original[i] if (i>=(nphi+N)) else ZeroSpline(original[
+                                        i].knotsx) for i in range(N*(N+4))]
+
+    return MEAM(splines=splines, types=pot.types)
+
+def norho_subtype(pot):
+    """Returns the norhos version of pot
+
+    Args:
+        pot (MEAM):
+            the original potential
+
+    Returns:
+        norhos (MEAM):
+            the norhos version of pot"""
+
+    N = pot.ntypes          # number of components in the system
+    nphi = int((N+1)*N/2)   # number of each phi and u splines
+
+    original = pot.phis + pot.rhos + pot.us + pot.fs + pot.gs
+
+    splines = [original[i] if ((i<nphi) or (i>=(nphi+N))) else ZeroSpline(
+                    original[i].knotsx) for i in range(N*(N+4))]
+
+    return MEAM(splines=splines, types=pot.types)
+
+def rho_subtype(pot):
+    """Returns the rhos version of pot
+
+    Args:
+        pot (MEAM):
+            the original potential
+
+    Returns:
+        rhos (MEAM):
+            the rhos version of pot"""
+
+    N = pot.ntypes          # number of components in the system
+    nphi = int((N+1)*N/2)   # number of each phi and u splines
+
+    original = pot.phis + pot.rhos + pot.us + pot.fs + pot.gs
+
+    splines = [original[i] if ((i>=nphi) and (i<nphi+N+N)) else ZeroSpline(
+                    original[i].knotsx) for i in range(N*(N+4))]
+
+    return MEAM(splines=splines, types=pot.types)
 
 def ij_to_potl(itype,jtype,ntypes):
     """Maps i and j element numbers to a single index of a 1D list; used for

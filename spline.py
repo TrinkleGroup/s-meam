@@ -22,10 +22,10 @@ class Spline(CubicSpline):
 
         # Add coefficients for extrapolating splines; can't edit self.c itself
         self._cmat = np.copy(self.c)
-        self._cmat = np.insert(self.c,0,np.array([0,0,self.d0,self.knotsx[
+        self._cmat = np.insert(self.c,0,np.array([0,0,self.d0,self.knotsy[
             0]]),axis=1)
         self._cmat = np.insert(self.cmat,self.cmat.shape[1],np.array([0,0,\
-                        self.dN, self.knotsx[-1]]),axis=1)
+                        self.dN, self.knotsy[-1]]),axis=1)
 
     @property
     def cmat(self):
@@ -156,6 +156,8 @@ class ZeroSpline(Spline):
     """Used to easily create a zero spline"""
 
     def __init__(self,knotsx):
+
+        knotsx = np.array(knotsx)
 
         super(ZeroSpline,self).__init__(knotsx,np.zeros(knotsx.shape[0]),\
                 derivs=(0,0))

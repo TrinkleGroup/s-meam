@@ -32,13 +32,13 @@ class BulkVacTests(unittest.TestCase):
 
             for atoms in bulk_vac:
                 expected = calc.get_potential_energy(atoms)
-                val = p.compute_energies(atoms)
+                val = p.compute_energies
 
                 self.assertAlmostEquals(val, expected, DIGITS)
 
             for atoms in bulk_vac_rhombo:
                 expected = calc.get_potential_energy(atoms)
-                val = p.compute_energies(atoms)
+                val = p.compute_energies
 
                 self.assertAlmostEquals(val, expected, DIGITS)
 

@@ -32,7 +32,7 @@ class DimerTests(unittest.TestCase):
 
             for atoms in dimers:
                 expected = calc.get_potential_energy(atoms)
-                val = p.compute_energies(atoms)
+                val = p.compute_energies
 
                 self.assertAlmostEquals(val, expected, DIGITS)
 
