@@ -173,6 +173,8 @@ class WorkerManyPotentialsOneStruct(Worker):
             itype = lammpsTools.symbol_to_type(atoms[i].symbol, self.types)
             ipos = atoms[i].position
 
+            u_idx = meam.i_to_potl(itype)
+
             neighbors_noboth, offsets_noboth = nl_noboth.get_neighbors(i)
             neighbors, offsets = nl.get_neighbors(i)
 
@@ -189,11 +191,11 @@ class WorkerManyPotentialsOneStruct(Worker):
                 # Finds correct type of phi fxn
                 phi_idx = meam.ij_to_potl(itype,jtype,self.ntypes)
 
-                phi_coeffs, spline_num = coeffs_from_splines(self.phis,rij,
-                                                             phi_idx)
+                phi_coeffs, spline_num, phi_knot_num = coeffs_from_splines(
+                    self.phis,rij,phi_idx)
 
                 # knot index != cmat index
-                rij -= self.phis[0][phi_idx].knotsx[spline_num-1]
+                rij -= self.phis[0][phi_idx].knotsx[phi_knot_num]
 
                 energies += polyval(rij, phi_coeffs)
 
@@ -208,7 +210,6 @@ class WorkerManyPotentialsOneStruct(Worker):
                 jtype = lammpsTools.symbol_to_type(atoms[j].symbol, self.types)
                 jpos = atoms[j].position + np.dot(offset,atoms.get_cell())
 
-                #a = np.dot(offset, atoms.get_cell()) - ipos
                 a = jpos - ipos
                 na = np.linalg.norm(a)
 
@@ -217,77 +218,104 @@ class WorkerManyPotentialsOneStruct(Worker):
                 rho_idx = meam.i_to_potl(jtype)
                 fj_idx = meam.i_to_potl(jtype)
 
-                rho_coeffs, rho_spline_num = coeffs_from_splines(self.rhos,rij,
-                                                             rho_idx)
-                fj_coeffs, fj_spline_num = coeffs_from_splines(self.fs,rij,
-                                                             fj_idx)
+                rho_coeffs, rho_spline_num, rho_knot_num = coeffs_from_splines(
+                    self.rhos,rij,rho_idx)
+                fj_coeffs, fj_spline_num, fj_knot_num = coeffs_from_splines(
+                    self.fs,rij,fj_idx)
                 # assumes rho and f knots are in same positions
-                rij -= self.rhos[0][0].knotsx[rho_spline_num-1]
+                rijo = rij
+                rij = rij - self.rhos[0][rho_idx].knotsx[rho_knot_num]
 
-                total_ni += polyval(rij, rho_coeffs)
+                #logging.info("expected = {2},rho_val = {0}, type = {1}".format(
+                #    polyval(rij,rho_coeffs), rho_idx, self.rhos[0][rho_idx](
+                #        rijo)))
+                total_ni += polyval(rij, rho_coeffs)# + self.rhos[0][
+                # 0].knotsy[rho_spline_num-1]
 
-                rij += self.rhos[0][0].knotsx[rho_spline_num-1]
+                rij += self.rhos[0][rho_idx].knotsx[rho_knot_num]
 
+                # Three-body contributions
                 partialsum = np.zeros(len(self.potentials))
                 for k,offset in zip(neighbors[j_counter:], offsets[j_counter:]):
                     if k != j:
                         ktype = lammpsTools.symbol_to_type(atoms[k].symbol,
                                                            self.types)
 
+                        #logging.info("{0}, {1}, {2}".format(itype,jtype,ktype))
+
                         kpos = atoms[k].position + np.dot(offset,
                                                           atoms.get_cell())
                         rik = np.linalg.norm(ipos-kpos)
-
-                        fk_idx = meam.i_to_potl(ktype)
 
                         b = kpos - ipos
                         nb = np.linalg.norm(b)
 
                         cos_theta = np.dot(a,b)/na/nb
 
-                        fk_coeffs, fk_spline_num = coeffs_from_splines(self.fs,
-                                                                     rik,fk_idx)
-                        g_coeffs, g_spline_num = coeffs_from_splines(self.gs,
-                            cos_theta, meam.ij_to_potl(jtype,ktype,self.ntypes))
+                        fk_idx = meam.i_to_potl(ktype)
+                        g_idx = meam.ij_to_potl(jtype, ktype, self.ntypes)
 
-                        rik -= self.fs[0][0].knotsx[fk_spline_num-1]
-                        cos_theta -= self.gs[0][0].knotsx[g_spline_num-1]
+                        fk_coeffs, fk_spline_num, fk_knot_num = \
+                            coeffs_from_splines(self.fs,rik,fk_idx)
+                        g_coeffs, g_spline_num, g_knot_num = \
+                            coeffs_from_splines(self.gs,cos_theta, g_idx)
 
+                        rik -= self.fs[0][fk_idx].knotsx[fk_knot_num]
+                        cos_theta -= self.gs[0][g_idx].knotsx[g_knot_num]
+
+
+                        #fk_val = polyval(rik, fk_coeffs)
+                        #g_val = polyval(cos_theta, g_coeffs)
+
+                        #logging.info('fk_val = {0}'.format(fk_val))
+                        #logging.info('g_val = {0}'.format(g_val))
                         partialsum += polyval(rik, fk_coeffs)*polyval(
                             cos_theta, g_coeffs)
 
                 j_counter += 1
-                rij -= self.fs[0][0].knotsx[fj_spline_num-1]
+                rij -= self.fs[0][fj_idx].knotsx[fj_knot_num]
                 total_ni += polyval(rij, fj_coeffs)*partialsum
-
-                rij += self.fs[0][0].knotsx[fj_spline_num-1]
-
-            u_idx = meam.i_to_potl(itype)
 
             # Build U coefficient matrix
             u_coeffs = np.zeros((4,len(self.potentials)))
             for l,p in enumerate(self.potentials):
-                knots = p.us[0].knotsx
+                knots = p.us[u_idx].knotsx
 
-                h = p.us[0].h
+                h = p.us[u_idx].h
 
-                u_spline_num = int(np.floor(total_ni[l]/h)) + 1
+                top = total_ni[l] - knots[0]
+                tmp1 = top/h
+                tmp2 = np.floor(tmp1)
+                tmp = int(tmp2)
+                u_spline_num = tmp + 1
+                #u_spline_num = int(np.floor((total_ni[l]-knots[0])/h)) + 1
 
-                if u_spline_num < 0:
+                if u_spline_num <= 0:
                     #str = "EXTRAP: total_ni = {0}".format(total_ni)
                     #logging.info(str)
                     u_spline_num = 0
+                    u_knot_num = 0
                 elif u_spline_num > len(knots):
                     #str = "EXTRAP: total_ni = {0}".format(total_ni)
                     #logging.info(str)
                     u_spline_num = len(knots)
+                    u_knot_num = u_spline_num - 1
+                else:
+                    u_knot_num = u_spline_num - 1
 
-                #logging.infoprint(k,u_idx,u_spline_num)
+                #logging.info("expected = {0}, total_ni = {1}, knot0 = {"
+                #             "2}".format(p.us[u_idx](total_ni), total_ni,
+                #                         knots[u_spline_num-1]))
                 u_coeffs[:,l] = p.us[u_idx].cmat[:,u_spline_num]
-                total_ni[l] -= knots[u_spline_num-1]
+                total_ni[l] -= knots[u_knot_num]
+                #rzm think of a prettier way to get knot_num
 
             u_coeffs = u_coeffs[::-1]
 
+            # rzm: extrapolation failing for u; suspect bc negative values
+            #logging.info("real = {0}, total_ni = {1}".format(polyval(total_ni,
+            #    u_coeffs,tensor=False)-self.zero_atom_energies[:,u_idx],
+            #                                                 total_ni))
             energies += polyval(total_ni, u_coeffs,tensor=False) -\
                         self.zero_atom_energies[:,u_idx]
 
@@ -318,18 +346,29 @@ def coeffs_from_splines(splines, x, pot_type):
         spline_num (int):
             index of spline interval"""
 
-    knots = splines[0][0].knotsx
+    knots = splines[0][pot_type].knotsx
 
-    h = splines[0][0].h
+    h = splines[0][pot_type].h
 
     # Find spline interval; +1 to account for extrapolation
-    spline_num = int(np.floor(x/h)) + 1
+    # TODO: '//' operator is floor
+    spline_num = int(np.floor((x-knots[0])/h)) + 1 # shift x by leftmost knot
 
-    if spline_num < 0: spline_num = 0; print('EXTRAPOLATING')
-    elif spline_num > len(knots): spline_num = len(knots) + 1; print(
-        'EXTRAPOLATING')
+    if spline_num <= 0:
+        spline_num = 0
+        knot_num = 0
+    elif spline_num > len(knots):
+        spline_num = len(knots)
+        knot_num = spline_num - 1
+    else:
+        knot_num = spline_num - 1
+
+   # for i in range(len(splines)):
+   #     if spline_num >= splines[i][pot_type].cmat.shape[1]:
+   #         logging.info('{0} {1}'.format(pot_type, spline_num))
 
     # Pull coefficients from Spline.cmat variable
+    #logging.info('{0} {1}'.format(pot_type, spline_num))
     coeffs = np.array([splines[i][pot_type].cmat[:,spline_num] for i in
                        range(len(splines))])
 
@@ -337,4 +376,4 @@ def coeffs_from_splines(splines, x, pot_type):
     coeffs = coeffs.transpose()
     coeffs = coeffs[::-1]
 
-    return coeffs, spline_num
+    return coeffs, spline_num, knot_num

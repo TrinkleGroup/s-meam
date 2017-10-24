@@ -1,5 +1,6 @@
 """Generates N random potentials and 'subtypes' potentials for use in testing"""
 import numpy as np
+import meam
 
 from spline import Spline
 from spline import ZeroSpline
@@ -33,23 +34,23 @@ contributions independently. Here is what each subtype should evaluate to:
     rhophi = 3*#pairs"""
 
 # all ones
-phi_spline = Spline(np.linspace(0,a0, num=num_knots), np.ones(num_knots),
+phi_spline = Spline(np.linspace(1,a0+1, num=num_knots), np.ones(num_knots),
                     bc_type=((1,0),(1,0)), derivs=(0,0))
 
 # all ones
-rho_spline = Spline(np.linspace(0,a0, num=num_knots), np.ones(num_knots),
+rho_spline = Spline(np.linspace(1,a0+1, num=num_knots), np.ones(num_knots),
                   bc_type=((1,0),(1,0)), derivs=(0,0))
 
 # u = ni, linear function
-u_spline = Spline(np.linspace(0,a0, num=num_knots), np.linspace(0,a0, num=num_knots),
+u_spline = Spline(np.linspace(1,a0+1, num=num_knots), np.linspace(1,a0+1, num=num_knots),
                     bc_type=((1,1),(1,1)), derivs=(1,1))
 
 # all ones
-f_spline = Spline(np.linspace(0,a0, num=num_knots), np.ones(num_knots),
+f_spline = Spline(np.linspace(1,a0+1, num=num_knots), np.ones(num_knots),
                     bc_type=((1,0),(1,0)), derivs=(0,0))
 
 # all ones
-g_spline = Spline(np.linspace(0,a0, num=num_knots), np.ones(num_knots),
+g_spline = Spline(np.linspace(1,a0+1, num=num_knots), np.ones(num_knots),
                     bc_type=((1,0),(1,0)), derivs=(0,0))
 
 splines = [phi_spline]*3 + [rho_spline]*2 + [u_spline]*2 + [f_spline]*2 +\
@@ -113,14 +114,15 @@ lhs_extrap_potential = MEAM(splines=splines, types=['H','He'])
 ################################################################################
 # TODO: create a special method that can take in a potential (or file) and test
 
-'''
-meams       = [None]*N # contributing functions: phi, u, rho, f, g
-nophis      = [None]*N # contributing functions:      u, rho, f, g
-phionlys    = [None]*N # contributing functions: phi
-rhos        = [None]*N # contributing functions:      u, rho
-norhos      = [None]*N # contributing functions: phi, u,      f, g
-norhophis   = [None]*N # contributing functions:      u,      f, g
-rhophis     = [None]*N # contributing functions: phi, u, rho
+N = 2
+
+rng_meams       = [None]*N # contributing functions: phi, u, rho, f, g
+rng_nophis      = [None]*N # contributing functions:      u, rho, f, g
+rng_phionlys    = [None]*N # contributing functions: phi
+rng_rhos        = [None]*N # contributing functions:      u, rho
+rng_norhos      = [None]*N # contributing functions: phi, u,      f, g
+rng_norhophis   = [None]*N # contributing functions:      u,      f, g
+rng_rhophis     = [None]*N # contributing functions: phi, u, rho
 
 num_knots = 9
 knots_x = np.linspace(0,a0, num=num_knots)
@@ -141,34 +143,21 @@ for n in range(N):
         temp.cutoff = (knots_x[0],knots_x[len(knots_x)-1])
         splines.append(temp)
 
-    tmp_splines = list(splines)
+    p = MEAM(splines=splines, types=['H','He'])
+    #p = MEAM('HHe.meam.spline')
 
-    # NOTE: order of splines is [phi,phi,phi,rho,rho,u,u,f,f,g,g,g]
+    rng_meams[n]        = p
+    rng_nophis[n]       = meam.nophi_subtype(p)
+    rng_phionlys[n]     = meam.phionly_subtype(p)
+    rng_rhos[n]         = meam.rho_subtype(p)
+    rng_norhos[n]       = meam.norhophi_subtype(p)
+    rng_norhophis[n]    = meam.norhophi_subtype(p)
+    rng_rhophis[n]      = meam.rhophi_subtype(p)
 
-    meams[n] = MEAM(splines=splines, types=['H','He'])
-
-    splines = [tmp_splines[i] if (i>=3) else ZeroSpline(knots_x) for i in range(12)]
-    nophis[n] = MEAM(splines = splines, types=['H','He'])
-
-    splines = [tmp_splines[i] if (i<3) else ZeroSpline(knots_x) for i in range(12)]
-    phionlys[n] = MEAM(splines = splines, types=['H','He'])
-
-    splines = [tmp_splines[i] if ((i>=3) and (i<7)) else ZeroSpline(knots_x) for i in range(12)]
-    rhos[n] = MEAM(splines = splines, types=['H','He'])
-
-    splines = [tmp_splines[i] if ((i<3) or (i>4)) else ZeroSpline(knots_x) for i in range(12)]
-    norhos[n] = MEAM(splines = splines, types=['H','He'])
-
-    splines = [tmp_splines[i] if (i>4) else ZeroSpline(knots_x) for i in range(12)]
-    norhophis[n] = MEAM(splines = splines, types=['H','He'])
-
-    splines = [tmp_splines[i] if (i<7) else ZeroSpline(knots_x) for i in range(12)]
-    rhophis[n] = MEAM(splines = splines, types=['H','He'])
-
-allPotentials = {'meams':meams, 'nophis':nophis, 'phionlys':phionlys,\
-        'rhos':rhos, 'norhos':norhos, 'norhophis':norhophis, 'rhophis':rhophis}
+#allPotentials = {'meams':meams, 'nophis':nophis, 'phionlys':phionlys,\
+#        'rhos':rhos, 'norhos':norhos, 'norhophis':norhophis, 'rhophis':rhophis}
 
 # TODO: may be worth making a function to get LAMMPS eval for a set of
 # atoms/potentials
 
-print("Created %d potentials (%d main, %d subtypes)" % (7*N, N, 6*N))'''
+print("Created %d potentials (%d main, %d subtypes)" % (7*N, N, 6*N))

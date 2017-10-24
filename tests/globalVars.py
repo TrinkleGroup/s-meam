@@ -1,7 +1,7 @@
 """Global testing parameters"""
 
-a0 = 2.6    # Potential cutoff distance
-r0 = a0/4   # Default atomic spacing
+a0 = 5.5    # Potential cutoff distance
+r0 = 2.8   # Default atomic spacing
 vac = 2*a0  # Vacuum size used in all directions for certain structures
 
 DIGITS = 6  # Desired number of digits for test accuracy (assertAlmostEquals)
