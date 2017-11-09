@@ -157,16 +157,16 @@ bulk_vac_rhombo['bulk_vac_rhombo_type2'] = type2
 bulk_vac_rhombo['bulk_vac_rhombo_mixed'] = mixed
 
 ################################################################################
-#allstructs = {**dimers, **trimers, **bulk_vac_ortho, **bulk_periodic_ortho,\
-#                **bulk_vac_rhombo, **bulk_periodic_rhombo}
+allstructs = {**dimers, **trimers, **bulk_vac_ortho, **bulk_periodic_ortho,\
+                **bulk_vac_rhombo, **bulk_periodic_rhombo}
 #key = 'bulk_vac_ortho_type1'
 #allstructs = {key:bulk_vac_ortho[key]}
-key = 'bb'
-allstructs = {key:dimers[key]}
+#key = 'abb'
+#allstructs = {key:trimers[key]}
 #allstructs = {'twotrips':lammpsTools.atoms_from_file('data.twotrips',types=[
 #    'H','He'])}
 
-lammpsTools.atoms_to_LAMMPS_file('data.dimerBB', dimers[key])
+#lammpsTools.atoms_to_LAMMPS_file('data.dimerBB', dimers[key])
 
 nsmall = len(dimers) + len(trimers)
 nbig = len(bulk_periodic_ortho) + len(bulk_vac_ortho) + len(bulk_vac_rhombo) +\

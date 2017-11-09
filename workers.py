@@ -76,6 +76,7 @@ class WorkerManyPotentialsOneStruct(Worker):
         self.u_index_info   = {'pot_type_idx':[], 'interval_idx':[]}
         #total_num_neighbors = sum([len(nl_noboth.get_neighbors(i) for i in
         #                               range(len(atoms)))])
+
         for i in range(natoms):
             itype = lammpsTools.symbol_to_type(atoms[i].symbol, self.types)
             ipos = atoms[i].position
@@ -161,6 +162,9 @@ class WorkerManyPotentialsOneStruct(Worker):
         # changing y-coords changes splines, changes coeffs
         # maybe could use cubic spline eval equation, not polyval()
 
+        # TODO: is it worth creating a huge matrix of ordered coeffs so that
+        # it's just a single matrix multiplication?
+
         self.potentials = potentials
 
         energies = np.zeros(len(potentials))
@@ -172,12 +176,10 @@ class WorkerManyPotentialsOneStruct(Worker):
         results = eval_all_potentials(self.pair_distances_oneway, phi_coeffs)
         energies += np.sum(results, axis=1)
 
-        # Compute 3-body contributions
+        # Calculate ni values
         total_ni = np.zeros( (len(potentials),len(self.atoms)) )
-
         for i in range(len(self.atoms)):
 
-            # TODO: rho_indices are atom_i dependent
             pair_distances_bothways = self.pair_distances_bothways[i]
             rho_types = self.rho_index_info['pot_type_idx'][i]
             rho_indices = self.rho_index_info['interval_idx'][i]
@@ -189,6 +191,7 @@ class WorkerManyPotentialsOneStruct(Worker):
 
             total_ni[:,i] += np.sum(results, axis=1)
 
+        # Performing binning and shifting for each ni in each potential
         for p in range(total_ni.shape[0]):
             ni_indices_for_one_pot = np.zeros(len(self.atoms))
 
@@ -209,25 +212,31 @@ class WorkerManyPotentialsOneStruct(Worker):
         self.u_index_info['interval_idx'] = np.array(self.u_index_info[
                                                          'interval_idx'])
 
-        results = np.zeros(len(potentials))
-
         # rzm: need to properly subtract zero_atom_energy
+
+
+        # Compute U values and add to energy
         u_types = self.u_index_info['pot_type_idx']
-        zero_atom_energy = np.array([self.zero_atom_energies[:,z] for z in
-                            u_types])
-        # len(self.atoms)))
+
         for j,row  in enumerate(total_ni):
             u_indices = self.u_index_info['interval_idx'][j]
 
-            u_coeffs = coeffs_from_indices(self.us,
+            u_coeffs = coeffs_from_indices([self.us[j]],
                         {'pot_type_idx':u_types, 'interval_idx':u_indices})
 
             results = eval_all_potentials(row, u_coeffs)
             #logging.info("{0}".format(results))
             #logging.info("{0}".format(zero_atom_energy))
             # TODO: need to subtract zero_atom_energies
-            energies += np.sum(results, axis=1)
-            energies -= np.sum(zero_atom_energy, axis=0)
+            energies[j] += np.sum(results, axis=1)
+            #energies -= np.sum(zero_atom_energy, axis=1)
+
+        # Calculate zero_point_energies for each potential
+        zero_atom_energy = np.array([self.zero_atom_energies[:,z] for z in
+                            u_types]).transpose()
+        zero_atom_energy = np.sum(zero_atom_energy, axis=1)
+
+        energies -= zero_atom_energy
 
         #logging.info("real = {0}, total_ni = {1}".format(polyval(total_ni,
         #    u_coeffs,tensor=False)-self.zero_atom_energies[:,u_idx],
