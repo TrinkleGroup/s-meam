@@ -48,6 +48,8 @@ class WorkerManyPotentialsOneStruct(Worker):
     # TODO: should __call__() take in just a single potential?
     # TODO: an assumption is made that all potentials have the same cutoffs
 
+    # TODO: assumption that len(potentials) is constant across init() & call()
+
     def __init__(self, atoms, potentials):
 
         # Basic variable initialization
@@ -69,13 +71,17 @@ class WorkerManyPotentialsOneStruct(Worker):
         self.pair_distances_oneway  = [] #TODO: is it faster to build np.arr of
         # desired len?
         self.pair_distances_bothways = []
+        self.triplet_values = [] # (fj, fk, cos)
+        # TODO: redundancy; triplet info has overlap with pair_distances
 
-        # 'index_info' vars are lists of tuples (pot_type_idx, interval_idx)
         self.phi_index_info = {'pot_type_idx':[], 'interval_idx':[]}
         self.rho_index_info = {'pot_type_idx':[], 'interval_idx':[]}
         self.u_index_info   = {'pot_type_idx':[], 'interval_idx':[]}
-        #total_num_neighbors = sum([len(nl_noboth.get_neighbors(i) for i in
-        #                               range(len(atoms)))])
+        #self.fj_index_info   = {'pot_type_idx':[], 'interval_idx':[]}
+        #self.fk_index_info   = {'pot_type_idx':[], 'interval_idx':[]}
+        #self.g_index_info   = {'pot_type_idx':[], 'interval_idx':[]}
+        self.triplet_info = {'pot_type_idx':[], 'interval_idx':[]} # (fj,fk,g)
+        # TODO: redundancy; triplet info has overlap with pair_distances
 
         for i in range(natoms):
             itype = lammpsTools.symbol_to_type(atoms[i].symbol, self.types)
@@ -108,8 +114,16 @@ class WorkerManyPotentialsOneStruct(Worker):
                 #self.pair_distances_bothways.append(rij)
 
             pair_distances_for_one_atom = []
+
             rho_type_indices_for_one_atom = []
             rho_spline_indices_for_one_atom = []
+
+            fj_type_indices_for_one_atom = []
+            fj_spline_indices_for_one_atom = []
+
+            triplets_values_for_one_atom = []
+            triplets_types_for_one_atom = []
+            triplets_intervals_for_one_atom = []
 
             # Calculate three-body contributions
             j_counter = 1 # for tracking neighbor
@@ -126,25 +140,78 @@ class WorkerManyPotentialsOneStruct(Worker):
                 rho_idx = meam.i_to_potl(jtype)
                 fj_idx = meam.i_to_potl(jtype)
 
+                # Rho information
                 rho_spline_num, rho_knot_num = intervals_from_splines(
                     self.rhos,rij,rho_idx)
-                fj_coeffs, fj_spline_num, fj_knot_num = coeffs_from_splines(
-                    self.fs,rij,fj_idx)
-
                 rho_type_indices_for_one_atom.append(rho_idx)
                 rho_spline_indices_for_one_atom.append(rho_spline_num)
 
-                # assumes rho and f knots are in same positions
+                # fj information
+                fj_spline_num, fj_knot_num = intervals_from_splines(
+                    self.fs,rij,fj_idx)
+                fj_type_indices_for_one_atom.append(fj_idx)
+                fj_spline_indices_for_one_atom.append(fj_spline_num)
+
                 rij = rij - self.rhos[0][rho_idx].knotsx[rho_knot_num]
                 pair_distances_for_one_atom.append(rij)
 
-                # TODO: add this back to pair_distances_bothways later?
-                rij += self.rhos[0][rho_idx].knotsx[rho_knot_num]
+                # TODO: don't add this back since fk comes from fj?
+                #rij += self.rhos[0][rho_idx].knotsx[rho_knot_num]
+
+                # rzm: figure out what info to pre-compute for ffg
 
                 # Three-body contributions
-                partialsum = np.zeros(len(self.potentials))
                 for k,offset in zip(neighbors[j_counter:], offsets[j_counter:]):
-                    pass
+                    if k != j:
+                        ktype = lammpsTools.symbol_to_type(atoms[k].symbol,
+                                                           self.types)
+
+                        #logging.info("{0}, {1}, {2}".format(itype,jtype,ktype))
+
+                        kpos = atoms[k].position + np.dot(offset,
+                                                          atoms.get_cell())
+                        rik = np.linalg.norm(ipos-kpos)
+
+                        b = kpos - ipos
+                        nb = np.linalg.norm(b)
+
+                        cos_theta = np.dot(a,b)/na/nb
+
+
+                        fk_idx = meam.i_to_potl(ktype)
+
+                        fk_spline_num, fk_knot_num = \
+                            intervals_from_splines(self.fs,rik,fk_idx)
+
+                        g_idx = meam.ij_to_potl(jtype, ktype, self.ntypes)
+
+                        g_spline_num, g_knot_num = \
+                            intervals_from_splines(self.gs,cos_theta, g_idx)
+
+                        rik -= self.fs[0][fk_idx].knotsx[fk_knot_num]
+                        cos_theta -= self.gs[0][g_idx].knotsx[g_knot_num]
+
+                        tup1 = np.array([rij, rik, cos_theta])
+                        tup2 = np.array([fj_idx, fk_idx, g_idx])
+                        tup3 = np.array([fj_spline_num, fk_spline_num,
+                                         g_spline_num])
+
+                        triplets_values_for_one_atom.append(tup1)
+                        triplets_types_for_one_atom.append(tup2)
+                        triplets_intervals_for_one_atom.append(tup3)
+
+                j_counter += 1
+
+            triplets_values_for_one_atom =\
+                np.array(triplets_values_for_one_atom)
+            triplets_types_for_one_atom =\
+                np.array(triplets_types_for_one_atom)
+            triplets_intervals_for_one_atom =\
+                np.array(triplets_intervals_for_one_atom)
+
+            self.triplet_info['pot_type_idx'].append(triplets_types_for_one_atom)
+            self.triplet_info['interval_idx'].append(triplets_intervals_for_one_atom)
+            self.triplet_values.append(triplets_values_for_one_atom)
 
             self.pair_distances_bothways.append(
                 np.array(pair_distances_for_one_atom))
@@ -153,7 +220,11 @@ class WorkerManyPotentialsOneStruct(Worker):
                 np.array(rho_type_indices_for_one_atom))
 
             self.rho_index_info['interval_idx'].append(
-                rho_spline_indices_for_one_atom)
+                np.array(rho_spline_indices_for_one_atom))
+
+        self.triplet_info['pot_type_idx'] = np.array(self.triplet_info['pot_type_idx'])
+        self.triplet_info['interval_idx'] = np.array(self.triplet_info['interval_idx'])
+        self.triplet_values = np.array(self.triplet_values)
 
         self.pair_distances_bothways =np.array(self.pair_distances_bothways)
 
@@ -163,7 +234,10 @@ class WorkerManyPotentialsOneStruct(Worker):
         # maybe could use cubic spline eval equation, not polyval()
 
         # TODO: is it worth creating a huge matrix of ordered coeffs so that
-        # it's just a single matrix multiplication?
+        # it's just a single matrix multiplication? probably yes!
+        # problem: need to zero pad to make same size
+
+        # TODO: turn coeffs into array of knot y-values
 
         self.potentials = potentials
 
@@ -191,6 +265,37 @@ class WorkerManyPotentialsOneStruct(Worker):
 
             total_ni[:,i] += np.sum(results, axis=1)
 
+            if len(self.triplet_values[i]) > 0:
+                values_tuple    = self.triplet_values[i]
+                rij_values      = values_tuple[:,0]
+                rik_values      = values_tuple[:,1]
+                g_values        = values_tuple[:,2]
+
+                types_tuple = self.triplet_info['pot_type_idx'][i]
+                fj_types    = types_tuple[:,0]
+                fk_types    = types_tuple[:,1]
+                g_types     = types_tuple[:,2]
+
+                intervals_tuple = self.triplet_info['interval_idx'][i]
+                fj_intervals    = intervals_tuple[:,0]
+                fk_intervals    = intervals_tuple[:,1]
+                g_intervals     = intervals_tuple[:,2]
+
+                fj_coeffs = coeffs_from_indices(self.fs,
+                            {'pot_type_idx':fj_types, 'interval_idx':fj_intervals})
+                fk_coeffs = coeffs_from_indices(self.fs,
+                            {'pot_type_idx':fk_types, 'interval_idx':fk_intervals})
+                g_coeffs = coeffs_from_indices(self.gs,
+                            {'pot_type_idx':g_types, 'interval_idx':g_intervals})
+
+                fj_results = eval_all_potentials(rij_values, fj_coeffs)
+                fk_results = eval_all_potentials(rik_values, fk_coeffs)
+                g_results = eval_all_potentials(g_values, g_coeffs)
+
+                results = np.multiply(fj_results,np.multiply(fk_results, g_results))
+
+                total_ni[:,i] += np.sum(results, axis=1)
+
         # Performing binning and shifting for each ni in each potential
         for p in range(total_ni.shape[0]):
             ni_indices_for_one_pot = np.zeros(len(self.atoms))
@@ -211,9 +316,6 @@ class WorkerManyPotentialsOneStruct(Worker):
 
         self.u_index_info['interval_idx'] = np.array(self.u_index_info[
                                                          'interval_idx'])
-
-        # rzm: need to properly subtract zero_atom_energy
-
 
         # Compute U values and add to energy
         u_types = self.u_index_info['pot_type_idx']
