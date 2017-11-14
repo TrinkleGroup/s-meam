@@ -14,10 +14,38 @@ np.random.seed(42)
 from nose_parameterized import parameterized
 from workers import WorkerManyPotentialsOneStruct as worker
 from ase.calculators.lammpsrun import LAMMPS
-from tests.structs import allstructs
+from tests.structs import dimers, trimers, bulk_vac_ortho, \
+    bulk_periodic_ortho, bulk_vac_rhombo, bulk_periodic_rhombo
 from tests.globalVars import ATOL
 
-N = 10
+N = 7
+
+zero_pots_flag  = False
+const_pots_flag = False
+rand_pots_flag  = True
+
+meam_flag       = True
+phionly_flag    = False
+rhophi_flag     = False
+nophi_flag      = False
+rho_flag        = False
+norho_flag      = False
+norhophi_flag   = False
+
+dimers_flag  = False
+trimers_flag = True
+bulk_flag    = False
+
+allstructs = {}
+
+if dimers_flag:
+    allstructs = {**allstructs, **dimers}
+if trimers_flag:
+    allstructs = {**allstructs, **trimers}
+if bulk_flag:
+    allstructs = {**allstructs, **bulk_vac_ortho, **bulk_periodic_ortho,
+                  **bulk_vac_rhombo, **bulk_periodic_rhombo}
+
 ################################################################################
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -52,6 +80,7 @@ def runner(pots, structs):
         #calculated[name] = w.compute_energies()
         # TODO: to optimize, preserve workers for each struct
         calculated[name] = w(pots)
+        #logging.info("{0}".format(calculated[name]))
         py_calcduration += time.time() - start
 
     return calculated
@@ -107,222 +136,180 @@ def getLammpsResults(pots, structs):
     return energies, forces
 
 ################################################################################
-"""Zero potentials"""
-p = tests.potentials.get_zero_potential()
+if zero_pots_flag:
+    """Zero potentials"""
+    p = tests.potentials.get_zero_potential()
 
-energies, _ = getLammpsResults([p], allstructs)
+    energies, _ = getLammpsResults([p], allstructs)
 
-calculated = runner([p], allstructs)
+    calculated = runner([p], allstructs)
 
-@parameterized.expand(loader('', calculated, energies))
-def test_zero_potential(name, a, b):
-    np.testing.assert_allclose(a,b,atol=ATOL)
-
-    #str = 'lammps = {0}\npython = {1}'.format(a,b)
-    #logging.info(str)
+    @parameterized.expand(loader('', calculated, energies))
+    def test_zero_potential(name, a, b):
+        np.testing.assert_allclose(a,b,atol=ATOL)
 ################################################################################
-"""Constant potentials"""
+if const_pots_flag:
+    """Constant potentials"""
 
-p = tests.potentials.get_constant_potential()
+    p = tests.potentials.get_constant_potential()
 
-"""meam subtype"""
-energies, _ = getLammpsResults([p], allstructs)
+    if meam_flag:
+        """meam subtype"""
+        energies, _ = getLammpsResults([p], allstructs)
 
-#logging.info("meam subtype")
-calculated = runner([p], allstructs)
+        calculated = runner([p], allstructs)
 
-@parameterized.expand(loader('', calculated, energies))
-def test_constant_potential_meam(name, a, b):
-   np.testing.assert_allclose(a,b,atol=ATOL)
+        @parameterized.expand(loader('', calculated, energies))
+        def test_constant_potential_meam(name, a, b):
+           np.testing.assert_allclose(a,b,atol=ATOL)
 
-   #str = 'lammps = {0} python = {1}'.format(a,b)
-   #logging.info(str)
+    if phionly_flag:
+        """phionly subtype"""
+        energies, _ = getLammpsResults([meam.phionly_subtype(p)], allstructs)
 
-"""phionly subtype"""
-#meam.phionly_subtype(p).write_to_file('test.phionly.poop.spline')
-energies, _ = getLammpsResults([meam.phionly_subtype(p)], allstructs)
+        calculated = runner([meam.phionly_subtype(p)], allstructs)
 
-#meam.nophi_subtype(p).write_to_file('test.poop.spline')
-#meam.nophi_subtype(p).plot()
-#p.plot()
-#lammpsTools.atoms_to_LAMMPS_file('data.pooper.lammps', allstructs[list(allstructs.keys())[0]])
-#
-#logging.info("phionly subtype")
-calculated = runner([meam.phionly_subtype(p)], allstructs)
+        @parameterized.expand(loader('', calculated, energies))
+        def test_constant_potential_phionly(name, a, b):
+            np.testing.assert_allclose(a,b,atol=ATOL)
 
-@parameterized.expand(loader('', calculated, energies))
-def test_constant_potential_phionly(name, a, b):
-    np.testing.assert_allclose(a,b,atol=ATOL)
+    if rhophi_flag:
+        """rhophi subtype"""
+        energies, _ = getLammpsResults([meam.rhophi_subtype(p)], allstructs)
 
-#    str = 'lammps = {0} python = {1}'.format(a,b)
-    #logging.info(str)
+        calculated = runner([meam.rhophi_subtype(p)], allstructs)
 
-"""rhophi subtype"""
-energies, _ = getLammpsResults([meam.rhophi_subtype(p)], allstructs)
+        @parameterized.expand(loader('', calculated, energies))
+        def test_constant_potential_rhophi(name, a, b):
+            np.testing.assert_allclose(a,b,atol=ATOL)
 
-#logging.info("rhophi subtype")
-calculated = runner([meam.rhophi_subtype(p)], allstructs)
+    if nophi_flag:
+        """nophi subtype"""
+        energies, _ = getLammpsResults([meam.nophi_subtype(p)], allstructs)
 
-@parameterized.expand(loader('', calculated, energies))
-def test_constant_potential_rhophi(name, a, b):
-    np.testing.assert_allclose(a,b,atol=ATOL)
+        calculated = runner([meam.nophi_subtype(p)], allstructs)
 
-    #str = 'lammps = {0} python = {1}'.format(a,b)
-    #logging.info(str)
+        @parameterized.expand(loader('', calculated, energies))
+        def test_constant_potential_nophi(name, a, b):
+           np.testing.assert_allclose(a,b,atol=ATOL)
 
-"""nophi subtype"""
-energies, _ = getLammpsResults([meam.nophi_subtype(p)], allstructs)
+    if rho_flag:
+        """rho subtype"""
+        energies, _ = getLammpsResults([meam.rho_subtype(p)], allstructs)
 
-#logging.info("nophi subtype")
-calculated = runner([meam.nophi_subtype(p)], allstructs)
+        calculated = runner([meam.rho_subtype(p)], allstructs)
 
-@parameterized.expand(loader('', calculated, energies))
-def test_constant_potential_nophi(name, a, b):
-   np.testing.assert_allclose(a,b,atol=ATOL)
+        @parameterized.expand(loader('', calculated, energies))
+        def test_constant_potential_rho(name, a, b):
+            np.testing.assert_allclose(a,b,atol=ATOL)
 
-   #str = 'lammps = {0} python = {1}'.format(a,b)
-   #logging.info(str)
+    if norho_flag:
+        """norho subtype"""
+        energies, _ = getLammpsResults([meam.norho_subtype(p)], allstructs)
 
-"""rho subtype"""
-energies, _ = getLammpsResults([meam.rho_subtype(p)], allstructs)
+        calculated = runner([meam.norho_subtype(p)], allstructs)
 
-#logging.info("rho subtype")
-calculated = runner([meam.rho_subtype(p)], allstructs)
+        @parameterized.expand(loader('', calculated, energies))
+        def test_constant_potential_norho(name, a, b):
+           np.testing.assert_allclose(a,b,atol=ATOL)
 
-@parameterized.expand(loader('', calculated, energies))
-def test_constant_potential_rho(name, a, b):
-    np.testing.assert_allclose(a,b,atol=ATOL)
+    if norhophi_flag:
+        """norhophi subtype"""
+        energies, _ = getLammpsResults([meam.norhophi_subtype(p)], allstructs)
 
-    #str = 'lammps = {0} python = {1}'.format(a,b)
-    #logging.info(str)
+        calculated = runner([meam.norhophi_subtype(p)], allstructs)
 
-"""norho subtype"""
-energies, _ = getLammpsResults([meam.norho_subtype(p)], allstructs)
-
-#logging.info("norho subtype")
-calculated = runner([meam.norho_subtype(p)], allstructs)
-
-@parameterized.expand(loader('', calculated, energies))
-def test_constant_potential_norho(name, a, b):
-   np.testing.assert_allclose(a,b,atol=ATOL)
-
-   #str = 'lammps = {0} python = {1}'.format(a,b)
-   #logging.info(str)
-
-"""norhophi subtype"""
-energies, _ = getLammpsResults([meam.norhophi_subtype(p)], allstructs)
-
-#logging.info("norhophi subtype")
-calculated = runner([meam.norhophi_subtype(p)], allstructs)
-#meam.norhophi_subtype(p).plot()
-
-@parameterized.expand(loader('', calculated, energies))
-def test_constant_potential_norhophi(name, a, b):
-    np.testing.assert_allclose(a,b,atol=ATOL)
-
-    #str = 'lammps = {0} python = {1}'.format(a,b)
-    #logging.info(str)
+        @parameterized.expand(loader('', calculated, energies))
+        def test_constant_potential_norhophi(name, a, b):
+            np.testing.assert_allclose(a,b,atol=ATOL)
 #################################################################################
-"""Random potentials"""
+if rand_pots_flag:
+    """Random potentials"""
 
-"""meam subtype"""
-p = tests.potentials.get_random_pots(N)['meams']
+    if meam_flag:
+        """meam subtype"""
+        p = tests.potentials.get_random_pots(N)['meams']
 
-energies, _ = getLammpsResults(p, allstructs)
+        energies, _ = getLammpsResults(p, allstructs)
 
-calculated = runner(p, allstructs)
+        calculated = runner(p, allstructs)
 
-@parameterized.expand(loader('', calculated, energies))
-def test_random_potential_meam(name, a, b):
-   np.testing.assert_allclose(a,b,atol=ATOL)
+        @parameterized.expand(loader('', calculated, energies))
+        def test_random_potential_meam(name, a, b):
+           np.testing.assert_allclose(a,b,atol=ATOL)
 
-   #str = 'lammps = {0} python = {1}'.format(a,b)
-   #logging.info(str)
+    if phionly_flag:
+        """phionly subtype"""
+        p = tests.potentials.get_random_pots(N)['phionlys']
 
-"""phionly subtype"""
-p = tests.potentials.get_random_pots(N)['phionlys']
+        energies, _ = getLammpsResults(p, allstructs)
 
-energies, _ = getLammpsResults(p, allstructs)
+        calculated = runner(p, allstructs)
 
-calculated = runner(p, allstructs)
+        @parameterized.expand(loader('', calculated, energies))
+        def test_random_potential_phionly(name, a, b):
+            np.testing.assert_allclose(a,b,atol=ATOL)
 
-@parameterized.expand(loader('', calculated, energies))
-def test_random_potential_phionly(name, a, b):
-    np.testing.assert_allclose(a,b,atol=ATOL)
+    if rhophi_flag:
+        """rhophi subtype"""
+        p = tests.potentials.get_random_pots(N)['rhophis']
 
-   #str = 'lammps = {0} python = {1}'.format(a,b)
-   #logging.info(str)
+        energies, _ = getLammpsResults(p, allstructs)
 
-"""rhophi subtype"""
-p = tests.potentials.get_random_pots(N)['rhophis']
+        calculated = runner(p, allstructs)
 
-energies, _ = getLammpsResults(p, allstructs)
+        @parameterized.expand(loader('', calculated, energies))
+        def test_random_potential_rhophi(name, a, b):
+            np.testing.assert_allclose(a,b,atol=ATOL)
 
-calculated = runner(p, allstructs)
+    if nophi_flag:
+        """nophi subtype"""
+        p = tests.potentials.get_random_pots(N)['nophis']
 
-@parameterized.expand(loader('', calculated, energies))
-def test_random_potential_rhophi(name, a, b):
-    np.testing.assert_allclose(a,b,atol=ATOL)
+        energies, _ = getLammpsResults(p, allstructs)
 
-    #str = 'lammps = {0} python = {1}'.format(a,b)
-    #logging.info(str)
+        calculated = runner(p, allstructs)
 
-"""nophi subtype"""
-p = tests.potentials.get_random_pots(N)['nophis']
+        @parameterized.expand(loader('', calculated, energies))
+        def test_random_potential_nophi(name, a, b):
+           np.testing.assert_allclose(a,b,atol=ATOL)
 
-energies, _ = getLammpsResults(p, allstructs)
+    if rho_flag:
+        """rho subtype"""
+        p = tests.potentials.get_random_pots(N)['rhos']
 
-calculated = runner(p, allstructs)
+        p[0].plot()
+        energies, _ = getLammpsResults(p, allstructs)
 
-@parameterized.expand(loader('', calculated, energies))
-def test_random_potential_nophi(name, a, b):
-   np.testing.assert_allclose(a,b,atol=ATOL)
+        calculated = runner(p, allstructs)
 
-   #str = 'lammps = {0} python = {1}'.format(a,b)
-   #logging.info(str)
+        @parameterized.expand(loader('', calculated, energies))
+        def test_random_potential_rho(name, a, b):
+            np.testing.assert_allclose(a,b,atol=ATOL)
 
-"""rho subtype"""
-p = tests.potentials.get_random_pots(N)['rhos']
+    if norho_flag:
+        """norho subtype"""
+        p = tests.potentials.get_random_pots(N)['norhos']
 
-p[0].plot()
-energies, _ = getLammpsResults(p, allstructs)
+        energies, _ = getLammpsResults(p, allstructs)
 
-calculated = runner(p, allstructs)
+        calculated = runner(p, allstructs)
 
-@parameterized.expand(loader('', calculated, energies))
-def test_random_potential_rho(name, a, b):
-    np.testing.assert_allclose(a,b,atol=ATOL)
+        @parameterized.expand(loader('', calculated, energies))
+        def test_random_potential_norho(name, a, b):
+           np.testing.assert_allclose(a,b,atol=ATOL)
 
-    #str = 'lammps = {0} python = {1}'.format(a,b)
-    #logging.info(str)
+    if norhophi_flag:
+        """norhophi subtype"""
+        p = tests.potentials.get_random_pots(N)['norhophis']
 
-"""norho subtype"""
-p = tests.potentials.get_random_pots(N)['norhos']
+        energies, _ = getLammpsResults(p, allstructs)
 
-energies, _ = getLammpsResults(p, allstructs)
+        calculated = runner(p, allstructs)
 
-calculated = runner(p, allstructs)
-
-@parameterized.expand(loader('', calculated, energies))
-def test_random_potential_norho(name, a, b):
-   np.testing.assert_allclose(a,b,atol=ATOL)
-
-   #str = 'lammps = {0} python = {1}'.format(a,b)
-   #logging.info(str)
-
-"""norhophi subtype"""
-p = tests.potentials.get_random_pots(N)['norhophis']
-
-energies, _ = getLammpsResults(p, allstructs)
-
-calculated = runner(p, allstructs)
-
-@parameterized.expand(loader('', calculated, energies))
-def test_random_potential_norhophi(name, a, b):
-   np.testing.assert_allclose(a,b,atol=ATOL)
-
-   #str = 'lammps = {0} python = {1}'.format(a,b)
-   #logging.info(str)
+        @parameterized.expand(loader('', calculated, energies))
+        def test_random_potential_norhophi(name, a, b):
+           np.testing.assert_allclose(a,b,atol=ATOL)
 ################################################################################
 
 #logging.info("Time spent calculating in LAMMPS: {} s".format(round(
