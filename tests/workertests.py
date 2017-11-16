@@ -29,16 +29,16 @@ const_pots_flag = True*0
 rand_pots_flag  = True*1
 
 meam_flag       = True*0
-phionly_flag    = True*0
+phionly_flag    = True*1
 rhophi_flag     = True*0
 nophi_flag      = True*0
 rho_flag        = True*0
 norho_flag      = True*0
-norhophi_flag   = True*1
+norhophi_flag   = True*0
 
 dimers_flag  = True*0
-trimers_flag = True*1
-bulk_flag    = True*0
+trimers_flag = True*0
+bulk_flag    = True*1
 
 allstructs = {}
 
@@ -49,6 +49,9 @@ if trimers_flag:
 if bulk_flag:
     allstructs = {**allstructs, **bulk_vac_ortho, **bulk_periodic_ortho,
                   **bulk_vac_rhombo, **bulk_periodic_rhombo}
+
+# key = 'abb'
+# allstructs = {key:trimers[key]}
 
 ################################################################################
 logging.basicConfig(level=logging.INFO)
@@ -79,8 +82,8 @@ def loader_forces(group_name, calculated, lammps):
     tests = []
     for name in calculated.keys():
         test_name = group_name + '_' + name + '_forces'
-        logging.info("calc{0}".format(calculated.keys()))
-        logging.info("lammps{0}".format(lammps.keys()))
+        #logging.info("calc{0}".format(calculated.keys()))
+        #logging.info("lammps{0}".format(lammps.keys()))
         tests.append((test_name, calculated[name], lammps[name]))
 
     return tests
@@ -119,7 +122,7 @@ def runner_forces(pots, structs):
         forces[name] = w.compute_forces(pots)
         py_calcduration += time.time() - start
 
-        #logging.info("{0}".format(calculated[name]))
+        #logging.info("{0}".format(forces[name]))
 
     return forces
 
@@ -195,6 +198,7 @@ if zero_pots_flag:
         def test_zero_potential_forces(name, a, b):
             np.testing.assert_allclose(a,b,atol=ATOL)
 ################################################################################
+# TODO: const_pot test needs multiple potentials at once
 if const_pots_flag:
     """Constant potentials"""
 
@@ -226,14 +230,14 @@ if const_pots_flag:
             calc_energies = runner_energy([meam.phionly_subtype(p)], allstructs)
 
             @parameterized.expand(loader_energy('', calc_energies, energies))
-            def test_constant_potential_meam_energy(name, a, b):
+            def test_constant_potential_phionly_energy(name, a, b):
                np.testing.assert_allclose(a,b,atol=ATOL)
 
         if forces_flag:
             calc_forces = runner_forces([meam.phionly_subtype(p)], allstructs)
 
             @parameterized.expand(loader_forces('', calc_forces, forces))
-            def test_constant_potential_meam_forces(name, a, b):
+            def test_constant_potential_phionly_forces(name, a, b):
                 np.testing.assert_allclose(a,b,atol=ATOL)
 
     if rhophi_flag:
@@ -360,13 +364,14 @@ if rand_pots_flag:
 
             @parameterized.expand(loader_energy('', calc_energies, energies))
             def test_random_potential_phionly_energy(name, a, b):
-               np.testing.assert_allclose(a,b,atol=ATOL)
+                np.testing.assert_allclose(a,b,atol=ATOL)
 
         if forces_flag:
             calc_forces = runner_forces(p, allstructs)
 
             @parameterized.expand(loader_forces('', calc_forces, forces))
             def test_random_potential_phionly_forces(name, a, b):
+                #rzm: basic triplet failing; second atom is correct, but for all pots?
                 np.testing.assert_allclose(a,b,atol=ATOL)
 
     if rhophi_flag:
