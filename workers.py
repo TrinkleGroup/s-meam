@@ -61,17 +61,21 @@ class WorkerManyPotentialsOneStruct(Worker):
         #TODO: is it faster to build np.arr of desired length?
         self.pair_distances_oneway      = [] # 1D, (iindex, jindex)
         self.pair_directions_oneway     = [] # 2D, 1 direction per neighbor
-        self.pair_indices_oneway        = [] # 1D, list of integer indices
+        self.pair_indices_oneway        = [] # 1D, list of atom id's
+
         self.pair_distances_bothways    = [] # 1D, list of phi pair distances
         self.pair_directions_bothways   = [] # 3D, 1 dir per neighbor per atom
-        self.triplet_directions         = [] # 1D, (jpos-ipos, kpos-ipos)
-        self.triplet_indices            = [] # 1D, (jindex, kindex)
+        self.pair_indices_bothways      = [] # 1D, (iindex, jindex) atom id's
+
         self.triplet_values             = [] # 1D, (fj, fk, cos)
+        self.triplet_directions         = [] # 1D, (jpos-ipos, kpos-ipos)
+        self.triplet_indices            = [] # 1D, (jindex, kindex) atom id's
         # TODO: redundancy; triplet info has overlap with pair_distances
 
         # Indexing information specifying atom type and interval number
         self.phi_index_info = {'pot_type_idx':[], 'interval_idx':[]}
-        self.rho_index_info = {'pot_type_idx':[], 'interval_idx':[]}
+        self.rho_index_info = {'pot_type_idx':[], 'interval_idx':[],
+                               'interval_idx_backwards':[]}
         self.u_index_info   = {'pot_type_idx':[], 'interval_idx':[]}
         self.triplet_info   = {'pot_type_idx':[], 'interval_idx':[]} # (fj,fk,g)
 
@@ -126,15 +130,16 @@ class WorkerManyPotentialsOneStruct(Worker):
                 rij -= self.phis[0][phi_idx].knotsx[phi_knot_num]
                 self.pair_distances_oneway.append(rij)
 
-            # rzm: use oneway directions to finish phi forces
-
             # Initialize per-atom value/index lists
-            pair_directions_for_one_atom    = []
             pair_distances_for_one_atom     = []
+            pair_directions_for_one_atom    = []
+            pair_indices_for_one_atom       = []
+
             triplet_values_for_one_atom     = []
 
             rho_type_indices_for_one_atom   = []
-            rho_spline_indices_for_one_atom = []
+            rho_spline_indices_for_one_atom_forwards = []
+            rho_spline_indices_for_one_atom_backwards = []
 
             triplet_types_for_one_atom      = []
             triplet_intervals_for_one_atom  = []
@@ -155,13 +160,19 @@ class WorkerManyPotentialsOneStruct(Worker):
                 a = jpos - ipos
                 na = np.linalg.norm(a)
 
-                # Rho information
+                # Rho information; need forward AND backwards info for forces
                 rho_idx = meam.i_to_potl(jtype)
 
                 rho_spline_num, rho_knot_num = intervals_from_splines(
                     self.rhos,rij,rho_idx)
                 rho_type_indices_for_one_atom.append(rho_idx)
-                rho_spline_indices_for_one_atom.append(rho_spline_num)
+                rho_spline_indices_for_one_atom_forwards.append(rho_spline_num)
+
+                rho_idx_i = meam.i_to_potl(itype)
+                rho_spline_num_i,_ = intervals_from_splines(
+                    self.rhos,rij,rho_idx_i)
+                rho_spline_indices_for_one_atom_backwards.append(
+                    rho_spline_num_i)
 
                 # fj information
                 fj_idx = meam.i_to_potl(jtype)
@@ -173,6 +184,7 @@ class WorkerManyPotentialsOneStruct(Worker):
 
                 pair_distances_for_one_atom.append(rij)
                 pair_directions_for_one_atom.append(jvec)
+                pair_indices_for_one_atom.append((i,j))
 
                 # Three-body contributions
                 for k,offset in zip(neighbors[j_counter:], offsets[j_counter:]):
@@ -244,11 +256,17 @@ class WorkerManyPotentialsOneStruct(Worker):
             self.pair_directions_bothways.append(
                 np.array(pair_directions_for_one_atom))
 
+            self.pair_indices_bothways.append(
+                np.array(pair_indices_for_one_atom))
+
             self.rho_index_info['pot_type_idx'].append(
                 np.array(rho_type_indices_for_one_atom))
 
             self.rho_index_info['interval_idx'].append(
-                np.array(rho_spline_indices_for_one_atom))
+                np.array(rho_spline_indices_for_one_atom_forwards))
+
+            self.rho_index_info['interval_idx_backwards'].append(
+                np.array(rho_spline_indices_for_one_atom_backwards))
 
         self.pair_directions_oneway = np.array(self.pair_directions_oneway)
         self.pair_indices_oneway = np.array(self.pair_indices_oneway)
@@ -437,17 +455,9 @@ class WorkerManyPotentialsOneStruct(Worker):
                                 phi_prime_coeffs)
         phi_forces = np.einsum('ij,jk->ijk',phi_prime_values,j_directions)
 
-        # rzm: only atom 2 has correct forces; correct for const_pot,
-        # maybe has to do with potential ordering?
-        #slice = phi_forces[:,i_indices,:]
-        #forces[:, i_indices, :] += phi_forces[:,i_indices,:]
-
         # See np.ufunc.at documentation for why this is necessary
         np.add.at(forces, (slice(None), i_indices, slice(None)), phi_forces)
         np.add.at(forces, (slice(None), j_indices, slice(None)), -phi_forces)
-
-        #forces[:, j_indices, :] -= phi_forces[:,j_indices,:]
-        #energies += np.sum(results, axis=1)
 
         # TODO: switch to full vectorization; tags shouldn't be needed
         # TODO: unless tags actually improve speed?
@@ -456,7 +466,6 @@ class WorkerManyPotentialsOneStruct(Worker):
         total_ni = np.zeros( (npots,natoms) )
 
         for i in range(natoms):
-            forces_i = np.zeros((3,))
             Uprime_i = self.uprimes[:,i]
             Uprime_i = Uprime_i.reshape( (len(Uprime_i),1) )
 
@@ -466,22 +475,62 @@ class WorkerManyPotentialsOneStruct(Worker):
             # Pull per-atom neighbor distances and compute rho contribution
             pair_distances_bothways = self.pair_distances_bothways[i]
             pair_directions_bothways = self.pair_directions_bothways[i]
+            pair_indices_bothways = self.pair_indices_bothways[i]
 
-            rho_types = self.rho_index_info['pot_type_idx'][i]
-            rho_indices = self.rho_index_info['interval_idx'][i]
+            i_indices = pair_indices_bothways[:,0]
+            j_indices = pair_indices_bothways[:,1]
 
-            rho_coeffs = coeffs_from_indices(self.rhos,
-                        {'pot_type_idx':rho_types, 'interval_idx':rho_indices})
-            results = eval_all_polynomials(pair_distances_bothways, rho_coeffs)
+            # Potential index and atom tags for neighbors
+            rho_types_j = self.rho_index_info['pot_type_idx'][i]
+            rho_indices_j = self.rho_index_info['interval_idx'][i]
+
+            # Forces from i to neighbors
+            rho_coeffs_j = coeffs_from_indices(self.rhos,
+                    {'pot_type_idx':rho_types_j, 'interval_idx':rho_indices_j})
+            results = eval_all_polynomials(pair_distances_bothways, rho_coeffs_j)
             total_ni[:,i] += np.sum(results, axis=1)
 
-            rho_prime_coeffs = np.einsum('ij,jdk->idk', D, rho_coeffs)
-            rho_prime_values = eval_all_polynomials(pair_distances_bothways,
-                                              rho_prime_coeffs)
-            rho_forces = np.einsum('ij,jk->ijk', rho_prime_values,
-                                   pair_directions_bothways)
+            # Rho prime values for neighbors
+            rho_prime_coeffs_j = np.einsum('ij,jdk->idk', D, rho_coeffs_j)
+            rho_prime_values_j = eval_all_polynomials(pair_distances_bothways,
+                                              rho_prime_coeffs_j)
+
+            # Forces from neighbors to i
+            itype = lammpsTools.symbol_to_type(self.atoms[i].symbol, self.types)
+            rho_idx_i = meam.i_to_potl(itype)
+
+            rho_indices_i = self.rho_index_info['interval_idx_backwards'][i]
+
+            rho_coeffs_i = coeffs_from_indices(self.rhos,
+                   {'pot_type_idx':np.ones(len(
+                    pair_distances_bothways))*rho_idx_i,
+                    'interval_idx':rho_indices_i})
+
+            rho_prime_coeffs_i = np.einsum('ij,jdk->idk', D, rho_coeffs_i)
+            rho_prime_values_i = eval_all_polynomials(pair_distances_bothways,
+                                              rho_prime_coeffs_i)
+
+            # rzm: does np.multiply update
+            # Combine forwards/backwards forces
+            fpair = rho_prime_values_j*Uprime_i
+            rho_prime_values_i = np.multiply(rho_prime_values_i, self.uprimes[:,
+                                                       j_indices])
+            fpair += rho_prime_values_i
+            #fpair += phi_prime_values
+
+            # could use pair_directions_bothways
+            #fpair = np.divide(fpair, pair_distances_bothways)
+
+            # TODO: seem to be double-counting rho terms. hence the /= 2.0
+            rho_forces = np.einsum('ij,jk->ijk',fpair, pair_directions_bothways)
+            rho_forces /= 2.0
+
+            np.add.at(forces, (slice(None),i_indices, slice(None)), rho_forces)
+            np.add.at(forces, (slice(None),j_indices, slice(None)), -rho_forces)
+            #np.add.at(forces, (slice(None),j_indices, slice(None)),-rho_forces)
 
             # rzm: rho needs index information too; finish this
+            #forces /= 2.0
 
             if len(self.triplet_values[i]) > 0: # check needed in case of dimer
 
@@ -551,7 +600,7 @@ class WorkerManyPotentialsOneStruct(Worker):
 
                 forces_k = np.einsum('ij,jk->ijk', fik, kvec)
                 forces_k -= np.einsum('ij,jk->ijk', prefactor_ik, jvec)
-                forces_k *= -1
+                #forces_k *= -1
 
                 #forces_j = np.sum(forces_j, axis=1)
                 #forces_k = np.sum(forces_k, axis=1)
@@ -570,7 +619,7 @@ class WorkerManyPotentialsOneStruct(Worker):
                 #force_slice = forces[:,k_indices,:]
                 #force_slice += forces_k.reshape(force_slice.shape)
 
-                forces[:,i,:] += np.sum(forces_k, axis=1)
+                forces[:,i,:] -= np.sum(forces_k, axis=1)
                 forces[:,i,:] -= np.sum(forces_j, axis=1)
 
                 # TODO: forces worker? forces here needs directional info
@@ -936,6 +985,8 @@ def coeffs_from_indices(splines, index_info):
     pot_types = np.array(index_info['pot_type_idx'])
     intervals  = np.array(index_info['interval_idx'])
     n = len(pot_types)
+
+    splines = np.array(splines)
 
     coeffs = np.zeros((4, n, len(splines)))
 

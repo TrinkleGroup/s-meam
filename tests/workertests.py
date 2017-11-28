@@ -18,7 +18,7 @@ from tests.structs import dimers, trimers, bulk_vac_ortho, \
     bulk_periodic_ortho, bulk_vac_rhombo, bulk_periodic_rhombo
 from tests.globalVars import ATOL
 
-N = 7
+N = 1
 
 # Flags for what tests to run
 energy_flag = True*0
@@ -29,16 +29,16 @@ const_pots_flag = True*0
 rand_pots_flag  = True*1
 
 meam_flag       = True*0
-phionly_flag    = True*1
+phionly_flag    = True*0
 rhophi_flag     = True*0
 nophi_flag      = True*0
 rho_flag        = True*0
 norho_flag      = True*0
-norhophi_flag   = True*0
+norhophi_flag   = True*1
 
 dimers_flag  = True*0
-trimers_flag = True*0
-bulk_flag    = True*1
+trimers_flag = True*1
+bulk_flag    = True*0
 
 allstructs = {}
 
@@ -50,8 +50,9 @@ if bulk_flag:
     allstructs = {**allstructs, **bulk_vac_ortho, **bulk_periodic_ortho,
                   **bulk_vac_rhombo, **bulk_periodic_rhombo}
 
-# key = 'abb'
-# allstructs = {key:trimers[key]}
+key = 'bab'
+
+allstructs = {key:trimers[key]}
 
 ################################################################################
 logging.basicConfig(level=logging.INFO)
@@ -418,7 +419,6 @@ if rand_pots_flag:
         """rho subtype"""
         p = tests.potentials.get_random_pots(N)['rhos']
 
-        p[0].plot()
         energies, forces = getLammpsResults(p, allstructs)
 
         if energy_flag:
