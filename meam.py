@@ -185,6 +185,7 @@ class MEAM(Potential):
         for i in range(natoms):
             itype = lammpsTools.symbol_to_type(atoms[i].symbol, self.types)
             ipos = atoms[i].position
+            print("Atom {0} of type {1}----------------------".format(i, itype))
 
             Uprime_i = self.uprimes[i]
 
@@ -225,6 +226,9 @@ class MEAM(Potential):
 
                     forces_j = np.zeros((3,))
 
+                    print("fj_val = %.3f" % fj_val)
+                    print("fj_prime = %.3f" % fj_prime)
+
                     # Used for triplet calculations
                     a = neighbor_shifted_positions[j]-ipos
                     na = np.linalg.norm(a)
@@ -253,8 +257,20 @@ class MEAM(Potential):
                             g_prime = self.gs[ij_to_potl(jtype,ktype,\
                                     self.ntypes)](cos_theta,1)
 
+                            print("fk_val = %.3f" % fk_val)
+                            print("fk_prime = %.3f" % fk_prime)
+
+                            print("g_val = %.3f" % g_val)
+                            print("g_prime = %.3f" % g_prime)
+
                             fij = -Uprime_i*g_val*fk_val*fj_prime
                             fik = -Uprime_i*g_val*fj_val*fk_prime
+
+                            print("fij = {0}".format(fij))
+                            print("fik = {0}".format(fik))
+                            print("cos_values = {0}".format(cos_theta))
+                            print("rij_values = {0}".format(r_ij))
+                            print("rik_values = {0}".format(r_ik))
 
                             prefactor = Uprime_i*fj_val*fk_val*g_prime
                             prefactor_ij = prefactor / r_ij
@@ -262,11 +278,17 @@ class MEAM(Potential):
                             fij += prefactor_ij * cos_theta
                             fik += prefactor_ik * cos_theta
 
+
+                            print("prefactor = {0}".format(prefactor))
+                            print("prefactor_ij = {0}".format(prefactor_ij))
+                            print("prefactor_ik = {0}".format(prefactor_ik))
+
                             fj = jdel*fij - kdel*prefactor_ij
                             forces_j += fj
 
                             fk = kdel*fik - jdel*prefactor_ik
                             forces_i -= fk
+
 
                             self.forces[neighbors[0][k]] += fk
                     # end triplet loop
@@ -276,6 +298,8 @@ class MEAM(Potential):
                 # end pair loop
 
                 self.forces[i] += forces_i
+                print("forces_j = {0}".format(forces_j))
+                print("forces_k = {0}".format(forces_i))
 
                 # Calculate pair interactions (phi)
                 for j in range(num_neighbors_noboth): # j = index for neighbor list
@@ -714,6 +738,28 @@ def rho_subtype(pot):
     Returns:
         rhos (MEAM):
             the rhos version of pot"""
+
+    N = pot.ntypes          # number of components in the system
+    nphi = int((N+1)*N/2)   # number of each phi and u splines
+
+    original = pot.phis + pot.rhos + pot.us + pot.fs + pot.gs
+
+    splines = [original[i] if ((i>=nphi) and (i<nphi+N+N)) else ZeroSpline(
+                    original[i].knotsx) for i in range(N*(N+4))]
+
+    return MEAM(splines=splines, types=pot.types)
+
+def nog_subtype(pot):
+    # TODO: need to set g=1
+    """Returns the nog version of pot
+
+    Args:
+        pot (MEAM):
+            the original potential
+
+    Returns:
+        nog (MEAM):
+            the nog version of pot"""
 
     N = pot.ntypes          # number of components in the system
     nphi = int((N+1)*N/2)   # number of each phi and u splines

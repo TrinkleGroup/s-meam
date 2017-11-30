@@ -9,6 +9,8 @@ import sys
 import lammpsTools
 import tests.potentials
 
+from meam import MEAM
+
 np.random.seed(42)
 
 from nose_parameterized import parameterized
@@ -28,17 +30,17 @@ zero_pots_flag  = True*0
 const_pots_flag = True*0
 rand_pots_flag  = True*1
 
-meam_flag       = True*0
-phionly_flag    = True*0
-rhophi_flag     = True*0
-nophi_flag      = True*0
-rho_flag        = True*0
-norho_flag      = True*0
+meam_flag       = True*1
+phionly_flag    = True*1
+rhophi_flag     = True*1
+nophi_flag      = True*1
+rho_flag        = True*1
+norho_flag      = True*1
 norhophi_flag   = True*1
 
-dimers_flag  = True*0
+dimers_flag  = True*1
 trimers_flag = True*1
-bulk_flag    = True*0
+bulk_flag    = True*1
 
 allstructs = {}
 
@@ -50,9 +52,11 @@ if bulk_flag:
     allstructs = {**allstructs, **bulk_vac_ortho, **bulk_periodic_ortho,
                   **bulk_vac_rhombo, **bulk_periodic_rhombo}
 
-key = 'bab'
+# key = 'aab'
 
-allstructs = {key:trimers[key]}
+# allstructs = {key:trimers[key]}
+
+# lammpsTools.atoms_to_LAMMPS_file('data.trimer{0}'.format(key), allstructs[key])
 
 ################################################################################
 logging.basicConfig(level=logging.INFO)
@@ -123,7 +127,7 @@ def runner_forces(pots, structs):
         forces[name] = w.compute_forces(pots)
         py_calcduration += time.time() - start
 
-        #logging.info("{0}".format(forces[name]))
+        # logging.info("{0} correct".format(forces[name]))
 
     return forces
 
@@ -458,6 +462,11 @@ if rand_pots_flag:
     if norhophi_flag:
         """norhophi subtype"""
         p = tests.potentials.get_random_pots(N)['norhophis']
+        # p = MEAM("/home/jvita/scripts/s-meam/src/HHe.meam.spline")
+        # p = [meam.norhophi_subtype(p)]
+        # p[0].gs[0] = meam.ZeroSpline(p[0].gs[0].knotsx)
+        # p[0].plot()
+        # p[0].write_to_file("test.poop.spline")
 
         energies, forces = getLammpsResults(p, allstructs)
 

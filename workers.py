@@ -9,6 +9,8 @@ from ase.neighborlist import NeighborList
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+logging.disable(logging.CRITICAL)
+
 class Worker(object):
 
     def __init__(self):
@@ -67,6 +69,7 @@ class WorkerManyPotentialsOneStruct(Worker):
         self.pair_directions_bothways   = [] # 3D, 1 dir per neighbor per atom
         self.pair_indices_bothways      = [] # 1D, (iindex, jindex) atom id's
 
+        self.triplet_unshifted          = [] # 1D, (fj, fk, cos) unshifted
         self.triplet_values             = [] # 1D, (fj, fk, cos)
         self.triplet_directions         = [] # 1D, (jpos-ipos, kpos-ipos)
         self.triplet_indices            = [] # 1D, (jindex, kindex) atom id's
@@ -141,6 +144,7 @@ class WorkerManyPotentialsOneStruct(Worker):
             rho_spline_indices_for_one_atom_forwards = []
             rho_spline_indices_for_one_atom_backwards = []
 
+            triplet_unshifted_one_atom      = []
             triplet_types_for_one_atom      = []
             triplet_intervals_for_one_atom  = []
             triplet_directions_for_one_atom = []
@@ -180,12 +184,14 @@ class WorkerManyPotentialsOneStruct(Worker):
                 fj_spline_num, fj_knot_num = intervals_from_splines(
                     self.fs,rij,fj_idx)
 
-                rij = rij - self.rhos[0][rho_idx].knotsx[rho_knot_num]
+                rij -= self.rhos[0][rho_idx].knotsx[rho_knot_num]
 
                 pair_distances_for_one_atom.append(rij)
                 pair_directions_for_one_atom.append(jvec)
                 pair_indices_for_one_atom.append((i,j))
 
+                rij += self.rhos[0][rho_idx].knotsx[rho_knot_num]
+                rij -= self.fs[0][fj_idx].knotsx[fj_knot_num]
                 # Three-body contributions
                 for k,offset in zip(neighbors[j_counter:], offsets[j_counter:]):
                     if k != j:
@@ -193,7 +199,6 @@ class WorkerManyPotentialsOneStruct(Worker):
                                                            self.types)
                         kpos = atoms[k].position + np.dot(offset,
                                                           atoms.get_cell())
-                        rik = np.linalg.norm(ipos-kpos)
 
                         kvec = kpos - ipos
                         rik = np.linalg.norm(kvec)
@@ -227,6 +232,13 @@ class WorkerManyPotentialsOneStruct(Worker):
                         tup3 = np.array([fj_spline_num, fk_spline_num,
                                          g_spline_num])
 
+                        rik += self.fs[0][fk_idx].knotsx[fk_knot_num]
+                        cos_theta += self.gs[0][g_idx].knotsx[g_knot_num]
+                        tmp_rij = rij + self.fs[0][fj_idx].knotsx[fj_knot_num]
+
+                        tup0 = np.array([tmp_rij, rik, cos_theta])
+                        triplet_unshifted_one_atom.append(tup0)
+
                         triplet_values_for_one_atom.append(tup1)
                         triplet_types_for_one_atom.append(tup2)
                         triplet_intervals_for_one_atom.append(tup3)
@@ -235,6 +247,9 @@ class WorkerManyPotentialsOneStruct(Worker):
                 j_counter += 1
 
             # Add lists and convert everything to arrays for easy indexing
+            self.triplet_unshifted.append(
+                np.array(triplet_unshifted_one_atom))
+
             self.triplet_directions.append(
                 np.array(triplet_directions_for_one_atom))
 
@@ -270,6 +285,8 @@ class WorkerManyPotentialsOneStruct(Worker):
 
         self.pair_directions_oneway = np.array(self.pair_directions_oneway)
         self.pair_indices_oneway = np.array(self.pair_indices_oneway)
+
+        self.triplet_unshifted = np.array(self.triplet_unshifted)
 
         self.triplet_info['pot_type_idx'] = np.array(self.triplet_info['pot_type_idx'])
         self.triplet_info['interval_idx'] = np.array(self.triplet_info['interval_idx'])
@@ -437,7 +454,6 @@ class WorkerManyPotentialsOneStruct(Worker):
         # Derivative matrix for cubic coefficients
         D = np.array([[0,1,0,0], [0,0,2,0], [0,0,0,3]])
 
-        # TODO: refactor natoms -> natoms, npots -> npots
         self.potentials = potentials
         forces = np.zeros((npots, natoms, 3))
 
@@ -449,7 +465,6 @@ class WorkerManyPotentialsOneStruct(Worker):
 
         j_directions = self.pair_directions_oneway
 
-        #forces_j -= np.einsum('ij,jk->ijk', prefactor_ij, kvec)
         phi_prime_coeffs = np.einsum('ij,jdk->idk', D, phi_coeffs)
         phi_prime_values = eval_all_polynomials(self.pair_distances_oneway,
                                 phi_prime_coeffs)
@@ -463,14 +478,13 @@ class WorkerManyPotentialsOneStruct(Worker):
         # TODO: unless tags actually improve speed?
 
         # Calculate ni values; ni intervals cannot be pre-computed in init()
-        total_ni = np.zeros( (npots,natoms) )
-
         for i in range(natoms):
+            itype = lammpsTools.symbol_to_type(self.atoms[i].symbol, self.types)
+            logging.info("Atom {0} of type {1}---------------".format(i, itype))
             Uprime_i = self.uprimes[:,i]
             Uprime_i = Uprime_i.reshape( (len(Uprime_i),1) )
 
             # Compute phi contributions
-            #forces_phi = np.einsum('ij,jk->ijk', fij, jvec)
 
             # Pull per-atom neighbor distances and compute rho contribution
             pair_distances_bothways = self.pair_distances_bothways[i]
@@ -487,8 +501,6 @@ class WorkerManyPotentialsOneStruct(Worker):
             # Forces from i to neighbors
             rho_coeffs_j = coeffs_from_indices(self.rhos,
                     {'pot_type_idx':rho_types_j, 'interval_idx':rho_indices_j})
-            results = eval_all_polynomials(pair_distances_bothways, rho_coeffs_j)
-            total_ni[:,i] += np.sum(results, axis=1)
 
             # Rho prime values for neighbors
             rho_prime_coeffs_j = np.einsum('ij,jdk->idk', D, rho_coeffs_j)
@@ -510,7 +522,6 @@ class WorkerManyPotentialsOneStruct(Worker):
             rho_prime_values_i = eval_all_polynomials(pair_distances_bothways,
                                               rho_prime_coeffs_i)
 
-            # rzm: does np.multiply update
             # Combine forwards/backwards forces
             fpair = rho_prime_values_j*Uprime_i
             rho_prime_values_i = np.multiply(rho_prime_values_i, self.uprimes[:,
@@ -518,19 +529,12 @@ class WorkerManyPotentialsOneStruct(Worker):
             fpair += rho_prime_values_i
             #fpair += phi_prime_values
 
-            # could use pair_directions_bothways
-            #fpair = np.divide(fpair, pair_distances_bothways)
-
             # TODO: seem to be double-counting rho terms. hence the /= 2.0
             rho_forces = np.einsum('ij,jk->ijk',fpair, pair_directions_bothways)
             rho_forces /= 2.0
 
             np.add.at(forces, (slice(None),i_indices, slice(None)), rho_forces)
             np.add.at(forces, (slice(None),j_indices, slice(None)), -rho_forces)
-            #np.add.at(forces, (slice(None),j_indices, slice(None)),-rho_forces)
-
-            # rzm: rho needs index information too; finish this
-            #forces /= 2.0
 
             if len(self.triplet_values[i]) > 0: # check needed in case of dimer
 
@@ -540,11 +544,18 @@ class WorkerManyPotentialsOneStruct(Worker):
                 rik_values      = values_tuple[:,1]
                 cos_values        = values_tuple[:,2]
 
+                values_tuple    = self.triplet_unshifted[i]
+                rij_values_unshifted      = values_tuple[:,0]
+                rik_values_unshifted      = values_tuple[:,1]
+                cos_values_unshifted        = values_tuple[:,2]
+
                 types_tuple = self.triplet_info['pot_type_idx'][i]
                 fj_types    = types_tuple[:,0]
                 fk_types    = types_tuple[:,1]
                 g_types     = types_tuple[:,2]
 
+                # rzm: norhophi fails for triplets only if not aaa or bbb.
+                # type dependent.
                 intervals_tuple = self.triplet_info['interval_idx'][i]
                 fj_intervals    = intervals_tuple[:,0]
                 fk_intervals    = intervals_tuple[:,1]
@@ -561,9 +572,6 @@ class WorkerManyPotentialsOneStruct(Worker):
                 fj_results = eval_all_polynomials(rij_values, fj_coeffs)
                 fk_results = eval_all_polynomials(rik_values, fk_coeffs)
                 g_results = eval_all_polynomials(cos_values, g_coeffs)
-
-                results = np.multiply(fj_results,np.multiply(fk_results, g_results))
-                total_ni[:,i] += np.sum(results, axis=1)
 
                 # TODO: consider putting derivative evals in eval_all() 4 speed?
                 # Take derivatives and compute forces
@@ -584,13 +592,24 @@ class WorkerManyPotentialsOneStruct(Worker):
                 fik = -Uprime_i*np.multiply(g_results, np.multiply(
                     fj_results, fk_primes))
 
+                logging.info("fij = {0}".format(fij))
+                logging.info("fik = {0}".format(fik))
+                logging.info("cos_values = {0}".format(cos_values_unshifted))
+                logging.info("rij_values = {0}".format(rij_values_unshifted))
+                logging.info("rik_values = {0}".format(rik_values_unshifted))
+
+                # rzm: rij_values have been shifted by knot positions already?
                 prefactor = Uprime_i*np.multiply(fj_results, np.multiply(
                     fk_results, g_primes))
-                prefactor_ij = np.divide(prefactor, rij_values)
-                prefactor_ik = np.divide(prefactor, rik_values)
+                prefactor_ij = np.divide(prefactor, rij_values_unshifted)
+                prefactor_ik = np.divide(prefactor, rik_values_unshifted)
 
-                fij += np.multiply(prefactor_ij, cos_values)
-                fik += np.multiply(prefactor_ik, cos_values)
+                fij += np.multiply(prefactor_ij, cos_values_unshifted)
+                fik += np.multiply(prefactor_ik, cos_values_unshifted)
+
+                logging.info("prefactor = {0}".format(prefactor))
+                logging.info("prefactor_ij = {0}".format(prefactor_ij))
+                logging.info("prefactor_ik = {0}".format(prefactor_ik))
 
                 jvec = self.triplet_directions[i][:,0]
                 kvec = self.triplet_directions[i][:,1]
@@ -600,10 +619,6 @@ class WorkerManyPotentialsOneStruct(Worker):
 
                 forces_k = np.einsum('ij,jk->ijk', fik, kvec)
                 forces_k -= np.einsum('ij,jk->ijk', prefactor_ik, jvec)
-                #forces_k *= -1
-
-                #forces_j = np.sum(forces_j, axis=1)
-                #forces_k = np.sum(forces_k, axis=1)
 
                 j_indices = self.triplet_indices[i][:,0]
                 k_indices = self.triplet_indices[i][:,1]
@@ -613,11 +628,22 @@ class WorkerManyPotentialsOneStruct(Worker):
                 np.add.at(forces, (slice(None), k_indices, slice(None)),
                         forces_k)
 
-                #force_slice = forces[:,j_indices,:]
-                #force_slice += forces_j.reshape(force_slice.shape)
+                # logging.info("{0}, {1}: fij, prefactor_ij".format(fij,
+                #                                                prefactor_ij))
+                # logging.info("{0}, {1}: fik, prefactor_ik".format(fik,
+                #                                                   prefactor_ik))
+                # logging.info("{0}, {1}, {4}, fj_results, fk_results, "
+                #              "g_results, {2},{3} j,k".format(
+                #     fj_results, fk_results, fj_types+1, fk_types+1, g_results))
 
-                #force_slice = forces[:,k_indices,:]
-                #force_slice += forces_k.reshape(force_slice.shape)
+                logging.info("fj_results = {0}".format(fj_results))
+                logging.info("fj_primes = {0}".format(fj_primes))
+                logging.info("fk_results = {0}".format(fk_results))
+                logging.info("fk_primes = {0}".format(fk_primes))
+                logging.info("g_results = {0}".format(g_results))
+                logging.info("g_primes = {0}".format(g_primes))
+                logging.info("forces_j = {0}".format(forces_j))
+                logging.info("forces_k = {0}".format(forces_k))
 
                 forces[:,i,:] -= np.sum(forces_k, axis=1)
                 forces[:,i,:] -= np.sum(forces_j, axis=1)
@@ -626,7 +652,8 @@ class WorkerManyPotentialsOneStruct(Worker):
                 # TODO: pass disp vectors, not rij, then vectorize reduction
                 # to rij_values?
 
-        return forces.reshape((npots, natoms, 3))
+        #return forces.reshape((npots, natoms, 3))
+        return forces
 
     @property
     def potentials(self):

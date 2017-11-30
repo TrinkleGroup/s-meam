@@ -187,6 +187,11 @@ def get_random_pots(newN):
                 d0 = np.random.rand()
                 dN = np.random.rand()
 
+                # if i!=7:
+                #     knots_y = np.ones(num_knots)
+                #     knots_y = np.arange(num_knots)/10.
+                #     d0 = dN = 0
+
                 temp = Spline(knots_x, knots_y, bc_type=((1,d0),(1,dN)),\
                         derivs=(d0,dN))
 
@@ -194,7 +199,7 @@ def get_random_pots(newN):
                 splines.append(temp)
 
             p = MEAM(splines=splines, types=['H','He'])
-            #p = MEAM('HHe.meam.spline')
+            # p = MEAM('HHe.meam.spline')
 
             rng_meams[n]        = p
             rng_nophis[n]       = meam.nophi_subtype(p)
