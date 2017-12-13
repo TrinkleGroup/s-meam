@@ -24,24 +24,20 @@ def read_spline_meam(fname):
             the name of the input file
         
     Returns:
-        phis (list):
-            pair interaction Splines
-        rhos (list):
-            electron density Splines
-        us (list):
-            embedding Splines
-        fs (list):
-            three-body corrector Splines
-        gs (list):
-            angular Splines
-        types (list):
-            elemental names of system components (e.g. ['Ti', 'O'])"""
+        knot_x_indices (np.arr):
+            ordered list of x-coordinates of all knots
 
-    print('WARNING: this method may not be up to date!')
+        knot_y_indices (np.arr):
+            ordered list of y-coordinates of all knots
+
+        indices (list):
+            list of indices deliminating groups of splines"""
 
     # TODO: convert types to lowercase by default
 
-    with open(fname, 'r') as f:
+    try:
+        f = open(fname, 'r')
+
         f.readline()                    # Remove header
         temp = f.readline().split()     # 'meam/spline ...' line
         types = temp[2:]
@@ -49,44 +45,38 @@ def read_spline_meam(fname):
 
         nsplines = ntypes*(ntypes+4)    # Based on how fxns in MEAM are defined
 
+        # Calculate the number of splines for phi/g each
+        nphi = (ntypes + 1) * ntypes / 2
+
         # Build all splines; separate into different types later
-        splines = []
+        knot_x_points = []
+        knot_y_points = []
+        indices     = [] # tracks ends of phi, rho, u, ,f, g groups
+        idx         = 0
+
         for i in range(nsplines):
+
+            if i == nphi:               indices.append(idx)
+            elif i == nphi+ntypes:      indices.append(idx)
+            elif i == nphi+2*ntypes:    indices.append(idx)
+            elif i == nphi+3*ntypes:    indices.append(idx)
+
             f.readline()                # throwaway 'spline3eq' line
-            nknots = int(f.readline())
+            nknots  = int(f.readline())
+            idx     += nknots
 
-            d0,dN = [float(el) for el in f.readline().split()]
-            
-            xcoords = []                # x-coordinates of knots
-            ycoords = []                # y-coordinates of knots
+            d0, dN = [float(el) for el in f.readline().split()]
+            # rzm: do we need to keep d0, dN? also, move this all to worker.py
+
             for j in range(nknots):
-                # still unsure why y2 is in the file... why store if it's
-                # recalculated again later??
                 x,y,y2 = [np.float(el) for el in f.readline().split()]
-                xcoords.append(x)
-                ycoords.append(y)
+                knot_x_points.append(x)
+                knot_y_points.append(y)
 
-            # TODO: this needs to use homemade Spline objects
-            # Create a 'natural' spline with endpoint derivatives d0,dN
-            splines.append(CubicSpline(xcoords,ycoords,bc_type=((1,d0),(1,dN))))
-        print(xcoords)
+    except IOError as error:
+        raise IOError("Could not open potential file: {0}".format(fname))
 
-    # Calculate the number of splines for phi/g each
-    nphi = (ntypes+1)*ntypes/2
-
-    # Separate splines for each unique function
-    idx = 0                         # bookkeeping
-    phis = splines[0:nphi]          # first nphi are phi
-    idx += nphi
-    rhos = splines[idx:idx+ntypes]  # next ntypes are rho
-    idx += ntypes
-    us = splines[idx:idx+ntypes]    # next ntypes are us
-    idx += ntypes
-    fs = splines[idx:idx+ntypes]    # next ntypes are fs
-    idx += ntypes
-    gs = splines[idx:]              # last nphi are gs
-
-    return phis, rhos, us, fs, gs, types
+    return knot_x_points, knot_y_points, indices
 
 def write_spline_meam(fname, phis, rhos, us, fs, gs, types):
     """Writes the splines of a MEAM potential into a LAMMPS style potential file

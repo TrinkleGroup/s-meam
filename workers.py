@@ -5,6 +5,7 @@ import logging
 
 from numpy.polynomial.polynomial import polyval
 from ase.neighborlist import NeighborList
+from scipy.sparse import diags
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -14,25 +15,26 @@ logger = logging.getLogger(__name__)
 class Worker(object):
 
     def __init__(self):
-        self.atoms = []
-        self.potentials = []
+        self.atoms      = None
+        self.ntypes     = None
+        self.potentials = None
 
-    @property
-    def atoms(self):
-        """List of structures; each structure is an array of coordinates"""
-        return self._structs
+    # @property
+    # def atoms(self):
+    #     """List of structures; each structure is an array of coordinates"""
+    #     return self._structs
 
-    @atoms.setter
-    def atoms(self, structs):
-        self._structs = structs
+    # @atoms.setter
+    # def atoms(self, structs):
+    #     self._structs = structs
 
-    @property
-    def potentials(self):
-        return self._potentials
+    # @property
+    # def potentials(self):
+    #     return self._potentials
 
-    @potentials.setter
-    def potentials(self,c):
-        raise NotImplementedError
+    # @potentials.setter
+    # def potentials(self,c):
+    #     raise NotImplementedError
 
     def compute_energies(self,structs):
         raise NotImplementedError
@@ -42,7 +44,14 @@ class Worker(object):
 
 class WorkerManyPotentialsOneStruct(Worker):
     """Worker designed to compute energies and forces for a single structure
-    using a variety of different MEAM potentials"""
+    using a variety of different MEAM potentials
+
+    Assumptions:
+        - knot x-coordinates never change
+        - the atomic structure never changes
+        - all splines in a single group (group = phi, rho, etc.) have the
+        same number of knots # TODO: this is NOT true
+        """
 
     # TODO: instead of multiple worker types, could just do special evals based
     # on if A, X are matrices or not? Downside: can't manually decide method
@@ -73,15 +82,74 @@ class WorkerManyPotentialsOneStruct(Worker):
     # - the main benefit is that if you change a particular spline, you only
     # have to update one of the phi/u/rho/f/g of the bonds/triplets that are affected
 
-    # rzm: refactoring to represent potentials as 4D numpy arrays (spline,
-    # knot, x, y); 'potentials' is 5D now
     # TODO: refactor potentials.py to build these 5D arrays
-    def __init__(self, atoms, potentials):
+    def __init__(self, atoms, knot_points, indices, types):
+        """Organizes data structures and pre-computes structure information.
+
+        Args:
+            atoms (ASE.Atoms):
+                an ASE representation of an atomic system
+
+            knot_points (np.arr):
+                a PxK array where each row (P) is the number of unique
+                potentials being evaluated. Each row contains an ordered set
+                of coordinates corresponding to the x-coordinates of the
+                spline knots. Splines groups are ordered as [phi, rho, u, f,
+                g] where each group has a number of of splines depending on
+                the number of elements in the atomic system.
+
+                e.g. if the system is Ti-O, the potential looks as follows:
+                    phi_Ti-Ti, phi_Ti-O, phi_O-O, rho_Ti, rho_O, U_Ti, U_O,
+                    f_Ti, f_O, g_Ti-Ti, g_Ti-O, g_O-O
+
+                This array will be converted into a dictionary of
+                dictionaries where splines['spline_type'][<spline_num>][
+                <pot_num>] returns the set of knot points for the specified
+                spline for the specified potential.
+
+                e.g splines['phi'][0][:] returns the knot points of the first
+                phi spline for all of the potentials.
+
+            indices (list):
+                since each spline does not necessarily have the same number
+                of knots, a list of indices must be provided to deliminate
+                each spline in the 1D vector. 'indices' will be exactly
+                N*(N+4)-1 elements, since there are N*(N+4) total splines
+
+            types (list):
+                set of atomic types described by the potential. note: this
+                cannot be inferred from 'atoms' since the structure may not
+                    have every atom type in it."""
 
         # Basic variable initialization
         super(Worker,self).__init__()
-        self.atoms = atoms
-        self.potentials = potentials    # also sets self.cutoff
+
+        self.atoms      = atoms
+        self.types      = types
+
+        ntypes          = len(self.types)
+        self.ntypes     = ntypes
+
+        nphi            = int((self.ntypes+1)*self.ntypes/2)
+        self.nphi       = nphi
+
+        # Organize knots and set cutoff
+        self.indices        = indices
+        self.knot_points    = knot_points
+
+        # Group splines by type and calculate potential cutoff range
+        # e.g. phis[0] is the knot x-coords for the first phi spline
+        splines = np.split(knot_points, indices)
+
+        self.phis   = splines[0:nphi]
+        self.rhos   = splines[nphi:(nphi+ntypes)]
+        self.us     = splines[(nphi+ntypes):(nphi+2*ntypes)]
+        self.fs     = splines[(nphi+2*ntypes):(nphi+3*ntypes)]
+        self.gs     = splines[(nphi+3*ntypes):]
+
+        radial_fxns = self.phis + self.rhos + self.fs
+
+        self.cutoff = np.max([max(el) for el in radial_fxns])
 
         # Condensed structure information (ordered distances and angles)
         #TODO: is it faster to build np.arr of desired length?
@@ -100,9 +168,9 @@ class WorkerManyPotentialsOneStruct(Worker):
         # TODO: redundancy; triplet info has overlap with pair_distances
 
         # Condensed structure information (not using Spline objects)
-        self.phi_abcd               = [] # 3D, ABCD for each pot for each dist
-        self.phi_intervals          = [] # 1D, spline interval for distances
-        self.phi_types              = [] # 1D, atom types for each distance
+        # self.phi_abcd               = [] # 3D, ABCD for each pot for each dist
+        # self.phi_intervals          = [] # 1D, spline interval for distances
+        # self.phi_types              = [] # 1D, atom types for each distance
 
         # Indexing information specifying atom type and interval number
         self.phi_index_info = {'pot_type_idx':[], 'interval_idx':[]}
@@ -118,6 +186,13 @@ class WorkerManyPotentialsOneStruct(Worker):
         nl_noboth = NeighborList(np.ones(len(atoms))*(self.cutoff/2.),\
                 self_interaction=False, bothways=False, skin=0.0)
         nl_noboth.build(atoms)
+
+        # M x (k+2) structure array; k knots, M pairs
+        # num_phi_knots =
+        total_num_neighbors = sum(len(nl_noboth.get_neighbors(i)) for i in
+                                  range(natoms))
+
+        self.phi_structure_array = np.zeros(total_num_neighbors)
 
         # Allows double counting; needed for embedding energy calculations
         nl = NeighborList(np.ones(len(atoms))*(self.cutoff/2.),\
@@ -154,28 +229,15 @@ class WorkerManyPotentialsOneStruct(Worker):
                 # TODO: zero_atom_energies needs to be size of all pots
                 phi_idx = meam.ij_to_potl(itype, jtype, 'phi', self.ntypes)
 
-                phi_interval_num, phi_knot_num = intervals_from_splines(
-                    self.phis,rij,phi_idx)
+                # TODO: need to handle extrapolation
+                phi_abcd = get_abcd(self.phis[phi_idx], rij)
+                self.phi_abcd.append(phi_abcd)
+
+                # rzm: now what do you do with the abcd array?
 
                 self.phi_index_info['pot_type_idx'].append(phi_idx)
                 self.phi_index_info['interval_idx'].append(phi_interval_num)
 
-                # knot index != cmat index since cmat has extrapolation splines
-                x = self.phis[0][phi_idx].knotsx
-
-                rij -= x[phi_knot_num]
-                self.pair_distances_oneway.append(rij)
-
-                xj1 = x[phi_interval_num+1]
-                xj  = x[phi_interval_num]
-
-                A = (xj1-rij) / (xj1-xj)
-                B = 1-A
-                C = (1/6.)*(A**3 - A)*(xj1-xj)**2
-                D = (1/6.)*(B**3 - B)*(xj1-xj)**2
-
-                self.phi_abcd.append(np.array([A,B,C,D]))
-                self.phi_intervals.append(phi_interval_num)
                 self.phi_types.append(phi_idx)
 
             # Initialize per-atom value/index lists
@@ -726,10 +788,18 @@ class WorkerManyPotentialsOneStruct(Worker):
     @potentials.setter
     def potentials(self, potentials):
         self._potentials = potentials
-        self._cutoff = potentials[0].cutoff
         self._types = potentials[0].types
         self._ntypes = len(self.types)
-        self._nphi = int((self.ntypes+1)*self.ntypes/2)
+
+        slices = np.split(potentials, self.indices, axis=1)
+
+        phis    = np.split(slices[0], self.nphi, axis=1)
+        u       = np.split(slices[1], self.ntypes, axis=1)
+        rho     = np.split(slices[2], self.ntypes, axis=1)
+        f       = np.split(slices[3], self.ntypes, axis=1)
+        g       = np.split(slices[4], self.nphi, axis=1)
+
+        # rzm: read_from_file() to test working properly
 
         # N = len(potentials)
         # self.phis   = [potentials[i].phis for i in range(N)]
@@ -739,141 +809,26 @@ class WorkerManyPotentialsOneStruct(Worker):
         # self.gs     = [potentials[i].gs for i in range(N)]
 
         # Initialize zero-point embedding energies
-        u_shift = nphi + 2
-        self.zero_atom_energies = np.zeros((len(potentials), self.ntypes))
-        for i,p in enumerate(potentials):
-            for j in range(self.ntypes):
-                self.zero_atom_energies[i][j] = potentials[j+u_shift](0.0)
+        # u_shift = nphi + 2
+        # self.zero_atom_energies = np.zeros((len(potentials), self.ntypes))
+        # for i,p in enumerate(potentials):
+        #     for j in range(self.ntypes):
+        #         self.zero_atom_energies[i][j] = potentials[j+u_shift](0.0)
 
+        # TODO: zero_atom_energies need to be computed in __call__()
+
+        self._cutoff = potentials[0].cutoff
     # TODO: can we condense oneway/bothways? derive oneway from bothways?
 
-    @property
-    def pair_distances_oneway(self):
-        return self._pair_distances_oneway
-
-    @pair_distances_oneway.setter
-    def pair_distances_oneway(self, R):
-        self._pair_distances_oneway = R
-
-    @property
-    def pair_distances_bothways(self):
-        """2D list where each row is the set of neighbor distances for a
-        single atom"""
-        return self._pair_distances_bothways
-
-    @pair_distances_bothways.setter
-    def pair_distances_bothways(self, R):
-        self._pair_distances_bothways = R
-
-    @property
-    def phi_index_info(self):
-        return self._phi_index_info
-
-    @phi_index_info.setter
-    def phi_index_info(self, info):
-        self._phi_index_info = info
-
-    @property
-    def rho_index_info(self):
-        return self._rho_index_info
-
-    @rho_index_info.setter
-    def rho_index_info(self, info):
-        self._rho_index_info = info
-
-    @property
-    def phis(self):
-        """NxM list where N = #potentials, M = #spline intervals"""
-        return self._phis
-
-    # Individual splines will need to be tunable during optimization
-    @phis.setter
-    def phis(self, p):
-        self._phis = p
-
-    @property
-    def rhos(self):
-        """NxM list where N = #potentials, M = #spline intervals"""
-        return self._rhos
-
-    @rhos.setter
-    def rhos(self, p):
-        self._rhos = p
-
-    @property
-    def us(self):
-        """NxM list where N = #potentials, M = #spline intervals"""
-        return self._us
-
-    @us.setter
-    def us(self, p):
-        self._us = p
-
-    @property
-    def fs(self):
-        """NxM list where N = #potentials, M = #spline intervals"""
-        return self._fs
-
-    @fs.setter
-    def fs(self, p):
-        self._fs = p
-
-    @property
-    def gs(self):
-        """NxM list where N = #potentials, M = #spline intervals"""
-        return self._gs
-
-    @gs.setter
-    def gs(self, p):
-        self._gs = p
-
-    @property
-    def cutoff(self):
-        return self._cutoff
-
-    @cutoff.setter
-    def cutoff(self, c):
-        raise AttributeError("cutoff can only be set by setting the 'potentials' property")
-
-    @property
-    def types(self):
-        return self._types
-
-    @types.setter
-    def types(self, c):
-        raise AttributeError("types can only be set by setting the 'potentials' property")
-
-    @property
-    def ntypes(self):
-        return self._ntypes
-
-    @ntypes.setter
-    def ntypes(self, n):
-        raise AttributeError("ntypes can only be set by setting the 'potentials' property")
-
-    @property
-    def nphi(self):
-        """Used for indexing splines. Splines for a single potential are
-        ordered [phis, rhos, us, fs, gs] where there are nphi phis,
-        ntype rhos, ntype us, ntype fs, and nphi gs."""
-        return self._nphi
-
-    @nphi.setter
-    def nphi(self, c):
-        self._nphi = c
-
-def intervals_from_splines(splines, x, pot_type):
+def intervals_from_splines(knots, x):
     """Extracts the interval corresponding to a given value of x. Assumes
     linear extrapolation outside of knots and fixed knot positions.
 
     Args:
-        splines (list):
-            a 2D list of splines where each row corresponds to a unique MEAM
-            potential, and each column is a spline interval
+        knots (list):
+            the knot x-coordinates
         x (float):
             the point used to find the spline interval
-        pot_type (int):
-            index identifying the potential type, ordered as seen in meam.py
 
     Returns:
         interval_num (int):
@@ -1159,3 +1114,274 @@ def get_ymat(y, y2, intervals):
     ymat[:,:,3] = s3
 
     return ymat
+
+def read_from_file(atom_file_name, potential_file_name):
+    """Builds a Worker from files specifying the atom structure and the
+    potential.
+
+    Args:
+        atoms_file_name (str):
+            LAMMPS style data file name; types are assumed from potential_file
+
+        potential_file_name (str):
+            LAMMPS style spline meam potential file"""
+
+    # read in potential
+    try:
+        f = open(potential_file_name, 'r')
+
+        f.readline()                    # Remove header
+        temp = f.readline().split()     # 'meam/spline ...' line
+        types = temp[2:]
+        ntypes = len(types)
+
+        nsplines = ntypes*(ntypes+4)    # Based on how fxns in MEAM are defined
+
+        # Calculate the number of splines for phi/g each
+        nphi = (ntypes + 1) * ntypes / 2
+
+        # Build all splines; separate into different types later
+        knot_x_points = []
+        knot_y_points = []
+        indices     = [] # tracks ends of phi, rho, u, ,f, g groups
+        idx         = 0
+
+        for i in range(nsplines):
+
+            # if      i == nphi:          indices.append(idx)
+            # elif    i == nphi+ntypes:   indices.append(idx)
+            # elif    i == nphi+2*ntypes: indices.append(idx)
+            # elif    i == nphi+3*ntypes: indices.append(idx)
+
+            f.readline()                # throw away 'spline3eq' line
+            nknots  = int(f.readline())
+            idx     += nknots
+
+            d0, dN = [float(el) for el in f.readline().split()]
+            # rzm: do we need to keep d0, dN? also, move this all to worker.py
+
+            for j in range(nknots):
+                x,y,y2 = [np.float(el) for el in f.readline().split()]
+                knot_x_points.append(x)
+                knot_y_points.append(y)
+
+            indices.append(idx)
+
+        knot_x_points   = np.array(knot_x_points)
+        indices         = np.array(indices[:-1])
+        knot_y_points   = np.array(knot_y_points)
+
+
+    except IOError as error:
+        raise IOError("Could not open potential file: {0}".format(
+            potential_file_name))
+
+    try:
+        atoms = lammpsTools.atoms_from_file(atom_file_name, types)
+
+    except IOError as error:
+        raise IOError("Could not open structure file: {0}".format(
+            potential_file_name))
+
+    worker = WorkerManyPotentialsOneStruct(atoms, knot_x_points, indices, types)
+
+    return worker, knot_y_points
+    # def __init__(self, atoms, knot_points, indices):
+
+def get_abcd(knots, x):
+    """Calculates the coefficients needed for spline interpolation.
+
+    In general, the polynomial p(x) can be interpolated as
+
+        p(x) = A*p_k + B*m_k + C*p_k+1 + D*m_k+1
+
+
+    where k is the interval that x falls into, p_k and p_k+1 are the
+    y-coordinates of the k and k+1 knots, m_k and m_k+1 are the derivatives
+    of p(x) at the knots, and the coefficients are defined as:
+
+        A = h_00(t)
+        B = h_10(t)(x_k+1 - x_k)
+        C = h_01(t)
+        D = h_11(t)(x_k+1 - x_k)
+
+    and functions h_ij are defined as:
+
+        h_00 = (1+2t)(1-t)^2
+        h_10 = t^2 ( 3-2t)
+        h_01 = t (1-t)^2
+        h_11 = t^2 (t-1)
+
+        with t = (x-x_k)/(x_k+1 - x_k)"""
+
+    h_00 = lambda t: (1+2*t)*(1-t)^2
+    h_10 = lambda t: (t**2)*(3-2*t)
+    h_01 = lambda t: t*(1-t)**2
+    h_11 = lambda t: (t**2)*(t-1)
+
+    h = knots[1] - knots[0]
+
+    # Find spline interval
+    k = int(np.floor((x-knots[0])/h))
+
+    if k <= 0: # LHS extrapolation
+        A = 1
+        B = x - knots[0] # negative for correct sign with derivative
+        C = D = 0
+    elif k > len(knots): # RHS extrapolation
+        A = B = 0
+        C = 1
+        D = x - knots[-1]
+    else:
+        prefactor  = (x[k+1] - x[k])
+
+        t = (x - knots[k])/prefactor
+
+        A = h_00(t)
+        B = h_10(t)*prefactor
+        C = h_01(t)
+        D = h_11(t)*prefactor
+
+    #TODO: should return FULL vector with zeros in other sections
+
+    return np.array(A, B, C, D)
+
+def build_derivative_matrix(n, dx, bc_type='natural'):
+    """Builds the matrix A and B matrices that are needed to find the function
+    derivatives at all knot points. A and B come from the system of equations
+
+        Ap' = Bk
+
+    where p' is the vector of derivatives for the interpolant at each knot
+    point and k is the vector of parameters for the spline (y-coordinates of
+    knots and second derivatives at endpoints).
+
+    A is a tridiagonal matrix with [h''_10(1), h''_11(1)-h''_10(0), -h''_11(0)]
+    on the diagonal which is dx*[2, 8, 2] based on their definitions
+
+    B is a tridiagonal matrix with [-h''_00(1), h''_00(0)-h''_01(1), h''_01(0)]
+    on the diagonal which is [-6, 0, 6] based on their definitions
+
+    Note that the dx is a scaling factor defined as dx = x_k+1 - x_k, assuming
+    uniform grid points and is needed to correct for the change into the
+    variable t, defined below.
+
+    and functions h_ij are defined as:
+
+        h_00 = (1+2t)(1-t)^2
+        h_10 = t^2 ( 3-2t)
+        h_01 = t (1-t)^2
+        h_11 = t^2 (t-1)
+
+        with t = (x-x_k)/dx
+
+    which means that the h''_ij functions are:
+
+        h''_00 = 12t - 6
+        h''_01 = -12t + 6
+        h''_10 = 6t - 4
+        h''_11 = 6t - 2
+
+    Note that mathematically all we need is M = A^(-1)B, but we will avoid
+    explicitly computing this since saving the A, B tridiagonal matrices is
+    more efficient.
+
+    Args:
+        n (int):
+            the number of internal knots
+
+        dx (float):
+            knot spacing (assuming uniform spacing)
+
+        end_derivatives (tuple):
+            (d0, dN) where d0 is the first derivative at the leftmost knot
+            and dN is the first derivative at the rightmost knot
+
+    Returns:
+        A (np.arr):
+            tridiagonal LHS matrix
+
+        B (np.arr):
+            tridiagonal RHS matrix"""
+
+    # TODO: us scipy_solve_banded()
+
+    if n <= 0:
+        raise ValueError("n (number of internal knots) must be greater than 0")
+
+    # note that values for h''_ij(0) and h''_ij(1) are substituted in
+    A = diags(np.array([2,8,2]), [0,1,2], (n,n+2))
+    A = A.toarray()
+
+    B = diags([-6, 0, 6], [0,1,2], (n,n+2))
+    B = B.toarray()
+    # B[:,-2] = 0
+
+    bc_type = bc_type.lower()
+
+    if bc_type == 'natural':
+
+        topA = np.zeros(n+2).reshape((1,n+2)); topA[0,0] = -4; topA[0,1] = -2
+        botA = np.zeros(n+2).reshape((1,n+2)); botA[0,-2] = 2; botA[0,-1] = 4
+
+        topB = np.zeros(n+2).reshape((1,n+2)); topB[0,0] = 6; topB[0,1] = -6
+        botB = np.zeros(n+2).reshape((1,n+2)); botB[0,-2] = -6; botB[0,-1] = 6
+        rightB = np.zeros((n+2,2)); rightB[0,0] = rightB[-1,-1] = 1
+
+    elif bc_type == 'end_derivatives':
+
+        topA = np.zeros(n+2).reshape((1,n+2)); topA[0,0] = 1;# topA[0,1] = -2
+        botA = np.zeros(n+2).reshape((1,n+2)); botA[0,-1] = 1;# botA[0,-2] = -4
+
+        topB = np.zeros(n+2).reshape((1,n+2));# topB[0,-1] = 1
+        botB = np.zeros(n+2).reshape((1,n+2));# botB[0,-2] = 6; botB[0,-1] = -6
+        rightB = np.zeros((n+2,2)); rightB[0,0] = rightB[-1,-1] = 1
+
+    # rzm: checking against CubicSpline s(x,1)
+
+    A = np.concatenate((topA, A), axis=0)
+    A = np.concatenate((A, botA), axis=0)
+
+    A *= dx
+
+    B = np.concatenate((topB, B), axis=0)
+    B = np.concatenate((B, botB), axis=0)
+    B = np.concatenate((B, rightB), axis=1)
+
+    return A, B
+
+    # if end_derivatives:
+    #     d0, dN = end_derivatives
+    #
+    #     topA = np.zeros(n).reshape((1,n)); topA[0,0] = -2
+    #     botA = np.zeros(n).reshape((1,n)); botA[0,-1] = -2
+    #     leftA = np.ones(n+2).reshape((n+2,1))*d0/dx
+    #     rightA = np.ones(n+2).reshape((n+2,1))*dN/dx
+    #
+    #     A = np.concatenate((topA, A), axis=0)
+    #     A = np.concatenate((A, botA), axis=0)
+    #     A = np.concatenate((leftA, A), axis=1)
+    #     A = np.concatenate((A, rightA), axis=1)
+    #
+    #     # topB = np.zeros(n+4).reshape((1,n+4)); topB[0,-2] = 1
+    #     # botB = np.zeros(n+4).reshape((1,n+4)); botB[0,-1] = 1
+    #     topB = np.zeros(n+4).reshape((1,n+4)); topB[0,0] = 6; topB[0,1] = -6
+    #     topB[0,-2] = 1
+    #     botB = np.zeros(n+4).reshape((1,n+4)); botB[0,-2] = 6; botB[0,-1] = -6
+    #     botB[0,-1] = 1
+    #     rightB = np.zeros((n,2));# rightB[0,0] = rightB[-1,-1] = 1
+    #
+    #     B = np.concatenate((B, rightB), axis=1)
+    #     B = np.concatenate((topB, B), axis=0)
+    #     B = np.concatenate((B, botB), axis=0)
+
+    # TODO: radial functions set knot values and derivatives at endpoints
+    # TODO: other functions (u, g) use natural boundary conditions
+
+    return A, B
+
+if __name__ == "__main__":
+
+    worker, y_vals = read_from_file('Ti_only_crowd.Ti', 'TiO.meam.spline')
+
+    logging.info("{0}".format(worker.compute_energies(y_vals)))
