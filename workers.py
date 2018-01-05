@@ -82,8 +82,7 @@ class WorkerManyPotentialsOneStruct(Worker):
     # - the main benefit is that if you change a particular spline, you only
     # have to update one of the phi/u/rho/f/g of the bonds/triplets that are affected
 
-    # TODO: refactor potentials.py to build these 5D arrays
-    def __init__(self, atoms, knot_points, indices, types):
+    def __init__(self, atoms, knot_points, types, x_indices=[]):
         """Organizes data structures and pre-computes structure information.
 
         Args:
@@ -114,7 +113,7 @@ class WorkerManyPotentialsOneStruct(Worker):
                 phi_Ti-Ti, phi_Ti-O, ...), then grouped according to spline
                 type (phi, rho, u, f, g)
 
-            indices (list):
+            x_indices (list):
                 since each spline does not necessarily have the same number
                 of knots, a list of indices must be provided to deliminate
                 each spline in the 1D vector. 'indices' will be exactly
@@ -138,12 +137,14 @@ class WorkerManyPotentialsOneStruct(Worker):
         self.nphi       = nphi
 
         # Organize knots and set cutoff
-        self.indices        = indices
+        self.x_indices      = x_indices
         self.knot_points    = knot_points
 
         # Group splines by type and calculate potential cutoff range
         # e.g. phis[0] is the knot x-coords for the first phi spline
-        splines = np.split(knot_points, indices)
+
+        # The *_M matrices are used to solve the SOE for each spline
+        splines = np.split(knot_points, x_indices)
 
         self.phis       = splines[0:nphi]
         # self.phis_bc    = np.zeros(2*len(self.phis))
@@ -182,31 +183,38 @@ class WorkerManyPotentialsOneStruct(Worker):
 
         # Condensed structure information (ordered distances and angles)
         #TODO: is it faster to build np.arr of desired length?
-        self.pair_distances_oneway      = [] # 1D, (iindex, jindex)
-        self.pair_directions_oneway     = [] # 2D, 1 direction per neighbor
-        self.pair_indices_oneway        = [] # 1D, list of atom id's
-
-        self.pair_distances_bothways    = [] # 1D, list of phi pair distances
-        self.pair_directions_bothways   = [] # 3D, 1 dir per neighbor per atom
-        self.pair_indices_bothways      = [] # 1D, (iindex, jindex) atom id's
-
-        self.triplet_unshifted          = [] # 1D, (fj, fk, cos) unshifted
-        self.triplet_values             = [] # 1D, (fj, fk, cos)
-        self.triplet_directions         = [] # 1D, (jpos-ipos, kpos-ipos)
-        self.triplet_indices            = [] # 1D, (jindex, kindex) atom id's
+        # self.pair_distances_oneway      = [] # 1D, (iindex, jindex)
+        # self.pair_directions_oneway     = [] # 2D, 1 direction per neighbor
+        # self.pair_indices_oneway        = [] # 1D, list of atom id's
+        #
+        # self.pair_distances_bothways    = [] # 1D, list of phi pair distances
+        # self.pair_directions_bothways   = [] # 3D, 1 dir per neighbor per atom
+        # self.pair_indices_bothways      = [] # 1D, (iindex, jindex) atom id's
+        #
+        # self.triplet_unshifted          = [] # 1D, (fj, fk, cos) unshifted
+        # self.triplet_values             = [] # 1D, (fj, fk, cos)
+        # self.triplet_directions         = [] # 1D, (jpos-ipos, kpos-ipos)
+        # self.triplet_indices            = [] # 1D, (jindex, kindex) atom id's
         # TODO: redundancy; triplet info has overlap with pair_distances
 
-        # Condensed structure information (not using Spline objects)
-        # self.phi_abcd               = [] # 3D, ABCD for each pot for each dist
+        # structure_vec is the huge matrix where each row represents a single
+        #  pair/triplet that needs to be evaluated
+        self.structure_vec  = []
+        # self.phi_abcd               = [list([]) for i in range(self.nphi)]
+        # self.rhos_abcd              = [list([]) for i in range(self.ntypes)]
+        # self.us_abcd                = [list([]) for i in range(self.ntypes)]
+        # self.fs_abcd                = [list([]) for i in range(self.ntypes)]
+        # self.gs_abcd                = [list([]) for i in range(self.nphi)]
+
         # self.phi_intervals          = [] # 1D, spline interval for distances
         # self.phi_types              = [] # 1D, atom types for each distance
 
         # Indexing information specifying atom type and interval number
-        self.phi_index_info = {'pot_type_idx':[], 'interval_idx':[]}
-        self.rho_index_info = {'pot_type_idx':[], 'interval_idx':[],
-                               'interval_idx_backwards':[]}
-        self.u_index_info   = {'pot_type_idx':[], 'interval_idx':[]}
-        self.triplet_info   = {'pot_type_idx':[], 'interval_idx':[]} # (fj,fk,g)
+        # self.phi_index_info = {'pot_type_idx':[], 'interval_idx':[]}
+        # self.rho_index_info = {'pot_type_idx':[], 'interval_idx':[],
+        #                        'interval_idx_backwards':[]}
+        # self.u_index_info   = {'pot_type_idx':[], 'interval_idx':[]}
+        # self.triplet_info   = {'pot_type_idx':[], 'interval_idx':[]} # (fj,fk,g)
 
         # Building neighbor lists
         natoms = len(atoms)
@@ -230,7 +238,6 @@ class WorkerManyPotentialsOneStruct(Worker):
                 self_interaction=False, bothways=True, skin=0.0)
         nl.build(atoms)
 
-        # Calculate E_i for each atom
         for i in range(natoms):
             # Record atom type info
             itype = lammpsTools.symbol_to_type(atoms[i].symbol, self.types)
@@ -253,6 +260,9 @@ class WorkerManyPotentialsOneStruct(Worker):
                 rij = np.linalg.norm(jvec)
                 jvec /= rij
 
+                # TODO: how do you handle directionality for forces?
+                # TODO: maybe each el in structure vec is now 3D?
+
                 self.pair_directions_oneway.append(jvec)
                 self.pair_indices_oneway.append((i,j))
 
@@ -269,10 +279,11 @@ class WorkerManyPotentialsOneStruct(Worker):
 
                 # TODO: zero_atom_energies needs to be size of all pots
 
-                # TODO: need to handle extrapolation
-                # rzm: is this doing what we want it to?
-                phi_abcd = get_abcd(self.phis[phi_idx], rij)
-                self.phi_abcd.append(phi_abcd)
+                # TODO: how much efficiency is lost by zero padding?
+                phi_abcd = get_abcd(knot_points, rij, x_indices, phi_idx)
+                self.structure_vec.append(phi_abcd)
+
+                # rzm: compute_energies() for phi only; dot struct_vec with y
 
                 # TODO: now what do you do with the abcd array?
 
@@ -448,27 +459,36 @@ class WorkerManyPotentialsOneStruct(Worker):
 
         self.pair_distances_bothways = np.array(self.pair_distances_bothways)
 
-    def compute_energies(self, potentials):
+        self.structure_vec = np.array(self.structure_vec)
+
+    def compute_energies(self, parameters, indices):
         """Calculates energies for all potentials using information
-        pre-computed during initialization."""
-        #TODO: only thing changing should be y-coords?
-        # changing y-coords changes splines, changes coeffs
-        # maybe could use cubic spline eval equation, not polyval()
+        pre-computed during initialization.
+
+        Args:
+            parameters (np.arr):
+                2D list of all parameters for all splines; each row
+                corresponds to a unique potential. Each group in a
+                single row should have K+2 elements where K is the number
+                of knot points, and the 2 additional are boundary conditions.
+                The first K in each group are the knot y-values
+
+            indices (list):
+                since each spline does not necessarily have the same number
+                of knots, a list of indices must be provided to deliminate
+                each spline in the 1D vector. 'indices' will be exactly
+                N*(N+4)-1 elements, since there are N*(N+4) total splines
+                indies"""
 
         # TODO: should __call__() take in just a single potential?
 
         # TODO: standardize ordering of matrix indices
 
-        # TODO: is it worth creating a huge matrix of ordered coeffs so that
-        # it's just a single matrix multiplication? probably yes because
-        # Python for-loops are terrible! problem: need to zero pad to make
-        # same size
-
-        # TODO: turn coeffs into array of knot y-values
-
-        # TODO: eventually move away from scipy Spline, towards Recipes equation
-
         # TODO: before eval, need to compute all knot derivatives using *_M
+
+        # have to repeat for all spline_types
+        # TODO: OR could just do a huge padding -- better
+
         D = np.array([[0,1,0,0], [0,0,2,0], [0,0,0,3]])
 
         self.potentials = potentials
@@ -480,120 +500,122 @@ class WorkerManyPotentialsOneStruct(Worker):
         # Compute phi contribution to total energy
         # phi_coeffs = coeffs_from_indices(self.phis, self.phi_index_info)
         # results = eval_all_polynomials(self.pair_distances_oneway, phi_coeffs)
-        # energies += np.sum(results, axis=1)
+        # energizs += np.sum(results, axis=1)
 
         # TODO: phis[i] needs to be phis[i][phi_idx]; do in init()?
-        phi_types = list(self.phi_types)
-        a = self.phis[0]
-        b = a[phi_types]
-        phi_ys =np.array([self.phis[i][phi_types].knotsy for i in range(npots)])
-        phi_xs =np.array([self.phis[i][phi_types].knotsx for i in range(npots)])
-        phi_d0 =np.array([self.phis[i][phi_types].d0 for i in range(npots)])
-        phi_dN =np.array([self.phis[i][phi_types].dN for i in range(npots)])
+        # phi_types = list(self.phi_types)
+        # a = self.phis[0]
+        # b = a[phi_types]
+        # phi_ys =np.array([self.phis[i][phi_types].knotsy for i in range(npots)])
+        # phi_xs =np.array([self.phis[i][phi_types].knotsx for i in range(npots)])
+        # phi_d0 =np.array([self.phis[i][phi_types].d0 for i in range(npots)])
+        # phi_dN =np.array([self.phis[i][phi_types].dN for i in range(npots)])
 
-        phi_y2s = second_derivatives(phi_xs, phi_ys, phi_d0, phi_dN)
+        # phi_y2s = second_derivatives(phi_xs, phi_ys, phi_d0, phi_dN)
 
-        phi_abcd = self.phi_abcd
-        phi_ymat = get_ymat(phi_ys, phi_y2s, self.phi_intervals)
-        phi_results = np.einsum('ij,ijk->k', phi_abcd, phi_ymat)
+        # phi_abcd = self.phi_abcd
+        # phi_ymat = get_ymat(phi_ys, phi_y2s, self.phi_intervals)
+        # phi_results = np.einsum('ij,ijk->k', phi_abcd, phi_ymat)
+
+        phi_results = self.phi_structure_array @ parameters.transpose()
 
         energies += phi_results
 
         # Calculate ni values; ni intervals cannot be pre-computed in init()
-        total_ni = np.zeros( (len(potentials),natoms) )
-
-        for i in range(natoms):
-
-            # Pull per-atom neighbor distances and compute rho contribution
-            pair_distances_bothways = self.pair_distances_bothways[i]
-            rho_types = self.rho_index_info['pot_type_idx'][i]
-            rho_indices = self.rho_index_info['interval_idx'][i]
-
-            rho_coeffs = coeffs_from_indices(self.rhos,
-                        {'pot_type_idx':rho_types, 'interval_idx':rho_indices})
-            results = eval_all_polynomials(pair_distances_bothways, rho_coeffs)
-            total_ni[:,i] += np.sum(results, axis=1)
-
-            if len(self.triplet_values[i]) > 0: # check needed in case of dimer
-
-                # Unpack ordered sets of values and indexing information
-                values_tuple    = self.triplet_values[i]
-                rij_values      = values_tuple[:,0]
-                rik_values      = values_tuple[:,1]
-                cos_values        = values_tuple[:,2]
-
-                types_tuple = self.triplet_info['pot_type_idx'][i]
-                fj_types    = types_tuple[:,0]
-                fk_types    = types_tuple[:,1]
-                g_types     = types_tuple[:,2]
-
-                intervals_tuple = self.triplet_info['interval_idx'][i]
-                fj_intervals    = intervals_tuple[:,0]
-                fk_intervals    = intervals_tuple[:,1]
-                g_intervals     = intervals_tuple[:,2]
-
-                # Calculate three body contributions
-                fj_coeffs = coeffs_from_indices(self.fs,
-                            {'pot_type_idx':fj_types, 'interval_idx':fj_intervals})
-                fk_coeffs = coeffs_from_indices(self.fs,
-                            {'pot_type_idx':fk_types, 'interval_idx':fk_intervals})
-                g_coeffs = coeffs_from_indices(self.gs,
-                            {'pot_type_idx':g_types, 'interval_idx':g_intervals})
-
-                fj_results = eval_all_polynomials(rij_values, fj_coeffs)
-                fk_results = eval_all_polynomials(rik_values, fk_coeffs)
-                g_results = eval_all_polynomials(cos_values, g_coeffs)
-
-                results = np.multiply(fj_results,np.multiply(fk_results, g_results))
-                total_ni[:,i] += np.sum(results, axis=1)
-
-        # Perform binning and shifting for each ni (per atom) in each potential
-        knots = self.us[0][0].knotsx
-        for p in range(total_ni.shape[0]):
-            ni_indices_for_one_pot = np.zeros(natoms)
-
-            for q in range(total_ni.shape[1]):
-                # Shift according to pre-computed U index info
-                u_idx = self.u_index_info['pot_type_idx'][q]
-
-                ni = total_ni[p][q]
-
-                u_interval_num, u_knot_num = intervals_from_splines(
-                    self.us,ni,u_idx)
-
-                ni_indices_for_one_pot[q] = u_interval_num
-                total_ni[p][q] -= knots[u_knot_num]
-
-            self.u_index_info['interval_idx'].append(ni_indices_for_one_pot)
-
-        self.u_index_info['interval_idx'] = np.array(self.u_index_info[
-                                                         'interval_idx'])
-
-        # Compute U values and derivatives; add to energy and forces
-        u_types = self.u_index_info['pot_type_idx']
-
-        self.uprimes = np.zeros( (len(potentials),natoms) )
-        for i,row  in enumerate(total_ni):
-            u_indices = self.u_index_info['interval_idx'][i]
-
-            u_coeffs = coeffs_from_indices([self.us[i]],
-                        {'pot_type_idx':u_types, 'interval_idx':u_indices})
-
-            results = eval_all_polynomials(row, u_coeffs)
-            energies[i] += np.sum(results, axis=1)
-
-            # dots each layer of u_coeffs with the derivative matrix
-            uprime_coeffs = np.einsum('ij,jdk->idk', D, u_coeffs)
-
-            results = eval_all_polynomials(row, uprime_coeffs)
-            self.uprimes[i,:] = eval_all_polynomials(row, uprime_coeffs)
-
-        # Subtract off zero-point energies
-        zero_atom_energy = np.array([self.zero_atom_energies[:,z] for z in
-                            u_types]).transpose()
-        zero_atom_energy = np.sum(zero_atom_energy, axis=1)
-
-        energies -= zero_atom_energy
+        # total_ni = np.zeros( (len(potentials),natoms) )
+        #
+        # for i in range(natoms):
+        #
+        #     # Pull per-atom neighbor distances and compute rho contribution
+        #     pair_distances_bothways = self.pair_distances_bothways[i]
+        #     rho_types = self.rho_index_info['pot_type_idx'][i]
+        #     rho_indices = self.rho_index_info['interval_idx'][i]
+        #
+        #     rho_coeffs = coeffs_from_indices(self.rhos,
+        #                 {'pot_type_idx':rho_types, 'interval_idx':rho_indices})
+        #     results = eval_all_polynomials(pair_distances_bothways, rho_coeffs)
+        #     total_ni[:,i] += np.sum(results, axis=1)
+        #
+        #     if len(self.triplet_values[i]) > 0: # check needed in case of dimer
+        #
+        #         # Unpack ordered sets of values and indexing information
+        #         values_tuple    = self.triplet_values[i]
+        #         rij_values      = values_tuple[:,0]
+        #         rik_values      = values_tuple[:,1]
+        #         cos_values        = values_tuple[:,2]
+        #
+        #         types_tuple = self.triplet_info['pot_type_idx'][i]
+        #         fj_types    = types_tuple[:,0]
+        #         fk_types    = types_tuple[:,1]
+        #         g_types     = types_tuple[:,2]
+        #
+        #         intervals_tuple = self.triplet_info['interval_idx'][i]
+        #         fj_intervals    = intervals_tuple[:,0]
+        #         fk_intervals    = intervals_tuple[:,1]
+        #         g_intervals     = intervals_tuple[:,2]
+        #
+        #         # Calculate three body contributions
+        #         fj_coeffs = coeffs_from_indices(self.fs,
+        #                     {'pot_type_idx':fj_types, 'interval_idx':fj_intervals})
+        #         fk_coeffs = coeffs_from_indices(self.fs,
+        #                     {'pot_type_idx':fk_types, 'interval_idx':fk_intervals})
+        #         g_coeffs = coeffs_from_indices(self.gs,
+        #                     {'pot_type_idx':g_types, 'interval_idx':g_intervals})
+        #
+        #         fj_results = eval_all_polynomials(rij_values, fj_coeffs)
+        #         fk_results = eval_all_polynomials(rik_values, fk_coeffs)
+        #         g_results = eval_all_polynomials(cos_values, g_coeffs)
+        #
+        #         results = np.multiply(fj_results,np.multiply(fk_results, g_results))
+        #         total_ni[:,i] += np.sum(results, axis=1)
+        #
+        # # Perform binning and shifting for each ni (per atom) in each potential
+        # knots = self.us[0][0].knotsx
+        # for p in range(total_ni.shape[0]):
+        #     ni_indices_for_one_pot = np.zeros(natoms)
+        #
+        #     for q in range(total_ni.shape[1]):
+        #         # Shift according to pre-computed U index info
+        #         u_idx = self.u_index_info['pot_type_idx'][q]
+        #
+        #         ni = total_ni[p][q]
+        #
+        #         u_interval_num, u_knot_num = intervals_from_splines(
+        #             self.us,ni,u_idx)
+        #
+        #         ni_indices_for_one_pot[q] = u_interval_num
+        #         total_ni[p][q] -= knots[u_knot_num]
+        #
+        #     self.u_index_info['interval_idx'].append(ni_indices_for_one_pot)
+        #
+        # self.u_index_info['interval_idx'] = np.array(self.u_index_info[
+        #                                                  'interval_idx'])
+        #
+        # # Compute U values and derivatives; add to energy and forces
+        # u_types = self.u_index_info['pot_type_idx']
+        #
+        # self.uprimes = np.zeros( (len(potentials),natoms) )
+        # for i,row  in enumerate(total_ni):
+        #     u_indices = self.u_index_info['interval_idx'][i]
+        #
+        #     u_coeffs = coeffs_from_indices([self.us[i]],
+        #                 {'pot_type_idx':u_types, 'interval_idx':u_indices})
+        #
+        #     results = eval_all_polynomials(row, u_coeffs)
+        #     energies[i] += np.sum(results, axis=1)
+        #
+        #     # dots each layer of u_coeffs with the derivative matrix
+        #     uprime_coeffs = np.einsum('ij,jdk->idk', D, u_coeffs)
+        #
+        #     results = eval_all_polynomials(row, uprime_coeffs)
+        #     self.uprimes[i,:] = eval_all_polynomials(row, uprime_coeffs)
+        #
+        # # Subtract off zero-point energies
+        # zero_atom_energy = np.array([self.zero_atom_energies[:,z] for z in
+        #                     u_types]).transpose()
+        # zero_atom_energy = np.sum(zero_atom_energy, axis=1)
+        #
+        # energies -= zero_atom_energy
 
         return energies
 
@@ -1230,8 +1252,23 @@ def read_from_file(atom_file_name, potential_file_name):
     return worker, knot_y_points
     # def __init__(self, atoms, knot_points, indices):
 
-def get_abcd(knots, x):
+def get_abcd(all_knots, x, indices=[], spline_num=0):
     """Calculates the coefficients needed for spline interpolation.
+
+    Args:
+        all_knots (np.arr):
+            knot x-coordinates of all splines
+
+        x (float):
+            point at which to evaluate spline
+
+        indices (list):
+            list of indices deliminating splines; if None, assumes only one
+            spline is represented
+
+        spline_num (int):
+            index of spline to be evaluated; must be specified if indices is
+            not None. Assumes zero indexing.
 
     In general, the polynomial p(x) can be interpolated as
 
@@ -1260,25 +1297,36 @@ def get_abcd(knots, x):
     h_01 = lambda t: t*(1-t)**2
     h_11 = lambda t: (t**2)*(t-1)
 
+    if indices:
+        if spline_num is None:
+            raise ValueError("spline_num must be specified if indices is not "
+                             "None")
+        else:
+            splines = np.split(all_knots, indices)
+            knots = splines[spline_num]
+    else:
+        knots = all_knots; indices = [0]
+
     h = knots[1] - knots[0]
 
     # Find spline interval
     k = int(np.floor((x-knots[0])/h))
 
-    nknots = len(knots)
+    nknots = len(all_knots)
+    # TODO: is there an issue with spline_num == 1?
+    shift = indices[spline_num-1]
     vec = np.zeros(2*nknots)
 
     if k < 0: # LHS extrapolation
-        k = 0
+        k = shift
 
-        # rzm: place ABCD in correct spots
         A = 1
         B = x - knots[0] # negative for correct sign with derivative
 
         vec[k] = A; vec[k+nknots] = B
 
     elif k >= nknots-1: # RHS extrapolation
-        k = nknots-1
+        k = shift+nknots-1
         C = 1
         D = x - knots[-1]
 
@@ -1293,13 +1341,13 @@ def get_abcd(knots, x):
         C = h_01(t)
         D = h_11(t)*prefactor
 
-        vec[k] = A; vec[k+nknots] = B
-        vec[k+1] = C; vec[k+1+nknots] = D
+        vec[shift+k] = A; vec[shift+k+nknots] = B
+        vec[shift+k+1] = C; vec[shift+k+1+nknots] = D
 
     return vec
 
 def build_derivative_matrix(num_x, dx, bc_type='natural'):
-    """Builds the matrix A and B matrices that are needed to find the function
+    """Builds the A and B matrices that are needed to find the function
     derivatives at all knot points. A and B come from the system of equations
 
         Ap' = Bk
@@ -1345,9 +1393,9 @@ def build_derivative_matrix(num_x, dx, bc_type='natural'):
         dx (float):
             knot spacing (assuming uniform spacing)
 
-        end_derivatives (tuple):
-            (d0, dN) where d0 is the first derivative at the leftmost knot
-            and dN is the first derivative at the rightmost knot
+        bc_type (str):
+            the type of boundary conditions to be applied to the spline.
+            'natural' or 'end_derivatives'
 
     Returns:
         A (np.arr):
@@ -1355,8 +1403,6 @@ def build_derivative_matrix(num_x, dx, bc_type='natural'):
 
         B (np.arr):
             tridiagonal RHS matrix"""
-
-    # TODO: us scipy_solve_banded()
 
     n = num_x - 2
 
@@ -1384,8 +1430,8 @@ def build_derivative_matrix(num_x, dx, bc_type='natural'):
 
     elif bc_type == 'end_derivatives':
 
-        topA = np.zeros(n+2).reshape((1,n+2)); topA[0,0] = 1;# topA[0,1] = -2
-        botA = np.zeros(n+2).reshape((1,n+2)); botA[0,-1] = 1;# botA[0,-2] = -4
+        topA = np.zeros(n+2).reshape((1,n+2)); topA[0,0] = 1/dx;
+        botA = np.zeros(n+2).reshape((1,n+2)); botA[0,-1] = 1/dx;
 
         topB = np.zeros(n+2).reshape((1,n+2));# topB[0,-1] = 1
         botB = np.zeros(n+2).reshape((1,n+2));# botB[0,-2] = 6; botB[0,-1] = -6

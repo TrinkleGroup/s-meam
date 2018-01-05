@@ -8,9 +8,7 @@ import numpy as np
 import glob
 import ase.io
 from ase import Atoms
-from ase.calculators.lammpsrun import LAMMPS
 from scipy.interpolate import CubicSpline
-from decimal import Decimal
 
 # LAMMPS atom_style data file formats
 STYLE_FORMATS = {'atomic':'%d %d %f %f %f', 'charge':'%d %d %f %f %f %f',
@@ -49,84 +47,95 @@ def read_spline_meam(fname):
         nphi = (ntypes + 1) * ntypes / 2
 
         # Build all splines; separate into different types later
-        knot_x_points = []
-        knot_y_points = []
-        indices     = [] # tracks ends of phi, rho, u, ,f, g groups
-        idx         = 0
+        knot_x_points   = []
+        knot_y_points   = []
+        knot_y2         = []
+        indices         = [] # tracks ends of phi, rho, u, ,f, g groups
+        all_d0          = []
+        all_dN          = []
+        idx             = 0
 
         for i in range(nsplines):
-
-            if i == nphi:               indices.append(idx)
-            elif i == nphi+ntypes:      indices.append(idx)
-            elif i == nphi+2*ntypes:    indices.append(idx)
-            elif i == nphi+3*ntypes:    indices.append(idx)
 
             f.readline()                # throwaway 'spline3eq' line
             nknots  = int(f.readline())
             idx     += nknots
+            if i < nsplines - 1: indices.append(idx)
 
             d0, dN = [float(el) for el in f.readline().split()]
+            all_d0.append(d0); all_dN.append(dN)
             # rzm: do we need to keep d0, dN? also, move this all to worker.py
 
             for j in range(nknots):
                 x,y,y2 = [np.float(el) for el in f.readline().split()]
                 knot_x_points.append(x)
                 knot_y_points.append(y)
+                knot_y2.append(y2)
 
     except IOError as error:
         raise IOError("Could not open potential file: {0}".format(fname))
 
-    return knot_x_points, knot_y_points, indices
+    return knot_x_points, knot_y_points, y2, indices, all_d0, all_dN
 
-def write_spline_meam(fname, phis, rhos, us, fs, gs, types):
-    """Writes the splines of a MEAM potential into a LAMMPS style potential file
-    for a system with N elements. Potential files have the following format:
+def read_data(fname, style):
+    """Reads in atomic information from a LAMMPS data file, where the
+    information in the data file is written with atom_style 'style'
 
-        # comment line
-        meam/spline <N> <element 1> ... <element N>
-        [phis]
-        [rhos]
-        [us]
-        [fs]
-        [gs]
-
-        Where each [*] is a block of spline functions with the following format:
-            
-            spline3eq
-            <number of knots>
-            <1st derivative @ 1st knot> <1st derivative at last knot>
-            <1st knot coordinates>
-            .
-            .
-            .
-            <last knot coordinates>
-
-    Each <coordinate> is a set (x,y,2nd deriv of y). See i_to_potl() and
-    ij_to_potl for ordering of function blocks.
-
-    See scipy.interpolate.CubicSpline  and spline.py for documentation of Spline
-    object
-    
     Args:
         fname (str):
-            the name of the output potential file
-        phis (list):
-            pair interaction Splines
-        rhos (list):
-            electron density Splines
-        us (list):
-            embedding Splines
-        fs (list):
-            three-body corrector Splines
-        gs (list):
-            angular Splines
-        types (list):
-            elemental names of system components (e.g. ['Ti', 'O'])
-        
+            the name of the input file
+        style (str):
+            LAMMPS atom_style in input file
+
     Returns:
-        None; output is a potential file with the given fname"""
+        data (np.arr):
+            atomic information in atom_style style"""
+
+    headerSize = 0
+    with open(fname, 'r') as f:
+        line = " "
+
+        while line and ('Atoms' not in line):
+            headerSize += 1
+            line = f.readline()
+
+        headerSize += 1 # Catches blank line after 'Atoms' OR first comment line
+
+    return np.genfromtxt(fname, skip_header=headerSize)
+
+def write_spline_meam(fname, knots_x, knots_y, all_d0, all_dN, indices, types):
+    """Writes to a LAMMPS style spline meam file
+
+    Args:
+        fname (str):
+            output file         fname = 'TiO.meam.spline'
+
+        knot_x, knot_y, indices = lammpsTools.read_spline_meam(fname)
+
+        splines_x = np.split(knot_x, indices)
+        lens = [len(splines_x[i]) for i in range(len(splines_x))]
+name
+        knots_x (np.arr):
+            large 1D array of knot x positions
+        knots_y (np.arr):\
+            large 1D array of knot y positions
+        all_d0 (np.arr):
+            first derivatives at first knot point for all splines
+        all_dN (np.arr):
+            first derivatives at last knot point for all splines
+        indices (list):
+            list of integers deliminating the knots for each spline
+        types (list):
+            list of atomic elements in system (e.g. ['H', 'He']
+
+    Returns:
+        None; output is a data file with name fname"""
+
+    splines_x = np.split(knots_x, indices)
+    splines_y = np.split(knots_y, indices)
 
     ntypes = len(types)
+    nphi = (ntypes + 1) * ntypes / 2
 
     with open(fname, 'w') as f:
         # Write header lines
@@ -144,6 +153,7 @@ def write_spline_meam(fname, phis, rhos, us, fs, gs, types):
             f.write("%d\n" % nknots)
 
             der = s(knotsx,1)
+            # d0 = der[0]; dN = der[nknots-1]
             d0 = der[0]; dN = der[nknots-1]
             #f.write("%.16f %.16f\n" % (d0,dN))
 
@@ -160,43 +170,19 @@ def write_spline_meam(fname, phis, rhos, us, fs, gs, types):
                 str3 = ("%.16f" % knotsy2[i]).rstrip('0').rstrip('.')
                 f.write(str1 + ' ' + str2 + ' ' + str3 + '\n')
 
-        # Output all splines
-        for fxn in phis:
-            write_spline(fxn)
-        for fxn in rhos:
-            write_spline(fxn)
-        for fxn in us:
-            write_spline(fxn)
-        for fxn in fs:
-            write_spline(fxn)
-        for fxn in gs:
-            write_spline(fxn)
+        for i in range(len(splines_x)):
+            x = splines_x[i]
+            y = splines_y[i]
 
-def read_data(fname, style):
-    """Reads in atomic information from a LAMMPS data file, where the
-    information in the data file is written with atom_style 'style'
-    
-    Args:
-        fname (str):
-            the name of the input file
-        style (str):
-            LAMMPS atom_style in input file
-        
-    Returns:
-        data (np.arr):
-            atomic information in atom_style style"""
+            if (i < nphi+ntypes) or ((i > nphi+2*ntypes) and (i<nphi+3*ntypes)):
+                bc_type = ((1,all_d0[i]), (1,all_dN[i]))
+            else:
+                bc_type = 'natural'
 
-    headerSize = 0
-    with open(fname, 'r') as f:
-        line = " "
+            s = CubicSpline(x,y,bc_type=bc_type)
+            # s = CubicSpline(x,y,bc_type=((1,0),(1,0)))
 
-        while line and ('Atoms' not in line):
-            headerSize += 1
-            line = f.readline()
-
-        headerSize += 1 # Catches blank line after 'Atoms' OR first comment line
-
-    return np.genfromtxt(fname, skip_header=headerSize)
+            write_spline(s)
 
 def read_box_data(fname, tilt):
     """Reads in simulation box information from a LAMMPS data file.

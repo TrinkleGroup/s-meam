@@ -38,9 +38,18 @@ def get_zero_potential():
         d0 = np.zeros(12)
         dN = np.zeros(12)
 
-        zero_potential = MEAM(splines=splines, types=['H','He'], d0=d0, dN=dN)
+        indices = [12*i for i in range(1,12)]
 
-        return zero_potential
+        x = np.arange(12*num_knots, dtype=float)
+        y = np.zeros(12*num_knots)
+        y = np.append(y, d0); y = np.append(y, dN)
+
+        y2 = y.copy()
+        all_d0 = np.zeros(12)
+        all_dN = np.zeros(12)
+
+        # return knot_x_points, knot_y_points, y2, indices, all_d0, all_dN
+        return x, y, y2, indices, all_d0, all_dN
 ################################################################################
 def get_constant_potential():
     """Constant potential: this potential is designed to test pair/triplet
@@ -231,6 +240,7 @@ def get_random_pots(newN):
                    'phionlys':rng_phionlys, 'rhos':rng_rhos,
                    'norhos':rng_norhos, 'norhophis':rng_norhophis,
                    'rhophis':rng_rhophis}
+
         return allpots
 
     #print("Created %d potentials (%d main, %d subtypes)" % (7*N, N, 6*N))
