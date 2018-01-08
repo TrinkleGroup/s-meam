@@ -11,89 +11,22 @@ class Spline(CubicSpline):
 
         super(Spline,self).__init__(x,y,bc_type=bc_type)#,bc_type=((1,d0),(1,dN)))
         self.cutoff = (x[0],x[len(x)-1])
+        self.bc_type = bc_type
 
         self.d0, self.dN = derivs
-        self._h = x[1]-x[0]
-        self._knotsx = x
-        self._knotsy = y
+        self.h = x[1]-x[0]
+        self.knotsx = x
+        self.knotsy = y
 
-        self._knotsy1 = np.array([super(Spline,self).__call__(z,1) for z in x])
-        self._knotsy2 = np.array([super(Spline,self).__call__(z,2) for z in x])
+        self.knotsy1 = np.array([super(Spline,self).__call__(z,1) for z in x])
+        self.knotsy2 = np.array([super(Spline,self).__call__(z,2) for z in x])
 
-        # Add coefficients for extrapolating splines; can't edit self.c itself
-        self._cmat = np.copy(self.c)
-        self._cmat = np.insert(self.c,0,np.array([0,0,self.d0,self.knotsy[
+        # Addcoefficients for extrapolating splines; can't edit self.c itself
+        self.cmat = np.copy(self.c)
+        self.cmat = np.insert(self.c,0,np.array([0,0,self.d0,self.knotsy[
             0]]),axis=1)
-        self._cmat = np.insert(self.cmat,self.cmat.shape[1],np.array([0,0,\
+        self.cmat = np.insert(self.cmat,self.cmat.shape[1],np.array([0,0,\
                         self.dN, self.knotsy[-1]]),axis=1)
-
-    @property
-    def cmat(self):
-        """Duplicate of coefficient matrix that has extrapolating splines
-        included; can't use self.c directly because it is needed for
-        __call__()"""
-        return self._cmat
-
-    @cmat.setter
-    def cmat(self):
-        raise AttributeError("cmat can only be altered by setting splines")
-
-    # TODO: update_cmat() for changing single spline
-
-    @property
-    def knotsx(self):
-        return self._knotsx
-
-    @property
-    def knotsy(self):
-        return self._knotsy
-
-    @property
-    def knotsy1(self):
-        """First derivatives"""
-        return self._knotsy1
-
-    @property
-    def knotsy2(self):
-        """Second derivatives"""
-        return self._knotsy2
-
-    @property
-    def cutoff(self):
-        """A tuple of (left cutoff, right cutoff)"""
-        return self._cutoff
-
-    @cutoff.setter
-    def cutoff(self, tup):
-        self._cutoff = tup
-
-    @property
-    def d0(self):
-        """First derivative at first knot"""
-        return self._d0
-
-    @d0.setter
-    def d0(self,val):
-        self._d0 = val
-
-    @property
-    def dN(self):
-        """First derivative at last knot"""
-        return self._dN
-
-    @dN.setter
-    def dN(self,val):
-        self._dN = val
-
-    @property
-    def h(self):
-        """Knot spacing"""
-        # TODO: checks for non-grid knots
-        return self._h
-
-    @h.setter
-    def h(self,h):
-        raise AttributeError("h is defined by knot spacings and cannot be manually changed.")
 
     def in_range(self, x):
         """Checks if a given value is within the spline's cutoff range"""
@@ -144,11 +77,13 @@ class Spline(CubicSpline):
             else:
                 return super(Spline,self).__call__(x,i)
 
-        if self.in_range(x):
-            return super(Spline,self).__call__(x)
+        if type(x) == np.ndarray: # use CubicSpline.__call__()
+            return super(Spline, self).__call__(x)
         else:
-            return self.extrap(x)
-            #return super(Spline,self).__call__(x,extrapolate=True)
+            if self.in_range(x):
+                return super(Spline,self).__call__(x)
+            else:
+                return self.extrap(x)
 
     # TODO: add a to_matrix() function for matrix form?
 

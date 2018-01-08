@@ -25,129 +25,6 @@ handler.terminator = ""
 py_calcduration = 0
 lammps_calcduration = 0
 
-def loader_energy(group_name, calculated, lammps):
-    """Assumes 'lammps' and 'calculated' are dictionaries where key:value =
-    <struct name>:<list of calculations> where each entry in the list of
-    calculations corresponds to a single potential."""
-
-    tests = []
-    for name in calculated.keys():
-        test_name = group_name + '_' + name + '_energy'
-        tests.append((test_name, calculated[name], lammps[name]))
-
-    return tests
-
-def loader_forces(group_name, calculated, lammps):
-    """Assumes 'lammps' and 'calculated' are dictionaries where key:value =
-    <struct name>:<list of calculations> where each entry in the list of
-    calculations corresponds to a single potential."""
-
-    tests = []
-    for name in calculated.keys():
-        test_name = group_name + '_' + name + '_forces'
-        #logging.info("calc{0}".format(calculated.keys()))
-        #logging.info("lammps{0}".format(lammps.keys()))
-        tests.append((test_name, calculated[name], lammps[name]))
-
-    return tests
-
-def runner_energy(pots, structs):
-
-    energies = {}
-    for name in structs.keys():
-        atoms = structs[name]
-
-        global py_calcduration
-
-        # rzm: potentials need to be generated in correct form
-        # rzm: pass x_indices and types into worker __init__()
-        # rzm: test potentials need to produce everything needed by
-        # write_spline_meam() in lammpsTools
-
-        # __init__(self, atoms, knot_points, types, x_indices=[]):
-        w = worker(atoms, pots)
-        start = time.time()
-        #calculated[name] = w.compute_energies()
-        # TODO: to optimize, preserve workers for each struct
-        energies[name] = w.compute_energies(pots)
-        py_calcduration += time.time() - start
-
-        #logging.info("{0}".format(calculated[name]))
-
-    return energies
-
-def runner_forces(pots, structs):
-
-    forces = {}
-    for name in structs.keys():
-        atoms = structs[name]
-
-        global py_calcduration
-
-        w = worker(atoms, pots)
-        start = time.time()
-        #calculated[name] = w.compute_energies()
-        # TODO: to optimize, preserve workers for each struct
-        forces[name] = w.compute_forces(pots)
-        py_calcduration += time.time() - start
-
-        # logging.info("{0} correct".format(forces[name]))
-
-    return forces
-
-def getLammpsResults(pots, structs):
-
-    start = time.time()
-
-    # Builds dictionaries where dict[i]['ptype'][j] is the energy or force matrix of
-    # struct i using potential j for the given 'ptype', according to LAMMPS
-    energies = {}
-    forces = {}
-
-    types = ['H','He']
-
-    params = {}
-    params['units'] = 'metal'
-    params['boundary'] = 'p p p'
-    params['mass'] =  ['1 1.008', '2 4.0026']
-    params['pair_style'] = 'meam/spline'
-    params['pair_coeff'] = ['* * test.meam.spline ' + ' '.join(types)]
-    params['newton'] = 'on'
-
-    global lammps_calcduration
-
-    for key in structs.keys():
-        energies[key] = np.zeros(len(pots))
-        forces[key] = []
-
-    for pnum,p in enumerate(pots):
-
-        p.write_to_file('test.meam.spline')
-
-        calc = LAMMPS(no_data_file=True, parameters=params, \
-                      keep_tmp_files=False,specorder=types,files=['test.meam.spline'])
-
-        for name in structs.keys():
-            atoms = structs[name]
-
-            cstart = time.time()
-            energies[name][pnum] = calc.get_potential_energy(atoms)
-            forces[name].append(calc.get_forces(atoms))
-            # lammps_calcduration += float(time.time() - cstart)
-
-            # TODO: LAMMPS runtimes are inflated due to ASE internal read/write
-            # TODO: need to create shell script to get actual runtimes
-
-        calc.clean()
-        #os.remove('test.meam.spline')
-
-    #logging.info("Time spent writing potentials: {}s".format(round(writeduration,3)))
-    #logging.info("Time spent calculating in LAMMPS: {}s".format(round(
-    # calcduration,3)))
-
-    return energies, forces
-
-
 class PotentialTests(unittest.TestCase):
 
     N = 1
@@ -581,3 +458,126 @@ class FunctionTests(unittest.TestCase):
         true = np.array([0.15500136, -0.56640137, -0.74807275,  0.45725267, 0.])
 
         np.testing.assert_allclose(true, M@y)
+
+def loader_energy(group_name, calculated, lammps):
+    """Assumes 'lammps' and 'calculated' are dictionaries where key:value =
+    <struct name>:<list of calculations> where each entry in the list of
+    calculations corresponds to a single potential."""
+
+    tests = []
+    for name in calculated.keys():
+        test_name = group_name + '_' + name + '_energy'
+        tests.append((test_name, calculated[name], lammps[name]))
+
+    return tests
+
+def loader_forces(group_name, calculated, lammps):
+    """Assumes 'lammps' and 'calculated' are dictionaries where key:value =
+    <struct name>:<list of calculations> where each entry in the list of
+    calculations corresponds to a single potential."""
+
+    tests = []
+    for name in calculated.keys():
+        test_name = group_name + '_' + name + '_forces'
+        #logging.info("calc{0}".format(calculated.keys()))
+        #logging.info("lammps{0}".format(lammps.keys()))
+        tests.append((test_name, calculated[name], lammps[name]))
+
+    return tests
+
+def runner_energy(pots, structs):
+
+    energies = {}
+    for name in structs.keys():
+        atoms = structs[name]
+
+        global py_calcduration
+
+        # rzm: potentials need to be generated in correct form
+        # rzm: pass x_indices and types into worker __init__()
+        # rzm: test potentials need to produce everything needed by
+        # write_spline_meam() in lammpsTools
+
+        # __init__(self, atoms, knot_points, types, x_indices=[]):
+        w = worker(atoms, pots)
+        start = time.time()
+        #calculated[name] = w.compute_energies()
+        # TODO: to optimize, preserve workers for each struct
+        energies[name] = w.compute_energies(pots)
+        py_calcduration += time.time() - start
+
+        #logging.info("{0}".format(calculated[name]))
+
+    return energies
+
+def runner_forces(pots, structs):
+
+    forces = {}
+    for name in structs.keys():
+        atoms = structs[name]
+
+        global py_calcduration
+
+        w = worker(atoms, pots)
+        start = time.time()
+        #calculated[name] = w.compute_energies()
+        # TODO: to optimize, preserve workers for each struct
+        forces[name] = w.compute_forces(pots)
+        py_calcduration += time.time() - start
+
+        # logging.info("{0} correct".format(forces[name]))
+
+    return forces
+
+def getLammpsResults(pots, structs):
+
+    start = time.time()
+
+    # Builds dictionaries where dict[i]['ptype'][j] is the energy or force matrix of
+    # struct i using potential j for the given 'ptype', according to LAMMPS
+    energies = {}
+    forces = {}
+
+    types = ['H','He']
+
+    params = {}
+    params['units'] = 'metal'
+    params['boundary'] = 'p p p'
+    params['mass'] =  ['1 1.008', '2 4.0026']
+    params['pair_style'] = 'meam/spline'
+    params['pair_coeff'] = ['* * test.meam.spline ' + ' '.join(types)]
+    params['newton'] = 'on'
+
+    global lammps_calcduration
+
+    for key in structs.keys():
+        energies[key] = np.zeros(len(pots))
+        forces[key] = []
+
+    for pnum,p in enumerate(pots):
+
+        p.write_to_file('test.meam.spline')
+
+        calc = LAMMPS(no_data_file=True, parameters=params, \
+                      keep_tmp_files=False,specorder=types,files=['test.meam.spline'])
+
+        for name in structs.keys():
+            atoms = structs[name]
+
+            cstart = time.time()
+            energies[name][pnum] = calc.get_potential_energy(atoms)
+            forces[name].append(calc.get_forces(atoms))
+            # lammps_calcduration += float(time.time() - cstart)
+
+            # TODO: LAMMPS runtimes are inflated due to ASE internal read/write
+            # TODO: need to create shell script to get actual runtimes
+
+        calc.clean()
+        #os.remove('test.meam.spline')
+
+    #logging.info("Time spent writing potentials: {}s".format(round(writeduration,3)))
+    #logging.info("Time spent calculating in LAMMPS: {}s".format(round(
+    # calcduration,3)))
+
+    return energies, forces
+

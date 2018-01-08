@@ -215,6 +215,10 @@ $RECYCLE.BIN/
 tmp/*
 
 # Other random files
+data.*
+*.sh
+*.Ti
+*.png
 *.dat
 *.spline
 *.out

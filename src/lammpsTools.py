@@ -4,6 +4,7 @@ used for spline-MEAM potential fitting
 Author: Josh Vita, University of Illinois at Urbana-Champaign
 Date:   8/14/17"""
 
+import sys
 import numpy as np
 import glob
 import ase.io
@@ -348,7 +349,12 @@ def symbol_to_type(symbol, types):
         
         e.g. for ['Ti', 'O'], symbol_to_type('Ti',types) returns 1"""
 
-    return np.where(np.array(types)==symbol)[0][0] + 1
+    try:
+        return np.where(np.array(types)==symbol)[0][0] + 1
+    except (IndexError):
+        print('Atom type could not be found in the given set of '
+                         'types')
+        sys.exit(0)
 
 def main():
 
