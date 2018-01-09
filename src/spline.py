@@ -21,10 +21,19 @@ class Spline(CubicSpline):
 
         super(Spline,self).__init__(x,y,bc_type=bc, extrapolate=True)
 
-        self.d0 = self(x[0], 1)
-        self.dN = self(x[-1], 1)
         self.cutoff = (x[0],x[len(x)-1])
         self.h = x[1]-x[0]
+
+    def __eq__(self, other):
+
+        x_eq = np.allclose(self.x, other.x)
+        y_eq = np.allclose(self(self.x), other(other.x))
+        y1_eq = np.allclose(self(self.x,1), other(other.x,1))
+        y2_eq = np.allclose(self(self.x,2), other(other.x,2))
+        c_eq = (self.cutoff == other.cutoff)
+        h_eq = (self.h == other.h)
+
+        return x_eq and y_eq and y1_eq and y2_eq and c_eq and h_eq
 
     def in_range(self, x):
         """Checks if a given value is within the spline's cutoff range"""
@@ -64,4 +73,4 @@ class ZeroSpline(Spline):
         knotsx = np.array(knotsx)
 
         super(ZeroSpline, self).__init__(knotsx, np.zeros(knotsx.shape[0]),\
-                derivs=(0.,0.))
+                end_derivs=(0.,0.))

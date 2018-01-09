@@ -35,61 +35,33 @@ class MEAM:
         gs (list):
             angular contribution splines, nphi in total"""
 
-    def  __init__(self, fname=None, types=[], fmt='lammps', splines=[],
-                  d0=[], dN=[]):
+    def __init__(self, splines, types):
+        """Base constructor"""
 
-        if fname:
-            """Used to read in a LAMMPS-style spline-meam file"""
-            if splines:
-                raise AttributeError("Can only specify either fname or splines")
-            self.read_from_file(fname, fmt)
-            nphi = int((self.ntypes+1)*self.ntypes/2)
-            self.nphi = nphi
-        elif len(splines) > 0:
-            self.splines = splines
-            self.d0 = d0
-            self.dN = dN
-            self.types = types  # sets self.ntypes too
-            ntypes = self.ntypes
+        ntypes = len(types)
 
-            if len(splines) != ((ntypes+4)*ntypes):
-                raise AttributeError("Incorrect number of splines for given number of system components")
+        if ntypes < 1:
+            raise ValueError("must specify at least one atom type")
+        elif ntypes > 2:
+            raise NotImplementedError("only unary and binary systems are supported")
+        elif len(splines) != ntypes*(ntypes+4):
+            raise ValueError("incorrect number of splines for given number of"
+                             "atom types")
 
-            # Calculate the number of splines for phi/g each
-            nphi = int((ntypes+1)*ntypes/2)
-            self.nphi = nphi
+        self.types = types
+        self.ntypes = ntypes
+        nphi = int((ntypes+1)*ntypes/2)
+        self.nphi = nphi
 
-            # Separate splines for each unique function
-            idx = 0                         # bookkeeping
-            self.phis = splines[0:nphi]          # first nphi are phi
-            
-            idx += nphi
-            self.rhos = splines[idx:idx+ntypes]  # next ntypes are rho
+        split_indices = [nphi, nphi+ntypes, nphi+2*ntypes, nphi+3*ntypes]
+        self.phis, self.rhos, self.us, self.fs, self.gs = np.split(splines,
+                                                                split_indices)
 
-            idx += ntypes
-            self.us = splines[idx:idx+ntypes]    # next ntypes are us
-
-            idx += ntypes
-            self.fs = splines[idx:idx+ntypes]    # next ntypes are fs
-
-            idx += ntypes
-            self.gs = splines[idx:]              # last nphi are gs
-
-        else:
-            ntypes = len(types)
-            # self.ntypes is set in @setter.types
-            self.types = types
-            self.phis = [None]*int(((ntypes+1)*ntypes/2))
-            self.rhos = [None]*int(ntypes)
-            self.us = [None]*int(ntypes)
-            self.fs = [None]*int(ntypes)
-            self.gs = [None]*int(((ntypes+1)*ntypes/2))
-
-            self.zero_atom_energies = [None]*ntypes
-            self.uprimes = None
-            self.forces = None
-            self.energies = None
-            return
+        self.phis = list(self.phis)
+        self.rhos = list(self.rhos)
+        self.us = list(self.us)
+        self.fs = list(self.fs)
+        self.gs = list(self.gs)
 
         radials = [self.phis,self.rhos,self.fs]
         endpoints = [max(fxn.x) for ftype in radials for fxn in ftype]
@@ -102,6 +74,77 @@ class MEAM:
         self.uprimes = None
         self.forces = None
         self.energies = None
+
+    @classmethod
+    def from_pvec(cls, x_pvec, y_pvec, x_indices, types):
+        """Builds a MEAM object from 1D vectors of parameters.
+
+        Args:
+            see WorkerManyPotentialsOneStruct.__init()__ for details
+            concerning formatting of input arguments
+
+        Returns:
+            MEAM object"""
+
+        x_pvec = np.array(x_pvec)
+        y_pvec = np.array(y_pvec)
+
+        x_indices = np.array(x_indices)
+        y_indices = [x_indices[i-1]-2*i for i in range(1, len(x_indices)+1)]
+
+        split_x = np.split(x_pvec, x_indices)
+        split_y = np.split(y_pvec, y_indices)
+
+        nsplines = len(types)*(len(types)+4)
+        splines = [None]*nsplines
+
+        for i in range(len(split_x)):
+            x, bc = np.split(split_x[i], [-2])
+
+            splines[i] = Spline(x, split_y[i], end_derivs=bc)
+
+        return cls(splines, types)
+
+    @classmethod
+    def  from_file(cls, fname):
+        """Builds MEAM potential using spline information from the given file
+
+        Args:
+            fname (str):
+                the name of the input file
+
+        Returns:
+            MEAM object"""
+
+        with open(fname, 'r') as f:
+            f.readline()  # Remove header
+            temp = f.readline().split()  # 'meam/spline ...' line
+            types = temp[2:]
+            ntypes = len(types)
+
+            # Based on how fxns in MEAM are defined
+            nsplines = ntypes * (ntypes + 4)
+
+            # Build all splines; separate into different types later
+            splines = []
+            for i in range(nsplines):
+                f.readline()  # throwaway 'spline3eq' line
+                nknots = int(f.readline())
+
+                d0, dN = [float(el) for el in f.readline().split()]
+
+                xcoords = []  # x-coordinates of knots
+                ycoords = []  # y-coordinates of knots
+                for j in range(nknots):
+                    # still unsure why y2 is in the file... why store if it's
+                    # recalculated again later??
+                    x, y, y2 = [np.float(el) for el in f.readline().split()]
+                    xcoords.append(x)
+                    ycoords.append(y)
+
+                splines.append(Spline(xcoords, ycoords, end_derivs=(d0,dN)))
+
+        return cls(splines, types)
 
     def compute_forces_self(self, atoms):
         """Evaluates the energies for the given system using the MEAM potential,
@@ -207,31 +250,14 @@ class MEAM:
                             g_prime = self.gs[ij_to_potl(jtype,ktype,\
                                     self.ntypes)](cos_theta,1)
 
-                            # print("fk_val = %.3f" % fk_val)
-                            # print("fk_prime = %.3f" % fk_prime)
-
-                            # print("g_val = %.3f" % g_val)
-                            # print("g_prime = %.3f" % g_prime)
-
                             fij = -Uprime_i*g_val*fk_val*fj_prime
                             fik = -Uprime_i*g_val*fj_val*fk_prime
-
-                            # print("fij = {0}".format(fij))
-                            # print("fik = {0}".format(fik))
-                            # print("cos_values = {0}".format(cos_theta))
-                            # print("rij_values = {0}".format(r_ij))
-                            # print("rik_values = {0}".format(r_ik))
 
                             prefactor = Uprime_i*fj_val*fk_val*g_prime
                             prefactor_ij = prefactor / r_ij
                             prefactor_ik = prefactor / r_ik
                             fij += prefactor_ij * cos_theta
                             fik += prefactor_ik * cos_theta
-
-
-                            # print("prefactor = {0}".format(prefactor))
-                            # print("prefactor_ij = {0}".format(prefactor_ij))
-                            # print("prefactor_ik = {0}".format(prefactor_ik))
 
                             fj = jdel*fij - kdel*prefactor_ij
                             forces_j += fj
@@ -294,9 +320,6 @@ class MEAM:
                 phis, gs: Ti-Ti, Ti-O, O-O
                 rhos, us, fs: Ti, O"""
 
-        # TODO: currently, this is the WORST case scenario in terms of runtime
-        # TODO: avoid passing whole array? generator?
-        # TODO: Check that all splines are not None
         # TODO: how to compute per-atom forces
         # TODO: is there anywhere that map() could help?
 
@@ -313,10 +336,7 @@ class MEAM:
         self.energies = np.zeros((natoms,))
         self.uprimes = [None]*natoms
 
-        cellx,celly,cellz = atoms.get_cell()
-        
         for i in range(natoms):
-            #logging.info("Computing for atom {0}".format(i))
             itype = lammpsTools.symbol_to_type(atoms[i].symbol, self.types)
             ipos = atoms[i].position
 
@@ -329,12 +349,7 @@ class MEAM:
 
             # Build the list of shifted positions for atoms outside of unit cell
             neighbor_shifted_positions = []
-            #for l in range(len(neighbors[0])):
-            #    shiftx,shifty,shiftz = neighbors[1][l]
-            #    neigh_pos = atoms[neighbors[0][l]].position + shiftx*cellx + shifty*celly +\
-            #            shiftz*cellz
 
-            #    neighbor_shifted_positions.append(neigh_pos)
             indices, offsets = nl.get_neighbors(i)
             for idx, offset in zip(indices,offsets):
                 neigh_pos = atoms.positions[idx] + np.dot(offset,\
@@ -414,8 +429,16 @@ class MEAM:
 
         return total_pe
 
-    def write_to_file(self, fname, fmt='lammps'):
-        """Writes the potential to a file"""
+    def write_to_file(self, fname):
+        """Writes the potential to a file
+
+        Args:
+            fname (str):
+                name of file to write to
+
+        Returns:
+            None; writes to file with name <fname>"""
+
         types = self.types
         ntypes = len(types)
 
@@ -428,17 +451,11 @@ class MEAM:
 
                 # Write additional spline info
                 nknots = len(s.x)
-                knotsx = s.knotsx              # x-pos of knots
-                knotsy = s.knotsy             # y-pos of knots
-                knotsy2 = s.knotsy2         # second derivative at knots
                 f.write("spline3eq\n")
                 f.write("%d\n" % nknots)
 
-                der = s.knotsy1
+                der = s(s.x, 1)
                 d0 = der[0]; dN = der[nknots-1]
-                #f.write("%.16f %.16f\n" % (d0,dN))
-
-                # TODO: need to ensure precision isn't changed between read/write
 
                 str1 = ("%.16f" % d0).rstrip('0').rstrip('.')
                 str2 = ("%.16f" % dN).rstrip('0').rstrip('.')
@@ -446,9 +463,9 @@ class MEAM:
 
                 # Write knot info
                 for i in range(nknots):
-                    str1 = ("%.16f" % knotsx[i]).rstrip('0').rstrip('.')
-                    str2 = ("%.16f" % knotsy[i]).rstrip('0').rstrip('.')
-                    str3 = ("%.16f" % knotsy2[i]).rstrip('0').rstrip('.')
+                    str1 = ("%.16f" % s.x[i]).rstrip('0').rstrip('.')
+                    str2 = ("%.16f" % s(s.x)[i]).rstrip('0').rstrip('.')
+                    str3 = ("%.16f" % s(s.x, 2)[i]).rstrip('0').rstrip('.')
                     f.write(str1 + ' ' + str2 + ' ' + str3 + '\n')
 
             # Output all splines
@@ -463,96 +480,6 @@ class MEAM:
             for fxn in self.gs:
                 write_spline(fxn)
 
-    def read_from_file(self, fname, fmt='lammps'):
-        """Builds MEAM potential using spline information from the given LAMMPS
-        potential file.
-        
-        Args:
-            fname (str)
-                the name of the input file
-            fmt (str)
-                currently implemented: ['lammps'], default = 'lammps'
-
-        Returns:
-            sets all necessary variables (types, ntypes, nphi, phis, etc...)"""
-
-        if fmt == 'lammps':
-            try:
-                f = open(fname, 'r')
-                f.readline()                    # Remove header
-                temp = f.readline().split()     # 'meam/spline ...' line
-                types = temp[2:]
-                ntypes = len(types)
-                self.ntypes = ntypes
-
-                nsplines = ntypes*(ntypes+4)    # Based on how fxns in MEAM are defined
-
-                # Calculate the number of splines for phi/g each
-                nphi = int((ntypes+1)*ntypes/2)
-                self.nphi = nphi
-
-                # Build all splines; separate into different types later
-                splines = []
-                for i in range(nsplines):
-                    f.readline()                # throwaway 'spline3eq' line
-                    nknots = int(f.readline())
-
-                    d0,dN = [float(el) for el in f.readline().split()]
-                    
-                    xcoords = []                # x-coordinates of knots
-                    ycoords = []                # y-coordinates of knots
-                    for j in range(nknots):
-                        # still unsure why y2 is in the file... why store if it's
-                        # recalculated again later??
-                        x,y,y2 = [np.float(el) for el in f.readline().split()]
-                        xcoords.append(x)
-                        ycoords.append(y)
-
-                    # TODO: should be able to remove these checks since all are
-                    # clamped
-                    if i < nphi+ntypes:             # phi and rho
-                        bc = ('natural', (1,0.0))
-                    elif i < nphi+2*ntypes:         # u
-                        bc = 'natural'
-                    elif i < nphi+3*ntypes:         # f
-                        bc = ('natural', (1,0.0))
-                    else:                           # g
-                        bc = 'natural'
-
-                    temp = Spline(xcoords,ycoords,bc_type =((1,d0),(1,dN)),\
-                            derivs=(d0,dN))
-
-                    temp.cutoff = (xcoords[0],xcoords[len(xcoords)-1])
-                    splines.append(temp)
-
-                # Separate splines for each unique function
-                idx = 0                         # bookkeeping
-                phis = splines[0:nphi]          # first nphi are phi
-                idx += nphi
-                rhos = splines[idx:idx+ntypes]  # next ntypes are rho
-                idx += ntypes
-                us = splines[idx:idx+ntypes]    # next ntypes are us
-                idx += ntypes
-                fs = splines[idx:idx+ntypes]    # next ntypes are fs
-                idx += ntypes
-                gs = splines[idx:]              # last nphi are gs
-
-                # Using cutoff to be largest endpoint of radial functions
-                radials = [phis, rhos, fs]
-                endpoints = [max(fxn.x) for ftype in radials for fxn in ftype]
-                cutoff = max(endpoints)
-
-                self.types = types
-                self.phis = phis
-                self.rhos = rhos
-                self.us = us
-                self.fs = fs
-                self.gs = gs
-                self.cutoff = cutoff
-
-            except IOError as error:
-                raise IOError("Could not open file '" + fname + "'")
-
     def plot(self):
         """Generates plots of all splines"""
 
@@ -562,158 +489,159 @@ class MEAM:
             s.plot(saveName=str(i+1)+'.png')
                 # TODO: finish this for generic system, not just binary/unary
 
-# TODO: all subtype functions are assuming a 2-component system
-def phionly_subtype(pot):
-    """Returns the phionly version of pot
+    def phionly_subtype(pot):
+        """Returns the phionly version of pot
 
-    Args:
-        pot (MEAM):
-            the original potential
+        Args:
+            pot (MEAM):
+                the original potential
 
-    Returns:
-        phionly (MEAM):
-            the phionly version of pot"""
+        Returns:
+            phionly (MEAM):
+                the phionly version of pot"""
 
-    N = pot.ntypes          # number of components in the system
-    nphi = int((N+1)*N/2)   # number of each phi and u splines
+        N = pot.ntypes          # number of components in the system
+        nphi = int((N+1)*N/2)   # number of each phi and u splines
 
-    original = pot.phis + pot.rhos + pot.us + pot.fs + pot.gs
+        original = pot.phis + pot.rhos + pot.us + pot.fs + pot.gs
 
-    splines = [original[i] if (i<nphi) else ZeroSpline(original[i].knotsx)
-               for i in range(N*(N+4))]
+        splines = [original[i] if (i<nphi) else ZeroSpline(original[i].x)
+                   for i in range(N*(N+4))]
 
-    return MEAM(splines=splines, types=pot.types)
+        return MEAM(splines=splines, types=pot.types)
 
-def nophi_subtype(pot):
-    """Returns the nophi version of pot
+    def nophi_subtype(pot):
+        """Returns the nophi version of pot
 
-    Args:
-        pot (MEAM):
-            the original potential
+        Args:
+            pot (MEAM):
+                the original potential
 
-    Returns:
-        nophi (MEAM):
-            the nophi version of pot"""
+        Returns:
+            nophi (MEAM):
+                the nophi version of pot"""
 
-    N = pot.ntypes          # number of components in the system
-    nphi = int((N+1)*N/2)   # number of each phi and u splines
+        N = pot.ntypes          # number of components in the system
+        nphi = int((N+1)*N/2)   # number of each phi and u splines
 
-    original = pot.phis + pot.rhos + pot.us + pot.fs + pot.gs
+        original = pot.phis + pot.rhos + pot.us + pot.fs + pot.gs
 
-    splines = [original[i] if (i>=nphi) else ZeroSpline(original[i].knotsx)
-               for i in range(N*(N+4))]
+        splines = [original[i] if (i>=nphi) else ZeroSpline(original[i].x)
+                   for i in range(N*(N+4))]
 
-    return MEAM(splines=splines, types=pot.types)
+        return MEAM(splines=splines, types=pot.types)
 
-def rhophi_subtype(pot):
-    """Returns the rhophi version of pot
+    def rhophi_subtype(pot):
+        """Returns the rhophi version of pot
 
-    Args:
-        pot (MEAM):
-            the original potential
+        Args:
+            pot (MEAM):
+                the original potential
 
-    Returns:
-        rhophi (MEAM):
-            the rhophi version of pot"""
+        Returns:
+            rhophi (MEAM):
+                the rhophi version of pot"""
 
-    N = pot.ntypes          # number of components in the system
-    nphi = int((N+1)*N/2)   # number of each phi and u splines
+        N = pot.ntypes          # number of components in the system
+        nphi = int((N+1)*N/2)   # number of each phi and u splines
 
-    original = pot.phis + pot.rhos + pot.us + pot.fs + pot.gs
+        original = pot.phis + pot.rhos + pot.us + pot.fs + pot.gs
 
-    splines = [original[i] if (i<(nphi+N+N)) else ZeroSpline(original[
-                                        i].knotsx) for i in range(N*(N+4))]
+        splines = [original[i] if (i<(nphi+N+N)) else ZeroSpline(original[
+                                            i].x) for i in range(N*(N+4))]
 
-    return MEAM(splines=splines, types=pot.types)
+        return MEAM(splines=splines, types=pot.types)
 
-def norhophi_subtype(pot):
-    """Returns the norhophi version of pot
+    def norhophi_subtype(pot):
+        """Returns the norhophi version of pot
 
-    Args:
-        pot (MEAM):
-            the original potential
+        Args:
+            pot (MEAM):
+                the original potential
 
-    Returns:
-        norhophi (MEAM):
-            the norhophi version of pot"""
+        Returns:
+            norhophi (MEAM):
+                the norhophi version of pot"""
 
-    N = pot.ntypes          # number of components in the system
-    nphi = int((N+1)*N/2)   # number of each phi and u splines
+        N = pot.ntypes          # number of components in the system
+        nphi = int((N+1)*N/2)   # number of each phi and u splines
 
-    original = pot.phis + pot.rhos + pot.us + pot.fs + pot.gs
+        original = pot.phis + pot.rhos + pot.us + pot.fs + pot.gs
 
-    splines = [original[i] if (i>=(nphi+N)) else ZeroSpline(original[
-                                        i].knotsx) for i in range(N*(N+4))]
+        splines = [original[i] if (i>=(nphi+N)) else ZeroSpline(original[
+                                            i].x) for i in range(N*(N+4))]
 
-    return MEAM(splines=splines, types=pot.types)
+        return MEAM(splines=splines, types=pot.types)
 
-def norho_subtype(pot):
-    """Returns the norhos version of pot
+    def norho_subtype(pot):
+        """Returns the norhos version of pot
 
-    Args:
-        pot (MEAM):
-            the original potential
+        Args:
+            pot (MEAM):
+                the original potential
 
-    Returns:
-        norhos (MEAM):
-            the norhos version of pot"""
+        Returns:
+            norhos (MEAM):
+                the norhos version of pot"""
 
-    N = pot.ntypes          # number of components in the system
-    nphi = int((N+1)*N/2)   # number of each phi and u splines
+        N = pot.ntypes          # number of components in the system
+        nphi = int((N+1)*N/2)   # number of each phi and u splines
 
-    original = pot.phis + pot.rhos + pot.us + pot.fs + pot.gs
+        original = pot.phis + pot.rhos + pot.us + pot.fs + pot.gs
 
-    splines = [original[i] if ((i<nphi) or (i>=(nphi+N))) else ZeroSpline(
-                    original[i].knotsx) for i in range(N*(N+4))]
+        splines = [original[i] if ((i<nphi) or (i>=(nphi+N))) else ZeroSpline(
+                        original[i].x) for i in range(N*(N+4))]
 
-    return MEAM(splines=splines, types=pot.types)
+        return MEAM(splines=splines, types=pot.types)
 
-def rho_subtype(pot):
-    """Returns the rhos version of pot
+    def rho_subtype(pot):
+        """Returns the rhos version of pot
 
-    Args:
-        pot (MEAM):
-            the original potential
+        Args:
+            pot (MEAM):
+                the original potential
 
-    Returns:
-        rhos (MEAM):
-            the rhos version of pot"""
+        Returns:
+            rhos (MEAM):
+                the rhos version of pot"""
 
-    N = pot.ntypes          # number of components in the system
-    nphi = int((N+1)*N/2)   # number of each phi and u splines
+        N = pot.ntypes          # number of components in the system
+        nphi = int((N+1)*N/2)   # number of each phi and u splines
 
-    original = pot.phis + pot.rhos + pot.us + pot.fs + pot.gs
+        original = pot.phis + pot.rhos + pot.us + pot.fs + pot.gs
 
-    splines = [original[i] if ((i>=nphi) and (i<nphi+N+N)) else ZeroSpline(
-                    original[i].knotsx) for i in range(N*(N+4))]
+        splines = [original[i] if ((i>=nphi) and (i<nphi+N+N)) else ZeroSpline(
+                        original[i].x) for i in range(N*(N+4))]
 
-    return MEAM(splines=splines, types=pot.types)
+        return MEAM(splines=splines, types=pot.types)
 
-def nog_subtype(pot):
-    # TODO: need to set g=1
-    """Returns the nog version of pot
+    def nog_subtype(pot):
+        # TODO: need to set g=1
+        """Returns the nog version of pot
 
-    Args:
-        pot (MEAM):
-            the original potential
+        Args:
+            pot (MEAM):
+                the original potential
 
-    Returns:
-        nog (MEAM):
-            the nog version of pot"""
+        Returns:
+            nog (MEAM):
+                the nog version of pot"""
 
-    N = pot.ntypes          # number of components in the system
-    nphi = int((N+1)*N/2)   # number of each phi and u splines
+        N = pot.ntypes          # number of components in the system
+        nphi = int((N+1)*N/2)   # number of each phi and u splines
 
-    original = pot.phis + pot.rhos + pot.us + pot.fs + pot.gs
+        original = pot.phis + pot.rhos + pot.us + pot.fs + pot.gs
 
-    splines = [original[i] if ((i>=nphi) and (i<nphi+N+N)) else ZeroSpline(
-                    original[i].knotsx) for i in range(N*(N+4))]
+        splines = [original[i] if ((i>=nphi) and (i<nphi+N+N)) else ZeroSpline(
+                        original[i].x) for i in range(N*(N+4))]
 
-    return MEAM(splines=splines, types=pot.types)
+        return MEAM(splines=splines, types=pot.types)
 
-def ij_to_potl(itype,jtype,ntypes):
+def ij_to_potl(itype, jtype, ntypes):
     """Maps i and j element numbers to a single index of a 1D list; used for
-    indexing spline functions. Taken directly from pair_meam_spline.h
+    indexing spline functions. Currently only works for binary systems;
+    ternary systems causes overlap with current algorithm (e.g. 2-1 bond maps to
+    same as 1-3 bond)
     
     Args:
         itype (int):
@@ -726,7 +654,14 @@ def ij_to_potl(itype,jtype,ntypes):
     Returns:
         The mapping of ij into an index of a 1D 0-indexed list"""
 
-    return int(jtype - 1 + (itype-1)*ntypes - (itype-1)*itype/2)
+    if (itype<1) or (jtype<1):
+        raise ValueError("atom types must be positive and non-zero")
+    elif ntypes != 2:
+        # remove the unit test in meamTests.py once you implement this
+        raise NotImplementedError("currently, only binary systems are "
+                                  "supported")
+    else:
+        return int(jtype - 1 + (itype-1)*ntypes - (itype-1)*itype/2)
 
 def i_to_potl(itype):
     """Maps element number i to an index of a 1D list; used for indexing spline
@@ -739,9 +674,12 @@ def i_to_potl(itype):
     Returns:
         The array index for the given element"""
 
-    return int(itype-1)
+    if itype < 1:
+        raise ValueError("atom types must be positive and non-zero")
+    else:
+        return int(itype-1)
 
-def splines_to_paramvec(splines):
+def splines_to_pvec(splines):
     """Converts a list of splines into a large 1D vector of parameters.
     Spline ordering is unchanged.
 
@@ -762,41 +700,28 @@ def splines_to_paramvec(splines):
         y_pvec (np.arr):
             y-positions of all knot points
 
-        all_bc_types (list [Object]):
-            explicit collection of boundary condition types for each spline.
-            This is necessary since bc_type cannot be inferred from the last
-            2 elements of x_pvec (e.g. [0,0] could be 'natural' or zero derivs)
-
-        nknots (list [int]):
-            the number of knots in each spline; needed for indexing"""
+        x_indices (list [int]):
+            indices deliminating spline parameters"""
 
     x_pvec = np.array([])
     y_pvec = np.array([])
-    nknots = []
-    all_bc_types = []
+    x_indices = []
 
+    idx_tracker = 0
     for s in splines:
         x_pvec = np.append(x_pvec, s.x)
 
-        bc_type = s.bc_type
-        all_bc_types.append(bc_type)
-
-        if bc_type == 'natural':
-            bc = np.array([0.,0.])
-        elif type(bc_type) == tuple:
-            bc = np.array([bc_type[0][1], bc_type[1][1]])
-        else:
-            raise ValueError("Only acceptable bc_type values are 'natural' or"
-                             "specifying the first derivative at both "
-                             "endpoints")
+        der = s(s.x, 1)
+        bc = [der[0], der[-1]]
 
         x_pvec = np.append(x_pvec, bc)
         y_pvec = np.append(y_pvec, s(s.x))
-        nknots.append(len(s.x))
+        idx_tracker += len(s.x) + 2
+        x_indices.append(idx_tracker)
 
-    return x_pvec, y_pvec, all_bc_types, nknots
+    return x_pvec, y_pvec, x_indices[:len(x_indices)-1]
 
-def splines_from_paramvec(x_pvec, y_pvec, all_bc_types, nknots):
+def splines_from_pvec(x_pvec, y_pvec, x_indices):
     """Builds splines out of the given knot coordinates and boundary
     conditions.
 
@@ -813,32 +738,27 @@ def splines_from_paramvec(x_pvec, y_pvec, all_bc_types, nknots):
         y_pvec (np.arr):
             y-positions of all knot points
 
-        all_bc_types (list [Object]):
-            explicit collection of boundary condition types for each spline.
-            This is necessary since bc_type cannot be inferred from the last
-            2 elements of x_pvec (e.g. [0,0] could be 'natural' or zero derivs)
-
-        nknots (list [int]):
-            the number of knots in each spline; needed for indexing
+        x_indices (list [int]):
+            indices deliminating spline parameters in vector
 
     Returns:
         splines (list [Spline]):
             an ordered list of Spline objects"""
 
-    x_indices = np.array(nknots) + 2
+    x_indices = np.array(x_indices)
+    y_indices = [x_indices[i-1]-2*i for i in range(1, len(x_indices)+1)]
+    y_indices = np.array(y_indices)
 
     x_split = np.split(x_pvec, x_indices)
-    y_split = np.split(y_pvec, nknots)
+    y_split = np.split(y_pvec, y_indices)
 
     splines = []
 
     for i in range(len(x_split)):
-        x_knots, _ = np.split(x_split[i], [-2])
-        y_knots = np.split(y_split[i])
-        bc = all_bc_types[i]
+        x_knots, bc = np.split(x_split[i], [-2])
+        y_knots = y_split[i]
 
-        # rzm: fix tests and figure out what else you need
-        splines.append(Spline(x_knots, y_knots, bc_type=bc))
+        splines.append(Spline(x_knots, y_knots, end_derivs=bc))
 
     return splines
 

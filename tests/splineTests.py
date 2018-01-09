@@ -1,12 +1,12 @@
 import unittest
 import numpy as np
 
-from spline import Spline
+from spline import Spline, ZeroSpline
 
 class ConstructorTests(unittest.TestCase):
     """Verifies appropriate constructor behavior"""
 
-    # Note: mosterror handling goes through scipy.CubicSpline
+    # Note: most error handling goes through scipy.CubicSpline
     def test_missing_data(self):
         self.assertRaises(ValueError, Spline)
 
@@ -37,8 +37,8 @@ class ConstructorTests(unittest.TestCase):
         np.testing.assert_allclose(s.x, x)
         np.testing.assert_allclose(s(s.x), y)
         self.assertEquals(s.cutoff, (0., 9.))
-        self.assertEquals(s.d0, 1.0)
-        self.assertEquals(s.dN, 1.0)
+        self.assertEquals(s(x[0],1), 1.0)
+        self.assertEquals(s(x[-1],1), 1.0)
         self.assertAlmostEqual(s.h, 1.0, 15)
 
     def test_natural_bc(self):
@@ -54,8 +54,8 @@ class ConstructorTests(unittest.TestCase):
 
         s = Spline(x, y, (d0_expected, dN_expected))
 
-        self.assertAlmostEqual(s.d0, d0_expected)
-        self.assertAlmostEqual(s.dN, dN_expected)
+        self.assertAlmostEqual(s(x[0],1), d0_expected)
+        self.assertAlmostEqual(s(x[-1],1), dN_expected)
         np.testing.assert_allclose(s(s.x, 2), y2_expected)
 
     def test_one_set_derivative(self):
@@ -70,11 +70,23 @@ class ConstructorTests(unittest.TestCase):
 
         s = Spline(x, y, end_derivs=(d0_expected, dN_expected))
 
-        self.assertAlmostEqual(s.d0, d0_expected)
-        self.assertAlmostEqual(s.dN, dN_expected)
+        self.assertAlmostEqual(s(x[0],1), d0_expected)
+        self.assertAlmostEqual(s(x[-1],1), dN_expected)
         np.testing.assert_allclose(s(s.x, 2), y2_expected, atol=1e-15)
 
-# rzm: test evaluations; internal, @ knots, EXTRAPOLATION
+    def test_zero_spline(self):
+        x = np.arange(10)
+
+        s = ZeroSpline(x)
+
+        self.assertEqual(s(x[0],1), 0.)
+        self.assertEqual(s(x[-1],1), 0.)
+        self.assertEqual(s.h, 1)
+        self.assertEqual(s.cutoff, (0., 9.))
+        np.testing.assert_allclose(s(x), np.zeros(10))
+        np.testing.assert_allclose(s(x, 1), np.zeros(10))
+        np.testing.assert_allclose(s(x, 2), np.zeros(10))
+
 class EvaluationTests(unittest.TestCase):
     """Test cases for Spline class"""
 
