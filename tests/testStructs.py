@@ -1,4 +1,6 @@
-import lammpsTools
+# import sys
+# sys.path.append('../src')
+
 import numpy as np
 import ase.build
 from .globalVars import a0, r0, vac

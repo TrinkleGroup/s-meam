@@ -33,23 +33,11 @@ def get_zero_potential():
     if zero_potential:
         return zero_potential
     else:
-        # splines = [ZeroSpline(np.arange(num_knots))]*12
-        splines = np.zeros((12,num_knots,2))
-        d0 = np.zeros(12)
-        dN = np.zeros(12)
+        splines = [ZeroSpline(np.arange(num_knots))]*12
 
-        indices = [12*i for i in range(1,12)]
+        zero_potential = MEAM(splines=splines, types=['H','He'])
 
-        x = np.arange(12*num_knots, dtype=float)
-        y = np.zeros(12*num_knots)
-        y = np.append(y, d0); y = np.append(y, dN)
-
-        y2 = y.copy()
-        all_d0 = np.zeros(12)
-        all_dN = np.zeros(12)
-
-        # return knot_x_points, knot_y_points, y2, indices, all_d0, all_dN
-        return x, y, y2, indices, all_d0, all_dN
+        return zero_potential
 ################################################################################
 def get_constant_potential():
     """Constant potential: this potential is designed to test pair/triplet
@@ -70,42 +58,30 @@ def get_constant_potential():
     if constant_potential:
         return constant_potential
     else:
-        # # all ones
-        # phi_spline = Spline(np.linspace(1,a0+1, num=num_knots), np.ones(num_knots),
-        #                     bc_type=((1,0),(1,0)), derivs=(0,0))
+        # all ones
+        phi_spline = Spline(np.linspace(1,a0+1, num=num_knots), np.ones(num_knots),
+                            bc_type=((1,0),(1,0)), derivs=(0,0))
 
-        # # all ones
-        # rho_spline = Spline(np.linspace(1,a0+1, num=num_knots), np.ones(num_knots),
-        #                   bc_type=((1,0),(1,0)), derivs=(0,0))
+        # all ones
+        rho_spline = Spline(np.linspace(1,a0+1, num=num_knots), np.ones(num_knots),
+                          bc_type=((1,0),(1,0)), derivs=(0,0))
 
-        # # u = ni, linear function
-        # u_spline = Spline(np.linspace(1,a0+1, num=num_knots), np.linspace(1,a0+1, num=num_knots),
-        #                     bc_type=((1,1),(1,1)), derivs=(1,1))
+        # u = ni, linear function
+        u_spline = Spline(np.linspace(1,a0+1, num=num_knots), np.linspace(1,a0+1, num=num_knots),
+                            bc_type=((1,1),(1,1)), derivs=(1,1))
 
-        # # all ones
-        # f_spline = Spline(np.linspace(1,a0+1, num=num_knots), np.ones(num_knots),
-        #                     bc_type=((1,0),(1,0)), derivs=(0,0))
+        # all ones
+        f_spline = Spline(np.linspace(1,a0+1, num=num_knots), np.ones(num_knots),
+                            bc_type=((1,0),(1,0)), derivs=(0,0))
 
-        # # all ones
-        # g_spline = Spline(np.linspace(1,a0+1, num=num_knots), np.ones(num_knots),
-        #                     bc_type=((1,0),(1,0)), derivs=(0,0))
+        # all ones
+        g_spline = Spline(np.linspace(1,a0+1, num=num_knots), np.ones(num_knots),
+                            bc_type=((1,0),(1,0)), derivs=(0,0))
 
-        # splines = [phi_spline]*3 + [rho_spline]*2 + [u_spline]*2 + [f_spline]*2 +\
-        #                 [g_spline]*3
+        splines = [phi_spline]*3 + [rho_spline]*2 + [u_spline]*2 + [f_spline]*2 +\
+                        [g_spline]*3
 
-        splines = np.ones((12,num_knots,2))
-
-        # set u-splines to a linear function rather than all ones
-        splines[5,:,0] = np.linspace(1, a0+1, num=num_knots)
-        splines[5,:,1] = np.linspace(1, a0+1, num=num_knots)
-        splines[6,:,0] = np.linspace(1, a0+1, num=num_knots)
-        splines[6,:,1] = np.linspace(1, a0+1, num=num_knots)
-
-        d0 = np.zeros(12)
-        dN = np.zeros(12)
-
-        constant_potential = MEAM(splines=splines, types=['H','He'], d0=d0,
-                                  dN=dN)
+        constant_potential = MEAM(splines=splines, types=['H','He'])
 
         return constant_potential
 
@@ -199,33 +175,30 @@ def get_random_pots(newN):
         rng_rhophis     = [None]*N
 
         num_knots = 11
-
-        knots_x = np.linspace(0, a0, num=num_knots)
+        knots_x = np.linspace(0,a0, num=num_knots)
         for n in range(N):
             # Generate splines with 10 knots, random y-coords of knots, equally
             # spaced x-coords ranging from 0 to a0, random d0 dN
-            # splines = []
+            splines = []
+            for i in range(12): # 2-component system has 12 total splines
 
-            splines = np.random.random((12,num_knots,2))*a0
-            splines[:,:,0] = knots_x
+                knots_y = np.random.random(num_knots)
 
-            d0 = np.random.rand(12)
-            dN = np.random.rand(12)
+                d0 = np.random.rand()
+                dN = np.random.rand()
 
-            # for i in range(12): # 2-component system has 12 total splines
+                # if i!=7:
+                #     knots_y = np.ones(num_knots)
+                #     knots_y = np.arange(num_knots)/10.
+                #     d0 = dN = 0
 
-                # knots_y = np.random.random(num_knots)
+                temp = Spline(knots_x, knots_y, bc_type=((1,d0),(1,dN)),\
+                        derivs=(d0,dN))
 
-                # d0 = np.random.rand()
-                # dN = np.random.rand()
+                temp.cutoff = (knots_x[0],knots_x[len(knots_x)-1])
+                splines.append(temp)
 
-                # temp = Spline(knots_x, knots_y, bc_type=((1,d0),(1,dN)),\
-                #         derivs=(d0,dN))
-
-                # temp.cutoff = (knots_x[0],knots_x[len(knots_x)-1])
-                # splines.append(temp)
-
-            p = MEAM(splines=splines, types=['H','He'], d0=d0, dN=dN)
+            p = MEAM(splines=splines, types=['H','He'])
             # p = MEAM('HHe.meam.spline')
 
             rng_meams[n]        = p
@@ -240,7 +213,6 @@ def get_random_pots(newN):
                    'phionlys':rng_phionlys, 'rhos':rng_rhos,
                    'norhos':rng_norhos, 'norhophis':rng_norhophis,
                    'rhophis':rng_rhophis}
-
         return allpots
 
     #print("Created %d potentials (%d main, %d subtypes)" % (7*N, N, 6*N))
@@ -250,3 +222,4 @@ def get_random_pots(newN):
 
 # TODO: may be worth making a function to get LAMMPS eval for a set of
 # atoms/potentials
+

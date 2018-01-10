@@ -9,6 +9,8 @@ from ase.neighborlist import NeighborList
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# TODO: assume that an x_pvec does NOTTTTTTT have bc in it. should be in y_pvec
+
 class MEAM:
     """An object for organizing the information needed for a spline meam
     potential in various different representations
@@ -62,6 +64,8 @@ class MEAM:
         self.us = list(self.us)
         self.fs = list(self.fs)
         self.gs = list(self.gs)
+
+        self.splines = self.phis + self.rhos + self.us + self.fs + self.gs
 
         radials = [self.phis,self.rhos,self.fs]
         endpoints = [max(fxn.x) for ftype in radials for fxn in ftype]
@@ -146,289 +150,6 @@ class MEAM:
 
         return cls(splines, types)
 
-    def compute_forces_self(self, atoms):
-        """Evaluates the energies for the given system using the MEAM potential,
-        following the notation specified in the LAMMPS spline/meam documentation
-        Args:
-            atoms (Atoms):
-                ASE Atoms object containing all atomic information
-        
-        Note that splines are indexed as follows:
-            phis, gs: 11,12,...,1N,22,...,2N,...,NN
-            rhos, us, fs: 1,2,...,N
-            
-            e.g. for Ti-O where Ti is atom type 1, O atom type 2
-                phis, gs: Ti-Ti, Ti-O, O-O
-                rhos, us, fs: Ti, O"""
-
-        self.compute_energies_self(atoms)
-
-        nl = NeighborList(np.ones(len(atoms))*(self.cutoff/2),\
-                self_interaction=False, bothways=True, skin=0.0)
-        nl_noboth = NeighborList(np.ones(len(atoms))*(self.cutoff/2),\
-                self_interaction=False, bothways=False, skin=0.0)
-        nl.build(atoms)
-        nl_noboth.build(atoms)
-
-        natoms = len(atoms)
-
-        self.forces = np.zeros((natoms,3))
-        cellx,celly,cellz = atoms.get_cell()
-        
-        for i in range(natoms):
-            itype = lammpsTools.symbol_to_type(atoms[i].symbol, self.types)
-            ipos = atoms[i].position
-            print("Atom {0} of type {1}----------------------".format(i, itype))
-
-            Uprime_i = self.uprimes[i]
-
-            # Pull atom-specific neighbor lists
-            neighbors = nl.get_neighbors(i)
-            neighbors_noboth = nl_noboth.get_neighbors(i)
-
-            num_neighbors = len(neighbors[0])
-            num_neighbors_noboth = len(neighbors_noboth[0])
-
-            # Build the list of shifted positions for atoms outside of unit cell
-            neighbor_shifted_positions = []
-            bonds = []
-            for l in range(num_neighbors):
-                shiftx,shifty,shiftz = neighbors[1][l]
-                neigh_pos = atoms[neighbors[0][l]].position + shiftx*cellx + shifty*celly +\
-                        shiftz*cellz
-
-                neighbor_shifted_positions.append(neigh_pos)
-            # end shifted positions loop
-
-            # TODO: workaround for this if branch
-            # TODO: add more thorough in-line documentation
-
-            forces_i = np.zeros((3,))
-            if len(neighbors[0]) > 0:
-                for j in range(num_neighbors):
-                    jtype = lammpsTools.symbol_to_type(atoms[neighbors[0][j]].symbol, self.types)
-
-                    # TODO: make a j_tag variable; too easy to make mistakes
-                    jpos = neighbor_shifted_positions[j]
-                    jdel = jpos - ipos 
-                    r_ij = np.linalg.norm(jdel)
-                    jdel /= r_ij
-
-                    fj_val = self.fs[i_to_potl(jtype)](r_ij)
-                    fj_prime = self.fs[i_to_potl(jtype)](r_ij,1)
-
-                    forces_j = np.zeros((3,))
-
-                    # print("fj_val = %.3f" % fj_val)
-                    # print("fj_prime = %.3f" % fj_prime)
-
-                    # Used for triplet calculations
-                    a = neighbor_shifted_positions[j]-ipos
-                    na = np.linalg.norm(a)
-                    
-                    for k in range(j,num_neighbors):
-                        if k != j:
-                            ktype = lammpsTools.symbol_to_type(\
-                                    atoms[neighbors[0][k]].symbol, self.types)
-                            kpos = neighbor_shifted_positions[k]
-                            kdel = kpos - ipos
-                            r_ik = np.linalg.norm(kdel)
-                            kdel /= r_ik
-
-                            # TODO: b == kdel
-                            b = neighbor_shifted_positions[k]-ipos
-                            nb = np.linalg.norm(b)
-
-                            # TODO: try get_dihedral() for angles
-                            cos_theta = np.dot(a,b)/na/nb
-
-                            fk_val = self.fs[i_to_potl(ktype)](r_ik)
-                            g_val = self.gs[ij_to_potl(jtype,ktype,self.ntypes)\
-                                    ](cos_theta)
-
-                            fk_prime = self.fs[i_to_potl(ktype)](r_ik,1)
-                            g_prime = self.gs[ij_to_potl(jtype,ktype,\
-                                    self.ntypes)](cos_theta,1)
-
-                            fij = -Uprime_i*g_val*fk_val*fj_prime
-                            fik = -Uprime_i*g_val*fj_val*fk_prime
-
-                            prefactor = Uprime_i*fj_val*fk_val*g_prime
-                            prefactor_ij = prefactor / r_ij
-                            prefactor_ik = prefactor / r_ik
-                            fij += prefactor_ij * cos_theta
-                            fik += prefactor_ik * cos_theta
-
-                            fj = jdel*fij - kdel*prefactor_ij
-                            forces_j += fj
-
-                            fk = kdel*fik - jdel*prefactor_ik
-                            forces_i -= fk
-
-
-                            self.forces[neighbors[0][k]] += fk
-                    # end triplet loop
-
-                    self.forces[i] -= forces_j
-                    self.forces[neighbors[0][j]] += forces_j
-                # end pair loop
-
-                self.forces[i] += forces_i
-                print("forces_j = {0}".format(forces_j))
-                print("forces_k = {0}".format(forces_i))
-
-                # Calculate pair interactions (phi)
-                for j in range(num_neighbors_noboth): # j = index for neighbor list
-                    jtype = lammpsTools.symbol_to_type(\
-                            atoms[neighbors_noboth[0][j]].symbol, self.types)
-                    jpos = neighbor_shifted_positions[j]
-                    jdel = jpos - ipos 
-                    r_ij = np.linalg.norm(jdel)
-
-                    rho_prime_i = self.rhos[i_to_potl(itype)](r_ij,1)
-                    rho_prime_j = self.rhos[i_to_potl(jtype)](r_ij,1)
-
-                    fpair = rho_prime_j*self.uprimes[i] +\
-                            rho_prime_i*self.uprimes[neighbors_noboth[0][j]]
-
-                    phi_prime = self.phis[ij_to_potl(itype,jtype,self.ntypes)]\
-                            (r_ij,1)
-
-                    fpair += phi_prime
-                    fpair /= r_ij
-
-                    self.forces[i] += jdel*fpair
-                    self.forces[neighbors_noboth[0][j]] -= jdel*fpair
-                # end phi loop
-
-            # end atom loop
-
-        return self.forces
-
-    def compute_energies_self(self, atoms):
-        """Evaluates the energies for the given system using the MEAM potential,
-        following the notation specified in the LAMMPS spline/meam documentation
-        Args:
-            atoms (Atoms):
-                ASE Atoms object containing all atomic information
-        
-        Note that splines are indexed as follows:
-            phis, gs: 11,12,...,1N,22,...,2N,...,NN
-            rhos, us, fs: 1,2,...,N
-            
-            e.g. for Ti-O where Ti is atom type 1, O atom type 2
-                phis, gs: Ti-Ti, Ti-O, O-O
-                rhos, us, fs: Ti, O"""
-
-        # TODO: how to compute per-atom forces
-        # TODO: is there anywhere that map() could help?
-
-	# nl allows double-counting of bonds, nl_noboth does not
-        nl = NeighborList(np.ones(len(atoms))*(self.cutoff/2),\
-                self_interaction=False, bothways=True, skin=0.0)
-        nl_noboth = NeighborList(np.ones(len(atoms))*(self.cutoff/2),\
-                self_interaction=False, bothways=False, skin=0.0)
-        nl.build(atoms)
-        nl_noboth.build(atoms)
-
-        total_pe = 0.0
-        natoms = len(atoms)
-        self.energies = np.zeros((natoms,))
-        self.uprimes = [None]*natoms
-
-        for i in range(natoms):
-            itype = lammpsTools.symbol_to_type(atoms[i].symbol, self.types)
-            ipos = atoms[i].position
-
-            # Pull atom-specific neighbor lists
-            neighbors = nl.get_neighbors(i)
-            neighbors_noboth = nl_noboth.get_neighbors(i)
-
-            num_neighbors = len(neighbors[0])
-            num_neighbors_noboth = len(neighbors_noboth[0])
-
-            # Build the list of shifted positions for atoms outside of unit cell
-            neighbor_shifted_positions = []
-
-            indices, offsets = nl.get_neighbors(i)
-            for idx, offset in zip(indices,offsets):
-                neigh_pos = atoms.positions[idx] + np.dot(offset,\
-                        atoms.get_cell())
-                neighbor_shifted_positions.append(neigh_pos)
-            # end shifted positions loop
-
-            # TODO: workaround for this if branch; do we even need it??
-            if len(neighbors[0]) > 0:
-                tripcounter = 0
-                total_phi = 0.0
-                total_u = 0.0
-                total_rho = 0.0
-                total_ni = 0.0
-
-                u = self.us[i_to_potl(itype)]
-
-                # Calculate pair interactions (phi)
-                for j in range(num_neighbors_noboth): # j = index for neighbor list
-                    jtype = lammpsTools.symbol_to_type(\
-                            atoms[neighbors_noboth[0][j]].symbol, self.types)
-                    r_ij = np.linalg.norm(ipos-neighbor_shifted_positions[j])
-
-                    phi = self.phis[ij_to_potl(itype,jtype,self.ntypes)]
-
-                    total_phi += phi(r_ij)
-                # end phi loop
-
-                for j in range(num_neighbors):
-                    jtype = lammpsTools.symbol_to_type(atoms[neighbors[0][j]].symbol, self.types)
-                    r_ij = np.linalg.norm(ipos-neighbor_shifted_positions[j])
-
-                    rho = self.rhos[i_to_potl(jtype)]
-                    fj = self.fs[i_to_potl(jtype)]
-
-                    # Used for triplet calculations
-                    a = neighbor_shifted_positions[j]-ipos
-                    na = np.linalg.norm(a)
-                    
-                    partialsum = 0.0
-                    for k in range(j,num_neighbors):
-                        if k != j:
-                            ktype = lammpsTools.symbol_to_type(\
-                                    atoms[neighbors[0][k]].symbol, self.types)
-                            r_ik = np.linalg.norm(ipos-\
-                                    neighbor_shifted_positions[k])
-
-                            b = neighbor_shifted_positions[k]-ipos
-
-                            fk = self.fs[i_to_potl(ktype)]
-                            g = self.gs[ij_to_potl(jtype,ktype,self.ntypes)]
-                            
-                            nb = np.linalg.norm(b)
-
-                            # TODO: try get_dihedral() for angles
-                            cos_theta = np.dot(a,b)/na/nb
-
-                            fk_val = fk(r_ik)
-                            g_val = g(cos_theta)
-
-                            partialsum += fk_val*g_val
-                            tripcounter += 1
-                    # end triplet loop
-
-                    fj_val = fj(r_ij)
-                    total_ni += fj_val*partialsum
-                    total_ni += rho(r_ij)
-                # end u loop
-
-                atom_e = total_phi + u(total_ni) -\
-                        self.zero_atom_energies[i_to_potl(itype)]
-                self.energies[i] = atom_e
-                total_pe += atom_e
-
-                self.uprimes[i] = u(total_ni,1)
-            # end atom loop
-
-        return total_pe
-
     def write_to_file(self, fname):
         """Writes the potential to a file
 
@@ -480,13 +201,13 @@ class MEAM:
             for fxn in self.gs:
                 write_spline(fxn)
 
-    def plot(self):
+    def plot(self, fname=None):
         """Generates plots of all splines"""
 
         splines = self.phis + self.rhos + self.us + self.fs + self.gs
 
         for i,s in enumerate(splines):
-            s.plot(saveName=str(i+1)+'.png')
+            s.plot(saveName=fname+str(i+1)+'.png')
                 # TODO: finish this for generic system, not just binary/unary
 
     def phionly_subtype(pot):
@@ -694,14 +415,14 @@ def splines_to_pvec(splines):
     Returns:
         x_pvec (np.arr):
             a group of parameters corresponding to a single spline consists
-            of the x-positions of all knot points as well as two additional
-            boundary conditions
+            of the x-positions of all knot points
 
         y_pvec (np.arr):
-            y-positions of all knot points
+            y-positions of all knot points plus two additional boundary
+            conditions
 
         x_indices (list [int]):
-            indices deliminating spline parameters"""
+            indices deliminating spline knots"""
 
     x_pvec = np.array([])
     y_pvec = np.array([])
@@ -710,16 +431,17 @@ def splines_to_pvec(splines):
     idx_tracker = 0
     for s in splines:
         x_pvec = np.append(x_pvec, s.x)
+        y_pvec = np.append(y_pvec, s(s.x))
 
         der = s(s.x, 1)
         bc = [der[0], der[-1]]
 
-        x_pvec = np.append(x_pvec, bc)
-        y_pvec = np.append(y_pvec, s(s.x))
-        idx_tracker += len(s.x) + 2
-        x_indices.append(idx_tracker)
+        y_pvec = np.append(y_pvec, bc)
 
-    return x_pvec, y_pvec, x_indices[:len(x_indices)-1]
+        x_indices.append(idx_tracker)
+        idx_tracker += len(s.x)
+
+    return x_pvec, y_pvec, x_indices
 
 def splines_from_pvec(x_pvec, y_pvec, x_indices):
     """Builds splines out of the given knot coordinates and boundary

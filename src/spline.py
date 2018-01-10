@@ -2,6 +2,7 @@
 from scipy.interpolate import CubicSpline
 import matplotlib.pyplot as plt
 import numpy as np
+import numbers
 
 # TODO: binning for non-grid knot values
 
@@ -13,8 +14,13 @@ class Spline(CubicSpline):
 
         if end_derivs is None:
             bc = ('natural', 'natural')
-        elif len(end_derivs) == 2:
-            bc = ((1,end_derivs[0]), (1,end_derivs[1]))
+        elif (len(end_derivs)) == 2:
+            d0 = end_derivs[0]; dN = end_derivs[1]
+            if ((d0=='natural') or (isinstance(d0, numbers.Real))) and\
+                    ((dN=='natural') or (isinstance(dN, numbers.Real))):
+                bc = ((1,d0), (1,dN))
+            else:
+                raise ValueError("Invalid boundary condition")
         else:
             raise ValueError("Must specify exactly 2 end derivatives OR leave"
                              "blank for natural boundary conditions")
@@ -35,6 +41,38 @@ class Spline(CubicSpline):
 
         return x_eq and y_eq and y1_eq and y2_eq and c_eq and h_eq
 
+    def get_interval(self, x):
+        """Extracts the interval corresponding to a given value of x. Assumes
+        linear extrapolation outside of knots and fixed knot positions.
+
+        Args:
+            x (float):
+                the point used to find the spline interval
+
+        Returns:
+            interval_num (int):
+                index of spline interval
+            knot_num (int):
+                knot index used for value shifting; LHS knot for internal"""
+
+        h = self.x[1] - self.x[0]
+
+        # Find spline interval; +1 to account for extrapolation
+        interval_num = int(np.floor((x-self.x[0])/h)) + 1
+
+        if interval_num <= 0:
+            interval_num = 0
+            knot_num = 0
+        elif interval_num > len(self.x):
+            interval_num = len(self.x)
+            knot_num = interval_num - 1
+        else:
+            knot_num = interval_num - 1
+
+        # TODO do you need the knot_num?
+        # return interval_num, knot_num
+        return interval_num
+
     def in_range(self, x):
         """Checks if a given value is within the spline's cutoff range"""
 
@@ -48,9 +86,8 @@ class Spline(CubicSpline):
         high += abs(0.2*high)
 
         x = np.linspace(low,high,1000)
-        y = list(map(lambda e: self(e) if self.in_range(e) else self.extrap(
-            e), x))
-        yi = list(map(lambda e: self(e), self.x))
+        y = self(x)
+        yi = self(self.x)
 
         plt.figure()
         plt.plot(self.x, yi, 'o', x, y)

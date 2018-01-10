@@ -13,7 +13,7 @@ from scipy.sparse import diags
 from nose_parameterized import parameterized
 from workers import WorkerManyPotentialsOneStruct as worker
 from ase.calculators.lammpsrun import LAMMPS
-from tests.structs import dimers, trimers, bulk_vac_ortho, \
+from tests.testStructs import dimers, trimers, bulk_vac_ortho, \
     bulk_periodic_ortho, bulk_vac_rhombo, bulk_periodic_rhombo
 from tests.globalVars import ATOL
 
@@ -73,8 +73,7 @@ class PotentialTests(unittest.TestCase):
 
         if self.zero_pots_flag:
             """Zero potentials"""
-            # p = tests.potentials.get_zero_potential()
-            x, y, y2, indices, d0, dN = tests.potentials.get_zero_potential()
+            p = tests.potentials.get_zero_potential()
 
             energies, forces = getLammpsResults([p], self.allstructs)
 
@@ -485,7 +484,44 @@ def loader_forces(group_name, calculated, lammps):
 
     return tests
 
+def parse_pot_for_worker(pots):
+    """Takes a SINGLE potential and converts it to x_pvec y_pvec form for
+    use with worker
+
+    Args:
+        pot (list [MEAM]):
+            potential to be evaluated"""
+
+
+    if len(pots) > 1:
+        raise NotImplementedError("only 1 potential at a time is supported")
+
+    x_pvec = np.array([])
+    y_pvec = np.array([])
+    x_indices = []
+
+    for p in pots:
+
+        splines = p.phis + p.rhos + p.us + p.fs + p.gs
+
+        idx_counter = 0
+        for s in splines:
+            x = s.x
+            y = s(x)
+            d0 = s(x[0],1); dN = s(x[-1],1)
+
+            x_pvec = np.append(x_pvec, x)
+            x_pvec = np.append(x_pvec, [d0, dN])
+            y_pvec = np.append(y_pvec, y)
+
+            idx_counter += len(x) + 2
+            x_indices.append(idx_counter)
+
+    return x_pvec, y_pvec, x_indices
+
 def runner_energy(pots, structs):
+
+    x_parsed, y_parsed, x_indices_parsed = parse_pot_for_worker(pots)
 
     energies = {}
     for name in structs.keys():
@@ -499,7 +535,7 @@ def runner_energy(pots, structs):
         # write_spline_meam() in lammpsTools
 
         # __init__(self, atoms, knot_points, types, x_indices=[]):
-        w = worker(atoms, pots)
+        w = worker(atoms, x_parsed, x_indices_parsed, pots[0].types)
         start = time.time()
         #calculated[name] = w.compute_energies()
         # TODO: to optimize, preserve workers for each struct

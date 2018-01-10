@@ -10,6 +10,8 @@ EPS = 1e-15
 
 class ConstructorTests(unittest.TestCase):
 
+    # raise NotImplementedError("x_pvec shouldn't have bc in it")
+
     def setUp(self):
         x = np.arange(10, dtype=float)
         y = np.arange(10, dtype=float)
@@ -37,6 +39,8 @@ class ConstructorTests(unittest.TestCase):
         self.assertAlmostEqual(9., p.cutoff)
         self.assertAlmostEqual(1., p.phis[0](p.phis[0].x[0],1))
         self.assertAlmostEqual(1., p.phis[0](p.phis[0].x[-1],1))
+
+        # TODO: these tests should check correct results from trimer, inp/outp
 
     def test_splines_unary_not_enough(self):
         self.assertRaises(ValueError, MEAM, self.splines[:4],
@@ -120,20 +124,6 @@ class ConstructorTests(unittest.TestCase):
 
             self.assertTrue(s_splines == s_pvec)
 
-            # x_splines = s_splines.x
-            # x_pvec = s_pvec.x
-            #
-            # np.testing.assert_allclose(x_splines, x_pvec, atol=EPS)
-            # np.testing.assert_allclose(s_splines(x_splines), s_pvec(x_pvec),
-            #                            atol=EPS)
-            # np.testing.assert_allclose(s_splines(x_splines, 1), s_pvec(
-            #     x_pvec, 1), atol=EPS)
-            # np.testing.assert_allclose(s_splines(x_splines, 2), s_pvec(
-            #     x_pvec, 2), atol=EPS)
-            #
-            # self.assertAlmostEqual(s_splines.d0, s_pvec.d0)
-            # self.assertAlmostEqual(s_splines.dN, s_pvec.dN)
-
 class MethodTests(unittest.TestCase):
 
     def test_to_file(self):
@@ -160,9 +150,9 @@ class MethodTests(unittest.TestCase):
 
         splines = [Spline(x, y)]*12
 
-        x_pvec = np.array((list(x)+[1,1])*12)
-        y_pvec = np.array(list(y)*12)
-        x_indices = np.array([12*i for i in range(1,12)])
+        x_pvec = np.array((list(x))*12)
+        y_pvec = np.array((list(y)+[1,1])*12)
+        x_indices = np.array([10*i for i in range(12)])
 
         new_x_pvec, new_y_pvec, new_x_indices = meam.splines_to_pvec(splines)
 
@@ -209,6 +199,21 @@ class MethodTests(unittest.TestCase):
     def test_ij_to_potl_bad(self):
         self.assertRaises(ValueError, meam.i_to_potl, 0)
         self.assertRaises(ValueError, meam.i_to_potl, -1)
+
+    def test_plot(self):
+        x = np.arange(10, dtype=float)
+        y = np.arange(10, dtype=float)
+
+        types = ['H', 'He']
+
+        splines = [Spline(x, y)]*12
+
+        p = MEAM(splines, types).phionly_subtype()
+
+        p.plot('test')
+
+        for i in range(1,13):
+            os.remove('test%i.png' % i)
 
     def test_phionly_subtype(self):
         x = np.arange(10, dtype=float)
@@ -355,4 +360,3 @@ class MethodTests(unittest.TestCase):
 #
 #     def test_forces_trimer(self):
 #         pass
-
