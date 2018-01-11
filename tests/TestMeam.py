@@ -3,14 +3,16 @@ import numpy as np
 import os
 
 import meam
+
 from meam import MEAM
 from spline import Spline, ZeroSpline
+
+from tests.testStructs import dimers, trimers, bulk_periodic_ortho,\
+    bulk_vac_ortho, bulk_periodic_rhombo, bulk_vac_rhombo
 
 EPS = 1e-15
 
 class ConstructorTests(unittest.TestCase):
-
-    # raise NotImplementedError("x_pvec shouldn't have bc in it")
 
     def setUp(self):
         x = np.arange(10, dtype=float)
@@ -18,7 +20,7 @@ class ConstructorTests(unittest.TestCase):
 
         self.types = ['H', 'He']
 
-        self.splines = [Spline(x, y)]*13
+        self.splines = [Spline(x, y, end_derivs=(1.,1.))]*13
 
         self.x_pvec = np.array((list(x)+[1,1])*12)
         self.y_pvec = np.array(list(y)*12)
@@ -163,10 +165,12 @@ class MethodTests(unittest.TestCase):
     def test_splines_from_pvec(self):
         x = np.arange(10, dtype=float)
         y = np.arange(10, dtype=float)
+        d0 = dN = 1
 
-        old_splines = [Spline(x, y)]*12
+        old_splines = [Spline(x, y, bc_type=((1,d0),(1,dN)), end_derivs=(
+            d0,dN))]*12
 
-        x_pvec = np.array((list(x)+[1,1])*12)
+        x_pvec = np.array((list(x)+[d0,dN])*12)
         y_pvec = np.array(list(y)*12)
         x_indices = np.array([12*i for i in range(1,12)])
 
@@ -341,22 +345,79 @@ class MethodTests(unittest.TestCase):
             else:
                 self.assertTrue(isinstance(all_splines[i], ZeroSpline))
 
-# Development into MEAM eval is almost useless since we will use Worker
+class EvaluationTests(unittest.TestCase):
 
-# class EvaluationTests(unittest.TestCase):
-#
-#
-#     def test_zero_atom_energies(self):
-#         pass
-#
-#     def test_energy_dimer(self):
-#         pass
-#
-#     def test_forces_dimer(self):
-#         pass
-#
-#     def test_energy_trimer(self):
-#         pass
-#
-#     def test_forces_trimer(self):
-#         pass
+    def setUp(self):
+        self.p = MEAM.from_file("../data/pot_files/HHe.meam.spline")
+
+    def test_zero_atom_energies(self):
+        pass
+
+    def test_energy_dimers(self):
+
+        for name in dimers.keys():
+            atoms = dimers[name]
+
+            guess = self.p.compute_energy(atoms)
+            true = self.p.compute_lammps_results(atoms)['energy']
+
+        self.assertAlmostEqual(guess, true, places=5)
+
+    def test_energy_trimers(self):
+
+        for name in trimers.keys():
+            atoms = trimers[name]
+
+            guess = self.p.compute_energy(atoms)
+            true = self.p.compute_lammps_results(atoms)['energy']
+
+        self.assertAlmostEqual(guess, true, places=5)
+
+    def test_energy_bulk_vac_rhombo(self):
+
+        for name in bulk_vac_rhombo.keys():
+            atoms = bulk_vac_rhombo[name]
+
+            guess = self.p.compute_energy(atoms)
+            true = self.p.compute_lammps_results(atoms)['energy']
+
+        self.assertAlmostEqual(guess, true, places=5)
+
+    def test_energy_bulk_periodic_rhombo(self):
+
+        for name in bulk_periodic_rhombo.keys():
+            atoms = bulk_periodic_rhombo[name]
+
+            guess = self.p.compute_energy(atoms)
+            true = self.p.compute_lammps_results(atoms)['energy']
+
+        self.assertAlmostEqual(guess, true, places=5)
+
+    def test_energy_bulk_periodic_ortho(self):
+
+        for name in bulk_periodic_ortho.keys():
+            atoms = bulk_periodic_ortho[name]
+
+            guess = self.p.compute_energy(atoms)
+            true = self.p.compute_lammps_results(atoms)['energy']
+
+        self.assertAlmostEqual(guess, true, places=5)
+
+    def test_energy_bulk_vac_ortho(self):
+
+        for name in bulk_vac_ortho.keys():
+            atoms = bulk_vac_ortho[name]
+
+            guess = self.p.compute_energy(atoms)
+            true = self.p.compute_lammps_results(atoms)['energy']
+
+        self.assertAlmostEqual(guess, true, places=5)
+
+    def test_forces_dimer(self):
+        pass
+
+    def test_energy_trimer(self):
+        pass
+
+    def test_forces_trimer(self):
+        pass

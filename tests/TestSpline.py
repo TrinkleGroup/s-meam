@@ -9,9 +9,9 @@ class ConstructorTests(unittest.TestCase):
 
     # Note: most error handling goes through scipy.CubicSpline
     def test_missing_data(self):
-        self.assertRaises(ValueError, Spline)
+        self.assertRaises(TypeError, Spline)
 
-    def test_too_many_derivs(self):
+    def test_too_many_end_derivs(self):
         x = np.arange(10, dtype=float)
         y = np.arange(10, dtype=float)
 
@@ -39,18 +39,17 @@ class ConstructorTests(unittest.TestCase):
         x = np.arange(10, dtype=float)
         y = np.arange(10, dtype=float)
 
-        s = Spline(x, y)
+        s = Spline(x, y, end_derivs=(1.,1.))
 
         np.testing.assert_allclose(s.x, x)
-        np.testing.assert_allclose(s(s.x), y)
         self.assertEquals(s.cutoff, (0., 9.))
         self.assertEquals(s(x[0],1), 1.0)
         self.assertEquals(s(x[-1],1), 1.0)
         self.assertAlmostEqual(s.h, 1.0, 15)
 
     def test_natural_bc(self):
-        d0_expected = 0.0077693494604539
-        dN_expected = 0.105197706160344
+        d0 = 0.0077693494604539
+        dN = 0.105197706160344
         y2_expected = np.array([0.00152870603877451, 0.00038933722543571,
                        0.00038124926922248, 0.0156639264890892])
 
@@ -59,15 +58,17 @@ class ConstructorTests(unittest.TestCase):
         y = np.array([-0.2974556800, -0.15449458722, 0.05098657168,
                      0.57342694704])
 
-        s = Spline(x, y, (d0_expected, dN_expected))
+        s = Spline(x, y, bc_type=((1,d0), (1,dN)), end_derivs=(d0, dN))
 
-        self.assertAlmostEqual(s(x[0],1), d0_expected)
-        self.assertAlmostEqual(s(x[-1],1), dN_expected)
-        np.testing.assert_allclose(s(s.x, 2), y2_expected)
+        self.assertAlmostEqual(s(x[0],1), d0)
+        self.assertAlmostEqual(s(x[-1],1), dN)
+
+        for i in range(len(x)):
+            self.assertAlmostEqual(s(x[i],2), y2_expected[i])
 
     def test_one_set_derivative(self):
-        d0_expected = 0.15500135578733
-        dN_expected = 0.
+        d0 = 0.15500135578733
+        dN = 0.
         y2_expected = np.array([0, -1.60311717015859, 1.19940299483249,
                                 1.47909794595154, -2.49521499855605])
 
@@ -75,11 +76,14 @@ class ConstructorTests(unittest.TestCase):
         y = np.array([0.533321679606674, 0.456402081843862, -0.324281383502201,
                       -0.474029826906675, 0])
 
-        s = Spline(x, y, end_derivs=(d0_expected, dN_expected))
+        s = Spline(x, y, bc_type=('natural', (1,dN)), end_derivs=(
+            d0, dN))
 
-        self.assertAlmostEqual(s(x[0],1), d0_expected)
-        self.assertAlmostEqual(s(x[-1],1), dN_expected)
-        np.testing.assert_allclose(s(s.x, 2), y2_expected, atol=1e-15)
+        self.assertAlmostEqual(s(x[0],1), d0)
+        self.assertAlmostEqual(s(x[-1],1), dN)
+
+        for i in range(len(x)):
+            self.assertAlmostEqual(s(x[i],2), y2_expected[i])
 
     def test_zero_spline(self):
         x = np.arange(10)
@@ -90,9 +94,11 @@ class ConstructorTests(unittest.TestCase):
         self.assertEqual(s(x[-1],1), 0.)
         self.assertEqual(s.h, 1)
         self.assertEqual(s.cutoff, (0., 9.))
-        np.testing.assert_allclose(s(x), np.zeros(10))
-        np.testing.assert_allclose(s(x, 1), np.zeros(10))
-        np.testing.assert_allclose(s(x, 2), np.zeros(10))
+
+        for i in range(len(x)):
+            self.assertAlmostEqual(s(x[i]), 0)
+            self.assertAlmostEqual(s(x[i],1), 0)
+            self.assertAlmostEqual(s(x[i],1), 0)
 
 class EvaluationTests(unittest.TestCase):
     """Test cases for Spline class"""
@@ -134,7 +140,8 @@ class EvaluationTests(unittest.TestCase):
 
         s = Spline(x, y, end_derivs=(d0,dN))
 
-        np.testing.assert_allclose(s(x), y)
+        for i in range(len(x)):
+            self.assertAlmostEqual(s(x[i]), y[i])
 
     def test_eval_extrap_single_LHS(self):
         x = np.arange(10, dtype=float)
@@ -167,7 +174,8 @@ class EvaluationTests(unittest.TestCase):
         x = np.concatenate(([-1], y, [11]))
         y = np.concatenate(([-1], y, [11]))
 
-        np.testing.assert_allclose(s(x), y)
+        for i in range(len(x)):
+            self.assertAlmostEqual(s(x[i]), y[i])
 
     def test_sin_fxn(self):
         xi = np.linspace(0,2*np.pi,10)
