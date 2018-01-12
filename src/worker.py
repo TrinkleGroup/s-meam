@@ -2,9 +2,12 @@ import numpy as np
 import lammpsTools
 import meam
 import logging
+import matplotlib.pyplot as plt
 
 from ase.neighborlist import NeighborList
 from scipy.sparse import diags
+
+from spline import Spline
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -86,6 +89,8 @@ class Worker:
             else:
                 bc_type = ('natural','natural')
 
+            bc_type = ('fixed', 'fixed')
+
             s = WorkerSpline(knots_split[i], bc_type)
             s.index = idx
 
@@ -158,8 +163,7 @@ class Worker:
                 # TODO: how much efficiency is lost by zero padding?
                 # TODO: struc_vec = for all splines vs struc_vec = indexed 4 ea?
 
-                abcd = get_abcd(knots_split[phi_idx], rij)
-                self.phis[phi_idx].add_to_struct_vec(abcd)
+                self.phis[phi_idx].add_to_struct_vec(rij)
 
             # Store distances, angle, and index info for embedding terms
             # j_counter = 1 # for tracking neighbor
@@ -258,12 +262,11 @@ class Worker:
 
         energy = 0
 
-        # rzm: energy incorrect; need to check full runthrough
         for i in range(len(self.phis)):
             y = params_split[i]
             s = self.phis[i]
 
-            energy += s(y)
+            energy += np.sum(s(y))
 
         return energy
         # Calculate ni values; ni intervals cannot be pre-computed in init()
@@ -364,230 +367,230 @@ class Worker:
         #
         # return energies
 
-    def compute_forces(self, potentials):
-        """Calculates energies for all potentials using information
-        pre-computed during initialization."""
-        #TODO: only thing changing should be y-coords?
-        # changing y-coords changes splines, changes coeffs
-        # maybe could use cubic spline eval equation, not polyval()
-
-        # TODO: should __call__() take in just a single potential?
-
-        # TODO: is it worth creating a huge matrix of ordered coeffs so that
-        # it's just a single matrix multiplication? probably yes because
-        # Python for-loops are terrible! problem: need to zero pad to make
-        # same size
-
-        # TODO: turn coeffs into array of knot y-values
-
-        # TODO: eventually move away from scipy Spline, towards Recipes equation
-
-        # TODO: might as well just merge with compute_energies()?
-        self.compute_energies(potentials)
-
-        natoms = len(self.atoms)
-        npots = len(potentials)
-
-        # Derivative matrix for cubic coefficients
-        D = np.array([[0,1,0,0], [0,0,2,0], [0,0,0,3]])
-
-        self.potentials = potentials
-        forces = np.zeros((npots, natoms, 3))
-
-        # Compute phi contribution to total energy
-        phi_coeffs = coeffs_from_indices(self.phis, self.phi_index_info)
-
-        i_indices = self.pair_indices_oneway[:,0]
-        j_indices = self.pair_indices_oneway[:,1]
-
-        j_directions = self.pair_directions_oneway
-
-        phi_prime_coeffs = np.einsum('ij,jdk->idk', D, phi_coeffs)
-        phi_prime_values = eval_all_polynomials(self.pair_distances_oneway,
-                                phi_prime_coeffs)
-        phi_forces = np.einsum('ij,jk->ijk',phi_prime_values,j_directions)
-
-        # See np.ufunc.at documentation for why this is necessary
-        np.add.at(forces, (slice(None), i_indices, slice(None)), phi_forces)
-        np.add.at(forces, (slice(None), j_indices, slice(None)), -phi_forces)
-
-        # TODO: switch to full vectorization; tags shouldn't be needed
-        # TODO: unless tags actually improve speed?
-
-        # Calculate ni values; ni intervals cannot be pre-computed in init()
-        for i in range(natoms):
-            itype = lammpsTools.symbol_to_type(self.atoms[i].symbol, self.types)
-            # logging.info("Atom {0} of type {1}---------------".format(i, itype))
-            Uprime_i = self.uprimes[:,i]
-            Uprime_i = Uprime_i.reshape( (len(Uprime_i),1) )
-
-            # Compute phi contributions
-
-            # Pull per-atom neighbor distances and compute rho contribution
-            pair_distances_bothways = self.pair_distances_bothways[i]
-            pair_directions_bothways = self.pair_directions_bothways[i]
-            pair_indices_bothways = self.pair_indices_bothways[i]
-
-            i_indices = pair_indices_bothways[:,0]
-            j_indices = pair_indices_bothways[:,1]
-
-            # Potential index and atom tags for neighbors
-            rho_types_j = self.rho_index_info['pot_type_idx'][i]
-            rho_indices_j = self.rho_index_info['interval_idx'][i]
-
-            # Forces from i to neighbors
-            rho_coeffs_j = coeffs_from_indices(self.rhos,
-                    {'pot_type_idx':rho_types_j, 'interval_idx':rho_indices_j})
-
-            # Rho prime values for neighbors
-            rho_prime_coeffs_j = np.einsum('ij,jdk->idk', D, rho_coeffs_j)
-            rho_prime_values_j = eval_all_polynomials(pair_distances_bothways,
-                                              rho_prime_coeffs_j)
-
-            # Forces from neighbors to i
-            itype = lammpsTools.symbol_to_type(self.atoms[i].symbol, self.types)
-            rho_idx_i = meam.i_to_potl(itype, 'rho', self.ntypes)
-
-            rho_indices_i = self.rho_index_info['interval_idx_backwards'][i]
-
-            rho_coeffs_i = coeffs_from_indices(self.rhos,
-                   {'pot_type_idx':np.ones(len(
-                    pair_distances_bothways))*rho_idx_i,
-                    'interval_idx':rho_indices_i})
-
-            rho_prime_coeffs_i = np.einsum('ij,jdk->idk', D, rho_coeffs_i)
-            rho_prime_values_i = eval_all_polynomials(pair_distances_bothways,
-                                              rho_prime_coeffs_i)
-
-            # Combine forwards/backwards forces
-            fpair = rho_prime_values_j*Uprime_i
-            rho_prime_values_i = np.multiply(rho_prime_values_i, self.uprimes[:,
-                                                       j_indices])
-            fpair += rho_prime_values_i
-            #fpair += phi_prime_values
-
-            # TODO: seem to be double-counting rho terms. hence the /= 2.0
-            rho_forces = np.einsum('ij,jk->ijk',fpair, pair_directions_bothways)
-            rho_forces /= 2.0
-
-            np.add.at(forces, (slice(None),i_indices, slice(None)), rho_forces)
-            np.add.at(forces, (slice(None),j_indices, slice(None)), -rho_forces)
-
-            if len(self.triplet_values[i]) > 0: # check needed in case of dimer
-
-                # Unpack ordered sets of values and indexing information
-                values_tuple    = self.triplet_values[i]
-                rij_values      = values_tuple[:,0]
-                rik_values      = values_tuple[:,1]
-                cos_values        = values_tuple[:,2]
-
-                values_tuple    = self.triplet_unshifted[i]
-                rij_values_unshifted      = values_tuple[:,0]
-                rik_values_unshifted      = values_tuple[:,1]
-                cos_values_unshifted        = values_tuple[:,2]
-
-                types_tuple = self.triplet_info['pot_type_idx'][i]
-                fj_types    = types_tuple[:,0]
-                fk_types    = types_tuple[:,1]
-                g_types     = types_tuple[:,2]
-
-                # type dependent.
-                intervals_tuple = self.triplet_info['interval_idx'][i]
-                fj_intervals    = intervals_tuple[:,0]
-                fk_intervals    = intervals_tuple[:,1]
-                g_intervals     = intervals_tuple[:,2]
-
-                # Calculate three body contributions
-                fj_coeffs = coeffs_from_indices(self.fs,
-                            {'pot_type_idx':fj_types, 'interval_idx':fj_intervals})
-                fk_coeffs = coeffs_from_indices(self.fs,
-                            {'pot_type_idx':fk_types, 'interval_idx':fk_intervals})
-                g_coeffs = coeffs_from_indices(self.gs,
-                            {'pot_type_idx':g_types, 'interval_idx':g_intervals})
-
-                fj_results = eval_all_polynomials(rij_values, fj_coeffs)
-                fk_results = eval_all_polynomials(rik_values, fk_coeffs)
-                g_results = eval_all_polynomials(cos_values, g_coeffs)
-
-                # TODO: consider putting derivative evals in eval_all() 4 speed?
-                # Take derivatives and compute forces
-                fj_prime_coeffs = np.einsum('ij,jdk->idk', D, fj_coeffs)
-                fk_prime_coeffs = np.einsum('ij,jdk->idk', D, fk_coeffs)
-                g_prime_coeffs = np.einsum('ij,jdk->idk', D, g_coeffs)
-
-                fj_primes = eval_all_polynomials(rij_values, fj_prime_coeffs)
-                fk_primes = eval_all_polynomials(rik_values, fk_prime_coeffs)
-                g_primes = eval_all_polynomials(cos_values, g_prime_coeffs)
-
-                #logging.info("{0}, {1}, {2}".format(g_results.shape,
-                #                        fk_results.shape, fj_primes.shape))
-
-                fij = -Uprime_i*np.multiply(g_results, np.multiply(
-                    fk_results, fj_primes))
-
-                fik = -Uprime_i*np.multiply(g_results, np.multiply(
-                    fj_results, fk_primes))
-
-                # logging.info("fij = {0}".format(fij))
-                # logging.info("fik = {0}".format(fik))
-                # logging.info("cos_values = {0}".format(cos_values_unshifted))
-                # logging.info("rij_values = {0}".format(rij_values_unshifted))
-                # logging.info("rik_values = {0}".format(rik_values_unshifted))
-
-                prefactor = Uprime_i*np.multiply(fj_results, np.multiply(
-                    fk_results, g_primes))
-                prefactor_ij = np.divide(prefactor, rij_values_unshifted)
-                prefactor_ik = np.divide(prefactor, rik_values_unshifted)
-
-                fij += np.multiply(prefactor_ij, cos_values_unshifted)
-                fik += np.multiply(prefactor_ik, cos_values_unshifted)
-
-                # logging.info("prefactor = {0}".format(prefactor))
-                # logging.info("prefactor_ij = {0}".format(prefactor_ij))
-                # logging.info("prefactor_ik = {0}".format(prefactor_ik))
-
-                jvec = self.triplet_directions[i][:,0]
-                kvec = self.triplet_directions[i][:,1]
-
-                forces_j = np.einsum('ij,jk->ijk', fij, jvec)
-                forces_j -= np.einsum('ij,jk->ijk', prefactor_ij, kvec)
-
-                forces_k = np.einsum('ij,jk->ijk', fik, kvec)
-                forces_k -= np.einsum('ij,jk->ijk', prefactor_ik, jvec)
-
-                j_indices = self.triplet_indices[i][:,0]
-                k_indices = self.triplet_indices[i][:,1]
-
-                np.add.at(forces, (slice(None), j_indices, slice(None)),
-                        forces_j)
-                np.add.at(forces, (slice(None), k_indices, slice(None)),
-                        forces_k)
-
-                # logging.info("{0}, {1}: fij, prefactor_ij".format(fij,
-                #                                                prefactor_ij))
-                # logging.info("{0}, {1}: fik, prefactor_ik".format(fik,
-                #                                                   prefactor_ik))
-                # logging.info("{0}, {1}, {4}, fj_results, fk_results, "
-                #              "g_results, {2},{3} j,k".format(
-                #     fj_results, fk_results, fj_types+1, fk_types+1, g_results))
-
-                # logging.info("fj_results = {0}".format(fj_results))
-                # logging.info("fj_primes = {0}".format(fj_primes))
-                # logging.info("fk_results = {0}".format(fk_results))
-                # logging.info("fk_primes = {0}".format(fk_primes))
-                # logging.info("g_results = {0}".format(g_results))
-                # logging.info("g_primes = {0}".format(g_primes))
-                # logging.info("forces_j = {0}".format(forces_j))
-                # logging.info("forces_k = {0}".format(forces_k))
-
-                forces[:,i,:] -= np.sum(forces_k, axis=1)
-                forces[:,i,:] -= np.sum(forces_j, axis=1)
-
-                # TODO: pass disp vectors, not rij, then vectorize reduction
-                # to rij_values?
-
-        #return forces.reshape((npots, natoms, 3))
-        return forces
+    # def compute_forces(self, potentials):
+    #     """Calculates energies for all potentials using information
+    #     pre-computed during initialization."""
+    #     #TODO: only thing changing should be y-coords?
+    #     # changing y-coords changes splines, changes coeffs
+    #     # maybe could use cubic spline eval equation, not polyval()
+    #
+    #     # TODO: should __call__() take in just a single potential?
+    #
+    #     # TODO: is it worth creating a huge matrix of ordered coeffs so that
+    #     # it's just a single matrix multiplication? probably yes because
+    #     # Python for-loops are terrible! problem: need to zero pad to make
+    #     # same size
+    #
+    #     # TODO: turn coeffs into array of knot y-values
+    #
+    #     # TODO: eventually move away from scipy Spline, towards Recipes equation
+    #
+    #     # TODO: might as well just merge with compute_energies()?
+    #     self.compute_energies(potentials)
+    #
+    #     natoms = len(self.atoms)
+    #     npots = len(potentials)
+    #
+    #     # Derivative matrix for cubic coefficients
+    #     D = np.array([[0,1,0,0], [0,0,2,0], [0,0,0,3]])
+    #
+    #     self.potentials = potentials
+    #     forces = np.zeros((npots, natoms, 3))
+    #
+    #     # Compute phi contribution to total energy
+    #     phi_coeffs = coeffs_from_indices(self.phis, self.phi_index_info)
+    #
+    #     i_indices = self.pair_indices_oneway[:,0]
+    #     j_indices = self.pair_indices_oneway[:,1]
+    #
+    #     j_directions = self.pair_directions_oneway
+    #
+    #     phi_prime_coeffs = np.einsum('ij,jdk->idk', D, phi_coeffs)
+    #     phi_prime_values = eval_all_polynomials(self.pair_distances_oneway,
+    #                             phi_prime_coeffs)
+    #     phi_forces = np.einsum('ij,jk->ijk',phi_prime_values,j_directions)
+    #
+    #     # See np.ufunc.at documentation for why this is necessary
+    #     np.add.at(forces, (slice(None), i_indices, slice(None)), phi_forces)
+    #     np.add.at(forces, (slice(None), j_indices, slice(None)), -phi_forces)
+    #
+    #     # TODO: switch to full vectorization; tags shouldn't be needed
+    #     # TODO: unless tags actually improve speed?
+    #
+    #     # Calculate ni values; ni intervals cannot be pre-computed in init()
+    #     for i in range(natoms):
+    #         itype = lammpsTools.symbol_to_type(self.atoms[i].symbol, self.types)
+    #         # logging.info("Atom {0} of type {1}---------------".format(i, itype))
+    #         Uprime_i = self.uprimes[:,i]
+    #         Uprime_i = Uprime_i.reshape( (len(Uprime_i),1) )
+    #
+    #         # Compute phi contributions
+    #
+    #         # Pull per-atom neighbor distances and compute rho contribution
+    #         pair_distances_bothways = self.pair_distances_bothways[i]
+    #         pair_directions_bothways = self.pair_directions_bothways[i]
+    #         pair_indices_bothways = self.pair_indices_bothways[i]
+    #
+    #         i_indices = pair_indices_bothways[:,0]
+    #         j_indices = pair_indices_bothways[:,1]
+    #
+    #         # Potential index and atom tags for neighbors
+    #         rho_types_j = self.rho_index_info['pot_type_idx'][i]
+    #         rho_indices_j = self.rho_index_info['interval_idx'][i]
+    #
+    #         # Forces from i to neighbors
+    #         rho_coeffs_j = coeffs_from_indices(self.rhos,
+    #                 {'pot_type_idx':rho_types_j, 'interval_idx':rho_indices_j})
+    #
+    #         # Rho prime values for neighbors
+    #         rho_prime_coeffs_j = np.einsum('ij,jdk->idk', D, rho_coeffs_j)
+    #         rho_prime_values_j = eval_all_polynomials(pair_distances_bothways,
+    #                                           rho_prime_coeffs_j)
+    #
+    #         # Forces from neighbors to i
+    #         itype = lammpsTools.symbol_to_type(self.atoms[i].symbol, self.types)
+    #         rho_idx_i = meam.i_to_potl(itype, 'rho', self.ntypes)
+    #
+    #         rho_indices_i = self.rho_index_info['interval_idx_backwards'][i]
+    #
+    #         rho_coeffs_i = coeffs_from_indices(self.rhos,
+    #                {'pot_type_idx':np.ones(len(
+    #                 pair_distances_bothways))*rho_idx_i,
+    #                 'interval_idx':rho_indices_i})
+    #
+    #         rho_prime_coeffs_i = np.einsum('ij,jdk->idk', D, rho_coeffs_i)
+    #         rho_prime_values_i = eval_all_polynomials(pair_distances_bothways,
+    #                                           rho_prime_coeffs_i)
+    #
+    #         # Combine forwards/backwards forces
+    #         fpair = rho_prime_values_j*Uprime_i
+    #         rho_prime_values_i = np.multiply(rho_prime_values_i, self.uprimes[:,
+    #                                                    j_indices])
+    #         fpair += rho_prime_values_i
+    #         #fpair += phi_prime_values
+    #
+    #         # TODO: seem to be double-counting rho terms. hence the /= 2.0
+    #         rho_forces = np.einsum('ij,jk->ijk',fpair, pair_directions_bothways)
+    #         rho_forces /= 2.0
+    #
+    #         np.add.at(forces, (slice(None),i_indices, slice(None)), rho_forces)
+    #         np.add.at(forces, (slice(None),j_indices, slice(None)), -rho_forces)
+    #
+    #         if len(self.triplet_values[i]) > 0: # check needed in case of dimer
+    #
+    #             # Unpack ordered sets of values and indexing information
+    #             values_tuple    = self.triplet_values[i]
+    #             rij_values      = values_tuple[:,0]
+    #             rik_values      = values_tuple[:,1]
+    #             cos_values        = values_tuple[:,2]
+    #
+    #             values_tuple    = self.triplet_unshifted[i]
+    #             rij_values_unshifted      = values_tuple[:,0]
+    #             rik_values_unshifted      = values_tuple[:,1]
+    #             cos_values_unshifted        = values_tuple[:,2]
+    #
+    #             types_tuple = self.triplet_info['pot_type_idx'][i]
+    #             fj_types    = types_tuple[:,0]
+    #             fk_types    = types_tuple[:,1]
+    #             g_types     = types_tuple[:,2]
+    #
+    #             # type dependent.
+    #             intervals_tuple = self.triplet_info['interval_idx'][i]
+    #             fj_intervals    = intervals_tuple[:,0]
+    #             fk_intervals    = intervals_tuple[:,1]
+    #             g_intervals     = intervals_tuple[:,2]
+    #
+    #             # Calculate three body contributions
+    #             fj_coeffs = coeffs_from_indices(self.fs,
+    #                         {'pot_type_idx':fj_types, 'interval_idx':fj_intervals})
+    #             fk_coeffs = coeffs_from_indices(self.fs,
+    #                         {'pot_type_idx':fk_types, 'interval_idx':fk_intervals})
+    #             g_coeffs = coeffs_from_indices(self.gs,
+    #                         {'pot_type_idx':g_types, 'interval_idx':g_intervals})
+    #
+    #             fj_results = eval_all_polynomials(rij_values, fj_coeffs)
+    #             fk_results = eval_all_polynomials(rik_values, fk_coeffs)
+    #             g_results = eval_all_polynomials(cos_values, g_coeffs)
+    #
+    #             # TODO: consider putting derivative evals in eval_all() 4 speed?
+    #             # Take derivatives and compute forces
+    #             fj_prime_coeffs = np.einsum('ij,jdk->idk', D, fj_coeffs)
+    #             fk_prime_coeffs = np.einsum('ij,jdk->idk', D, fk_coeffs)
+    #             g_prime_coeffs = np.einsum('ij,jdk->idk', D, g_coeffs)
+    #
+    #             fj_primes = eval_all_polynomials(rij_values, fj_prime_coeffs)
+    #             fk_primes = eval_all_polynomials(rik_values, fk_prime_coeffs)
+    #             g_primes = eval_all_polynomials(cos_values, g_prime_coeffs)
+    #
+    #             #logging.info("{0}, {1}, {2}".format(g_results.shape,
+    #             #                        fk_results.shape, fj_primes.shape))
+    #
+    #             fij = -Uprime_i*np.multiply(g_results, np.multiply(
+    #                 fk_results, fj_primes))
+    #
+    #             fik = -Uprime_i*np.multiply(g_results, np.multiply(
+    #                 fj_results, fk_primes))
+    #
+    #             # logging.info("fij = {0}".format(fij))
+    #             # logging.info("fik = {0}".format(fik))
+    #             # logging.info("cos_values = {0}".format(cos_values_unshifted))
+    #             # logging.info("rij_values = {0}".format(rij_values_unshifted))
+    #             # logging.info("rik_values = {0}".format(rik_values_unshifted))
+    #
+    #             prefactor = Uprime_i*np.multiply(fj_results, np.multiply(
+    #                 fk_results, g_primes))
+    #             prefactor_ij = np.divide(prefactor, rij_values_unshifted)
+    #             prefactor_ik = np.divide(prefactor, rik_values_unshifted)
+    #
+    #             fij += np.multiply(prefactor_ij, cos_values_unshifted)
+    #             fik += np.multiply(prefactor_ik, cos_values_unshifted)
+    #
+    #             # logging.info("prefactor = {0}".format(prefactor))
+    #             # logging.info("prefactor_ij = {0}".format(prefactor_ij))
+    #             # logging.info("prefactor_ik = {0}".format(prefactor_ik))
+    #
+    #             jvec = self.triplet_directions[i][:,0]
+    #             kvec = self.triplet_directions[i][:,1]
+    #
+    #             forces_j = np.einsum('ij,jk->ijk', fij, jvec)
+    #             forces_j -= np.einsum('ij,jk->ijk', prefactor_ij, kvec)
+    #
+    #             forces_k = np.einsum('ij,jk->ijk', fik, kvec)
+    #             forces_k -= np.einsum('ij,jk->ijk', prefactor_ik, jvec)
+    #
+    #             j_indices = self.triplet_indices[i][:,0]
+    #             k_indices = self.triplet_indices[i][:,1]
+    #
+    #             np.add.at(forces, (slice(None), j_indices, slice(None)),
+    #                     forces_j)
+    #             np.add.at(forces, (slice(None), k_indices, slice(None)),
+    #                     forces_k)
+    #
+    #             # logging.info("{0}, {1}: fij, prefactor_ij".format(fij,
+    #             #                                                prefactor_ij))
+    #             # logging.info("{0}, {1}: fik, prefactor_ik".format(fik,
+    #             #                                                   prefactor_ik))
+    #             # logging.info("{0}, {1}, {4}, fj_results, fk_results, "
+    #             #              "g_results, {2},{3} j,k".format(
+    #             #     fj_results, fk_results, fj_types+1, fk_types+1, g_results))
+    #
+    #             # logging.info("fj_results = {0}".format(fj_results))
+    #             # logging.info("fj_primes = {0}".format(fj_primes))
+    #             # logging.info("fk_results = {0}".format(fk_results))
+    #             # logging.info("fk_primes = {0}".format(fk_primes))
+    #             # logging.info("g_results = {0}".format(g_results))
+    #             # logging.info("g_primes = {0}".format(g_primes))
+    #             # logging.info("forces_j = {0}".format(forces_j))
+    #             # logging.info("forces_k = {0}".format(forces_k))
+    #
+    #             forces[:,i,:] -= np.sum(forces_k, axis=1)
+    #             forces[:,i,:] -= np.sum(forces_j, axis=1)
+    #
+    #             # TODO: pass disp vectors, not rij, then vectorize reduction
+    #             # to rij_values?
+    #
+    #     #return forces.reshape((npots, natoms, 3))
+    #     return forces
 
     @property
     def potentials(self):
@@ -743,90 +746,6 @@ def read_from_file(atom_file_name, potential_file_name):
 
     return worker, knot_y_points
 
-def get_abcd(knots, x):
-    """Calculates the coefficients needed for spline interpolation.
-
-    Args:
-        knots (np.arr):
-            x-coordinates of spline
-
-        x (float):
-            point at which to evaluate spline
-
-    Returns:
-        vec (np.arr):
-            vector of length len(knots)*2; this formatting is used since for
-            evaluation, vec will be dotted with a vector consisting of first
-            the y-values at the knots, then the y1-values at the knots
-
-    In general, the polynomial p(x) can be interpolated as
-
-        p(x) = A*p_k + B*m_k + C*p_k+1 + D*m_k+1
-
-    where k is the interval that x falls into, p_k and p_k+1 are the
-    y-coordinates of the k and k+1 knots, m_k and m_k+1 are the derivatives
-    of p(x) at the knots, and the coefficients are defined as:
-
-        A = h_00(t)
-        B = h_10(t)(x_k+1 - x_k)
-        C = h_01(t)
-        D = h_11(t)(x_k+1 - x_k)
-
-    and functions h_ij are defined as:
-
-        h_00 = (1+2t)(1-t)^2
-        h_10 = t^2 ( 3-2t)
-        h_01 = t (1-t)^2
-        h_11 = t^2 (t-1)
-
-        with t = (x-x_k)/(x_k+1 - x_k)"""
-
-    h_00 = lambda t: (1+2*t)*(1-t)**2
-    h_10 = lambda t: (t**2)*(3-2*t)
-    h_01 = lambda t: t*(1-t)**2
-    h_11 = lambda t: (t**2)*(t-1)
-
-    h = knots[1] - knots[0]
-
-    # Find spline interval
-    k = int(np.floor((x-knots[0])/h))
-
-    nknots = len(knots)
-    # TODO: is there an issue with spline_num == 1?
-    vec = np.zeros(2*nknots)
-
-    if k < 0: # LHS extrapolation
-        k = 0
-
-        A = 1
-        B = x - knots[0] # negative for correct sign with derivative
-
-        vec[k] = A; vec[k+nknots] = B
-
-    elif k >= nknots-1: # RHS extrapolation
-        k = nknots-1
-        C = 1
-        D = x - knots[-1]
-
-        vec[k] = C; vec[k+nknots] = D
-    else:
-        prefactor  = (knots[k+1] - knots[k])
-
-        t = (x - knots[k])/prefactor
-
-        A = h_00(t)
-        B = h_10(t)*prefactor
-        C = h_01(t)
-        D = h_11(t)*prefactor
-
-        vec[k] = A
-        vec[k+nknots] = B
-        vec[k+1] = C
-        vec[k+1+nknots] = D
-
-    return vec
-
-
 class WorkerSpline:
     """A representation of a cubic spline specifically tailored to meet
     the needs of a Worker object.
@@ -876,6 +795,16 @@ class WorkerSpline:
 
     def __init__(self, x, bc_type):
 
+        if not np.all(x[1:] > x[:-1], axis=0):
+            raise ValueError("x must be strictly increasing")
+
+        if not ((bc_type[0]=='natural') or (bc_type[0] == 'fixed')):
+            raise ValueError("boundary conditions must be one of 'natural' or"
+                             "'fixed'")
+        if not ((bc_type[1]=='natural') or (bc_type[1] == 'fixed')):
+            raise ValueError("boundary conditions must be one of 'natural' or"
+                             "'fixed'")
+
         # Set at beginning
         self.x = x;
         self.h = x[1]-x[0]
@@ -907,11 +836,128 @@ class WorkerSpline:
 
         return self.struct_vec @ z.transpose()
 
-    def add_to_struct_vec(self, val):
-        if self.struct_vec == None:
-            self.struct_vec = val
+    def get_abcd(self, x):
+        """Calculates the coefficients needed for spline interpolation.
+
+            x (float):
+                point at which to evaluate spline
+
+        Returns:
+            vec (np.arr):
+                vector of length len(knots)*2; this formatting is used since for
+                evaluation, vec will be dotted with a vector consisting of first
+                the y-values at the knots, then the y1-values at the knots
+
+        In general, the polynomial p(x) can be interpolated as
+
+            p(x) = A*p_k + B*m_k + C*p_k+1 + D*m_k+1
+
+        where k is the interval that x falls into, p_k and p_k+1 are the
+        y-coordinates of the k and k+1 knots, m_k and m_k+1 are the derivatives
+        of p(x) at the knots, and the coefficients are defined as:
+
+            A = h_00(t)
+            B = h_10(t)(x_k+1 - x_k)
+            C = h_01(t)
+            D = h_11(t)(x_k+1 - x_k)
+
+        and functions h_ij are defined as:
+
+            h_00 = (1+2t)(1-t)^2
+            h_10 = t (1-t)^2
+            h_01 = t^2 ( 3-2t)
+            h_11 = t^2 (t-1)
+
+            with t = (x-x_k)/(x_k+1 - x_k)"""
+
+        knots = self.x.copy()
+
+        h_00 = lambda t: (1+2*t)*(1-t)**2
+        h_10 = lambda t: t*(1-t)**2
+        h_01 = lambda t: (t**2)*(3-2*t)
+        h_11 = lambda t: (t**2)*(t-1)
+
+        h = knots[1] - knots[0]
+
+        # Find spline interval; -1 to account for zero indexing
+        k = int(np.floor((x-knots[0])/h))
+
+        nknots = len(knots)
+        vec = np.zeros(2*nknots)
+
+        if k < 0: # LHS extrapolation
+            k = 0
+
+            A = 1
+            B = x - knots[0] # negative for correct sign with derivative
+
+            vec[k] = A; vec[k+nknots] = B
+
+        elif k >= nknots-1: # RHS extrapolation
+            k = nknots-1
+            C = 1
+            D = x - knots[-1]
+
+            vec[k] = C; vec[k+nknots] = D
         else:
-            self.struct_vec = np.vstack((self.struct_vec, val))
+            prefactor  = (knots[k+1] - knots[k])
+
+            t = (x - knots[k])/prefactor
+
+            A = h_00(t)
+            B = h_10(t)*prefactor
+            C = h_01(t)
+            D = h_11(t)*prefactor
+
+            vec[k] = A
+            vec[k+nknots] = B
+            vec[k+1] = C
+            vec[k+1+nknots] = D
+
+        return vec
+
+    def add_to_struct_vec(self, val):
+
+        abcd = self.get_abcd(val)
+
+        if self.struct_vec is None:
+            self.struct_vec = abcd
+        else:
+            self.struct_vec = np.vstack((self.struct_vec, abcd))
+
+    def to_normal_spline(self):
+        if self.y is None:
+            raise ValueError("Must specify y before converting to Spline")
+
+        bc_type = []
+        for i in range(len(self.bc_type)):
+            if self.bc_type[i] == 'fixed':
+                bc_type.append((1,self.y[-i-1]))
+            else:
+                bc_type.append(self.bc_type[-i-1])
+
+        return Spline(self.x, self.y[:-2], bc_type=bc_type,
+                      end_derivs=self.y[-2:])
+
+    def plot(self, fname=''):
+
+        s = self.to_normal_spline()
+
+        if self.y is None:
+            raise ValueError("Must specify y before plotting")
+
+        plt.figure()
+        plt.plot(self.x, self.y[:-2], 'ro', label='knots')
+
+        plot_x = np.linspace(self.x[0]-2, self.x[-1]+2, 1000)
+        plot_y = np.zeros(len(plot_x))
+
+        for i in range(len(plot_x)):
+            plot_y[i] = s(plot_x[i])
+
+        plt.plot(plot_x, plot_y)
+        plt.legend()
+        plt.show()
 
 def build_M(num_x, dx, bc_type):
     """Builds the A and B matrices that are needed to find the function

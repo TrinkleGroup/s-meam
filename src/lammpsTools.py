@@ -352,9 +352,8 @@ def symbol_to_type(symbol, types):
     try:
         return np.where(np.array(types)==symbol)[0][0] + 1
     except (IndexError):
-        print('Atom type could not be found in the given set of '
+        raise ValueError('Atom type could not be found in the given set of '
                          'types')
-        sys.exit(0)
 
 def main():
 

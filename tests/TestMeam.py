@@ -162,6 +162,14 @@ class MethodTests(unittest.TestCase):
         np.testing.assert_allclose(new_y_pvec, y_pvec, atol=EPS)
         np.testing.assert_allclose(new_x_indices, x_indices, atol=EPS)
 
+    def test_splines_to_vec_file(self):
+        p = MEAM.from_file('../data/pot_files/TiO.meam.spline')
+
+        x_pvec, y_pvec, indices = meam.splines_to_pvec(p.splines)
+
+        np.testing.assert_allclose(x_pvec[13:18], np.array([1.9, 2.8, 3.7,
+                                                            4.6, 5.5]))
+
     def test_splines_from_pvec(self):
         x = np.arange(10, dtype=float)
         y = np.arange(10, dtype=float)

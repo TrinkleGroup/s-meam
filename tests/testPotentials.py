@@ -60,23 +60,23 @@ def get_constant_potential():
     else:
         # all ones
         phi_spline = Spline(np.linspace(1,a0+1, num=num_knots), np.ones(num_knots),
-                            bc_type=((1,0),(1,0)), derivs=(0,0))
+                            bc_type=((1,0),(1,0)), end_derivs=(0,0))
 
         # all ones
         rho_spline = Spline(np.linspace(1,a0+1, num=num_knots), np.ones(num_knots),
-                          bc_type=((1,0),(1,0)), derivs=(0,0))
+                          bc_type=((1,0),(1,0)), end_derivs=(0,0))
 
         # u = ni, linear function
         u_spline = Spline(np.linspace(1,a0+1, num=num_knots), np.linspace(1,a0+1, num=num_knots),
-                            bc_type=((1,1),(1,1)), derivs=(1,1))
+                            bc_type=((1,1),(1,1)), end_derivs=(1,1))
 
         # all ones
         f_spline = Spline(np.linspace(1,a0+1, num=num_knots), np.ones(num_knots),
-                            bc_type=((1,0),(1,0)), derivs=(0,0))
+                            bc_type=((1,0),(1,0)), end_derivs=(0,0))
 
         # all ones
         g_spline = Spline(np.linspace(1,a0+1, num=num_knots), np.ones(num_knots),
-                            bc_type=((1,0),(1,0)), derivs=(0,0))
+                            bc_type=((1,0),(1,0)), end_derivs=(0,0))
 
         splines = [phi_spline]*3 + [rho_spline]*2 + [u_spline]*2 + [f_spline]*2 +\
                         [g_spline]*3
@@ -100,19 +100,19 @@ def get_extrap_potentials():
     else:
         # RHS extrapolation
         phi_spline = Spline(np.linspace(0,0.9*r0, num=num_knots), np.ones(num_knots),
-                            bc_type=((1,0),(1,1)), derivs=(0,1))
+                            bc_type=((1,0),(1,1)), end_derivs=(0,1))
 
         u_spline = Spline(np.linspace(0,0.9*r0, num=num_knots), np.linspace(0,0.9*r0, num=num_knots),
-                            bc_type=((1,0),(1,1)), derivs=(0,1))
+                            bc_type=((1,0),(1,1)), end_derivs=(0,1))
 
         rho_spline = Spline(np.linspace(0,0.9*r0, num=num_knots), np.ones(num_knots),
-                          bc_type=((1,0),(1,1)), derivs=(0,1))
+                          bc_type=((1,0),(1,1)), end_derivs=(0,1))
 
         f_spline = Spline(np.linspace(0,0.9*r0, num=num_knots), np.ones(num_knots),
-                            bc_type=((1,0),(1,1)), derivs=(0,1))
+                            bc_type=((1,0),(1,1)), end_derivs=(0,1))
 
         g_spline = Spline(np.linspace(0,0.9*r0, num=num_knots), np.ones(num_knots),
-                            bc_type=((1,0),(1,1)), derivs=(0,1))
+                            bc_type=((1,0),(1,1)), end_derivs=(0,1))
 
         splines = [phi_spline]*3 + [rho_spline]*2 + [u_spline]*2 + [f_spline]*2 +\
                         [g_spline]*3
@@ -123,19 +123,19 @@ def get_extrap_potentials():
         rng = np.linspace(1.1*r0, 1.1*r0+a0, num=num_knots)
 
         phi_spline = Spline(rng, np.ones(num_knots),
-                            bc_type=((1,0),(1,1)), derivs=(0,1))
+                            bc_type=((1,0),(1,1)), end_derivs=(0,1))
 
         u_spline = Spline(rng, np.linspace(0,0.9*r0, num=num_knots),
-                            bc_type=((1,0),(1,1)), derivs=(0,1))
+                            bc_type=((1,0),(1,1)), end_derivs=(0,1))
 
         rho_spline = Spline(rng, np.ones(num_knots),
-                          bc_type=((1,0),(1,1)), derivs=(0,1))
+                          bc_type=((1,0),(1,1)), end_derivs=(0,1))
 
         f_spline = Spline(rng, np.ones(num_knots),
-                            bc_type=((1,0),(1,1)), derivs=(0,1))
+                            bc_type=((1,0),(1,1)), end_derivs=(0,1))
 
         g_spline = Spline(rng, np.ones(num_knots),
-                            bc_type=((1,0),(1,1)), derivs=(0,1))
+                            bc_type=((1,0),(1,1)), end_derivs=(0,1))
 
         splines = [phi_spline]*3 + [rho_spline]*2 + [u_spline]*2 + [f_spline]*2 +\
                         [g_spline]*3
@@ -193,7 +193,7 @@ def get_random_pots(newN):
                 #     d0 = dN = 0
 
                 temp = Spline(knots_x, knots_y, bc_type=((1,d0),(1,dN)),\
-                        derivs=(d0,dN))
+                        end_derivs=(d0,dN))
 
                 temp.cutoff = (knots_x[0],knots_x[len(knots_x)-1])
                 splines.append(temp)
@@ -202,12 +202,12 @@ def get_random_pots(newN):
             # p = MEAM('HHe.meam.spline')
 
             rng_meams[n]        = p
-            rng_nophis[n]       = meam.nophi_subtype(p)
-            rng_phionlys[n]     = meam.phionly_subtype(p)
-            rng_rhos[n]         = meam.rho_subtype(p)
-            rng_norhos[n]       = meam.norhophi_subtype(p)
-            rng_norhophis[n]    = meam.norhophi_subtype(p)
-            rng_rhophis[n]      = meam.rhophi_subtype(p)
+            rng_nophis[n]       = p.nophi_subtype()
+            rng_phionlys[n]     = p.phionly_subtype()
+            rng_rhos[n]         = p.rho_subtype()
+            rng_norhos[n]       = p.norhophi_subtype()
+            rng_norhophis[n]    = p.norhophi_subtype()
+            rng_rhophis[n]      = p.rhophi_subtype()
 
         allpots = {'meams':rng_meams, 'nophis':rng_nophis,
                    'phionlys':rng_phionlys, 'rhos':rng_rhos,
