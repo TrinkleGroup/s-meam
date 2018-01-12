@@ -15,6 +15,7 @@ from tests.testStructs import dimers, trimers, bulk_vac_ortho, \
     bulk_periodic_ortho, bulk_vac_rhombo, bulk_periodic_rhombo
 
 EPS = 1e-7
+np.random.seed(42)
 
 N = 1
 
@@ -22,21 +23,21 @@ N = 1
 energy_flag = True*1
 forces_flag = True*0
 
-zero_pots_flag  = True*1
+zero_pots_flag  = True*0
 const_pots_flag = True*0
-rand_pots_flag  = True*0
+rand_pots_flag  = True*1
 
 meam_flag       = True*0
-phionly_flag    = True*1
+phionly_flag    = True*0
 rhophi_flag     = True*0
 nophi_flag      = True*0
-rho_flag        = True*0
+rho_flag        = True*1
 norho_flag      = True*0
 norhophi_flag   = True*0
 
 dimers_flag  = True*1
-trimers_flag = True*1
-bulk_flag    = True*1
+trimers_flag = True*0
+bulk_flag    = True*0
 
 allstructs = {}
 
@@ -47,6 +48,8 @@ if trimers_flag:
 if bulk_flag:
     allstructs = {**allstructs, **bulk_vac_ortho, **bulk_periodic_ortho,
                   **bulk_vac_rhombo, **bulk_periodic_rhombo}
+
+# allstructs =  {'aa':dimers['aa']}
 
 ################################################################################
 # Helper functions
@@ -152,6 +155,7 @@ if zero_pots_flag:
 
     if energy_flag:
         calc_energies = runner_energy([p], allstructs)
+        print()
 
         @parameterized.expand(loader_energy('', calc_energies, energies))
         def test_zero_potential_energy(name, a, b):
@@ -176,6 +180,7 @@ if const_pots_flag:
         if energy_flag:
             calc_energies = runner_energy([p], allstructs)
 
+            # rzm: overcounting for rho?
             @parameterized.expand(loader_energy('', calc_energies, energies))
             def test_constant_potential_meam_energy(name, a, b):
                np.testing.assert_allclose(a,b,atol=EPS)
@@ -189,17 +194,17 @@ if const_pots_flag:
 
     if phionly_flag:
         """phionly subtype"""
-        energies, forces = getLammpsResults([meam.phionly_subtype(p)], allstructs)
+        energies, forces = getLammpsResults([p.phionly_subtype()], allstructs)
 
         if energy_flag:
-            calc_energies = runner_energy([meam.phionly_subtype(p)], allstructs)
+            calc_energies = runner_energy([p.phionly_subtype()], allstructs)
 
             @parameterized.expand(loader_energy('', calc_energies, energies))
             def test_constant_potential_phionly_energy(name, a, b):
                np.testing.assert_allclose(a,b,atol=EPS)
 
         if forces_flag:
-            calc_forces = runner_forces([meam.phionly_subtype(p)], allstructs)
+            calc_forces = runner_forces([p.phionly_subtype()], allstructs)
 
             @parameterized.expand(loader_forces('', calc_forces, forces))
             def test_constant_potential_phionly_forces(name, a, b):
@@ -207,17 +212,17 @@ if const_pots_flag:
 
     if rhophi_flag:
         """rhophi subtype"""
-        energies, forces = getLammpsResults([meam.rhophi_subtype(p)], allstructs)
+        energies, forces = getLammpsResults([p.rhophi_subtype()], allstructs)
 
         if energy_flag:
-            calc_energies = runner_energy([meam.rhophi_subtype(p)], allstructs)
+            calc_energies = runner_energy([p.rhophi_subtype()], allstructs)
 
             @parameterized.expand(loader_energy('', calc_energies, energies))
             def test_constant_potential_rhophi_energy(name, a, b):
                np.testing.assert_allclose(a,b,atol=EPS)
 
         if forces_flag:
-            calc_forces = runner_forces([meam.rhophi_subtype(p)], allstructs)
+            calc_forces = runner_forces([p.rhophi_subtype()], allstructs)
 
             @parameterized.expand(loader_forces('', calc_forces, forces))
             def test_constant_potential_rhophi_forces(name, a, b):
@@ -225,17 +230,17 @@ if const_pots_flag:
 
     if nophi_flag:
         """nophi subtype"""
-        energies, forces = getLammpsResults([meam.nophi_subtype(p)], allstructs)
+        energies, forces = getLammpsResults([p.nophi_subtype()], allstructs)
 
         if energy_flag:
-            calc_energies = runner_energy([meam.nophi_subtype(p)], allstructs)
+            calc_energies = runner_energy([p.nophi_subtype()], allstructs)
 
             @parameterized.expand(loader_energy('', calc_energies, energies))
             def test_constant_potential_nophi_energy(name, a, b):
                np.testing.assert_allclose(a,b,atol=EPS)
 
         if forces_flag:
-            calc_forces = runner_forces([meam.nophi_subtype(p)], allstructs)
+            calc_forces = runner_forces([p.nophi_subtype()], allstructs)
 
             @parameterized.expand(loader_forces('', calc_forces, forces))
             def test_constant_potential_nophi_forces(name, a, b):
@@ -243,17 +248,17 @@ if const_pots_flag:
 
     if rho_flag:
         """rho subtype"""
-        energies, forces = getLammpsResults([meam.rho_subtype(p)], allstructs)
+        energies, forces = getLammpsResults([p.rho_subtype()], allstructs)
 
         if energy_flag:
-            calc_energies = runner_energy([meam.rho_subtype(p)], allstructs)
+            calc_energies = runner_energy([p.rho_subtype()], allstructs)
 
             @parameterized.expand(loader_energy('', calc_energies, energies))
             def test_constant_potential_rho_energy(name, a, b):
                 np.testing.assert_allclose(a,b,atol=EPS)
 
         if forces_flag:
-            calc_forces = runner_forces([meam.rho_subtype(p)], allstructs)
+            calc_forces = runner_forces([p.rho_subtype()], allstructs)
 
             @parameterized.expand(loader_forces('', calc_forces, forces))
             def test_constant_potential_rho_forces(name, a, b):
@@ -261,17 +266,17 @@ if const_pots_flag:
 
     if norho_flag:
         """norho subtype"""
-        energies, forces = getLammpsResults([meam.norho_subtype(p)], allstructs)
+        energies, forces = getLammpsResults([p.norho_subtype()], allstructs)
 
         if energy_flag:
-            calc_energies = runner_energy([meam.norho_subtype(p)], allstructs)
+            calc_energies = runner_energy([p.norho_subtype()], allstructs)
 
             @parameterized.expand(loader_energy('', calc_energies, energies))
             def test_constant_potential_norho_energy(name, a, b):
                np.testing.assert_allclose(a,b,atol=EPS)
 
         if forces_flag:
-            calc_forces = runner_forces([meam.norho_subtype(p)], allstructs)
+            calc_forces = runner_forces([p.norho_subtype()], allstructs)
 
             @parameterized.expand(loader_forces('', calc_forces, forces))
             def test_constant_potential_norho_forces(name, a, b):
@@ -336,7 +341,6 @@ if rand_pots_flag:
 
             @parameterized.expand(loader_forces('', calc_forces, forces))
             def test_random_potential_phionly_forces(name, a, b):
-                #rzm: basic triplet failing; second atom is correct, but for all pots?
                 np.testing.assert_allclose(a,b,atol=EPS)
 
     if rhophi_flag:
@@ -387,6 +391,7 @@ if rand_pots_flag:
 
         if energy_flag:
             calc_energies = runner_energy(p, allstructs)
+            print()
 
             @parameterized.expand(loader_energy('', calc_energies, energies))
             def test_random_potential_rho_energy(name, a, b):
@@ -546,7 +551,7 @@ class WorkerSplineTests(unittest.TestCase):
             ws.add_to_struct_vec(el)
 
         for i in range(100):
-            np.testing.assert_allclose(ws(y), test_x)
+            np.testing.assert_allclose(ws(y), np.sum(test_x))
 
     def test_eval_flat_lhs_extrap(self):
         x = np.arange(10, dtype=float)

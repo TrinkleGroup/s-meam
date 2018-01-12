@@ -199,7 +199,6 @@ def get_random_pots(newN):
                 splines.append(temp)
 
             p = MEAM(splines=splines, types=['H','He'])
-            # p = MEAM('HHe.meam.spline')
 
             rng_meams[n]        = p
             rng_nophis[n]       = p.nophi_subtype()

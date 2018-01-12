@@ -92,10 +92,11 @@ class Worker:
             # for comparing against TiO.meam.spline; all are 'fixed'
             bc_type = ('fixed', 'fixed')
 
-            if (i >= nphi+ntypes) and (i < nphi+2*ntypes): # U splines
-                s = InnerSpline(knots_split[i], bc_type)
-            else:
+            if (i < nphi) or ((i >= nphi+ntypes) and (i < nphi+2*ntypes)):
+                # phi or U
                 s = WorkerSpline(knots_split[i], bc_type)
+            else:
+                s = InnerSpline(knots_split[i], bc_type, len(self.atoms))
 
             s.index = idx
 
@@ -145,9 +146,6 @@ class Worker:
             itype = lammpsTools.symbol_to_type(atoms[i].symbol, self.types)
             ipos = atoms[i].position
 
-            self.us[meam.i_to_potl(itype)].natoms += 1 # for computing
-            # zero-point-energy
-
             # Extract neigbor list for atom i
             neighbors_noboth, offsets_noboth = nl_noboth.get_neighbors(i)
             neighbors, offsets = nl.get_neighbors(i)
@@ -187,8 +185,8 @@ class Worker:
                 # Rho information; need forward AND backwards info for forces
                 rho_idx = meam.i_to_potl(jtype)
 
-                self.us[meam.i_to_potl(itype)].update_struct_vec_dict(rij,
-                                                               rho_idx, 'rho')
+                self.rhos[rho_idx].update_struct_vec_dict(rij,
+                                              meam.i_to_potl(itype),itype)
 
             #     # fj information
             #     fj_idx = meam.i_to_potl(jtype, self.ntypes)
@@ -278,24 +276,33 @@ class Worker:
 
             energy += s(y)
 
-        # Electron density embedding cost
+        # Calculate all ni values
+        ni = np.zeros(len(self.atoms))
+
+        for i in range(len(self.rhos)):
+            rho = self.rhos[i]
+            y = rho_pvecs[i]
+
+            ni += rho(y)
+
+        # Sort ni values and evaluate u functions
+        for i in range(len(ni)):
+            itype = lammpsTools.symbol_to_type(self.atoms[i].symbol, self.types)
+            u_idx = meam.i_to_potl(itype)
+
+            u = self.us[u_idx]
+            u.add_to_struct_vec(ni[i])
+
         for i in range(len(self.us)):
             u = self.us[i]
-            y_u = u_pvecs[i]
+            y = u_pvecs[i]
 
+            # zero-point energies
+            if u.struct_vec is not None:
+                zeros = np.zeros(u.struct_vec.shape)
+                u.struct_vec = np.vstack((zeros, u.struct_vec))
 
-            for j in range(len(self.rhos)):
-                # TODO: each ni should only have the neighbors of that i
-                rho = self.rhos[j]
-                rho.struct_vec = u.get_struct_vec(j, 'rho')
-
-                y_rho = rho_pvecs[j]
-
-                ni = rho(y_rho)
-                u.add_to_struct_vec(ni)
-
-            val2 = u(y_u)
-            energy += val2
+            energy += u(y)
 
         return energy
 
@@ -662,6 +669,30 @@ class Worker:
         self._cutoff = potentials[0].cutoff
     # TODO: can we condense oneway/bothways? derive oneway from bothways?
 
+    def group_ni_by_type(self, ni):
+        """Creates structure vectors for the full set of ni values
+
+        Args:
+            ni (np.arr):
+                list of structure vectors corresponding to ni values for each
+                atom
+
+        Returns:
+            groups (list[np.arr]):
+                the structure vectors grouped according to atom type"""
+
+        groups = [None]*self.ntypes
+
+        for i in range(len(ni)):
+            itype = lammpsTools.symbol_to_type(self.atoms[i].symbol, self.types)
+
+            idx = meam.i_to_potl(itype)
+
+            if groups[idx] is None:
+                groups[idx] = ni[i]
+            else:
+                groups[idx] = np.vstack((groups[idx], ni[i]))
+
 def get_ymat(y, y2, intervals):
     """Extracts the matrix of [y_j, y_j+1, y''_j, y''_j+1] from a set of
     splines for the given intervals.
@@ -857,7 +888,6 @@ class WorkerSpline:
 
         if self.struct_vec is None:
             return 0
-            # raise ValueError("Structure vector has not been built yet")
 
         self.y, self.end_derivs = np.split(y, [-2])
         self.y1 = self.M @ y.transpose()
@@ -990,77 +1020,56 @@ class WorkerSpline:
         plt.show()
 
 class InnerSpline(WorkerSpline):
-    """Special case of a WorkerSpline that is used for rho, f, and g
-    since they are 'inside' of the U function and have to keep their per-atom
+    """Special case of a WorkerSpline that is used for rho, f, and g since
+    they are 'inside' of the U function and have to keep their per-atom
     contributions separate until they pass the results to U
 
     Attributes:
-        struct_vec_dict (dict):
-            key = 'rho', 'f', or 'g'
-            val = list [np.arr] where each element in the list is a structure
-                vector corresponding to the i-th spline of the given type
+        natoms (int):
+            number of atoms in the system
 
-        ni (float):
-            value that the embedding function U will be evaluated at on
-            __call__()
+        struct_vec_dict (list[np.arr]):
+            key = original atom id
+            value = structure vector corresponding to one atom's neighbors
 
-        natoms (float):
-            the number of atoms that are being embedded; used to calculate
-            the zero-point-energy"""
+        ni (np.arr):
+            ni values ordered by atom id
 
-    def __init__(self, x, bc_type):
+        tags (list[int]):
+            atom types for each row in the structure vector"""
+
+    def __init__(self, x, bc_type, natoms):
         super(InnerSpline, self).__init__(x, bc_type)
 
-        self.struct_vec_dict = {'rho':[], 'f':[], 'g':[]}
-        self.ni = None
-        self.natoms = 0
+        self.natoms = natoms
+        self.struct_vec_dict = {}
+        self.ni = np.zeros(natoms)
+        self.tags = []
 
-    # TODO: ni should be updated for each atom, added to struct_vec
     def __call__(self, y):
+        """Computes results for every struct_vec in struct_vec_dict"""
 
-        val = super(InnerSpline, self).__call__(y) + \
-              self.compute_zero_point_energy(y)
+        for i in self.struct_vec_dict.keys():
+            self.struct_vec = self.struct_vec_dict[i]
 
-        return np.sum(val)
+            self.ni[i] += super(InnerSpline, self).__call__(y)
 
-    def get_struct_vec(self, i, type):
+        return self.ni
+
+    def get_struct_vec(self, i):
         """Safely returns either None or the structure vector of the desired
         spline.
 
+        if self.struct_vec is None:
         Args:
             i (int):
-                spline number
-            type (str):
-                type of spline; one of 'rho', 'f', or 'g'"""
+                atom id"""
 
-        if len(self.struct_vec_dict[type]) < (i+1):
-            return None
+        if i in self.struct_vec_dict.keys():
+            return self.struct_vec_dict[i]
         else:
-            return self.struct_vec_dict[type][i]
+            return None
 
-    def compute_zero_point_energy(self, y):
-        """Computes the zero-point energy using the given y
-
-        Args:
-            y (np.arr):
-                parameter vector to evaluate with"""
-
-        # safe return if there are no atoms for this spline
-        if self.natoms == 0:
-            return 0
-
-        row = self.get_abcd(0.)
-
-        temp = np.tile(row, self.natoms).reshape((self.natoms, len(row)))
-
-        self.y, self.end_derivs = np.split(y, [-2])
-        self.y1 = self.M @ y.transpose()
-
-        z = np.concatenate((self.y, self.y1))
-
-        return self.struct_vec @ z.transpose()
-
-    # rzm: initializing rhos/fs/gs/
     def update_struct_vec_dict(self, val, i, type):
         """Overrides WorkerSpline.add_to_struct_vec()
 
@@ -1070,21 +1079,22 @@ class InnerSpline(WorkerSpline):
         Args:
             val (float):
                 value to evaluate the spline at
-            i (int):
-                index of spline
-            type (str):
-                type of spline; can be one of 'rho', 'f', or 'g'"""
 
-        type = type.lower()
+            i (int):
+                index of outer U function
+
+            type (int):
+                atom type"""
 
         abcd = self.get_abcd(val)
 
-        if len(self.struct_vec_dict[type]) < (i+1):
-            struct_vec = abcd
-            self.struct_vec_dict[type].append(struct_vec)
+        if i not in self.struct_vec_dict.keys():
+            self.struct_vec_dict[i] = abcd
         else:
-            struct_vec = np.vstack((self.struct_vec_dict[type][i], abcd))
-            self.struct_vec_dict[type][i] = struct_vec
+            struct_vec = np.vstack((self.struct_vec_dict[i], abcd))
+            self.struct_vec_dict[i] = struct_vec
+
+        self.tags.append(type)
 
 def build_M(num_x, dx, bc_type):
     """Builds the A and B matrices that are needed to find the function
