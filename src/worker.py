@@ -274,7 +274,7 @@ class Worker:
             y = phi_pvecs[i]
             s = self.phis[i]
 
-            energy += s(y)
+            energy += np.sum(s(y))
 
         # Calculate all ni values
         ni = np.zeros(len(self.atoms))
@@ -283,7 +283,7 @@ class Worker:
             rho = self.rhos[i]
             y = rho_pvecs[i]
 
-            ni += rho(y)
+            ni += np.sum(rho(y))
 
         # Sort ni values and evaluate u functions
         for i in range(len(ni)):
@@ -302,7 +302,7 @@ class Worker:
                 zeros = np.zeros(u.struct_vec.shape)
                 u.struct_vec = np.vstack((zeros, u.struct_vec))
 
-            energy += u(y)
+            energy += np.sum(u(y))
 
         return energy
 
@@ -894,7 +894,7 @@ class WorkerSpline:
 
         z = np.concatenate((self.y, self.y1))
 
-        return np.sum(self.struct_vec @ z.transpose())
+        return self.struct_vec @ z.transpose()
 
     def get_abcd(self, x):
         """Calculates the coefficients needed for spline interpolation.
@@ -996,10 +996,16 @@ class WorkerSpline:
             else:
                 bc_type.append(self.bc_type[-i-1])
 
-        return Spline(self.x, self.y[:-2], bc_type=bc_type,
-                      end_derivs=self.y[-2:])
+        return Spline(self.x, self.y, bc_type=bc_type,
+                      end_derivs=self.end_derivs)
 
     def plot(self, fname=''):
+
+        low,high = self.cutoff
+        low -= abs(0.2*low)
+        high += abs(0.2*high)
+
+        plot_x = np.linspace(low,high,1000)
 
         s = self.to_normal_spline()
 
@@ -1007,9 +1013,8 @@ class WorkerSpline:
             raise ValueError("Must specify y before plotting")
 
         plt.figure()
-        plt.plot(self.x, self.y[:-2], 'ro', label='knots')
+        plt.plot(self.x, self.y, 'ro', label='knots')
 
-        plot_x = np.linspace(self.x[0]-2, self.x[-1]+2, 1000)
         plot_y = np.zeros(len(plot_x))
 
         for i in range(len(plot_x)):
@@ -1052,7 +1057,7 @@ class InnerSpline(WorkerSpline):
         for i in self.struct_vec_dict.keys():
             self.struct_vec = self.struct_vec_dict[i]
 
-            self.ni[i] += super(InnerSpline, self).__call__(y)
+            self.ni[i] += np.sum(super(InnerSpline, self).__call__(y))
 
         return self.ni
 

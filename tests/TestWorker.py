@@ -3,6 +3,8 @@ import numpy as np
 import time
 
 from nose_parameterized import parameterized
+from scipy.interpolate import CubicSpline
+from spline import Spline
 
 import meam
 import worker
@@ -490,6 +492,26 @@ class WorkerSplineTests(unittest.TestCase):
         self.y = np.array([ 0.05138434,  0.01790244, -0.26065088, -0.19016379,
                        -0.76379542, d0, dN])
 
+    def test_against_CubicSpline(self):
+        d0, dN = self.y[-2:]
+
+        ws = WorkerSpline(self.x, ('fixed', 'fixed'))
+        cs = Spline(self.x, self.y[:-2], bc_type=((1,d0), (1,dN)))
+
+        test_x = np.linspace(-10, 20, 1000)
+
+        results = np.zeros(test_x.shape)
+        for i in range(len(test_x)):
+            ws.add_to_struct_vec(test_x[i])
+
+        # rzm: plots show that splines are different
+        results = ws(self.y)
+        #ws.plot()
+        #cs.plot()
+
+        for i in range(len(test_x)):
+            self.assertAlmostEqual(results[i], cs(test_x[i]))
+
     def test_constructor_bad_x(self):
         x = self.x.copy()
         x[1] = -1
@@ -551,7 +573,7 @@ class WorkerSplineTests(unittest.TestCase):
             ws.add_to_struct_vec(el)
 
         for i in range(100):
-            np.testing.assert_allclose(ws(y), np.sum(test_x))
+            np.testing.assert_allclose(np.sum(ws(y)), np.sum(test_x))
 
     def test_eval_flat_lhs_extrap(self):
         x = np.arange(10, dtype=float)
