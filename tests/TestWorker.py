@@ -1,9 +1,10 @@
-import unittest
+mport unittest
 import numpy as np
 import logging
 import time
 
 from nose_parameterized import parameterized
+from scipy.interpolate import CubicSpline
 from spline import Spline
 
 import meam
@@ -597,6 +598,16 @@ class WorkerSplineTests(unittest.TestCase):
             ws.add_to_struct_vec(test_x[i])
 
         results = ws(self.y)
+=======
+        results = np.zeros(test_x.shape)
+        for i in range(len(test_x)):
+            ws.add_to_struct_vec(test_x[i])
+
+        # rzm: plots show that splines are different
+        results = ws(self.y)
+        #ws.plot()
+        #cs.plot()
+>>>>>>> df1d7fef4082ec8af4072f62978f0b5d18afdcef
 
         for i in range(len(test_x)):
             self.assertAlmostEqual(results[i], cs(test_x[i]))

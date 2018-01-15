@@ -285,6 +285,8 @@ class Worker:
             val = rho.compute_for_all(y)
             logging.info("WORKER rho = {0}".format(val))
 
+            ni += np.sum(rho(y))
+
             tmp_ni = rho.compute_for_all(y)
             logging.info("WORKER ni = {0}".format(ni))
 
@@ -326,6 +328,8 @@ class Worker:
             val = np.sum(u(y))
             energy += val - zero_point_energy
             # energy += np.sum(u(y))
+
+            energy += np.sum(u(y))
 
         return energy
 
@@ -909,6 +913,7 @@ class WorkerSpline:
 
         z = np.concatenate((self.y, self.y1))
 
+<<<<<<< HEAD
         if self.struct_vec is None:
             return np.array([0])
         else:
@@ -922,6 +927,9 @@ class WorkerSpline:
     def y(self, y):
         self._y, self.end_derivs = np.split(y, [-2])
         self.y1 = self.M @ y.transpose()
+=======
+        return self.struct_vec @ z.transpose()
+>>>>>>> df1d7fef4082ec8af4072f62978f0b5d18afdcef
 
     def get_abcd(self, x):
         """Calculates the coefficients needed for spline interpolation.
@@ -1025,25 +1033,42 @@ class WorkerSpline:
         # lhs
         y2[0] = -6*self.x[0] - self.h*4*self.y1[0] + 6*self.x[1] - self.h*2*self.y1[1]
 
+<<<<<<< HEAD
         return y2
+=======
+        return Spline(self.x, self.y, bc_type=bc_type,
+                      end_derivs=self.end_derivs)
+>>>>>>> df1d7fef4082ec8af4072f62978f0b5d18afdcef
 
     def plot(self, fname=''):
 
         low,high = self.cutoff
         low -= abs(0.2*low)
         high += abs(0.2*high)
+<<<<<<< HEAD
+=======
+
+        plot_x = np.linspace(low,high,1000)
+
+        s = self.to_normal_spline()
+>>>>>>> df1d7fef4082ec8af4072f62978f0b5d18afdcef
 
         if self.y is None:
             raise ValueError("Must specify y before plotting")
 
         plt.figure()
         plt.plot(self.x, self.y, 'ro', label='knots')
+<<<<<<< HEAD
 
 
         tmp_struct = self.struct_vec
         self.struct_vec = None
 
         plot_x = np.linspace(low,high,1000)
+=======
+
+        plot_y = np.zeros(len(plot_x))
+>>>>>>> df1d7fef4082ec8af4072f62978f0b5d18afdcef
 
         for i in range(len(plot_x)):
             self.add_to_struct_vec(plot_x[i])
@@ -1089,6 +1114,10 @@ class InnerSpline(WorkerSpline):
         for i in self.struct_vec_dict.keys():
             self.struct_vec = self.struct_vec_dict[i]
 
+<<<<<<< HEAD
+=======
+            self.ni[i] += np.sum(super(InnerSpline, self).__call__(y))
+>>>>>>> df1d7fef4082ec8af4072f62978f0b5d18afdcef
 
             ni += list(super(InnerSpline, self).__call__(y))
 
