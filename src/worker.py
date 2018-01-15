@@ -96,7 +96,7 @@ class Worker:
                 # phi or U
                 s = WorkerSpline(knots_split[i], bc_type)
             else:
-                s = InnerSpline(knots_split[i], bc_type, len(self.atoms))
+                s = InnerSpline(knots_split[i], bc_type, ntypes)
 
             s.index = idx
 
@@ -185,8 +185,7 @@ class Worker:
                 # Rho information; need forward AND backwards info for forces
                 rho_idx = meam.i_to_potl(jtype)
 
-                self.rhos[rho_idx].update_struct_vec_dict(rij,
-                                              meam.i_to_potl(itype),itype)
+                self.rhos[rho_idx].update_struct_vec_dict(rij, meam.i_to_potl(itype))
 
             #     # fj information
             #     fj_idx = meam.i_to_potl(jtype, self.ntypes)
@@ -274,35 +273,59 @@ class Worker:
             y = phi_pvecs[i]
             s = self.phis[i]
 
-            energy += s(y)
+            energy += np.sum(s(y))
 
         # Calculate all ni values
-        ni = np.zeros(len(self.atoms))
+        ni = [[]]*self.ntypes
 
         for i in range(len(self.rhos)):
             rho = self.rhos[i]
             y = rho_pvecs[i]
 
-            ni += rho(y)
+            val = rho.compute_for_all(y)
+            logging.info("WORKER rho = {0}".format(val))
 
+            tmp_ni = rho.compute_for_all(y)
+            logging.info("WORKER ni = {0}".format(ni))
+
+            for j in range(self.ntypes):
+                ni[j] += tmp_ni
+
+        # self.rhos[0].plot()
         # Sort ni values and evaluate u functions
         for i in range(len(ni)):
             itype = lammpsTools.symbol_to_type(self.atoms[i].symbol, self.types)
             u_idx = meam.i_to_potl(itype)
 
             u = self.us[u_idx]
-            u.add_to_struct_vec(ni[i])
 
+            for j in range(len(ni[i])):
+                u.add_to_struct_vec(ni[i][j])
+
+        self.us[0].y = u_pvecs[0]
+        # self.us[0].plot()
         for i in range(len(self.us)):
             u = self.us[i]
             y = u_pvecs[i]
 
+            val = np.sum(u(y))
+            logging.info("WORKER u({0}) = {1}".format(ni, val))
+
             # zero-point energies
             if u.struct_vec is not None:
-                zeros = np.zeros(u.struct_vec.shape)
-                u.struct_vec = np.vstack((zeros, u.struct_vec))
+                tmp_struct = u.struct_vec
 
-            energy += u(y)
+                u.struct_vec = None
+                for j in range(len(tmp_struct)):
+                    u.add_to_struct_vec(0)
+
+                zero_point_energy = np.sum(u(y))
+
+                u.struct_vec = tmp_struct
+
+            val = np.sum(u(y))
+            energy += val - zero_point_energy
+            # energy += np.sum(u(y))
 
         return energy
 
@@ -450,10 +473,7 @@ class Worker:
     #     # See np.ufunc.at documentation for why this is necessary
     #     np.add.at(forces, (slice(None), i_indices, slice(None)), phi_forces)
     #     np.add.at(forces, (slice(None), j_indices, slice(None)), -phi_forces)
-    #
-    #     # TODO: switch to full vectorization; tags shouldn't be needed
-    #     # TODO: unless tags actually improve speed?
-    #
+
     #     # Calculate ni values; ni intervals cannot be pre-computed in init()
     #     for i in range(natoms):
     #         itype = lammpsTools.symbol_to_type(self.atoms[i].symbol, self.types)
@@ -471,7 +491,6 @@ class Worker:
     #         i_indices = pair_indices_bothways[:,0]
     #         j_indices = pair_indices_bothways[:,1]
     #
-    #         # Potential index and atom tags for neighbors
     #         rho_types_j = self.rho_index_info['pot_type_idx'][i]
     #         rho_indices_j = self.rho_index_info['interval_idx'][i]
     #
@@ -859,10 +878,10 @@ class WorkerSpline:
         if not np.all(x[1:] > x[:-1], axis=0):
             raise ValueError("x must be strictly increasing")
 
-        if not ((bc_type[0]=='natural') or (bc_type[0] == 'fixed')):
+        if bc_type[0] not in ['natural', 'fixed']:
             raise ValueError("boundary conditions must be one of 'natural' or"
                              "'fixed'")
-        if not ((bc_type[1]=='natural') or (bc_type[1] == 'fixed')):
+        if bc_type[1] not in ['natural', 'fixed']:
             raise ValueError("boundary conditions must be one of 'natural' or"
                              "'fixed'")
 
@@ -880,21 +899,29 @@ class WorkerSpline:
         self.struct_vec = None
 
         # Set on evaluation
-        self.y = None
+        self._y = None
         self.y1 = None
         self.end_derivs = None
 
     def __call__(self, y):
 
-        if self.struct_vec is None:
-            return 0
-
-        self.y, self.end_derivs = np.split(y, [-2])
-        self.y1 = self.M @ y.transpose()
+        self.y = y
 
         z = np.concatenate((self.y, self.y1))
 
-        return np.sum(self.struct_vec @ z.transpose())
+        if self.struct_vec is None:
+            return np.array([0])
+        else:
+            return self.struct_vec @ z.transpose()
+
+    @property
+    def y(self):
+        return self._y
+
+    @y.setter
+    def y(self, y):
+        self._y, self.end_derivs = np.split(y, [-2])
+        self.y1 = self.M @ y.transpose()
 
     def get_abcd(self, x):
         """Calculates the coefficients needed for spline interpolation.
@@ -985,35 +1012,45 @@ class WorkerSpline:
         else:
             self.struct_vec = np.vstack((self.struct_vec, abcd))
 
-    def to_normal_spline(self):
+    def get_y2(self):
         if self.y is None:
-            raise ValueError("Must specify y before converting to Spline")
+            raise ValueError("y must be set first")
 
-        bc_type = []
-        for i in range(len(self.bc_type)):
-            if self.bc_type[i] == 'fixed':
-                bc_type.append((1,self.y[-i-1]))
-            else:
-                bc_type.append(self.bc_type[-i-1])
+        y2 = np.zeros(len(self.x))
 
-        return Spline(self.x, self.y[:-2], bc_type=bc_type,
-                      end_derivs=self.y[-2:])
+        # internal knots and rhs:
+        for i in range(1,len(y2)):
+            y2[i] = 6*self.x[i-1] + self.h*2*self.y1[i-1] - 6*self.x[i] + self.h*4*self.y1[i]
+
+        # lhs
+        y2[0] = -6*self.x[0] - self.h*4*self.y1[0] + 6*self.x[1] - self.h*2*self.y1[1]
+
+        return y2
 
     def plot(self, fname=''):
 
-        s = self.to_normal_spline()
+        low,high = self.cutoff
+        low -= abs(0.2*low)
+        high += abs(0.2*high)
 
         if self.y is None:
             raise ValueError("Must specify y before plotting")
 
         plt.figure()
-        plt.plot(self.x, self.y[:-2], 'ro', label='knots')
+        plt.plot(self.x, self.y, 'ro', label='knots')
 
-        plot_x = np.linspace(self.x[0]-2, self.x[-1]+2, 1000)
-        plot_y = np.zeros(len(plot_x))
+
+        tmp_struct = self.struct_vec
+        self.struct_vec = None
+
+        plot_x = np.linspace(low,high,1000)
 
         for i in range(len(plot_x)):
-            plot_y[i] = s(plot_x[i])
+            self.add_to_struct_vec(plot_x[i])
+
+        plot_y = self(np.concatenate((self.y, self.end_derivs)))
+
+        self.struct_vec = tmp_struct
 
         plt.plot(plot_x, plot_y)
         plt.legend()
@@ -1025,36 +1062,37 @@ class InnerSpline(WorkerSpline):
     contributions separate until they pass the results to U
 
     Attributes:
-        natoms (int):
-            number of atoms in the system
+        ntypes (int):
+            number of atomic types in the system
 
         struct_vec_dict (list[np.arr]):
             key = original atom id
-            value = structure vector corresponding to one atom's neighbors
+            value = structure vector corresponding to one atom's neighbors"""
 
-        ni (np.arr):
-            ni values ordered by atom id
-
-        tags (list[int]):
-            atom types for each row in the structure vector"""
-
-    def __init__(self, x, bc_type, natoms):
+    def __init__(self, x, bc_type, ntypes):
         super(InnerSpline, self).__init__(x, bc_type)
 
-        self.natoms = natoms
-        self.struct_vec_dict = {}
-        self.ni = np.zeros(natoms)
-        self.tags = []
+        self.ntypes = ntypes
+        self.struct_vec_dict = dict.fromkeys(np.arange(ntypes))
 
-    def __call__(self, y):
-        """Computes results for every struct_vec in struct_vec_dict"""
+    def compute_for_all(self, y):
+        """Computes results for every struct_vec in struct_vec_dict
+
+        Returns:
+            ni (list [np.arr]):
+                each entry is the set of all ni for a specific atom type"""
+
+        ni = []
+
+        # fix how compute_all() returns things
 
         for i in self.struct_vec_dict.keys():
             self.struct_vec = self.struct_vec_dict[i]
 
-            self.ni[i] += super(InnerSpline, self).__call__(y)
 
-        return self.ni
+            ni += list(super(InnerSpline, self).__call__(y))
+
+        return ni
 
     def get_struct_vec(self, i):
         """Safely returns either None or the structure vector of the desired
@@ -1070,31 +1108,23 @@ class InnerSpline(WorkerSpline):
         else:
             return None
 
-    def update_struct_vec_dict(self, val, i, type):
-        """Overrides WorkerSpline.add_to_struct_vec()
-
-        Updates the structure vector of the <i>th spline of type <type> for a
-        value of r
+    def update_struct_vec_dict(self, val, i):
+        """Updates the structure vector of the <i>th spline of type <type> for a value of r
 
         Args:
             val (float):
                 value to evaluate the spline at
 
             i (int):
-                index of outer U function
-
-            type (int):
-                atom type"""
+                index of outer U function"""
 
         abcd = self.get_abcd(val)
 
-        if i not in self.struct_vec_dict.keys():
+        if self.struct_vec_dict[i] is None:
             self.struct_vec_dict[i] = abcd
         else:
             struct_vec = np.vstack((self.struct_vec_dict[i], abcd))
             self.struct_vec_dict[i] = struct_vec
-
-        self.tags.append(type)
 
 def build_M(num_x, dx, bc_type):
     """Builds the A and B matrices that are needed to find the function
@@ -1119,8 +1149,8 @@ def build_M(num_x, dx, bc_type):
     and functions h_ij are defined as:
 
         h_00 = (1+2t)(1-t)^2
-        h_10 = t^2 ( 3-2t)
-        h_01 = t (1-t)^2
+        h_10 = t (1-t)^2
+        h_01 = t^2 (3-2t)
         h_11 = t^2 (t-1)
 
         with t = (x-x_k)/dx
@@ -1128,8 +1158,8 @@ def build_M(num_x, dx, bc_type):
     which means that the h''_ij functions are:
 
         h''_00 = 12t - 6
-        h''_01 = -12t + 6
         h''_10 = 6t - 4
+        h''_01 = -12t + 6
         h''_11 = 6t - 2
 
     Args:

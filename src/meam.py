@@ -3,6 +3,7 @@
 import numpy as np
 import logging
 import os
+import sys
 
 import lammpsTools
 
@@ -123,7 +124,9 @@ class MEAM:
         Returns:
             MEAM object"""
 
-        with open(fname, 'r') as f:
+        try:
+            f = open(fname, 'r')
+
             f.readline()  # Remove header
             temp = f.readline().split()  # 'meam/spline ...' line
             types = temp[2:]
@@ -159,7 +162,11 @@ class MEAM:
                 splines.append(Spline(xcoords, ycoords, bc_type=bc_type,
                 end_derivs=(d0,dN)))
 
-        return cls(splines, types)
+            return cls(splines, types)
+
+        except IOError:
+            print("Potential file does not exist")
+            sys.exit()
 
     def compute_energy(self, atoms):
 
@@ -176,12 +183,6 @@ class MEAM:
             e.g. for Ti-O where Ti is atom type 1, O atom type 2
                 phis, gs: Ti-Ti, Ti-O, O-O
                 rhos, us, fs: Ti, O"""
-
-        # TODO: currently, this is the WORST case scenario in terms of runtime
-        # TODO: avoid passing whole array? generator?
-        # TODO: Check that all splines are not None
-        # TODO: how to compute per-atom forces
-        # TODO: is there anywhere that map() could help?
 
         # nl allows double-counting of bonds, nl_noboth does not
         nl = NeighborList(np.ones(len(atoms)) * (self.cutoff / 2), \
@@ -291,8 +292,11 @@ class MEAM:
                     fj_val = fj(r_ij)
                     total_ni += fj_val * partialsum
                     total_ni += rho(r_ij)
+                    # logging.info("MEAM rho({0} = {1}: ".format(r_ij, rho(r_ij)))
                 # end u loop
 
+                logging.info("MEAM u({0}) = {1}".format(total_ni, u(total_ni)))
+                # logging.info("MEAM zero_atom_energy = {0}".format(self.zero_atom_energies[i_to_potl(itype)]))
                 atom_e = total_phi + u(total_ni) - \
                          self.zero_atom_energies[i_to_potl(itype)]
                 self.energies[i] = atom_e

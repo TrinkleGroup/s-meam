@@ -1,20 +1,25 @@
 import unittest
 import numpy as np
+import logging
 import time
 
 from nose_parameterized import parameterized
+from spline import Spline
 
 import meam
 import worker
 
-from worker import Worker, WorkerSpline
+from worker import Worker, WorkerSpline, InnerSpline
 
 import tests.testPotentials
 
 from tests.testStructs import dimers, trimers, bulk_vac_ortho, \
     bulk_periodic_ortho, bulk_vac_rhombo, bulk_periodic_rhombo
 
-EPS = 1e-7
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+EPS = 1e-6
 np.random.seed(42)
 
 N = 1
@@ -36,7 +41,7 @@ norho_flag      = True*0
 norhophi_flag   = True*0
 
 dimers_flag  = True*1
-trimers_flag = True*0
+trimers_flag = True*1
 bulk_flag    = True*0
 
 allstructs = {}
@@ -49,7 +54,7 @@ if bulk_flag:
     allstructs = {**allstructs, **bulk_vac_ortho, **bulk_periodic_ortho,
                   **bulk_vac_rhombo, **bulk_periodic_rhombo}
 
-# allstructs =  {'aa':dimers['aa']}
+allstructs =  {'aa':dimers['aa']}
 
 ################################################################################
 # Helper functions
@@ -99,6 +104,7 @@ def getLammpsResults(pots, structs):
             atoms = structs[name]
 
             # cstart = time.time()
+            logging.info("MEAM results: {0}".format(p.compute_energy(atoms)))
             results = p.compute_lammps_results(atoms)
             energies[name][pnum] = results['energy']
             forces[name].append(results['forces'])
@@ -180,7 +186,6 @@ if const_pots_flag:
         if energy_flag:
             calc_energies = runner_energy([p], allstructs)
 
-            # rzm: overcounting for rho?
             @parameterized.expand(loader_energy('', calc_energies, energies))
             def test_constant_potential_meam_energy(name, a, b):
                np.testing.assert_allclose(a,b,atol=EPS)
@@ -490,6 +495,112 @@ class WorkerSplineTests(unittest.TestCase):
         self.y = np.array([ 0.05138434,  0.01790244, -0.26065088, -0.19016379,
                        -0.76379542, d0, dN])
 
+    def test_y_setter(self):
+        ws = WorkerSpline(self.x, ('fixed', 'fixed'))
+
+        ws.y = self.y
+
+        np.testing.assert_allclose(ws.y, self.y[:-2])
+        np.testing.assert_allclose(ws.end_derivs, self.y[-2:], EPS)
+        np.testing.assert_allclose(ws.y1, np.array([ 0., -0.46622228,
+                                             -0.00732221, -0.75288626, 0.]), EPS)
+
+    def test_full_eval(self):
+        d0, dN = self.y[-2:]
+
+        ws = WorkerSpline(self.x, ('fixed', 'fixed'))
+        cs = Spline(self.x, self.y[:-2], bc_type=((1,d0), (1,dN)))
+
+        test_x = np.linspace(-10, 20, 1000)
+
+        for i in range(len(test_x)):
+            ws.add_to_struct_vec(test_x[i])
+
+        results = ws(self.y)
+
+        for i in range(len(test_x)):
+            self.assertAlmostEqual(results[i], cs(test_x[i]))
+
+    def test_rhs_extrap(self):
+        d0, dN = self.y[-2:]
+
+        ws = WorkerSpline(self.x, ('fixed', 'fixed'))
+        cs = Spline(self.x, self.y[:-2], bc_type=((1,d0), (1,dN)))
+
+        test_x = np.linspace(self.x[-1], self.x[-1]*1.5, 1000)
+
+        for i in range(len(test_x)):
+            ws.add_to_struct_vec(test_x[i])
+
+        results = ws(self.y)
+
+        for i in range(len(test_x)):
+            self.assertAlmostEqual(results[i], cs(test_x[i]))
+
+    def test_lhs_extrap(self):
+        d0, dN = self.y[-2:]
+
+        ws = WorkerSpline(self.x, ('fixed', 'fixed'))
+        cs = Spline(self.x, self.y[:-2], bc_type=((1,d0), (1,dN)))
+
+        test_x = np.linspace(self.x[0]*0.5, self.x[0], 1000)
+
+        for i in range(len(test_x)):
+            ws.add_to_struct_vec(test_x[i])
+
+        results = ws(self.y)
+
+        for i in range(len(test_x)):
+            self.assertAlmostEqual(results[i], cs(test_x[i]))
+
+    def test_inner_intervals(self):
+        d0, dN = self.y[-2:]
+
+        ws = WorkerSpline(self.x, ('fixed', 'fixed'))
+        cs = Spline(self.x, self.y[:-2], bc_type=((1,d0), (1,dN)))
+
+        test_x = np.linspace(self.x[1], self.x[-2], 1000)
+
+        for i in range(len(test_x)):
+            ws.add_to_struct_vec(test_x[i])
+
+        results = ws(self.y)
+
+        for i in range(len(test_x)):
+            self.assertAlmostEqual(results[i], cs(test_x[i]))
+
+    def test_leftmost_interval(self):
+        d0, dN = self.y[-2:]
+
+        ws = WorkerSpline(self.x, ('fixed', 'fixed'))
+        cs = Spline(self.x, self.y[:-2], bc_type=((1,d0), (1,dN)))
+
+        test_x = np.linspace(self.x[0], self.x[1], 1000)
+
+        for i in range(len(test_x)):
+            ws.add_to_struct_vec(test_x[i])
+
+        results = ws(self.y)
+
+        for i in range(len(test_x)):
+            self.assertAlmostEqual(results[i], cs(test_x[i]))
+
+    def test_rightmost_interval(self):
+        d0, dN = self.y[-2:]
+
+        ws = WorkerSpline(self.x, ('fixed', 'fixed'))
+        cs = Spline(self.x, self.y[:-2], bc_type=((1,d0), (1,dN)))
+
+        test_x = np.linspace(self.x[-2], self.x[-1], 1000)
+
+        for i in range(len(test_x)):
+            ws.add_to_struct_vec(test_x[i])
+
+        results = ws(self.y)
+
+        for i in range(len(test_x)):
+            self.assertAlmostEqual(results[i], cs(test_x[i]))
+
     def test_constructor_bad_x(self):
         x = self.x.copy()
         x[1] = -1
@@ -551,7 +662,7 @@ class WorkerSplineTests(unittest.TestCase):
             ws.add_to_struct_vec(el)
 
         for i in range(100):
-            np.testing.assert_allclose(ws(y), np.sum(test_x))
+            np.testing.assert_allclose(np.sum(ws(y)), np.sum(test_x))
 
     def test_eval_flat_lhs_extrap(self):
         x = np.arange(10, dtype=float)
@@ -634,3 +745,64 @@ class WorkerSplineTests(unittest.TestCase):
         self.assertRaises(ValueError, worker.build_M, len(self.x),
                           self.dx, bc_type=('natural', 'bad'))
 
+    def test_zero_point_energy(self):
+        # Should evaluate to # of evaluations (e.g. 4 fake atoms = result of 4)
+        x = np.arange(10)
+
+        y = np.arange(1, 13)
+        d0 = dN = 1
+        y[-2] = d0; y[-2] = dN
+
+        ws = WorkerSpline(x, ('fixed', 'fixed'))
+
+        ws.add_to_struct_vec(0)
+        ws.add_to_struct_vec(0)
+        ws.add_to_struct_vec(0)
+
+        self.assertEqual(np.sum(ws(y)), 3)
+
+class InnerSplineTests(unittest.TestCase):
+
+    def setUp(self):
+        self.x = np.arange(10)
+        self.y = np.arange(12)
+
+        d0 = dN = 1
+        self.y[-2] = d0; self.y[-1] = dN
+
+        self.s = InnerSpline(self.x, ('fixed', 'fixed'), 2)
+        self.s.y = self.y
+
+    def test_update_dict(self):
+        self.s.update_struct_vec_dict(0., 0)
+        self.s.update_struct_vec_dict(0., 0)
+
+        self.s.update_struct_vec_dict(0., 1)
+        self.s.update_struct_vec_dict(0., 1)
+        self.s.update_struct_vec_dict(0., 1)
+
+        self.assertEquals(len(self.s.struct_vec_dict), 2)
+        self.assertEqual(self.s.get_struct_vec(0).shape[0], 2)
+        self.assertEqual(self.s.get_struct_vec(1).shape[0], 3)
+
+    def test_compute_zeros(self):
+        self.s.update_struct_vec_dict(0., 0)
+        self.s.update_struct_vec_dict(0., 0)
+
+        self.s.update_struct_vec_dict(0., 1)
+        self.s.update_struct_vec_dict(0., 1)
+        self.s.update_struct_vec_dict(0., 1)
+
+        np.testing.assert_allclose(self.s.compute_for_all(self.y),
+                                   np.array([0,0]))
+
+    def test_compute_ones(self):
+        self.s.update_struct_vec_dict(1., 0)
+        self.s.update_struct_vec_dict(1., 0)
+
+        self.s.update_struct_vec_dict(1., 1)
+        self.s.update_struct_vec_dict(1., 1)
+        self.s.update_struct_vec_dict(1., 1)
+
+        np.testing.assert_allclose(self.s.compute_for_all(self.y),
+                                   np.array([2,3]))
