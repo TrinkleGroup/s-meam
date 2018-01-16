@@ -94,7 +94,7 @@ class Worker:
                 # phi or U
                 s = WorkerSpline(knots_split[i], bc_type)
             else:
-                s = InnerSpline(knots_split[i], bc_type, len(self.atoms))
+                s = RhoSpline(knots_split[i], bc_type, len(self.atoms))
 
             s.index = idx
 
@@ -110,6 +110,19 @@ class Worker:
         self.us = list(self.us)
         self.fs = list(self.fs)
         self.gs = list(self.gs)
+
+        self.ffgs = []
+
+        for j in range(len(self.fs)):
+            inner_list = []
+
+            for k in range(len(self.fs)):
+                fj = self.fs[j]
+                fk = self.fs[k]
+                g = self.gs[meam.ij_to_potl(j+1, k+1, self.ntypes)]
+
+                inner_list.append(ffgSpline(fj, fk, g, len(self.atoms)))
+            self.ffgs.append(inner_list)
 
         self.max_phi_knots  = max([len(s.x) for s in self.phis])
         self.max_rho_knots  = max([len(s.x) for s in self.rhos])
@@ -185,31 +198,34 @@ class Worker:
 
                 self.rhos[rho_idx].update_struct_vec_dict(rij, i)
 
-                # fj_idx = meam.i_to_potl(jtype, self.ntypes)
-                #
-                # for k,offset in zip(neighbors[j_counter:], offsets[j_counter:]):
-                #     if k != j:
-                #         ktype = lammpsTools.symbol_to_type(atoms[k].symbol,
-                #                                            self.types)
-                #         kpos = atoms[k].position + np.dot(offset,
-                #                                           atoms.get_cell())
-                #
-                #         kvec = kpos - ipos
-                #         rik = np.linalg.norm(kvec)
-                #         kvec /= rik
-                #
-                #         b = kpos - ipos
-                #         nb = np.linalg.norm(b)
-                #
-                #         cos_theta = np.dot(a,b)/na/nb
-                #
-                #         # fk information
-                #         fk_idx = meam.i_to_potl(ktype, 'f', self.ntypes)
-                #         self.fs[fk_idx].update_struct_vec_dict(rik, i)
-                #
-                #         # g information
-                #         g_idx = meam.ij_to_potl(jtype, ktype, 'g', self.ntypes)
-                #         self.gs[g_idx].update_struct_vec_dict(cos_theta, i)
+                fj_idx = meam.i_to_potl(jtype)
+
+                for k,offset in zip(neighbors[j_counter:], offsets[j_counter:]):
+                    if k != j:
+                        ktype = lammpsTools.symbol_to_type(atoms[k].symbol,
+                                                           self.types)
+                        kpos = atoms[k].position + np.dot(offset,
+                                                          atoms.get_cell())
+
+                        kvec = kpos - ipos
+                        rik = np.linalg.norm(kvec)
+                        kvec /= rik
+
+                        b = kpos - ipos
+                        nb = np.linalg.norm(b)
+
+                        cos_theta = np.dot(a,b)/na/nb
+
+                        # fk information
+                        fk_idx = meam.i_to_potl(ktype)
+                        # self.fs[fk_idx].update_struct_vec_dict(rik, i)
+
+                        # g information
+                        # g_idx = meam.ij_to_potl(jtype, ktype, 'g', self.ntypes)
+                        # self.gs[g_idx].update_struct_vec_dict(cos_theta, i)
+
+                        self.ffgs[fj_idx][fk_idx].update_struct_vec_dict(rij,
+                                     rik, cos_theta, i)
 
             #     # fj information
             #
@@ -253,6 +269,8 @@ class Worker:
         # TODO: Worker has list of Pots; each Pot is a list of WorkerSplines
         # TODO: phis[i] needs to be phis[i][phi_idx]; do in init()?
 
+        # TODO: ***** Ensure that everything in this function MUST be here *****
+
         splines = self.phis + self.rhos + self.us + self.fs + self.gs
 
         # Parse parameter vector
@@ -277,7 +295,7 @@ class Worker:
 
             energy += np.sum(s(y))
 
-        # Calculate all ni values
+        # Calculate rho contributions to ni
         ni = np.zeros(len(self.atoms))
 
         for i in range(len(self.rhos)):
@@ -286,8 +304,23 @@ class Worker:
 
             ni += rho.compute_for_all(y)
 
-            logging.info("WORKER ni = {0}".format(ni))
+            # logging.info("WORKER ni = {0}".format(ni))
 
+        # Calculate threebody contributions to ni
+        for j in range(len(self.ffgs)):
+            ffg_list = self.ffgs[j]
+
+            for k in range(len(ffg_list)):
+                ffg = ffg_list[k]
+
+                y_fj = f_pvecs[j]
+                y_fk = f_pvecs[k]
+                y_g = g_pvecs[meam.ij_to_potl(j+1, k+1, self.ntypes)]
+
+                val = ffg.compute_for_all(y_fj, y_fk, y_g)
+                ni += val
+
+                # logging.info("WORKER ffg() = {0}".format(val))
 
         # Sort ni values and evaluate u functions
 
@@ -327,9 +360,9 @@ class Worker:
             val = np.sum(u(y))
             energy += val
 
-            logging.info("WORKER u({0}) = {1}".format(ni, val))
+            # logging.info("WORKER u({0}) = {1}".format(ni, val))
 
-        logging.info("WORKER zero_point_energy = {0}".format(zero_point_energy))
+        # logging.info("WORKER zero_point_energy = {0}".format(zero_point_energy))
 
         return energy - zero_point_energy
 
@@ -1059,10 +1092,10 @@ class WorkerSpline:
         plt.legend()
         plt.show()
 
-class InnerSpline(WorkerSpline):
-    """Special case of a WorkerSpline that is used for rho, f, and g since
-    they are 'inside' of the U function and have to keep their per-atom
-    contributions separate until they pass the results to U
+class RhoSpline(WorkerSpline):
+    """Special case of a WorkerSpline that is used for rho since it is
+    'inside' of the U function and has to keep its per-atom contributions
+    separate until it passes the results to U
 
     Attributes:
         natoms (int):
@@ -1076,9 +1109,10 @@ class InnerSpline(WorkerSpline):
             value = structure vector corresponding to one atom's neighbors"""
 
     def __init__(self, x, bc_type, natoms):
-        super(InnerSpline, self).__init__(x, bc_type)
+        super(RhoSpline, self).__init__(x, bc_type)
 
         self.natoms = natoms
+        # TODO: could convert to numpy array rather than dict?
         self.struct_vec_dict = dict.fromkeys(np.arange(natoms), [])
 
     def compute_for_all(self, y):
@@ -1096,13 +1130,12 @@ class InnerSpline(WorkerSpline):
             self.struct_vec = self.get_struct_vec(i)
             # ni[i] = np.array([0.]*len(self.struct_vec))
 
-            val = np.sum(np.array(super(InnerSpline, self).__call__(y)))
+            val = np.sum(np.array(super(RhoSpline, self).__call__(y)))
 
             ni[i] = val # numpy adding
 
         return ni
 
-    # rzm: changing to struct_vec = [] messed stuff up.
     def get_struct_vec(self, i):
         """Safely returns either None or the structure vector of the desired
         spline.
@@ -1132,6 +1165,114 @@ class InnerSpline(WorkerSpline):
             self.struct_vec_dict[atom_id] = abcd.reshape((1,len(abcd)))
         else:
             struct_vec = np.vstack((self.get_struct_vec(atom_id), abcd))
+            self.struct_vec_dict[atom_id] = struct_vec
+
+class ffgSpline():
+    """Spline representation specifically used for building a spline
+    representation of the combined funcions f_j*f_k*g_jk used in the
+    three-body interactions."""
+
+    def __init__(self, fj, fk, g, natoms):
+        """Args:
+            fj, fk, g (WorkerSpline):
+                fully initialized WorkerSpline objects for each spline
+
+            natoms (int):
+                the number of atoms in the system"""
+
+
+        self.fj = fj
+        self.fk = fk
+        self.g = g
+
+        # TODO: is this assignment by reference? does it make a NEW spline?
+
+        self.natoms = natoms
+        # TODO: could convert to numpy array rather than dict?
+        tmp = dict.fromkeys(np.arange(natoms), [])
+        self.struct_vec_dict = dict.fromkeys(np.arange(natoms), [])
+
+    def __call__(self, y_fj, y_fk, y_g):
+
+        if self.struct_vec == []:
+            return 0.
+
+        self.fj.y = y_fj
+        fj_vec = np.concatenate((self.fj.y, self.fj.y1))
+
+        self.fk.y = y_fk
+        fk_vec = np.concatenate((self.fk.y, self.fk.y1))
+
+        self.g.y = y_g
+        g_vec = np.concatenate((self.g.y, self.g.y1))
+
+        self.y = np.prod(cartesian_product(fj_vec, fk_vec, g_vec), axis=1)
+
+        return self.struct_vec @ self.y
+
+    def compute_for_all(self, y_fj, y_fk, y_g):
+        """Computes results for every struct_vec in struct_vec_dict
+
+        Returns:
+            ni (list [np.arr]):
+                each entry is the set of all ni for a specific atom type"""
+
+        ni = np.zeros(self.natoms)
+
+        for i in self.struct_vec_dict.keys():
+            self.struct_vec = self.struct_vec_dict[i]
+
+            val = np.sum(self.__call__(y_fj, y_fk, y_g))
+
+            ni[i] = val
+
+        return ni
+
+    def get_abcd(self, rij, rik, cos_theta):
+        """Computes the full parameter vector for the multiplication of ffg
+        splines
+
+        Args:
+            rij (float):
+                the value at which to evaluate fj
+
+            fik (float):
+                the value at which to evaluate fk
+
+            cos_theta (float):
+                the value at which to evaluate g"""
+
+        fj_abcd = self.fj.get_abcd(rij)
+        fk_abcd = self.fk.get_abcd(rik)
+        g_abcd = self.g.get_abcd(cos_theta)
+
+        full_abcd = np.prod(cartesian_product(fj_abcd, fk_abcd, g_abcd), axis=1)
+
+        return full_abcd
+
+    def update_struct_vec_dict(self, rij, rik, cos_theta, atom_id):
+        """Computes the vector of coefficients for evaluating the complete
+        product of fj*fk*g
+
+        Args:
+            rij (float):
+                the value at which to evaluate fj
+
+            rik (float):
+                the value at which to evaluate fk
+
+            cos_theta (float):
+                the value at which to evaluate g
+
+            atom_id (int):
+                atom id"""
+
+        abcd = self.get_abcd(rij, rik, cos_theta)
+
+        if self.struct_vec_dict[atom_id] == []:
+            self.struct_vec_dict[atom_id] = abcd.reshape((1,len(abcd)))
+        else:
+            struct_vec = np.vstack((self.struct_vec_dict[atom_id], abcd))
             self.struct_vec_dict[atom_id] = struct_vec
 
 def build_M(num_x, dx, bc_type):
@@ -1237,6 +1378,23 @@ def build_M(num_x, dx, bc_type):
 
     # M = A^(-1)B
     return np.dot(np.linalg.inv(A), B)
+
+def cartesian_product(*arrays):
+    """Function for calculating the Cartesian product of any number of input
+    arrays.
+
+    Args:
+        arrays (np.arr):
+            any number of numpy arrays
+
+    Note: this function comes from the stackoverflow user 'senderle' in the
+    thread https://stackoverflow.com/questions/11144513/numpy-cartesian-product-of-x-and-y-array-points-into-single-array-of-2d-points/11146645#11146645"""
+    la = len(arrays)
+    dtype = np.result_type(*arrays)
+    arr = np.empty([len(a) for a in arrays] + [la], dtype=dtype)
+    for i, a in enumerate(np.ix_(*arrays)):
+        arr[...,i] = a
+    return arr.reshape(-1, la)
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)

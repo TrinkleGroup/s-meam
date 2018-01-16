@@ -292,10 +292,11 @@ class MEAM:
                     total_ni += fj_val * partialsum
                     total_ni += rho(r_ij)
                     # logging.info("MEAM rho({0} = {1}: ".format(r_ij, rho(r_ij)))
+                    # logging.info("MEAM ffg() = {0}: ".format(fj_val*partialsum))
                 # end u loop
 
-                logging.info("MEAM u({0}) = {1}".format(total_ni, u(total_ni)))
-                logging.info("MEAM zero_atom_energy = {0}".format(self.zero_atom_energies[i_to_potl(itype)]))
+                # logging.info("MEAM u({0}) = {1}".format(total_ni, u(total_ni)))
+                # logging.info("MEAM zero_atom_energy = {0}".format(self.zero_atom_energies[i_to_potl(itype)]))
                 atom_e = total_phi + u(total_ni) - \
                          self.zero_atom_energies[i_to_potl(itype)]
                 self.energies[i] = atom_e

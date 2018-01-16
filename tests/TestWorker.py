@@ -10,7 +10,7 @@ from spline import Spline
 import meam
 import worker
 
-from worker import Worker, WorkerSpline, InnerSpline
+from worker import Worker, WorkerSpline, RhoSpline
 
 import tests.testPotentials
 
@@ -36,11 +36,11 @@ rand_pots_flag  = True*1
 
 meam_flag       = True*0
 phionly_flag    = True*0
-rhophi_flag     = True*1
+rhophi_flag     = True*0
 nophi_flag      = True*0
 rho_flag        = True*0
 norho_flag      = True*0
-norhophi_flag   = True*0
+norhophi_flag   = True*1
 
 dimers_flag  = True*1
 trimers_flag = True*1
@@ -56,7 +56,7 @@ if bulk_flag:
     allstructs = {**allstructs, **bulk_vac_ortho, **bulk_periodic_ortho,
                   **bulk_vac_rhombo, **bulk_periodic_rhombo}
 
-# allstructs =  {'aba':trimers['aba']}
+allstructs =  {'bulk_vac_ortho_type1':bulk_vac_ortho['bulk_vac_ortho_type1']}
 
 ################################################################################
 # Helper functions
@@ -65,6 +65,9 @@ def loader_energy(group_name, calculated, lammps):
     """Assumes 'lammps' and 'calculated' are dictionaries where key:value =
     <struct name>:<list of calculations> where each entry in the list of
     calculations corresponds to a single potential."""
+
+    logging.info("MEAM results: {0}".format(calculated))
+    logging.info("WORKER results: {0}".format(lammps))
 
     tests = []
     for name in calculated.keys():
@@ -106,7 +109,6 @@ def getLammpsResults(pots, structs):
             atoms = structs[name]
 
             # cstart = time.time()
-            logging.info("MEAM results: {0}".format(p.compute_energy(atoms)))
             results = p.compute_lammps_results(atoms)
             energies[name][pnum] = results['energy']
             forces[name].append(results['forces'])
@@ -291,17 +293,17 @@ if const_pots_flag:
 
     if norhophi_flag:
         """norhophi subtype"""
-        energies, forces = getLammpsResults([meam.norhophi_subtype(p)], allstructs)
+        energies, forces = getLammpsResults([p.norhophi_subtype()], allstructs)
 
         if energy_flag:
-            calc_energies = runner_energy([meam.norhophi_subtype(p)], allstructs)
+            calc_energies = runner_energy([p.norhophi_subtype()], allstructs)
 
             @parameterized.expand(loader_energy('', calc_energies, energies))
             def test_constant_potential_norhophi_energy(name, a, b):
                 np.testing.assert_allclose(a,b,atol=EPS)
 
         if forces_flag:
-            calc_forces = runner_forces([meam.norhophi_subtype(p)], allstructs)
+            calc_forces = runner_forces([p.norhophi_subtype()], allstructs)
 
             @parameterized.expand(loader_forces('', calc_forces, forces))
             def test_constant_potential_norhophi_forces(name, a, b):
@@ -780,7 +782,7 @@ class InnerSplineTests(unittest.TestCase):
         d0 = dN = 1
         self.y[-2] = d0; self.y[-1] = dN
 
-        self.s = InnerSpline(self.x, ('fixed', 'fixed'), 5)
+        self.s = RhoSpline(self.x, ('fixed', 'fixed'), 5)
         self.s.y = self.y
 
     def test_update_dict(self):
