@@ -1,4 +1,4 @@
-mport unittest
+import unittest
 import numpy as np
 import logging
 import time
@@ -17,8 +17,9 @@ import tests.testPotentials
 from tests.testStructs import dimers, trimers, bulk_vac_ortho, \
     bulk_periodic_ortho, bulk_vac_rhombo, bulk_periodic_rhombo
 
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.CRITICAL)
+logging.disable(logging.CRITICAL)
 
 EPS = 1e-6
 np.random.seed(42)
@@ -35,15 +36,15 @@ rand_pots_flag  = True*1
 
 meam_flag       = True*0
 phionly_flag    = True*0
-rhophi_flag     = True*0
+rhophi_flag     = True*1
 nophi_flag      = True*0
-rho_flag        = True*1
+rho_flag        = True*0
 norho_flag      = True*0
 norhophi_flag   = True*0
 
 dimers_flag  = True*1
 trimers_flag = True*1
-bulk_flag    = True*0
+bulk_flag    = True*1
 
 allstructs = {}
 
@@ -55,7 +56,7 @@ if bulk_flag:
     allstructs = {**allstructs, **bulk_vac_ortho, **bulk_periodic_ortho,
                   **bulk_vac_rhombo, **bulk_periodic_rhombo}
 
-allstructs =  {'aa':dimers['aa']}
+# allstructs =  {'aba':trimers['aba']}
 
 ################################################################################
 # Helper functions
@@ -598,7 +599,6 @@ class WorkerSplineTests(unittest.TestCase):
             ws.add_to_struct_vec(test_x[i])
 
         results = ws(self.y)
-=======
         results = np.zeros(test_x.shape)
         for i in range(len(test_x)):
             ws.add_to_struct_vec(test_x[i])
@@ -607,7 +607,6 @@ class WorkerSplineTests(unittest.TestCase):
         results = ws(self.y)
         #ws.plot()
         #cs.plot()
->>>>>>> df1d7fef4082ec8af4072f62978f0b5d18afdcef
 
         for i in range(len(test_x)):
             self.assertAlmostEqual(results[i], cs(test_x[i]))
@@ -628,7 +627,7 @@ class WorkerSplineTests(unittest.TestCase):
         ws = WorkerSpline(x, ('fixed', 'fixed'))
         ws.add_to_struct_vec(r)
 
-        true = np.array([0.5, 0.5, 0, 0.125, -0.125, 0])
+        true = np.array([0.5, 0.5, 0, 0.125, -0.125, 0]).reshape((1,6))
         np.testing.assert_allclose(ws.struct_vec, true)
 
     def test_get_abcd_lhs_extrap(self):
@@ -638,7 +637,7 @@ class WorkerSplineTests(unittest.TestCase):
         ws = WorkerSpline(x, ('fixed', 'fixed'))
         ws.add_to_struct_vec(r)
 
-        true = np.array([1, 0, 0, -0.5, 0, 0])
+        true = np.array([1, 0, 0, -0.5, 0, 0]).reshape((1,6))
         np.testing.assert_allclose(ws.struct_vec, true)
 
     def test_get_abcd_rhs_extrap(self):
@@ -648,7 +647,7 @@ class WorkerSplineTests(unittest.TestCase):
         ws = WorkerSpline(x, ('fixed', 'fixed'))
         ws.add_to_struct_vec(r)
 
-        true = np.array([0, 0, 1, 0, 0, 0.5])
+        true = np.array([0, 0, 1, 0, 0, 0.5]).reshape((1,6))
         np.testing.assert_allclose(ws.struct_vec, true)
 
     def test_eval_flat(self):
@@ -781,7 +780,7 @@ class InnerSplineTests(unittest.TestCase):
         d0 = dN = 1
         self.y[-2] = d0; self.y[-1] = dN
 
-        self.s = InnerSpline(self.x, ('fixed', 'fixed'), 2)
+        self.s = InnerSpline(self.x, ('fixed', 'fixed'), 5)
         self.s.y = self.y
 
     def test_update_dict(self):
@@ -792,7 +791,7 @@ class InnerSplineTests(unittest.TestCase):
         self.s.update_struct_vec_dict(0., 1)
         self.s.update_struct_vec_dict(0., 1)
 
-        self.assertEquals(len(self.s.struct_vec_dict), 2)
+        self.assertEquals(len(self.s.struct_vec_dict), 5)
         self.assertEqual(self.s.get_struct_vec(0).shape[0], 2)
         self.assertEqual(self.s.get_struct_vec(1).shape[0], 3)
 
@@ -804,8 +803,11 @@ class InnerSplineTests(unittest.TestCase):
         self.s.update_struct_vec_dict(0., 1)
         self.s.update_struct_vec_dict(0., 1)
 
-        np.testing.assert_allclose(self.s.compute_for_all(self.y),
-                                   np.array([0,0]))
+        results = self.s.compute_for_all(self.y)
+
+        np.testing.assert_allclose(np.sum(results[0]) , 0.)
+        np.testing.assert_allclose(np.sum(results[1]), 0.)
+
 
     def test_compute_ones(self):
         self.s.update_struct_vec_dict(1., 0)
@@ -815,5 +817,7 @@ class InnerSplineTests(unittest.TestCase):
         self.s.update_struct_vec_dict(1., 1)
         self.s.update_struct_vec_dict(1., 1)
 
-        np.testing.assert_allclose(self.s.compute_for_all(self.y),
-                                   np.array([2,3]))
+        results = self.s.compute_for_all(self.y)
+
+        np.testing.assert_allclose(np.sum(results[0]), 2.)
+        np.testing.assert_allclose(np.sum(results[1]), 3.)

@@ -12,7 +12,6 @@ from ase.calculators.lammpsrun import LAMMPS
 from spline import Spline, ZeroSpline
 from ase.neighborlist import NeighborList
 
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class MEAM:
@@ -296,7 +295,7 @@ class MEAM:
                 # end u loop
 
                 logging.info("MEAM u({0}) = {1}".format(total_ni, u(total_ni)))
-                # logging.info("MEAM zero_atom_energy = {0}".format(self.zero_atom_energies[i_to_potl(itype)]))
+                logging.info("MEAM zero_atom_energy = {0}".format(self.zero_atom_energies[i_to_potl(itype)]))
                 atom_e = total_phi + u(total_ni) - \
                          self.zero_atom_energies[i_to_potl(itype)]
                 self.energies[i] = atom_e
@@ -672,6 +671,8 @@ def splines_from_pvec(x_pvec, y_pvec, x_indices):
     return splines
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
+
     import lammpsTools
 
     p = MEAM('TiO.meam.spline')
