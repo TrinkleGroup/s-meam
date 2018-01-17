@@ -24,15 +24,15 @@ np.random.seed(42)
 N = 1
 
 # Flags for what tests to run
-energy_flag = True*1
-forces_flag = True*0
+energy_flag = True*0
+forces_flag = True*1
 
-zero_pots_flag  = True*0
-const_pots_flag = True*0
-rand_pots_flag  = True*1
+zero_pots_flag  = True*1
+const_pots_flag = True*1
+rand_pots_flag  = True*0
 
-meam_flag       = True*1
-phionly_flag    = True*0
+meam_flag       = True*0
+phionly_flag    = True*1
 rhophi_flag     = True*0
 nophi_flag      = True*0
 rho_flag        = True*0
@@ -41,7 +41,7 @@ norhophi_flag   = True*0
 
 dimers_flag  = True*1
 trimers_flag = True*1
-bulk_flag    = True*1
+bulk_flag    = True*0
 
 allstructs = {}
 
@@ -51,7 +51,7 @@ if trimers_flag:
     allstructs = {**allstructs, **trimers}
 if bulk_flag:
     allstructs = {**allstructs, **bulk_vac_ortho, **bulk_periodic_ortho,
-                  **bulk_vac_rhombo, **bulk_periodic_rhombo}
+                  **bulk_vac_rhombo, **bulk_periodic_rhombo, **extra}
 
 # allstructs = {'aba':trimers['aba']}
 
@@ -103,7 +103,7 @@ def getLammpsResults(pots, structs):
             val = p.compute_energy(atoms)
 
             # cstart = time.time()
-            results = p.compute_lammps_results(atoms)
+            results = p.get_lammps_results(atoms)
             energies[name][pnum] = results['energy']
             forces[name].append(results['forces'])
             # lammps_calcduration += float(time.time() - cstart)
@@ -145,7 +145,7 @@ def runner_forces(pots, structs):
         start = time.time()
         # TODO: to optimize, preserve workers for each struct
         forces[name] = w.compute_forces(pots[0])
-        py_calcduration += time.time() - start
+        # py_calcduration += time.time() - start
 
     return forces
 

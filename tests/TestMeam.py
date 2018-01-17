@@ -10,7 +10,7 @@ from spline import Spline, ZeroSpline
 from tests.testStructs import dimers, trimers, bulk_periodic_ortho,\
     bulk_vac_ortho, bulk_periodic_rhombo, bulk_vac_rhombo
 
-DIGITS = 6 # LAMMPS results are only accurate to 1e-6 b/c of read/write
+DIGITS = 15
 EPS = 1e-15
 
 class ConstructorTests(unittest.TestCase):
@@ -159,9 +159,9 @@ class MethodTests(unittest.TestCase):
 
         new_x_pvec, new_y_pvec, new_x_indices = meam.splines_to_pvec(splines)
 
-        np.testing.assert_allclose(new_x_pvec, x_pvec, atol=EPS)
-        np.testing.assert_allclose(new_y_pvec, y_pvec, atol=EPS)
-        np.testing.assert_allclose(new_x_indices, x_indices, atol=EPS)
+        np.testing.assert_allclose(new_x_pvec, x_pvec, atol=1e-15)
+        np.testing.assert_allclose(new_y_pvec, y_pvec, atol=1e-15)
+        np.testing.assert_allclose(new_x_indices, x_indices, atol=1e-15)
 
     def test_splines_to_vec_file(self):
         p = MEAM.from_file('../data/pot_files/TiO.meam.spline')
@@ -354,13 +354,10 @@ class MethodTests(unittest.TestCase):
             else:
                 self.assertTrue(isinstance(all_splines[i], ZeroSpline))
 
-class EvaluationTests(unittest.TestCase):
+class EnergyTests(unittest.TestCase):
 
     def setUp(self):
         self.p = MEAM.from_file("../data/pot_files/HHe.meam.spline")
-
-    def test_zero_atom_energies(self):
-        pass
 
     def test_energy_dimers(self):
 
@@ -368,7 +365,7 @@ class EvaluationTests(unittest.TestCase):
             atoms = dimers[name]
 
             guess = self.p.compute_energy(atoms)
-            true = self.p.compute_lammps_results(atoms)['energy']
+            true = self.p.get_lammps_results(atoms)['energy']
 
         self.assertAlmostEqual(guess, true, places=DIGITS)
 
@@ -378,7 +375,7 @@ class EvaluationTests(unittest.TestCase):
             atoms = trimers[name]
 
             guess = self.p.compute_energy(atoms)
-            true = self.p.compute_lammps_results(atoms)['energy']
+            true = self.p.get_lammps_results(atoms)['energy']
 
         self.assertAlmostEqual(guess, true, places=DIGITS)
 
@@ -388,7 +385,7 @@ class EvaluationTests(unittest.TestCase):
             atoms = bulk_vac_rhombo[name]
 
             guess = self.p.compute_energy(atoms)
-            true = self.p.compute_lammps_results(atoms)['energy']
+            true = self.p.get_lammps_results(atoms)['energy']
 
         self.assertAlmostEqual(guess, true, places=DIGITS)
 
@@ -398,7 +395,7 @@ class EvaluationTests(unittest.TestCase):
             atoms = bulk_periodic_rhombo[name]
 
             guess = self.p.compute_energy(atoms)
-            true = self.p.compute_lammps_results(atoms)['energy']
+            true = self.p.get_lammps_results(atoms)['energy']
 
         self.assertAlmostEqual(guess, true, places=DIGITS)
 
@@ -408,7 +405,7 @@ class EvaluationTests(unittest.TestCase):
             atoms = bulk_periodic_ortho[name]
 
             guess = self.p.compute_energy(atoms)
-            true = self.p.compute_lammps_results(atoms)['energy']
+            true = self.p.get_lammps_results(atoms)['energy']
 
         self.assertAlmostEqual(guess, true, places=DIGITS)
 
@@ -418,24 +415,74 @@ class EvaluationTests(unittest.TestCase):
             atoms = bulk_vac_ortho[name]
 
             guess = self.p.compute_energy(atoms)
-            true = self.p.compute_lammps_results(atoms)['energy']
+            true = self.p.get_lammps_results(atoms)['energy']
 
         self.assertAlmostEqual(guess, true, places=DIGITS)
 
+class ForcesTests(unittest.TestCase):
+
+    def setUp(self):
+        self.p = MEAM.from_file("../data/pot_files/HHe.meam.spline")
+
     def test_forces_dimer(self):
-        pass
+
+        tmp_dimers = {'aa':dimers['aa']}
+
+        for name in tmp_dimers.keys():
+            atoms = tmp_dimers[name]
+
+            guess = self.p.compute_forces(atoms)
+            true = self.p.get_lammps_results(atoms)['forces']
+
+            np.testing.assert_allclose(guess, true, atol=EPS)
 
     def test_forces_trimer(self):
-        pass
+
+        for name in trimers.keys():
+            atoms = trimers[name]
+
+            guess = self.p.compute_forces(atoms)
+            true = self.p.get_lammps_results(atoms)['forces']
+
+            np.testing.assert_allclose(guess, true, atol=EPS)
 
     def test_forces_bulk_vac_ortho(self):
-        pass
+
+        for name in bulk_vac_ortho.keys():
+            atoms = bulk_vac_ortho[name]
+
+            guess = self.p.compute_forces(atoms)
+            true = self.p.get_lammps_results(atoms)['forces']
+
+            np.testing.assert_allclose(guess, true, atol=EPS)
 
     def test_forces_bulk_vac_rhombo(self):
-        pass
+
+        for name in bulk_vac_rhombo.keys():
+            atoms = bulk_vac_rhombo[name]
+
+            guess = self.p.compute_forces(atoms)
+            true = self.p.get_lammps_results(atoms)['forces']
+
+            np.testing.assert_allclose(guess, true, atol=EPS)
 
     def test_forces_bulk_periodic_ortho(self):
-        pass
+
+        for name in bulk_periodic_ortho.keys():
+            atoms = bulk_periodic_ortho[name]
+
+            guess = self.p.compute_forces(atoms)
+            true = self.p.get_lammps_results(atoms)['forces']
+
+            np.testing.assert_allclose(guess, true, atol=EPS)
 
     def test_forces_bulk_periodic_rhombo(self):
-        pass
+
+        for name in bulk_periodic_rhombo.keys():
+            atoms = bulk_periodic_rhombo[name]
+
+            guess = self.p.compute_forces(atoms)
+            true = self.p.get_lammps_results(atoms)['forces']
+
+            np.testing.assert_allclose(guess, true, atol=EPS)
+

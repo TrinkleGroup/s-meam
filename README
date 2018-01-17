@@ -8,3 +8,10 @@ Library for rapid evaluation of spline-based Modified Embedded Atom Method
 
 Trello project outline (private): https://trello.com/b/AvNqE7BZ/s-meam
 UML diagram (private): https://go.gliffy.com/go/html5/12455794
+
+Note: this module uses the ASE package for modeling atomic systems. Due to the
+ way that that the default ASE's LAMMPS calculator works that causes a loss in
+ accuracy, some of the test cases (particularly in tests/TestMeam.py) will
+ appear to fail. To solve this problem, copy src/misc/lammpsrun.py into your ASE
+ /ase/calculators/ folder, overwriting the original lammpsrun.py (you may want
+ to back this up, just to be safe).

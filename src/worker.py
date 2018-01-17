@@ -320,7 +320,10 @@ class Worker:
 
         return energy - zero_point_energy
 
-    # def compute_forces(self, potentials):
+    def compute_forces(self, potentials):
+        forces = np.zeros((len(self.atoms), 3))
+
+        return forces
     #     """Calculates energies for all potentials using information
     #     pre-computed during initialization."""
     #     #TODO: only thing changing should be y-coords?
