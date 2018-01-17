@@ -10,6 +10,7 @@ from spline import Spline, ZeroSpline
 from tests.testStructs import dimers, trimers, bulk_periodic_ortho,\
     bulk_vac_ortho, bulk_periodic_rhombo, bulk_vac_rhombo
 
+DIGITS = 6 # LAMMPS results are only accurate to 1e-6 b/c of read/write
 EPS = 1e-15
 
 class ConstructorTests(unittest.TestCase):
@@ -369,7 +370,7 @@ class EvaluationTests(unittest.TestCase):
             guess = self.p.compute_energy(atoms)
             true = self.p.compute_lammps_results(atoms)['energy']
 
-        self.assertAlmostEqual(guess, true, places=5)
+        self.assertAlmostEqual(guess, true, places=DIGITS)
 
     def test_energy_trimers(self):
 
@@ -379,7 +380,7 @@ class EvaluationTests(unittest.TestCase):
             guess = self.p.compute_energy(atoms)
             true = self.p.compute_lammps_results(atoms)['energy']
 
-        self.assertAlmostEqual(guess, true, places=5)
+        self.assertAlmostEqual(guess, true, places=DIGITS)
 
     def test_energy_bulk_vac_rhombo(self):
 
@@ -389,7 +390,7 @@ class EvaluationTests(unittest.TestCase):
             guess = self.p.compute_energy(atoms)
             true = self.p.compute_lammps_results(atoms)['energy']
 
-        self.assertAlmostEqual(guess, true, places=5)
+        self.assertAlmostEqual(guess, true, places=DIGITS)
 
     def test_energy_bulk_periodic_rhombo(self):
 
@@ -399,7 +400,7 @@ class EvaluationTests(unittest.TestCase):
             guess = self.p.compute_energy(atoms)
             true = self.p.compute_lammps_results(atoms)['energy']
 
-        self.assertAlmostEqual(guess, true, places=5)
+        self.assertAlmostEqual(guess, true, places=DIGITS)
 
     def test_energy_bulk_periodic_ortho(self):
 
@@ -409,7 +410,7 @@ class EvaluationTests(unittest.TestCase):
             guess = self.p.compute_energy(atoms)
             true = self.p.compute_lammps_results(atoms)['energy']
 
-        self.assertAlmostEqual(guess, true, places=5)
+        self.assertAlmostEqual(guess, true, places=DIGITS)
 
     def test_energy_bulk_vac_ortho(self):
 
@@ -419,13 +420,22 @@ class EvaluationTests(unittest.TestCase):
             guess = self.p.compute_energy(atoms)
             true = self.p.compute_lammps_results(atoms)['energy']
 
-        self.assertAlmostEqual(guess, true, places=5)
+        self.assertAlmostEqual(guess, true, places=DIGITS)
 
     def test_forces_dimer(self):
         pass
 
-    def test_energy_trimer(self):
+    def test_forces_trimer(self):
         pass
 
-    def test_forces_trimer(self):
+    def test_forces_bulk_vac_ortho(self):
+        pass
+
+    def test_forces_bulk_vac_rhombo(self):
+        pass
+
+    def test_forces_bulk_periodic_ortho(self):
+        pass
+
+    def test_forces_bulk_periodic_rhombo(self):
         pass

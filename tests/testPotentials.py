@@ -222,4 +222,3 @@ def get_random_pots(newN):
 
 # TODO: may be worth making a function to get LAMMPS eval for a set of
 # atoms/potentials
-
