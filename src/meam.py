@@ -13,6 +13,7 @@ from spline import Spline, ZeroSpline
 from ase.neighborlist import NeighborList
 
 logger = logging.getLogger(__name__)
+# logging.basicConfig(filename='meam.log')
 
 class MEAM:
     """An object for organizing the information needed for a spline meam
@@ -267,8 +268,7 @@ class MEAM:
                             ktype = lammpsTools.symbol_to_type( \
                                 atoms[neighbors[0][k]].symbol, self.types)
                             r_ik = np.linalg.norm(ipos - \
-                                                  neighbor_shifted_positions[
-                                                      k])
+                                                  neighbor_shifted_positions[k])
 
                             b = neighbor_shifted_positions[k] - ipos
 
@@ -278,8 +278,13 @@ class MEAM:
 
                             nb = np.linalg.norm(b)
 
+                            # logging.info("MEAM: {0}, {1}, {2}, {3}".format(a,
+                            #                                    b, na,nb))
                             # TODO: try get_dihedral() for angles
                             cos_theta = np.dot(a, b) / na / nb
+
+                            # logging.info("MEAM: {0}, {1}, {2}".format(r_ij,
+                            #                                 r_ik, cos_theta))
 
                             fk_val = fk(r_ik)
                             g_val = g(cos_theta)

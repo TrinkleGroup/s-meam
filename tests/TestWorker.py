@@ -9,19 +9,20 @@ from spline import Spline
 
 import meam
 import worker
+import lammpsTools
 
 from worker import Worker, WorkerSpline, RhoSpline
 
 import tests.testPotentials
 
 from tests.testStructs import dimers, trimers, bulk_vac_ortho, \
-    bulk_periodic_ortho, bulk_vac_rhombo, bulk_periodic_rhombo
+    bulk_periodic_ortho, bulk_vac_rhombo, bulk_periodic_rhombo, extra
 
 logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.CRITICAL)
+logging.basicConfig(level=logging.INFO)
 logging.disable(logging.CRITICAL)
 
-EPS = 1e-6
+EPS = 1e-15
 np.random.seed(42)
 
 N = 1
@@ -34,13 +35,13 @@ zero_pots_flag  = True*0
 const_pots_flag = True*0
 rand_pots_flag  = True*1
 
-meam_flag       = True*0
+meam_flag       = True*1
 phionly_flag    = True*0
 rhophi_flag     = True*0
 nophi_flag      = True*0
 rho_flag        = True*0
 norho_flag      = True*0
-norhophi_flag   = True*1
+norhophi_flag   = True*0
 
 dimers_flag  = True*1
 trimers_flag = True*1
@@ -56,7 +57,7 @@ if bulk_flag:
     allstructs = {**allstructs, **bulk_vac_ortho, **bulk_periodic_ortho,
                   **bulk_vac_rhombo, **bulk_periodic_rhombo}
 
-allstructs =  {'bulk_vac_ortho_type1':bulk_vac_ortho['bulk_vac_ortho_type1']}
+# allstructs = {'aba':trimers['aba']}
 
 ################################################################################
 # Helper functions
@@ -66,8 +67,8 @@ def loader_energy(group_name, calculated, lammps):
     <struct name>:<list of calculations> where each entry in the list of
     calculations corresponds to a single potential."""
 
-    logging.info("MEAM results: {0}".format(calculated))
-    logging.info("WORKER results: {0}".format(lammps))
+    # logging.info("MEAM results: {0}".format(calculated))
+    # logging.info("WORKER results: {0}".format(lammps))
 
     tests = []
     for name in calculated.keys():
@@ -107,6 +108,9 @@ def getLammpsResults(pots, structs):
 
         for name in structs.keys():
             atoms = structs[name]
+
+            val = p.compute_energy(atoms)
+            # logging.info("MEAM.python results = {0}".format(val))
 
             # cstart = time.time()
             results = p.compute_lammps_results(atoms)
@@ -436,6 +440,7 @@ if rand_pots_flag:
     if norhophi_flag:
         """norhophi subtype"""
         p = tests.testPotentials.get_random_pots(N)['norhophis']
+        p[0].write_to_file("random.norhophi")
 
         energies, forces = getLammpsResults(p, allstructs)
 
@@ -507,7 +512,7 @@ class WorkerSplineTests(unittest.TestCase):
         np.testing.assert_allclose(ws.y, self.y[:-2])
         np.testing.assert_allclose(ws.end_derivs, self.y[-2:], EPS)
         np.testing.assert_allclose(ws.y1, np.array([ 0., -0.46622228,
-                                             -0.00732221, -0.75288626, 0.]), EPS)
+                                 -0.00732221, -0.75288626, 0.]), atol=1e-7)
 
     def test_full_eval(self):
         d0, dN = self.y[-2:]
@@ -605,10 +610,7 @@ class WorkerSplineTests(unittest.TestCase):
         for i in range(len(test_x)):
             ws.add_to_struct_vec(test_x[i])
 
-        # rzm: plots show that splines are different
         results = ws(self.y)
-        #ws.plot()
-        #cs.plot()
 
         for i in range(len(test_x)):
             self.assertAlmostEqual(results[i], cs(test_x[i]))
@@ -730,7 +732,7 @@ class WorkerSplineTests(unittest.TestCase):
 
         true = np.array([0.15318071, -0.50725283, 0.00361927, -0.75562163, 0.])
 
-        np.testing.assert_allclose(true, M@self.y, atol=EPS)
+        np.testing.assert_allclose(true, M@self.y, atol=1e-7)
 
     def test_build_M_fixed_natural(self):
         M = worker.build_M(len(self.x), self.dx, bc_type=('fixed',
@@ -794,8 +796,8 @@ class InnerSplineTests(unittest.TestCase):
         self.s.update_struct_vec_dict(0., 1)
 
         self.assertEquals(len(self.s.struct_vec_dict), 5)
-        self.assertEqual(self.s.get_struct_vec(0).shape[0], 2)
-        self.assertEqual(self.s.get_struct_vec(1).shape[0], 3)
+        self.assertEqual(self.s.struct_vec_dict[0].shape[0], 2)
+        self.assertEqual(self.s.struct_vec_dict[1].shape[0], 3)
 
     def test_compute_zeros(self):
         self.s.update_struct_vec_dict(0., 0)

@@ -10,6 +10,7 @@ from scipy.sparse import diags
 from spline import Spline
 
 logger = logging.getLogger(__name__)
+# logging.basicConfig(filename='worker.log')
 
 # logging.disable(logging.CRITICAL)
 
@@ -80,12 +81,12 @@ class Worker:
             idx = x_indices[i]
 
             # TODO: could specify bc outside of Worker & pass in
-            # check if phi/rho or f
-            if (i < nphi+ntypes) or ((i >= nphi+2*ntypes) and
-                                     (i < nphi+3*ntypes)):
-                bc_type = ('natural','fixed')
-            else:
-                bc_type = ('natural','natural')
+            # # check if phi/rho or f
+            # if (i < nphi+ntypes) or ((i >= nphi+2*ntypes) and
+            #                          (i < nphi+3*ntypes)):
+            #     bc_type = ('natural','fixed')
+            # else:
+            #     bc_type = ('natural','natural')
 
             # for comparing against TiO.meam.spline; all are 'fixed'
             bc_type = ('fixed', 'fixed')
@@ -142,9 +143,6 @@ class Worker:
                 self_interaction=False, bothways=False, skin=0.0)
         nl_noboth.build(atoms)
 
-        total_num_neighbors = sum(len(nl_noboth.get_neighbors(i)) for i in
-                                  range(natoms))
-
         self.phi_structure_array = []
 
         # Allows double counting; needed for embedding energy calculations
@@ -161,7 +159,6 @@ class Worker:
             neighbors_noboth, offsets_noboth = nl_noboth.get_neighbors(i)
             neighbors, offsets = nl.get_neighbors(i)
 
-            phis_struct_vec = None
             # Stores pair information for phi
             for j,offset in zip(neighbors_noboth, offsets_noboth):
 
@@ -180,15 +177,16 @@ class Worker:
                 self.phis[phi_idx].add_to_struct_vec(rij)
 
             # Store distances, angle, and index info for embedding terms
-            j_counter = 1 # for tracking neighbor
+            j_counter = 0 # for tracking neighbor
             for j,offset in zip(neighbors,offsets):
 
                 jtype = lammpsTools.symbol_to_type(atoms[j].symbol, self.types)
                 jpos = atoms[j].position + np.dot(offset,atoms.get_cell())
 
+                # jvec = jpos - ipos
                 jvec = jpos - ipos
                 rij = np.linalg.norm(jvec)
-                jvec /= rij
+                # jvec /= rij
 
                 a = jpos - ipos
                 na = np.linalg.norm(a)
@@ -200,6 +198,7 @@ class Worker:
 
                 fj_idx = meam.i_to_potl(jtype)
 
+                j_counter += 1
                 for k,offset in zip(neighbors[j_counter:], offsets[j_counter:]):
                     if k != j:
                         ktype = lammpsTools.symbol_to_type(atoms[k].symbol,
@@ -209,7 +208,7 @@ class Worker:
 
                         kvec = kpos - ipos
                         rik = np.linalg.norm(kvec)
-                        kvec /= rik
+                        # kvec /= rik
 
                         b = kpos - ipos
                         nb = np.linalg.norm(b)
@@ -218,14 +217,15 @@ class Worker:
 
                         # fk information
                         fk_idx = meam.i_to_potl(ktype)
-                        # self.fs[fk_idx].update_struct_vec_dict(rik, i)
-
-                        # g information
-                        # g_idx = meam.ij_to_potl(jtype, ktype, 'g', self.ntypes)
-                        # self.gs[g_idx].update_struct_vec_dict(cos_theta, i)
 
                         self.ffgs[fj_idx][fk_idx].update_struct_vec_dict(rij,
                                      rik, cos_theta, i)
+
+                        # logging.info("WORKER: {0}, {1}, {2}, {3}".format(a,
+                        #                                                b, na,nb))
+
+                        logging.info("WORKER:{3}{4}{5}, {0}, {1}, {2}".format(
+                            rij, rik, cos_theta, i, j, k))
 
             #     # fj information
             #
@@ -255,19 +255,11 @@ class Worker:
                 corresponds to a unique potential. Each group in a
                 single row should have K+2 elements where K is the number
                 of knot points, and the 2 additional are boundary conditions.
-                The first K in each group are the knot y-values
-
-            indices (list):
-                since each spline does not necessarily have the same number
-                of knots, a list of indices must be provided to deliminate
-                each spline in the 1D vector. 'indices' will be exactly
-                N*(N+4)-1 elements, since there are N*(N+4) total splines
-                indies"""
+                The first K in each group are the knot y-values"""
 
         # TODO: should __call__() take in just a single potential?
 
         # TODO: Worker has list of Pots; each Pot is a list of WorkerSplines
-        # TODO: phis[i] needs to be phis[i][phi_idx]; do in init()?
 
         # TODO: ***** Ensure that everything in this function MUST be here *****
 
@@ -306,14 +298,15 @@ class Worker:
 
             # logging.info("WORKER ni = {0}".format(ni))
 
-        # Calculate threebody contributions to ni
+        # Calculate three-body contributions to ni
         for j in range(len(self.ffgs)):
             ffg_list = self.ffgs[j]
+
+            y_fj = f_pvecs[j]
 
             for k in range(len(ffg_list)):
                 ffg = ffg_list[k]
 
-                y_fj = f_pvecs[j]
                 y_fk = f_pvecs[k]
                 y_g = g_pvecs[meam.ij_to_potl(j+1, k+1, self.ntypes)]
 
@@ -321,12 +314,6 @@ class Worker:
                 ni += val
 
                 # logging.info("WORKER ffg() = {0}".format(val))
-
-        # Sort ni values and evaluate u functions
-
-        # TODO: need group add to struct_vec
-        # tmp_types = np.array(self.atoms.get_chemical_symbols())
-        # ni_groups = [ni[tmp_types == el] for el in self.types]
 
         # TODO: vectorize this
         # TODO: build a zero_struct here to avoid iterating over each atom twice
@@ -343,9 +330,8 @@ class Worker:
             u = self.us[i]
             y = u_pvecs[i]
 
-            # zero-point energies
-            # NOTE: zero-point has to be calculated separately bc has to be
-            # SUBTRACTED off of the energy
+            # zero-point has to be calculated separately bc has to be SUBTRACTED
+            # off of the energy
             if u.struct_vec != []:
                 tmp_struct = u.struct_vec
 
@@ -365,104 +351,6 @@ class Worker:
         # logging.info("WORKER zero_point_energy = {0}".format(zero_point_energy))
 
         return energy - zero_point_energy
-
-        # Calculate ni values; ni intervals cannot be pre-computed in init()
-        # total_ni = np.zeros( (len(potentials),natoms) )
-
-        # for i in range(natoms):
-        #
-        #     # Pull per-atom neighbor distances and compute rho contribution
-        #     pair_distances_bothways = self.pair_distances_bothways[i]
-        #     rho_types = self.rho_index_info['pot_type_idx'][i]
-        #     rho_indices = self.rho_index_info['interval_idx'][i]
-        #
-        #     rho_coeffs = coeffs_from_indices(self.rhos,
-        #                 {'pot_type_idx':rho_types, 'interval_idx':rho_indices})
-        #     results = eval_all_polynomials(pair_distances_bothways, rho_coeffs)
-        #     total_ni[:,i] += np.sum(results, axis=1)
-        #
-        #     if len(self.triplet_values[i]) > 0: # check needed in case of dimer
-        #
-        #         # Unpack ordered sets of values and indexing information
-        #         values_tuple    = self.triplet_values[i]
-        #         rij_values      = values_tuple[:,0]
-        #         rik_values      = values_tuple[:,1]
-        #         cos_values        = values_tuple[:,2]
-        #
-        #         types_tuple = self.triplet_info['pot_type_idx'][i]
-        #         fj_types    = types_tuple[:,0]
-        #         fk_types    = types_tuple[:,1]
-        #         g_types     = types_tuple[:,2]
-        #
-        #         intervals_tuple = self.triplet_info['interval_idx'][i]
-        #         fj_intervals    = intervals_tuple[:,0]
-        #         fk_intervals    = intervals_tuple[:,1]
-        #         g_intervals     = intervals_tuple[:,2]
-        #
-        #         # Calculate three body contributions
-        #         fj_coeffs = coeffs_from_indices(self.fs,
-        #                     {'pot_type_idx':fj_types, 'interval_idx':fj_intervals})
-        #         fk_coeffs = coeffs_from_indices(self.fs,
-        #                     {'pot_type_idx':fk_types, 'interval_idx':fk_intervals})
-        #         g_coeffs = coeffs_from_indices(self.gs,
-        #                     {'pot_type_idx':g_types, 'interval_idx':g_intervals})
-        #
-        #         fj_results = eval_all_polynomials(rij_values, fj_coeffs)
-        #         fk_results = eval_all_polynomials(rik_values, fk_coeffs)
-        #         g_results = eval_all_polynomials(cos_values, g_coeffs)
-        #
-        #         results = np.multiply(fj_results,np.multiply(fk_results, g_results))
-        #         total_ni[:,i] += np.sum(results, axis=1)
-        #
-        # # Perform binning and shifting for each ni (per atom) in each potential
-        # knots = self.us[0][0].knotsx
-        # for p in range(total_ni.shape[0]):
-        #     ni_indices_for_one_pot = np.zeros(natoms)
-        #
-        #     for q in range(total_ni.shape[1]):
-        #         # Shift according to pre-computed U index info
-        #         u_idx = self.u_index_info['pot_type_idx'][q]
-        #
-        #         ni = total_ni[p][q]
-        #
-        #         u_interval_num, u_knot_num = intervals_from_splines(
-        #             self.us,ni,u_idx)
-        #
-        #         ni_indices_for_one_pot[q] = u_interval_num
-        #         total_ni[p][q] -= knots[u_knot_num]
-        #
-        #     self.u_index_info['interval_idx'].append(ni_indices_for_one_pot)
-        #
-        # self.u_index_info['interval_idx'] = np.array(self.u_index_info[
-        #                                                  'interval_idx'])
-        #
-        # # Compute U values and derivatives; add to energy and forces
-        # u_types = self.u_index_info['pot_type_idx']
-        #
-        # self.uprimes = np.zeros( (len(potentials),natoms) )
-        # for i,row  in enumerate(total_ni):
-        #     u_indices = self.u_index_info['interval_idx'][i]
-        #
-        #     u_coeffs = coeffs_from_indices([self.us[i]],
-        #                 {'pot_type_idx':u_types, 'interval_idx':u_indices})
-        #
-        #     results = eval_all_polynomials(row, u_coeffs)
-        #     energies[i] += np.sum(results, axis=1)
-        #
-        #     # dots each layer of u_coeffs with the derivative matrix
-        #     uprime_coeffs = np.einsum('ij,jdk->idk', D, u_coeffs)
-        #
-        #     results = eval_all_polynomials(row, uprime_coeffs)
-        #     self.uprimes[i,:] = eval_all_polynomials(row, uprime_coeffs)
-        #
-        # # Subtract off zero-point energies
-        # zero_atom_energy = np.array([self.zero_atom_energies[:,z] for z in
-        #                     u_types]).transpose()
-        # zero_atom_energy = np.sum(zero_atom_energy, axis=1)
-        #
-        # energies -= zero_atom_energy
-        #
-        # return energies
 
     # def compute_forces(self, potentials):
     #     """Calculates energies for all potentials using information
@@ -704,26 +592,7 @@ class Worker:
         f       = np.split(slices[3], self.ntypes, axis=1)
         g       = np.split(slices[4], self.nphi, axis=1)
 
-        # TODO: read_from_file() to test working properly
-
-        # N = len(potentials)
-        # self.phis   = [potentials[i].phis for i in range(N)]
-        # self.rhos   = [potentials[i].rhos for i in range(N)]
-        # self.us     = [potentials[i].us for i in range(N)]
-        # self.fs     = [potentials[i].fs for i in range(N)]
-        # self.gs     = [potentials[i].gs for i in range(N)]
-
-        # Initialize zero-point embedding energies
-        # u_shift = nphi + 2
-        # self.zero_atom_energies = np.zeros((len(potentials), self.ntypes))
-        # for i,p in enumerate(potentials):
-        #     for j in range(self.ntypes):
-        #         self.zero_atom_energies[i][j] = potentials[j+u_shift](0.0)
-
-        # TODO: zero_atom_energies need to be computed in __call__()
-
         self._cutoff = potentials[0].cutoff
-    # TODO: can we condense oneway/bothways? derive oneway from bothways?
 
     def group_ni_by_type(self, ni):
         """Creates structure vectors for the full set of ni values
@@ -749,48 +618,6 @@ class Worker:
             else:
                 groups[idx] = np.vstack((groups[idx], ni[i]))
 
-def get_ymat(y, y2, intervals):
-    """Extracts the matrix of [y_j, y_j+1, y''_j, y''_j+1] from a set of
-    splines for the given intervals.
-
-    Args:
-        y (np.arr):
-            the knot y-coordinates for all of the splines of one type for each
-            potential (e.g. the phi_Ti splines for every potential). Each row is
-            the y-coordinates of the knots for a single potential.
-        y2 (np.arr):
-            the second derivatives at the knots.
-        intervals (list):
-            an ordered list of integers specifying which intervals in the
-            splines to extract (e.g. [1,2,3] meaning the first three pair
-            distances fall into the intervals starting at knots 1, 2,
-            and 3 respectively).
-
-    Returns:
-        ymat (np.arr):
-            the ordered matrix of [y_j, y_j+1, y''_j, y''_j+1] with
-            dimensions (N x 4 x P) where N is the number of values being
-            computed and P is the number of potentials"""
-
-    intervals = np.array(intervals)
-
-    N = len(intervals)
-    P = y.shape[0]
-
-    ymat = np.zeros((N, 4, P))
-
-    s0 = y[:,intervals]     # y_j
-    s1 = y[:,intervals+1]   # y_j+1
-    s2 = y2[:, intervals]   # y''_j
-    s3 = y2[:, intervals+1] # y''_j+1
-
-    ymat[:,:,0] = s0
-    ymat[:,:,1] = s1
-    ymat[:,:,2] = s2
-    ymat[:,:,3] = s3
-
-    return ymat
-
 def read_from_file(atom_file_name, potential_file_name):
     """Builds a Worker from files specifying the atom structure and the
     potential.
@@ -802,7 +629,9 @@ def read_from_file(atom_file_name, potential_file_name):
         potential_file_name (str):
             LAMMPS style spline meam potential file"""
 
-    # read in potential
+    # TODO: this is old; take a look at meam.py to update
+    raise NotImplementedError("Reading a Worker from a file is not ready yet")
+
     try:
         f = open(potential_file_name, 'r')
 
@@ -813,9 +642,6 @@ def read_from_file(atom_file_name, potential_file_name):
 
         nsplines = ntypes*(ntypes+4)    # Based on how fxns in MEAM are defined
 
-        # Calculate the number of splines for phi/g each
-        nphi = (ntypes + 1) * ntypes / 2
-
         # Build all splines; separate into different types later
         knot_x_points = []
         knot_y_points = []
@@ -823,11 +649,6 @@ def read_from_file(atom_file_name, potential_file_name):
         idx         = 0
 
         for i in range(nsplines):
-
-            # if      i == nphi:          indices.append(idx)
-            # elif    i == nphi+ntypes:   indices.append(idx)
-            # elif    i == nphi+2*ntypes: indices.append(idx)
-            # elif    i == nphi+3*ntypes: indices.append(idx)
 
             f.readline()                # throw away 'spline3eq' line
             nknots  = int(f.readline())
@@ -1050,6 +871,7 @@ class WorkerSpline:
             self.struct_vec = np.vstack((self.struct_vec, abcd))
 
     def get_y2(self):
+        # TODO: is this needed at all?
         if self.y is None:
             raise ValueError("y must be set first")
 
@@ -1065,6 +887,7 @@ class WorkerSpline:
         return y2
 
     def plot(self, fname=''):
+        raise NotImplementedError("Worker plotting is not ready yet")
 
         low,high = self.cutoff
         low -= abs(0.2*low)
@@ -1119,35 +942,17 @@ class RhoSpline(WorkerSpline):
         """Computes results for every struct_vec in struct_vec_dict
 
         Returns:
-            ni (list [np.arr]):
-                each entry is the set of all ni for a specific atom type"""
+            ni (np.arr):
+                each entry is the set of all ni for a specific atom"""
 
-        # ni = []*self.ntypes
-        # ni = [[] for i in range(self.natoms)]
         ni = np.zeros(self.natoms)
 
         for i in self.struct_vec_dict.keys():
-            self.struct_vec = self.get_struct_vec(i)
-            # ni[i] = np.array([0.]*len(self.struct_vec))
+            self.struct_vec = self.struct_vec_dict[i]
 
-            val = np.sum(np.array(super(RhoSpline, self).__call__(y)))
-
-            ni[i] = val # numpy adding
+            ni[i] = np.sum(np.array(super(RhoSpline, self).__call__(y)))
 
         return ni
-
-    def get_struct_vec(self, i):
-        """Safely returns either None or the structure vector of the desired
-        spline.
-
-        Args:
-            i (int):
-                atom id"""
-
-        if i in self.struct_vec_dict.keys():
-            return self.struct_vec_dict[i]
-        else:
-            return []
 
     def update_struct_vec_dict(self, val, atom_id):
         """Updates the structure vector of the <i>th spline of type <type> for a value of r
@@ -1161,10 +966,10 @@ class RhoSpline(WorkerSpline):
 
         abcd = self.get_abcd(val)
 
-        if self.get_struct_vec(atom_id) == []:
+        if self.struct_vec_dict[atom_id] == []:
             self.struct_vec_dict[atom_id] = abcd.reshape((1,len(abcd)))
         else:
-            struct_vec = np.vstack((self.get_struct_vec(atom_id), abcd))
+            struct_vec = np.vstack((self.struct_vec_dict[atom_id], abcd))
             self.struct_vec_dict[atom_id] = struct_vec
 
 class ffgSpline():
@@ -1180,16 +985,15 @@ class ffgSpline():
             natoms (int):
                 the number of atoms in the system"""
 
-
         self.fj = fj
         self.fk = fk
         self.g = g
 
         # TODO: is this assignment by reference? does it make a NEW spline?
+        # does it matter??
 
         self.natoms = natoms
         # TODO: could convert to numpy array rather than dict?
-        tmp = dict.fromkeys(np.arange(natoms), [])
         self.struct_vec_dict = dict.fromkeys(np.arange(natoms), [])
 
     def __call__(self, y_fj, y_fk, y_g):
@@ -1215,7 +1019,7 @@ class ffgSpline():
 
         Returns:
             ni (list [np.arr]):
-                each entry is the set of all ni for a specific atom type"""
+                each entry is the set of all ni for a specific atom"""
 
         ni = np.zeros(self.natoms)
 

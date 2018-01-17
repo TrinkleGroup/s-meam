@@ -6,7 +6,7 @@ import sys
 from spline import Spline
 from spline import ZeroSpline
 from meam import MEAM
-from .globalVars import a0, r0
+from .testVars import a0, r0
 
 # Potentials: zero_potential, constant_potential, rhs_extrap_potential,
 # lhs_extrap_potential

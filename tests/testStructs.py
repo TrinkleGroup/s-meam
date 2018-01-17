@@ -3,7 +3,7 @@
 
 import numpy as np
 import ase.build
-from .globalVars import a0, r0, vac
+from .testVars import a0, r0, vac
 
 import logging
 logging.basicConfig(level=logging.INFO)
@@ -159,8 +159,21 @@ bulk_vac_rhombo['bulk_vac_rhombo_type2'] = type2
 bulk_vac_rhombo['bulk_vac_rhombo_mixed'] = mixed
 
 ################################################################################
+
+extra = ase.build.bulk('H', crystalstructure='fcc', a=a0, orthorhombic=True)
+extra = extra.repeat((2,1,1))
+extra.rattle()
+extra.center(vacuum=0)
+extra.set_pbc(True)
+extra.set_chemical_symbols(np.random.randint(1,3, size=len(extra)))
+
+extra.center(vacuum=vac)
+
+extra = {'extra':extra}
+
+################################################################################
 allstructs = {**dimers, **trimers, **bulk_vac_ortho, **bulk_periodic_ortho,\
-                 **bulk_vac_rhombo, **bulk_periodic_rhombo}
+                 **bulk_vac_rhombo, **bulk_periodic_rhombo, **extra}
 # key = 'bulk_vac_ortho_type1'
 # allstructs = {key:bulk_vac_ortho[key]}
 # key = 'ab'
