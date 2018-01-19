@@ -16,7 +16,7 @@ from tests.testStructs import dimers, trimers, bulk_vac_ortho, \
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
-logging.disable(logging.CRITICAL)
+#logging.disable(logging.CRITICAL)
 
 EPS = 1e-15
 np.random.seed(42)
@@ -27,7 +27,7 @@ N = 1
 energy_flag = True*0
 forces_flag = True*1
 
-zero_pots_flag  = True*1
+zero_pots_flag  = True*0
 const_pots_flag = True*1
 rand_pots_flag  = True*0
 
@@ -39,7 +39,7 @@ rho_flag        = True*0
 norho_flag      = True*0
 norhophi_flag   = True*0
 
-dimers_flag  = True*1
+dimers_flag  = True*0
 trimers_flag = True*1
 bulk_flag    = True*0
 
@@ -53,7 +53,7 @@ if bulk_flag:
     allstructs = {**allstructs, **bulk_vac_ortho, **bulk_periodic_ortho,
                   **bulk_vac_rhombo, **bulk_periodic_rhombo, **extra}
 
-# allstructs = {'aba':trimers['aba']}
+allstructs = {'aba':trimers['aba']}
 
 ################################################################################
 # Helper functions
@@ -65,6 +65,8 @@ def loader_energy(group_name, calculated, lammps):
 
     tests = []
     for name in calculated.keys():
+        logging.info("LAMMPS: {0} = {1}".format(name, lammps[name]))
+        logging.info("WORKER: {0} = {1}".format(name, calculated[name]))
         test_name = group_name + '_' + name + '_energy'
         tests.append((test_name, calculated[name], lammps[name]))
 

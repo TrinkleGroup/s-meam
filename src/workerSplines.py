@@ -40,9 +40,13 @@ class WorkerSpline:
             'fixed' (fixed first derivative). If 'fixed' on one/both ends,
             self.end_derivatives cannot be None for that end
 
-        struct_vec (np.arr):
-            2D array for evaluating the spline on the structure; each row
-            corresponds to a single pair/triplet evaluation
+        struct_vecs (list [np.arr]):
+            list of structure vects, where struct_vec[i] is the structure
+            vector used to evaluate the function at the i-th derivative.
+
+            each structure vector is a 2D array for evaluating the spline on
+            the structure; each row corresponds to a single pair/triplet
+            evaluation
 
     Notes:
         This object is distinct from a spline.Spline since it requires some
@@ -73,23 +77,23 @@ class WorkerSpline:
 
         # Variables that will be set at some point
         self.index = None
-        self.struct_vec = []
+        self.struct_vecs = []
 
         # Variables that will be set on evaluation
         self._y = None
         self.y1 = None
         self.end_derivs = None
 
-    def __call__(self, y):
+    def __call__(self, y, deriv):
 
         self.y = y
 
         z = np.concatenate((self.y, self.y1))
 
-        if self.struct_vec == []:
+        if self.struct_vecs[deriv] == []:
             return 0.
         else:
-            return self.struct_vec @ z.transpose()
+            return self.struct_vecs[deriv] @ z.transpose()
 
     # self.y made as a property to ensure setting of self.y1 and self.end_derivs
     @property
@@ -101,12 +105,16 @@ class WorkerSpline:
         self._y, self.end_derivs = np.split(y, [-2])
         self.y1 = self.M @ y.transpose()
 
-    def get_abcd(self, x):
+    def get_abcd(self, x, deriv=0):
         """Calculates the coefficients needed for spline interpolation.
 
         Args:
             x (float):
                 point at which to evaluate spline
+
+            deriv (int):
+                order of derivative to evaluate; default is zero, meaning
+                evaluate original function
 
         Returns:
             vec (np.arr):
@@ -138,74 +146,97 @@ class WorkerSpline:
 
         knots = self.x.copy()
 
-        h_00 = lambda t: (1+2*t)*(1-t)**2
-        h_10 = lambda t: t*(1-t)**2
-        h_01 = lambda t: (t**2)*(3-2*t)
-        h_11 = lambda t: (t**2)*(t-1)
+        h_00 = np.poly1d([2,-3,0,1])
+        h_10 = np.poly1d([1,-2,1,0])
+        h_01 = np.poly1d([-2,3,0,0])
+        h_11 = np.poly1d([1,-1,0,0])
 
-        h = knots[1] - knots[0]
 
         # Find spline interval; -1 to account for zero indexing
-        k = int(np.floor((x-knots[0])/h))
+        h = knots[1] - knots[0]
+        all_k = np.floor((x-knots[0])/h).astype(int)
 
         nknots = len(knots)
-        vec = np.zeros(2*nknots)
+        vec = np.zeros((len(x), 2*nknots))
 
-        if k < 0: # LHS extrapolation
-            k = 0
+        for i in range(len(all_k)): # for every point to be evaluated
+            k = all_k[i]
 
-            A = 1
-            B = x - knots[0] # negative for correct sign with derivative
+            if k < 0: # LHS extrapolation
+                k = 0
+                prefactor  = (knots[1] - knots[0])
 
-            vec[k] = A; vec[k+nknots] = B
+                if deriv == 0:
+                    A = 1
+                    B = x[i] - knots[0] # negative for correct sign with derivative
+                    scaling = 1
+                elif deriv == 1:
+                    A = 0
+                    B = prefactor
+                    scaling = 1/prefactor
 
-        elif k >= nknots-1: # RHS extrapolation
-            k = nknots-1
-            C = 1
-            D = x - knots[-1]
+                vec[i][k] = A; vec[i][k+nknots] = B
+                vec[i] *= scaling
 
-            vec[k] = C; vec[k+nknots] = D
-        else:
-            prefactor  = (knots[k+1] - knots[k])
+            elif k >= nknots-1: # RHS extrapolation
+                k = nknots-1
+                prefactor  = (knots[-2] - knots[-1])
 
-            t = (x - knots[k])/prefactor
+                if deriv == 0:
+                    C = 1
+                    D = x[i] - knots[-1]
+                    scaling = 1
+                elif deriv == 1:
+                    C = 0
+                    D = prefactor
+                    scaling = 1/prefactor
 
-            A = h_00(t)
-            B = h_10(t)*prefactor
-            C = h_01(t)
-            D = h_11(t)*prefactor
+                vec[i][k] = C; vec[i][k+nknots] = D
+                vec[i] *= scaling
+            else:
+                prefactor  = (knots[k+1] - knots[k])
 
-            vec[k] = A
-            vec[k+nknots] = B
-            vec[k+1] = C
-            vec[k+1+nknots] = D
+                if deriv == 0:
+                    scaling = 1
+                elif deriv == 1:
+                    scaling = 1/prefactor
+
+                t = (x[i] - knots[k])/prefactor
+
+                A = h_00(t)
+                B = h_10(t)*prefactor
+                C = h_01(t)
+                D = h_11(t)*prefactor
+
+                vec[i][k] = A
+                vec[i][k+nknots] = B
+                vec[i][k+1] = C
+                vec[i][k+1+nknots] = D
+
+                vec[i] *= scaling
 
         return vec
 
-    def add_to_struct_vec(self, val):
+    def add_to_struct_vec(self, val, deriv=0):
+        """Builds the ABCD vectors for all elements in val, then adds to
+        struct_vec
 
-        abcd = self.get_abcd(val)
+        Args:
+            val (int, float, np.arr, list):
+                collection of values to add; converted into a np.arr in this
+                function
 
-        if self.struct_vec == []:
-            self.struct_vec = abcd.reshape((1,len(abcd)))
+            deriv (int):
+                order of derivative to be evaluated; default 0"""
+
+        add = np.atleast_1d(val)
+
+        abcd = self.get_abcd(add, deriv)
+
+        if self.struct_vecs[deriv] == []:
+            self.struct_vecs[deriv] = abcd#.reshape((1,len(abcd)))
         else:
-            self.struct_vec = np.vstack((self.struct_vec, abcd))
-
-    def get_y2(self):
-        # TODO: is this needed at all?
-        if self.y is None:
-            raise ValueError("y must be set first")
-
-        y2 = np.zeros(len(self.x))
-
-        # internal knots and rhs:
-        for i in range(1,len(y2)):
-            y2[i] = 6*self.x[i-1] + self.h*2*self.y1[i-1] - 6*self.x[i] + self.h*4*self.y1[i]
-
-        # lhs
-        y2[0] = -6*self.x[0] - self.h*4*self.y1[0] + 6*self.x[1] - self.h*2*self.y1[1]
-
-        return y2
+            self.struct_vecs[deriv] = np.vstack((self.struct_vecs[deriv], abcd))
 
     def plot(self, fname=''):
         raise NotImplementedError("Worker plotting is not ready yet")
@@ -220,8 +251,8 @@ class WorkerSpline:
         plt.figure()
         plt.plot(self.x, self.y, 'ro', label='knots')
 
-        tmp_struct = self.struct_vec
-        self.struct_vec = None
+        tmp_struct = self.struct_vecs
+        self.struct_vecs = None
 
         plot_x = np.linspace(low,high,1000)
 
@@ -230,7 +261,7 @@ class WorkerSpline:
 
         plot_y = self(np.concatenate((self.y, self.end_derivs)))
 
-        self.struct_vec = tmp_struct
+        self.struct_vecs = tmp_struct
 
         plt.plot(plot_x, plot_y)
         plt.legend()
@@ -285,10 +316,12 @@ class RhoSpline(WorkerSpline):
             atom_id (int):
                 atom id"""
 
-        abcd = self.get_abcd(val)
+        add = np.atleast_1d(val)
+
+        abcd = self.get_abcd(add)
 
         if self.struct_vec_dict[atom_id] == []:
-            self.struct_vec_dict[atom_id] = abcd.reshape((1,len(abcd)))
+            self.struct_vec_dict[atom_id] = abcd
         else:
             struct_vec = np.vstack((self.struct_vec_dict[atom_id], abcd))
             self.struct_vec_dict[atom_id] = struct_vec
@@ -354,7 +387,9 @@ class ffgSpline():
         return ni
 
     def get_abcd(self, rij, rik, cos_theta):
-        """Computes the full parameter vector for the multiplication of ffg
+        """Ovverrides WorkerSpline.get_abcd()
+
+        Computes the full parameter vector for the multiplication of ffg
         splines
 
         Args:
@@ -367,9 +402,19 @@ class ffgSpline():
             cos_theta (float):
                 the value at which to evaluate g"""
 
-        fj_abcd = self.fj.get_abcd(rij)
-        fk_abcd = self.fk.get_abcd(rik)
-        g_abcd = self.g.get_abcd(cos_theta)
+        add_rij = np.atleast_1d(rij)
+        add_rik = np.atleast_1d(rik)
+        add_cos_theta = np.atleast_1d(cos_theta)
+
+        # TODO: using ravel() b/c multi-value is not ready for ffgSpline
+        fj_abcd = self.fj.get_abcd(add_rij)
+        fj_abcd = np.ravel(fj_abcd)
+
+        fk_abcd = self.fk.get_abcd(add_rik)
+        fk_abcd = np.ravel(fk_abcd)
+
+        g_abcd = self.g.get_abcd(add_cos_theta)
+        g_abcd = np.ravel(g_abcd)
 
         full_abcd = np.prod(cartesian_product(fj_abcd, fk_abcd, g_abcd), axis=1)
 

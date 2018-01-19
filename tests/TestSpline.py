@@ -2,6 +2,8 @@ import unittest
 import numpy as np
 import os
 
+from scipy.interpolate import CubicSpline
+
 from spline import Spline, ZeroSpline
 
 class ConstructorTests(unittest.TestCase):
@@ -103,25 +105,6 @@ class ConstructorTests(unittest.TestCase):
 class EvaluationTests(unittest.TestCase):
     """Test cases for Spline class"""
 
-    def test_equality(self):
-        x = np.arange(10, dtype=float)
-        y = np.arange(10, dtype=float)
-
-        s1 = Spline(x,y)
-        s2 = Spline(x,y)
-
-        self.assertTrue(s1 == s2)
-
-    def test_inequality(self):
-        x = np.arange(10, dtype=float)
-        y = np.arange(10, dtype=float)
-
-        s1 = Spline(x,y)
-        s2 = Spline(x+2,y)
-
-        self.assertTrue(s1 != s2)
-
-
     def test_eval_knot_single(self):
         x = np.arange(10, dtype=float)
         y = np.arange(10, dtype=float)
@@ -177,6 +160,17 @@ class EvaluationTests(unittest.TestCase):
         for i in range(len(x)):
             self.assertAlmostEqual(s(x[i]), y[i])
 
+    def test_first_deriv_in_range(self):
+        x = np.arange(10)
+        y = np.random.rand(10)
+
+        s = Spline(x, y, bc_type='natural')
+        cs = CubicSpline(x, y, bc_type='natural')
+
+        eval_x = np.linspace(0.1, 9, 1000)
+        for i in range(len(eval_x)):
+            self.assertAlmostEqual(s(eval_x[i], 1), cs(eval_x[i], 1))
+
     def test_sin_fxn(self):
         xi = np.linspace(0,2*np.pi,10)
         yi = np.sin(xi)
@@ -195,6 +189,24 @@ class EvaluationTests(unittest.TestCase):
         self.assertAlmostEqual(s(2*np.pi), 0.0, places=3)
 
 class MethodTests(unittest.TestCase):
+
+    def test_equality(self):
+        x = np.arange(10, dtype=float)
+        y = np.arange(10, dtype=float)
+
+        s1 = Spline(x,y)
+        s2 = Spline(x,y)
+
+        self.assertTrue(s1 == s2)
+
+    def test_inequality(self):
+        x = np.arange(10, dtype=float)
+        y = np.arange(10, dtype=float)
+
+        s1 = Spline(x,y)
+        s2 = Spline(x+2,y)
+
+        self.assertTrue(s1 != s2)
 
     def test_in_range(self):
         x = np.arange(10, dtype=float)

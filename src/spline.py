@@ -63,9 +63,9 @@ class Spline(CubicSpline):
         derivative instead."""
 
         if i:
-            if x <= self.cutoff[0]:
+            if x < self.cutoff[0]:
                 return super(Spline,self).__call__(self.x[0],i)
-            elif x >= self.cutoff[1]:
+            elif x > self.cutoff[1]:
                 return super(Spline,self).__call__(self.x[-1],i)
             else:
                 return super(Spline,self).__call__(x,i)

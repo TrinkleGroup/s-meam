@@ -1,6 +1,8 @@
 import unittest
 import numpy as np
 
+from scipy.interpolate import CubicSpline
+
 import workerSplines
 
 from spline import Spline
@@ -36,8 +38,7 @@ class WorkerSplineTests(unittest.TestCase):
 
         test_x = np.linspace(-10, 20, 1000)
 
-        for i in range(len(test_x)):
-            ws.add_to_struct_vec(test_x[i])
+        ws.add_to_struct_vec(test_x)
 
         results = ws(self.y)
 
@@ -146,7 +147,7 @@ class WorkerSplineTests(unittest.TestCase):
         ws.add_to_struct_vec(r)
 
         true = np.array([0.5, 0.5, 0, 0.125, -0.125, 0]).reshape((1,6))
-        np.testing.assert_allclose(ws.struct_vec, true)
+        np.testing.assert_allclose(ws.struct_vecs, true)
 
     def test_get_abcd_lhs_extrap(self):
         x = np.arange(3)
@@ -156,7 +157,7 @@ class WorkerSplineTests(unittest.TestCase):
         ws.add_to_struct_vec(r)
 
         true = np.array([1, 0, 0, -0.5, 0, 0]).reshape((1,6))
-        np.testing.assert_allclose(ws.struct_vec, true)
+        np.testing.assert_allclose(ws.struct_vecs, true)
 
     def test_get_abcd_rhs_extrap(self):
         x = np.arange(3)
@@ -166,7 +167,24 @@ class WorkerSplineTests(unittest.TestCase):
         ws.add_to_struct_vec(r)
 
         true = np.array([0, 0, 1, 0, 0, 0.5]).reshape((1,6))
-        np.testing.assert_allclose(ws.struct_vec, true)
+        np.testing.assert_allclose(ws.struct_vecs, true)
+
+    def test_get_abcd_multiple(self):
+        x = np.arange(3)
+        all_r = np.array([-0.5, 0, 0.5 ,1, 2, 2.5])
+
+        ws = WorkerSpline(x, ('fixed', 'fixed'))
+
+        row0 = np.array([1, 0, 0, -0.5, 0, 0]).reshape((1,6))
+        row1 = np.array([1, 0, 0, 0, 0, 0]).reshape((1,6))
+        row2 = np.array([0.5, 0.5, 0, 0.125, -0.125, 0]).reshape((1,6))
+        row3 = np.array([0, 1, 0, 0, 0, 0]).reshape((1,6))
+        row4 = np.array([0, 0, 1, 0, 0, 0]).reshape((1,6))
+        row5 = np.array([0, 0, 1, 0, 0, 0.5]).reshape((1,6))
+
+        true = np.vstack((row0, row1, row2, row3, row4, row5))
+
+        np.testing.assert_allclose(ws.get_abcd(all_r), true)
 
     def test_eval_flat(self):
         x = np.arange(10, dtype=float)
@@ -228,9 +246,6 @@ class WorkerSplineTests(unittest.TestCase):
 
         self.assertEqual(ws(y), 10.)
 
-    def test_eval_sin_fxn(self):
-        pass
-
     def test_build_M_natural_natural(self):
         M = workerSplines.build_M(len(self.x), self.dx, bc_type=('natural',
                                                                 'natural'))
@@ -289,6 +304,80 @@ class WorkerSplineTests(unittest.TestCase):
 
         self.assertEqual(np.sum(ws(y)), 3)
 
+    def test_first_deriv_on_knot(self):
+        ws = WorkerSpline(self.x, ('fixed', 'fixed'))
+        s = Spline(self.x, self.y[:-2], bc_type=((1,0), (1,0)), end_derivs=(
+            0,0))
+
+        ws.add_to_struct_vec(self.x, 1)
+        results = ws(self.y)
+
+        for i in range(len(self.x)):
+            self.assertAlmostEqual(results[i], s(self.x[i], 1))
+
+    def test_first_deriv_between_knots_line(self):
+        x = np.arange(10)
+        y = np.arange(12)
+        y[-2] = y[-1] = 1
+
+        ws = WorkerSpline(x, ('fixed', 'fixed'))
+        s = Spline(x, y[:-2], bc_type=((1,1),(1,1)), end_derivs=(1,1))
+
+        test_x = np.linspace(0, 9, 10)
+
+        ws.add_to_struct_vec(test_x, 1)
+        results = ws(y)
+
+        #s.plot()
+
+        for i in range(len(self.x)):
+            self.assertAlmostEqual(results[i], s(self.x[i], 1))
+
+    def test_first_deriv_between_knots(self):
+        x = np.array([-1, 0, 1])
+        y = np.array([1, 0, 1, 2, 2])
+
+        ws = WorkerSpline(x, bc_type=('natural', 'natural'))
+        cs = CubicSpline(x, y[:-2], bc_type=((2,2), (2,2)))
+
+        test_x = np.linspace(-1, 1, 5)
+
+        ws.add_to_struct_vec(test_x, 1)
+        results = ws(y)
+
+        for i in range(len(self.x)):
+            self.assertAlmostEqual(results[i], cs(test_x[i], 1))
+
+    def test_first_deriv_lhs_extrap(self):
+        # assumes linear extrapolation
+        x = np.array([-1, 0, 1])
+        y = np.array([1, 0, 1, 2, 2])
+
+        ws = WorkerSpline(x, bc_type=('natural', 'natural'))
+
+        test_x = np.linspace(-5, -1, 5)
+
+        ws.add_to_struct_vec(test_x, 1)
+        results = ws(y)
+
+        for i in range(len(self.x)):
+            self.assertAlmostEqual(results[i], -2)
+
+    def test_first_deriv_rhs_extrap(self):
+        # assumes linear extrapolation
+        x = np.array([-1, 0, 1])
+        y = np.array([1, 0, 1, 2, 2])
+
+        ws = WorkerSpline(x, bc_type=('natural', 'natural'))
+
+        test_x = np.linspace(1, 5, 5)
+
+        ws.add_to_struct_vec(test_x, 1)
+        results = ws(y)
+
+        for i in range(len(self.x)):
+            self.assertAlmostEqual(results[i], 2)
+
 class RhoSplineTests(unittest.TestCase):
 
     def setUp(self):
@@ -339,3 +428,5 @@ class RhoSplineTests(unittest.TestCase):
 
         np.testing.assert_allclose(np.sum(results[0]), 2.)
         np.testing.assert_allclose(np.sum(results[1]), 3.)
+
+# TODO: pretend like there are tests here for ffgSpline
