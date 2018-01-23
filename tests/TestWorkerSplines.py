@@ -6,7 +6,8 @@ import workerSplines
 from spline import Spline
 from workerSplines import WorkerSpline, RhoSpline
 
-EPS = 1e-15
+DIGITS = 8
+EPS = 1e-8
 
 class WorkerSplineTests(unittest.TestCase):
 
@@ -23,10 +24,10 @@ class WorkerSplineTests(unittest.TestCase):
 
         ws.y = self.y
 
-        np.testing.assert_allclose(ws.y, self.y[:-2])
-        np.testing.assert_allclose(ws.end_derivs, self.y[-2:], EPS)
+        np.testing.assert_allclose(ws.y, self.y[:-2], atol=EPS, rtol=0)
+        np.testing.assert_allclose(ws.end_derivs, self.y[-2:], atol=EPS, rtol=0)
         np.testing.assert_allclose(ws.y1, np.array([ 0., -0.46622228,
-                                 -0.00732221, -0.75288626, 0.]), atol=1e-7)
+                             -0.00732221, -0.75288626, 0.]), atol=EPS,rtol=0)
 
     def test_full_eval(self):
         d0, dN = self.y[-2:]
@@ -42,7 +43,7 @@ class WorkerSplineTests(unittest.TestCase):
         results = ws(self.y)
 
         for i in range(len(test_x)):
-            self.assertAlmostEqual(results[i], cs(test_x[i]))
+            self.assertAlmostEqual(results[i], cs(test_x[i]), DIGITS)
 
     def test_rhs_extrap(self):
         d0, dN = self.y[-2:]
@@ -146,7 +147,7 @@ class WorkerSplineTests(unittest.TestCase):
         ws.add_to_struct_vec(r)
 
         true = np.array([0.5, 0.5, 0, 0.125, -0.125, 0]).reshape((1,6))
-        np.testing.assert_allclose(ws.struct_vec, true)
+        np.testing.assert_allclose(ws.struct_vecs[0], true, atol=EPS, rtol=0)
 
     def test_get_abcd_lhs_extrap(self):
         x = np.arange(3)
@@ -156,7 +157,7 @@ class WorkerSplineTests(unittest.TestCase):
         ws.add_to_struct_vec(r)
 
         true = np.array([1, 0, 0, -0.5, 0, 0]).reshape((1,6))
-        np.testing.assert_allclose(ws.struct_vec, true)
+        np.testing.assert_allclose(ws.struct_vecs[0], true, atol=EPS, rtol=0)
 
     def test_get_abcd_rhs_extrap(self):
         x = np.arange(3)
@@ -166,7 +167,7 @@ class WorkerSplineTests(unittest.TestCase):
         ws.add_to_struct_vec(r)
 
         true = np.array([0, 0, 1, 0, 0, 0.5]).reshape((1,6))
-        np.testing.assert_allclose(ws.struct_vec, true)
+        np.testing.assert_allclose(ws.struct_vecs[0], true, atol=EPS, rtol=0)
 
     def test_eval_flat(self):
         x = np.arange(10, dtype=float)
@@ -190,7 +191,7 @@ class WorkerSplineTests(unittest.TestCase):
             ws.add_to_struct_vec(el)
 
         for i in range(100):
-            np.testing.assert_allclose(np.sum(ws(y)), np.sum(test_x))
+            np.testing.assert_allclose(np.sum(ws(y)), np.sum(test_x), atol=EPS, rtol=0)
 
     def test_eval_flat_lhs_extrap(self):
         x = np.arange(10, dtype=float)
@@ -238,7 +239,7 @@ class WorkerSplineTests(unittest.TestCase):
         true = np.array([ 0.13719161, -0.47527463, -0.10830441, -0.33990513,
                           -1.55094231])
 
-        np.testing.assert_allclose(true, M@self.y, atol=EPS)
+        np.testing.assert_allclose(true, M@self.y, atol=1e-7, rtol=0)
 
     def test_build_M_natural_fixed(self):
         M = workerSplines.build_M(len(self.x), self.dx, bc_type=('natural',
@@ -246,7 +247,7 @@ class WorkerSplineTests(unittest.TestCase):
 
         true = np.array([0.15318071, -0.50725283, 0.00361927, -0.75562163, 0.])
 
-        np.testing.assert_allclose(true, M@self.y, atol=1e-7)
+        np.testing.assert_allclose(true, M@self.y, atol=EPS, rtol=0)
 
     def test_build_M_fixed_natural(self):
         M = workerSplines.build_M(len(self.x), self.dx, bc_type=('fixed',
@@ -254,7 +255,7 @@ class WorkerSplineTests(unittest.TestCase):
 
         true = np.array([0, -0.43850162, -0.11820483, -0.33707643, -1.55235667])
 
-        np.testing.assert_allclose(true, M@self.y, atol=EPS)
+        np.testing.assert_allclose(true, M@self.y, atol=EPS, rtol=0)
 
     def test_build_M_fixed_fixed(self):
         M = workerSplines.build_M(len(self.x), self.dx, bc_type=('fixed',
@@ -263,7 +264,7 @@ class WorkerSplineTests(unittest.TestCase):
         true = np.array([0.00000000e+00, -4.66222277e-01, -7.32221143e-03,
                             -7.52886257e-01, -8.88178420e-16])
 
-        np.testing.assert_allclose(true, M@self.y, atol=EPS)
+        np.testing.assert_allclose(true, M@self.y, atol=EPS, rtol=0)
 
     def test_build_M_bad_LHS(self):
         self.assertRaises(ValueError, workerSplines.build_M, len(self.x),
@@ -310,8 +311,8 @@ class RhoSplineTests(unittest.TestCase):
         self.s.update_struct_vec_dict(0., 1)
 
         self.assertEquals(len(self.s.struct_vec_dict), 5)
-        self.assertEqual(self.s.struct_vec_dict[0].shape[0], 2)
-        self.assertEqual(self.s.struct_vec_dict[1].shape[0], 3)
+        self.assertEqual(self.s.struct_vec_dict[0][0].shape[0], 2)
+        self.assertEqual(self.s.struct_vec_dict[1][0].shape[0], 3)
 
     def test_compute_zeros(self):
         self.s.update_struct_vec_dict(0., 0)

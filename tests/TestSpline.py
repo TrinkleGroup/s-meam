@@ -4,6 +4,8 @@ import os
 
 from spline import Spline, ZeroSpline
 
+DIGITS = 10
+
 class ConstructorTests(unittest.TestCase):
     """Verifies appropriate constructor behavior"""
 
@@ -45,7 +47,7 @@ class ConstructorTests(unittest.TestCase):
         self.assertEquals(s.cutoff, (0., 9.))
         self.assertEquals(s(x[0],1), 1.0)
         self.assertEquals(s(x[-1],1), 1.0)
-        self.assertAlmostEqual(s.h, 1.0, 15)
+        self.assertAlmostEqual(s.h, 1.0, DIGITS)
 
     def test_natural_bc(self):
         d0 = 0.0077693494604539
@@ -60,11 +62,11 @@ class ConstructorTests(unittest.TestCase):
 
         s = Spline(x, y, bc_type=((1,d0), (1,dN)), end_derivs=(d0, dN))
 
-        self.assertAlmostEqual(s(x[0],1), d0)
-        self.assertAlmostEqual(s(x[-1],1), dN)
+        self.assertAlmostEqual(s(x[0],1), d0, DIGITS)
+        self.assertAlmostEqual(s(x[-1],1), dN, DIGITS)
 
         for i in range(len(x)):
-            self.assertAlmostEqual(s(x[i],2), y2_expected[i])
+            self.assertAlmostEqual(s(x[i],2), y2_expected[i], DIGITS)
 
     def test_one_set_derivative(self):
         d0 = 0.15500135578733
@@ -79,11 +81,11 @@ class ConstructorTests(unittest.TestCase):
         s = Spline(x, y, bc_type=('natural', (1,dN)), end_derivs=(
             d0, dN))
 
-        self.assertAlmostEqual(s(x[0],1), d0)
-        self.assertAlmostEqual(s(x[-1],1), dN)
+        self.assertAlmostEqual(s(x[0],1), d0, DIGITS)
+        self.assertAlmostEqual(s(x[-1],1), dN, DIGITS)
 
         for i in range(len(x)):
-            self.assertAlmostEqual(s(x[i],2), y2_expected[i])
+            self.assertAlmostEqual(s(x[i],2), y2_expected[i], DIGITS)
 
     def test_zero_spline(self):
         x = np.arange(10)
@@ -96,9 +98,9 @@ class ConstructorTests(unittest.TestCase):
         self.assertEqual(s.cutoff, (0., 9.))
 
         for i in range(len(x)):
-            self.assertAlmostEqual(s(x[i]), 0)
-            self.assertAlmostEqual(s(x[i],1), 0)
-            self.assertAlmostEqual(s(x[i],1), 0)
+            self.assertAlmostEqual(s(x[i]), 0, DIGITS)
+            self.assertAlmostEqual(s(x[i],1), 0, DIGITS)
+            self.assertAlmostEqual(s(x[i],1), 0, DIGITS)
 
 class EvaluationTests(unittest.TestCase):
     """Test cases for Spline class"""
@@ -130,7 +132,7 @@ class EvaluationTests(unittest.TestCase):
 
         s = Spline(x, y, end_derivs=(d0,dN))
 
-        self.assertAlmostEqual(s(x[4]), 4.)
+        self.assertAlmostEqual(s(x[4]), 4., DIGITS)
 
     def test_eval_knot_all(self):
         x = np.arange(10, dtype=float)
@@ -141,7 +143,7 @@ class EvaluationTests(unittest.TestCase):
         s = Spline(x, y, end_derivs=(d0,dN))
 
         for i in range(len(x)):
-            self.assertAlmostEqual(s(x[i]), y[i])
+            self.assertAlmostEqual(s(x[i]), y[i], DIGITS)
 
     def test_eval_extrap_single_LHS(self):
         x = np.arange(10, dtype=float)
@@ -175,24 +177,7 @@ class EvaluationTests(unittest.TestCase):
         y = np.concatenate(([-1], y, [11]))
 
         for i in range(len(x)):
-            self.assertAlmostEqual(s(x[i]), y[i])
-
-    def test_sin_fxn(self):
-        xi = np.linspace(0,2*np.pi,10)
-        yi = np.sin(xi)
-
-        s = Spline(xi, yi)
-
-        # Check knot values
-        for i in range(len(xi)):
-            self.assertAlmostEqual(s(xi[i]), yi[i])
-
-        # Check easy points
-        self.assertAlmostEqual(s(0), 0.0, places=3)
-        self.assertAlmostEqual(s(np.pi/2.), 1.0, places=3)
-        self.assertAlmostEqual(s(np.pi), 0.0, places=3)
-        self.assertAlmostEqual(s(3*np.pi/2.), -1.0, places=3)
-        self.assertAlmostEqual(s(2*np.pi), 0.0, places=3)
+            self.assertAlmostEqual(s(x[i]), y[i], DIGITS)
 
 class MethodTests(unittest.TestCase):
 

@@ -10,8 +10,8 @@ from spline import Spline, ZeroSpline
 from tests.testStructs import dimers, trimers, bulk_periodic_ortho,\
     bulk_vac_ortho, bulk_periodic_rhombo, bulk_vac_rhombo
 
-DIGITS = 15
-EPS = 1e-15
+DIGITS = 8
+EPS = 1e-8
 
 class ConstructorTests(unittest.TestCase):
 
@@ -394,30 +394,30 @@ class EnergyTests(unittest.TestCase):
         for name in bulk_periodic_rhombo.keys():
             atoms = bulk_periodic_rhombo[name]
 
-            guess = self.p.compute_energy(atoms)
-            true = self.p.get_lammps_results(atoms)['energy']
+            guess = self.p.compute_energy(atoms)/len(atoms)
+            true = self.p.get_lammps_results(atoms)['energy']/len(atoms)
 
-        self.assertAlmostEqual(guess, true, places=DIGITS)
+            self.assertAlmostEqual(guess, true, places=DIGITS)
 
     def test_energy_bulk_periodic_ortho(self):
 
         for name in bulk_periodic_ortho.keys():
             atoms = bulk_periodic_ortho[name]
 
-            guess = self.p.compute_energy(atoms)
-            true = self.p.get_lammps_results(atoms)['energy']
+            guess = self.p.compute_energy(atoms)/len(atoms)
+            true = self.p.get_lammps_results(atoms)['energy']/len(atoms)
 
-        self.assertAlmostEqual(guess, true, places=DIGITS)
+            self.assertAlmostEqual(guess, true, places=DIGITS)
 
     def test_energy_bulk_vac_ortho(self):
 
         for name in bulk_vac_ortho.keys():
             atoms = bulk_vac_ortho[name]
 
-            guess = self.p.compute_energy(atoms)
-            true = self.p.get_lammps_results(atoms)['energy']
+            guess = self.p.compute_energy(atoms)/len(atoms)
+            true = self.p.get_lammps_results(atoms)['energy']/len(atoms)
 
-        self.assertAlmostEqual(guess, true, places=DIGITS)
+            self.assertAlmostEqual(guess, true, places=DIGITS)
 
 class ForcesTests(unittest.TestCase):
 
@@ -431,8 +431,8 @@ class ForcesTests(unittest.TestCase):
         for name in tmp_dimers.keys():
             atoms = tmp_dimers[name]
 
-            guess = self.p.compute_forces(atoms)
-            true = self.p.get_lammps_results(atoms)['forces']
+            guess = self.p.compute_forces(atoms)/len(atoms)
+            true = self.p.get_lammps_results(atoms)['forces']/len(atoms)
 
             np.testing.assert_allclose(guess, true, atol=EPS)
 
@@ -441,8 +441,8 @@ class ForcesTests(unittest.TestCase):
         for name in trimers.keys():
             atoms = trimers[name]
 
-            guess = self.p.compute_forces(atoms)
-            true = self.p.get_lammps_results(atoms)['forces']
+            guess = self.p.compute_forces(atoms)/len(atoms)
+            true = self.p.get_lammps_results(atoms)['forces']/len(atoms)
 
             np.testing.assert_allclose(guess, true, atol=EPS)
 
@@ -451,8 +451,8 @@ class ForcesTests(unittest.TestCase):
         for name in bulk_vac_ortho.keys():
             atoms = bulk_vac_ortho[name]
 
-            guess = self.p.compute_forces(atoms)
-            true = self.p.get_lammps_results(atoms)['forces']
+            guess = self.p.compute_forces(atoms)/len(atoms)
+            true = self.p.get_lammps_results(atoms)['forces']/len(atoms)
 
             np.testing.assert_allclose(guess, true, atol=EPS)
 
@@ -461,8 +461,8 @@ class ForcesTests(unittest.TestCase):
         for name in bulk_vac_rhombo.keys():
             atoms = bulk_vac_rhombo[name]
 
-            guess = self.p.compute_forces(atoms)
-            true = self.p.get_lammps_results(atoms)['forces']
+            guess = self.p.compute_forces(atoms)/len(atoms)
+            true = self.p.get_lammps_results(atoms)['forces']/len(atoms)
 
             np.testing.assert_allclose(guess, true, atol=EPS)
 
@@ -471,8 +471,8 @@ class ForcesTests(unittest.TestCase):
         for name in bulk_periodic_ortho.keys():
             atoms = bulk_periodic_ortho[name]
 
-            guess = self.p.compute_forces(atoms)
-            true = self.p.get_lammps_results(atoms)['forces']
+            guess = self.p.compute_forces(atoms)/len(atoms)
+            true = self.p.get_lammps_results(atoms)['forces']/len(atoms)
 
             np.testing.assert_allclose(guess, true, atol=EPS)
 
@@ -481,8 +481,8 @@ class ForcesTests(unittest.TestCase):
         for name in bulk_periodic_rhombo.keys():
             atoms = bulk_periodic_rhombo[name]
 
-            guess = self.p.compute_forces(atoms)
-            true = self.p.get_lammps_results(atoms)['forces']
+            guess = self.p.compute_forces(atoms)/len(atoms)
+            true = self.p.get_lammps_results(atoms)['forces']/len(atoms)
 
             np.testing.assert_allclose(guess, true, atol=EPS)
 
