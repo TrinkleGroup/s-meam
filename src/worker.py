@@ -13,8 +13,6 @@ from workerSplines import WorkerSpline, RhoSpline, ffgSpline
 logger = logging.getLogger(__name__)
 # logging.basicConfig(filename='worker.log')
 
-# rzm: begin force evaluations
-
 class Worker:
     """Worker designed to compute energies and forces for a single structure
     using a variety of different MEAM potentials
@@ -70,7 +68,9 @@ class Worker:
         self.ntypes     = ntypes
 
         nphi            = int((self.ntypes+1)*self.ntypes/2)
-        self.nphi       = nphi
+        self.nphi       = nphi # there are nphi phi functions and nphi g fxns
+
+        self.uprimes    = np.zeros(len(atoms))
 
         # Initialize splines; group by type and calculate potential cutoff range
 
@@ -115,6 +115,7 @@ class Worker:
 
         self.ffgs = []
 
+        # Build all combinations of ffg splines
         for j in range(len(self.fs)):
             inner_list = []
 
@@ -126,14 +127,8 @@ class Worker:
                 inner_list.append(ffgSpline(fj, fk, g, len(self.atoms)))
             self.ffgs.append(inner_list)
 
-        self.max_phi_knots  = max([len(s.x) for s in self.phis])
-        self.max_rho_knots  = max([len(s.x) for s in self.rhos])
-        self.max_u_knots    = max([len(s.x) for s in self.us])
-        self.max_f_knots    = max([len(s.x) for s in self.fs])
-        self.max_g_knots    = max([len(s.x) for s in self.gs])
-
+        # Compute full potential cutoff distance (based only on radial fxns)
         radial_fxns = self.phis + self.rhos + self.fs
-
         self.cutoff = np.max([max(s.x) for s in radial_fxns])
 
         # Building neighbor lists
@@ -177,6 +172,7 @@ class Worker:
 
                 self.phis[phi_idx].add_to_struct_vec(rij)
 
+
             # Store distances, angle, and index info for embedding terms
             j_counter = 0 # for tracking neighbor
             for j,offset in zip(neighbors,offsets):
@@ -195,6 +191,8 @@ class Worker:
                 rho_idx = meam.i_to_potl(jtype)
 
                 self.rhos[rho_idx].update_struct_vec_dict(rij, i)
+
+                #logging.info("WORKER: j,rij = {0},{1}".format(jtype,rij))
 
                 fj_idx = meam.i_to_potl(jtype)
 
@@ -239,20 +237,8 @@ class Worker:
 
         # TODO: ***** Ensure that everything in this function MUST be here *****
 
-        splines = self.phis + self.rhos + self.us + self.fs + self.gs
-
-        # Parse parameter vector
-        x_indices = [s.index for s in splines]
-        y_indices = [x_indices[i]+2*i for i in range(len(x_indices))]
-
-        params_split = np.split(parameters, y_indices[1:])
-
-        nphi = self.nphi
-        ntypes = self.ntypes
-
-        split_indices = [nphi, nphi+ntypes, nphi+2*ntypes, nphi+3*ntypes]
-        phi_pvecs, rho_pvecs, u_pvecs, f_pvecs, g_pvecs = np.split(
-            params_split, split_indices)
+        phi_pvecs, rho_pvecs, u_pvecs, f_pvecs, g_pvecs = \
+            self.parse_parameters(parameters)
 
         energy = 0.
 
@@ -267,10 +253,13 @@ class Worker:
         ni = np.zeros(len(self.atoms))
 
         for i in range(len(self.rhos)):
+            #logging.info("WORKER: rho_type = {0}".format(i))
             rho = self.rhos[i]
             y = rho_pvecs[i]
 
             ni += rho.compute_for_all(y)
+
+            #logging.info("WORKER: rhos = {0}".format(rho.compute_for_all(y)))
 
         # Calculate three-body contributions to ni
         for j in range(len(self.ffgs)):
@@ -295,7 +284,21 @@ class Worker:
 
             u = self.us[u_idx]
 
+            # TODO: compute_single in WorkerSpline; this is bad code
+            # TODO: clear_struct_vec(); sets struct_vec = []
+            # Compute U' value without disturbing struct_vec
+            # tmp_struct = u.struct_vecs
+            # u.struct_vecs = [[], []]
+
+            y = u_pvecs[u_idx]
             u.add_to_struct_vec(ni[i])
+            # self.uprimes[i] += u(y, 1)
+            # logging.info("WORKER: U'({0}) = {1}".format(ni[i], u(y)))
+
+            # u.struct_vecs = tmp_struct
+            #
+            # u.add_to_struct_vec(ni[i])
+            # logging.info("WORKER: U({0}) = {1}".format(ni[i], u(y)))
 
         zero_point_energy = 0
         for i in range(len(self.us)):
@@ -304,26 +307,71 @@ class Worker:
 
             # zero-point has to be calculated separately bc has to be SUBTRACTED
             # off of the energy
-            if u.struct_vec != []:
-                tmp_struct = u.struct_vec
+            if u.struct_vecs != [[],[]]:
+                tmp_struct = u.struct_vecs
 
-                u.struct_vec = []
-                for j in range(len(tmp_struct)):
-                    u.add_to_struct_vec(0)
+                u.struct_vecs = [[],[]]
+                u.add_to_struct_vec(np.zeros(len(tmp_struct[0])))
 
+                # logging.info("WORKER: zero_atom_energy = {0}".format(u(y)))
                 zero_point_energy += np.sum(u(y))
 
-                u.struct_vec = tmp_struct
+                u.struct_vecs = tmp_struct
 
-            val = np.sum(u(y))
-            energy += val
+            # logging.info("WORKER: U{0} = {1}".format(ni, u(y)))
+            energy += np.sum(u(y))
 
         return energy - zero_point_energy
 
-    def compute_forces(self, potentials):
+    def compute_forces(self, parameters):
+
+        self.compute_energies(parameters)
+
+        phi_pvecs, rho_pvecs, u_pvecs, f_pvecs, g_pvecs = \
+            self.parse_parameters(parameters)
+
         forces = np.zeros((len(self.atoms), 3))
 
+        # Pair forces
+        for i in range(len(self.phis)):
+            y = phi_pvecs[i]
+            s = self.phis[i]
+
+            forces += np.sum(s(y))
+
         return forces
+
+    def parse_parameters(self, parameters):
+        """Separates the pre-ordered 1D vector of all spline parameters into
+        groups.
+
+        Args:
+            parameters (np.arr):
+                1D array of knot points and boundary conditions for ALL
+                splines for ALL intervals
+
+        Returns:
+            *_pvecs (np.arr):
+                each return is a list of arrays of parameters. e.g.
+                phi_pvecs[0] is the parameters for the first phi spline"""
+
+        splines = self.phis + self.rhos + self.us + self.fs + self.gs
+
+        # Parse parameter vector
+        x_indices = [s.index for s in splines]
+        y_indices = [x_indices[i]+2*i for i in range(len(x_indices))]
+
+        params_split = np.split(parameters, y_indices[1:])
+
+        nphi = self.nphi
+        ntypes = self.ntypes
+
+        split_indices = [nphi, nphi+ntypes, nphi+2*ntypes, nphi+3*ntypes]
+        phi_pvecs, rho_pvecs, u_pvecs, f_pvecs, g_pvecs = np.split(
+            params_split, split_indices)
+
+        return phi_pvecs, rho_pvecs, u_pvecs, f_pvecs, g_pvecs
+
     #     """Calculates energies for all potentials using information
     #     pre-computed during initialization."""
     #     #TODO: only thing changing should be y-coords?
@@ -566,8 +614,4 @@ class Worker:
     #     self._cutoff = potentials[0].cutoff
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
-
-    worker, y_vals = read_from_file('Ti_only_crowd.Ti', 'TiO.meam.spline')
-
-    logging.info("{0}".format(worker.compute_energies(y_vals)))
+    pass

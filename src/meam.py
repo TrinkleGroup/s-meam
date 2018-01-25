@@ -245,6 +245,7 @@ class MEAM:
                         ipos - neighbor_shifted_positions[j])
 
                     phi = self.phis[ij_to_potl(itype, jtype, self.ntypes)]
+                    # print("MEAM: phi({0}) = {1}".format(r_ij, phi(r_ij)))
 
                     total_phi += phi(r_ij)
                 # end phi loop
@@ -282,6 +283,7 @@ class MEAM:
                             #                                    b, na,nb))
                             # TODO: try get_dihedral() for angles
                             cos_theta = np.dot(a, b) / na / nb
+                            # logging.info("MEAM: cos_theta = %.16f" % cos_theta)
 
                             # logging.info("MEAM: {0}, {1}, {2}".format(r_ij,
                             #                                 r_ik, cos_theta))
@@ -296,7 +298,9 @@ class MEAM:
                     fj_val = fj(r_ij)
                     total_ni += fj_val * partialsum
                     total_ni += rho(r_ij)
-                    # logging.info("MEAM rho({0} = {1}: ".format(r_ij, rho(r_ij)))
+                    print("MEAM: rho({0}) = {1}".format(r_ij, rho(r_ij)))
+                    #logging.info("MEAM: j = {2}, rho({0}) = {1}".format(r_ij,
+                                                            #rho(r_ij), jtype))
                     # logging.info("MEAM ffg() = {0}: ".format(fj_val*partialsum))
                 # end u loop
 
@@ -308,6 +312,9 @@ class MEAM:
                 total_pe += atom_e
 
                 self.uprimes[i] = u(total_ni, 1)
+                # logging.info("MEAM: U'({0}) = {1}".format(total_ni,
+                #                                           self.uprimes[i]))
+                # logging.info("MEAM: U({0}) = {1}".format(total_ni,u(total_ni)))
             # end atom loop
 
         return total_pe
@@ -395,7 +402,6 @@ class MEAM:
                             r_ik = np.linalg.norm(kdel)
                             kdel /= r_ik
 
-                            # TODO: b == kdel
                             b = neighbor_shifted_positions[k] - ipos
                             nb = np.linalg.norm(b)
 

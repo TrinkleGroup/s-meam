@@ -65,7 +65,7 @@ def read_spline_meam(fname):
 
             d0, dN = [float(el) for el in f.readline().split()]
             all_d0.append(d0); all_dN.append(dN)
-            # rzm: do we need to keep d0, dN? also, move this all to worker.py
+            # TODO: do we need to keep d0, dN? also, move this all to worker.py
 
             for j in range(nknots):
                 x,y,y2 = [np.float(el) for el in f.readline().split()]
@@ -288,7 +288,6 @@ def atoms_to_LAMMPS_file(fname, atoms):
     p = atoms.positions
 
     # Converts cell vectors to LAMMPS format
-    print(atoms.get_cell())
     a,b,c = atoms.get_cell()
     x = a[0]; y = b[1]; z = c[2]
     xy = b[0]; xz = c[0]; yz = c[1]
@@ -308,7 +307,7 @@ def atoms_to_LAMMPS_file(fname, atoms):
 
         for i in range(len(types_idx)):
             f.write("%d %d %.16f %.16f %.16f\n" % (i+1,\
-                symbol_to_type(types[i],types),p[i][0],p[i][1],p[i][2]))
+                symbol_to_type(types[i-1],types),p[i][0],p[i][1],p[i][2]))
 
 def read_forces(fname):
     """Reads in the atomic forces from a file with the following format:

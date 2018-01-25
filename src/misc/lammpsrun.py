@@ -676,7 +676,7 @@ class SpecialTee(object):
 
 class Prism(object):
 
-    def __init__(self, cell, pbc=(True, True, True), digits=10):
+    def __init__(self, cell, pbc=(True, True, True), digits=16):
         """Create a lammps-style triclinic prism object from a cell
 
         The main purpose of the prism-object is to create suitable
