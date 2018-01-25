@@ -13,6 +13,9 @@ from tests.testStructs import dimers, trimers, bulk_periodic_ortho,\
 DIGITS = 8
 EPS = 1e-8
 
+print("If energy/force calculations are failing, try following the note in "
+      "the README about updating lammpsrun.py")
+
 class ConstructorTests(unittest.TestCase):
 
     def setUp(self):
