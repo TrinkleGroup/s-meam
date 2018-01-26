@@ -74,6 +74,8 @@ class Worker:
 
         # Initialize splines; group by type and calculate potential cutoff range
 
+        # TODO: separate out __init__ into functions for readability
+
         knots_split = np.split(knot_xcoords, x_indices[1:])
 
         splines = []
@@ -139,7 +141,11 @@ class Worker:
                 self_interaction=False, bothways=False, skin=0.0)
         nl_noboth.build(atoms)
 
-        self.phi_structure_array = []
+        # Directions grouped by spling group AND by spline type
+        # e.g. phi_directions = [phi_0 directions, phi_1 directions, ...]
+        # Will be sorted into per-atom groups in evaluation
+        # Splines track their own indices
+        self.phi_directions = [np.empty((0,3)) for i in range(len(self.phis))]
 
         # Allows double counting; needed for embedding energy calculations
         nl = NeighborList(np.ones(len(atoms))*(self.cutoff/2.),\
@@ -155,6 +161,7 @@ class Worker:
             neighbors_noboth, offsets_noboth = nl_noboth.get_neighbors(i)
             neighbors, offsets = nl.get_neighbors(i)
 
+            idx_counter = 0
             # Stores pair information for phi
             for j,offset in zip(neighbors_noboth, offsets_noboth):
 
@@ -162,16 +169,19 @@ class Worker:
                 jpos = atoms[j].position + np.dot(offset,atoms.get_cell())
 
                 jvec = jpos - ipos
+
                 rij = np.linalg.norm(jvec)
                 jvec /= rij
-
-                # TODO: how do you handle directionality for forces?
-                # maybe each el in structure vec could be 3D?
 
                 phi_idx = meam.ij_to_potl(itype, jtype, self.ntypes)
 
                 self.phis[phi_idx].add_to_struct_vec(rij)
+                # self.phi_directions[phi_idx].append(jvec)
+                self.phi_directions[phi_idx] = np.vstack((self.phi_directions[
+                                                             phi_idx], jvec))
+                self.phis[phi_idx].indices.append([i,j])
 
+                # rzm: go to eval; eval primes, multiply dir mat, sort
 
             # Store distances, angle, and index info for embedding terms
             j_counter = 0 # for tracking neighbor
@@ -219,6 +229,8 @@ class Worker:
                         self.ffgs[fj_idx][fk_idx].update_struct_vec_dict(rij,
                                      rik, cos_theta, i)
 
+        self.phi_directions = [np.array(el) for el in self.phi_directions]
+
     def compute_energies(self, parameters):
         """Calculates energies for all potentials using information
         pre-computed during initialization.
@@ -253,13 +265,10 @@ class Worker:
         ni = np.zeros(len(self.atoms))
 
         for i in range(len(self.rhos)):
-            #logging.info("WORKER: rho_type = {0}".format(i))
             rho = self.rhos[i]
             y = rho_pvecs[i]
 
             ni += rho.compute_for_all(y)
-
-            #logging.info("WORKER: rhos = {0}".format(rho.compute_for_all(y)))
 
         # Calculate three-body contributions to ni
         for j in range(len(self.ffgs)):
@@ -278,28 +287,18 @@ class Worker:
 
         # TODO: vectorize this
         # TODO: build a zero_struct here to avoid iterating over each atom twice
+        # Add ni values to respective u splines
         for i in range(len(self.atoms)):
             itype = lammpsTools.symbol_to_type(self.atoms[i].symbol, self.types)
             u_idx = meam.i_to_potl(itype)
 
             u = self.us[u_idx]
 
-            # TODO: compute_single in WorkerSpline; this is bad code
             # TODO: clear_struct_vec(); sets struct_vec = []
-            # Compute U' value without disturbing struct_vec
-            # tmp_struct = u.struct_vecs
-            # u.struct_vecs = [[], []]
 
-            y = u_pvecs[u_idx]
             u.add_to_struct_vec(ni[i])
-            # self.uprimes[i] += u(y, 1)
-            # logging.info("WORKER: U'({0}) = {1}".format(ni[i], u(y)))
 
-            # u.struct_vecs = tmp_struct
-            #
-            # u.add_to_struct_vec(ni[i])
-            # logging.info("WORKER: U({0}) = {1}".format(ni[i], u(y)))
-
+        # Evaluate u splines and zero-point energies
         zero_point_energy = 0
         for i in range(len(self.us)):
             u = self.us[i]
@@ -313,12 +312,10 @@ class Worker:
                 u.struct_vecs = [[],[]]
                 u.add_to_struct_vec(np.zeros(len(tmp_struct[0])))
 
-                # logging.info("WORKER: zero_atom_energy = {0}".format(u(y)))
                 zero_point_energy += np.sum(u(y))
 
                 u.struct_vecs = tmp_struct
 
-            # logging.info("WORKER: U{0} = {1}".format(ni, u(y)))
             energy += np.sum(u(y))
 
         return energy - zero_point_energy
@@ -333,11 +330,44 @@ class Worker:
         forces = np.zeros((len(self.atoms), 3))
 
         # Pair forces
-        for i in range(len(self.phis)):
-            y = phi_pvecs[i]
-            s = self.phis[i]
+        for phi_idx in range(len(self.phis)):
+            y = phi_pvecs[phi_idx]
+            s = self.phis[phi_idx]
 
-            forces += np.sum(s(y))
+            # multiply the directions by the magnitudes
+            phi_primes = s(y, 1)
+            phi_dirs = self.phi_directions[phi_idx]
+
+            if len(phi_dirs) > 0:
+                phi_forces = np.einsum('ij,i->ij', phi_dirs, phi_primes)
+
+                # Parse the indices to know which forces to add to which atoms
+                indices = np.array(s.indices)
+                forwards_indices = indices[:,0]
+                backwards_indices = indices[:,1]
+
+                # by the power of NumPy, I shamelessly write enigmatic one-liners;
+                # long story short: directions get sorted and grouped per atom
+
+                forces_grouped = np.split(phi_forces, np.where(np.diff(
+                    forwards_indices[forwards_indices.argsort()]))[0]+1)
+
+                # forwards_forces = np.sum(np.array(forces_grouped), axis=0)
+                forwards_forces = np.array([np.sum(el, axis=0) for el in \
+                        forces_grouped])
+
+                atom_ids_to_add_f, count_to_add_f = np.unique(forwards_indices,
+                                                          return_counts=True)
+                atom_ids_to_add_b, count_to_add_b = np.unique(backwards_indices,
+                                                          return_counts=True)
+                forwards_forces = np.repeat(forwards_forces, count_to_add_f,
+                                            axis=0)
+                backwards_forces = np.repeat(forwards_forces, count_to_add_b,
+                                            axis=0)
+
+                # rzm: when indices longer than forward_fs, need to repeat add
+                np.add.at(forces, atom_ids_to_add_f, forwards_forces)
+                np.add.at(forces, atom_ids_to_add_b, -backwards_forces)
 
         return forces
 

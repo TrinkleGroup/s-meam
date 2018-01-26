@@ -1,5 +1,7 @@
 import unittest
 import numpy as np
+np.random.seed(42)
+
 import logging
 import time
 
@@ -16,23 +18,22 @@ from tests.testStructs import dimers, trimers, bulk_vac_ortho, \
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
-# logging.disable(logging.CRITICAL)
+logging.disable(logging.CRITICAL)
 
-EPS = 1e-16
-np.random.seed(42)
+EPS = 1e-14
 
 N = 1
 
 # Flags for what tests to run
-energy_flag = True*1
-forces_flag = True*0
+energy_flag = True*0
+forces_flag = True*1
 
 zero_pots_flag  = True*0
 const_pots_flag = True*0
 rand_pots_flag  = True*1
 
-meam_flag       = True*1
-phionly_flag    = True*0
+meam_flag       = True*0
+phionly_flag    = True*1
 rhophi_flag     = True*0
 nophi_flag      = True*0
 rho_flag        = True*0
@@ -41,7 +42,7 @@ norhophi_flag   = True*0
 
 dimers_flag  = True*1
 trimers_flag = True*1
-bulk_flag    = True*1
+bulk_flag    = True*0
 
 allstructs = {}
 
@@ -53,26 +54,9 @@ if bulk_flag:
     allstructs = {**allstructs, **bulk_vac_ortho, **bulk_periodic_ortho,
                   **bulk_vac_rhombo, **bulk_periodic_rhombo, **extra}
 
-# rzm: still incorrect comparing Worker to LAMMPS; MEAM acc to LAMMPS 1e-8
-
 # allstructs = {'aaa':trimers['aaa']}
 # allstructs = {'bulk_vac_ortho_type1':bulk_vac_ortho['bulk_vac_ortho_type1']}
-# allstructs = {'8_atoms':extra['8_atoms']}
-
-import ase.build
-from tests.testVars import a0, vac
-
-i = 3
-atoms = ase.build.bulk('H', crystalstructure='fcc', a=a0, orthorhombic=True)
-atoms = atoms.repeat((i,i,1))
-atoms.rattle()
-atoms.center(vacuum=0)
-atoms.set_pbc(True)
-atoms.set_chemical_symbols(np.random.randint(1,3, size=len(atoms)))
-
-atoms.center(vacuum=vac)
-
-allstructs = {'dummy':atoms}
+allstructs = {'8_atoms':extra['8_atoms']}
 
 ################################################################################
 # Helper functions
@@ -96,8 +80,12 @@ def loader_forces(group_name, calculated, lammps):
 
     tests = []
     for name in calculated.keys():
+        logging.info("WORKER: forces = {0}".format(calculated[name]))
+        logging.info("MEAM: forces = {0}".format(calculated[name]))
         test_name = group_name + '_' + name + '_forces'
-        tests.append((test_name, calculated[name], lammps[name]))
+        tests.append((test_name, calculated[name], lammps[name][0]))
+
+    return tests
 
 def getLammpsResults(pots, structs):
 
@@ -163,7 +151,7 @@ def runner_forces(pots, structs):
         w = Worker(atoms, x_pvec, indices, pots[0].types)
         start = time.time()
         # TODO: to optimize, preserve workers for each struct
-        forces[name] = w.compute_forces(pots[0])
+        forces[name] = w.compute_forces(y_pvec)
         # py_calcduration += time.time() - start
 
     return forces

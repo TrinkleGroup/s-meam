@@ -30,10 +30,6 @@ class WorkerSpline:
         cutoff (tuple-like):
             upper and lower bounds of knots (x[0], x[-1])
 
-        index (int):
-            the index of the first knot of this spline when the knots of all
-            splines in a potential are grouped into a single 1D vector
-
         end_derivs (tuple-like):
             first derivatives at endpoints
 
@@ -50,6 +46,11 @@ class WorkerSpline:
             each structure vector is a 2D array for evaluating the spline on
             the structure; each row corresponds to a single pair/triplet
             evaluation
+
+        indices (list [tuple-like]):
+            indices for matching values to atoms; needed for force
+            calculations, which require per-atom grouping. Tuple needed to do
+            forwards/backwards directions
 
     Notes:
         This object is distinct from a spline.Spline since it requires some
@@ -79,8 +80,8 @@ class WorkerSpline:
         self.M = build_M(len(x), self.h, self.bc_type)
 
         # Variables that will be set at some point
-        self.index = None
         self.struct_vecs = [[], []]
+        self.indices = []
 
         # Variables that will be set on evaluation
         self._y = None

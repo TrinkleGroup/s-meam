@@ -160,16 +160,16 @@ bulk_vac_rhombo['bulk_vac_rhombo_mixed'] = mixed
 
 ################################################################################
 
-atoms4 = ase.build.bulk('H', crystalstructure='fcc', a=a0, orthorhombic=True)
-atoms4 = atoms4.repeat((2,1,1))
-atoms4.rattle()
-atoms4.center(vacuum=0)
-atoms4.set_pbc(True)
-atoms4.set_chemical_symbols(np.random.randint(1,3, size=len(atoms4)))
+atoms8 = ase.build.bulk('H', crystalstructure='fcc', a=a0, orthorhombic=True)
+atoms8 = atoms8.repeat((2,2,1))
+atoms8.rattle()
+atoms8.center(vacuum=0)
+atoms8.set_pbc(True)
+atoms8.set_chemical_symbols(np.random.randint(1,3, size=len(atoms8)))
 
-atoms4.center(vacuum=vac)
+atoms8.center(vacuum=vac)
 
-extra = {'4_atoms':atoms4}
+extra = {'8_atoms':atoms8}
 
 ################################################################################
 allstructs = {**dimers, **trimers, **bulk_vac_ortho, **bulk_periodic_ortho,\
