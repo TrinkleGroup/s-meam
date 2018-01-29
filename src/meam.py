@@ -298,7 +298,7 @@ class MEAM:
                     fj_val = fj(r_ij)
                     total_ni += fj_val * partialsum
                     total_ni += rho(r_ij)
-                    print("MEAM: rho({0}) = {1}".format(r_ij, rho(r_ij)))
+                    # print("MEAM: rho({0}) = {1}".format(r_ij, rho(r_ij)))
                     #logging.info("MEAM: j = {2}, rho({0}) = {1}".format(r_ij,
                                                             #rho(r_ij), jtype))
                     # logging.info("MEAM ffg() = {0}: ".format(fj_val*partialsum))
@@ -317,6 +317,8 @@ class MEAM:
                 # logging.info("MEAM: U({0}) = {1}".format(total_ni,u(total_ni)))
             # end atom loop
 
+        # logging.info("MEAM: U' = {0}".format(self.uprimes))
+        # print("MEAM: U' = {0}".format(self.uprimes))
         return total_pe
 
     def compute_forces(self, atoms):

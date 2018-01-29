@@ -146,6 +146,7 @@ class Worker:
         # Will be sorted into per-atom groups in evaluation
         # Splines track their own indices
         self.phi_directions = [np.empty((0,3)) for i in range(len(self.phis))]
+        self.rho_directions = [np.empty((0,3)) for i in range(len(self.rhos))]
 
         # Allows double counting; needed for embedding energy calculations
         nl = NeighborList(np.ones(len(atoms))*(self.cutoff/2.),\
@@ -176,12 +177,10 @@ class Worker:
                 phi_idx = meam.ij_to_potl(itype, jtype, self.ntypes)
 
                 self.phis[phi_idx].add_to_struct_vec(rij)
-                # self.phi_directions[phi_idx].append(jvec)
+
                 self.phi_directions[phi_idx] = np.vstack((self.phi_directions[
                                                              phi_idx], jvec))
                 self.phis[phi_idx].indices.append([i,j])
-
-                # rzm: go to eval; eval primes, multiply dir mat, sort
 
             # Store distances, angle, and index info for embedding terms
             j_counter = 0 # for tracking neighbor
@@ -197,12 +196,13 @@ class Worker:
                 a = jpos - ipos
                 na = np.linalg.norm(a)
 
-                # Rho information; need forward AND backwards info for forces
                 rho_idx = meam.i_to_potl(jtype)
 
                 self.rhos[rho_idx].update_struct_vec_dict(rij, i)
 
-                #logging.info("WORKER: j,rij = {0},{1}".format(jtype,rij))
+                self.rho_directions[rho_idx] = np.vstack((self.rho_directions[
+                                                             rho_idx], jvec))
+                self.rhos[rho_idx].indices.append([i,j])
 
                 fj_idx = meam.i_to_potl(jtype)
 
@@ -229,7 +229,8 @@ class Worker:
                         self.ffgs[fj_idx][fk_idx].update_struct_vec_dict(rij,
                                      rik, cos_theta, i)
 
-        self.phi_directions = [np.array(el) for el in self.phi_directions]
+        # self.phi_directions = [np.array(el) for el in self.phi_directions]
+        # self.rho_directions = [np.array(el) for el in self.rho_directions]
 
     def compute_energies(self, parameters):
         """Calculates energies for all potentials using information
@@ -270,6 +271,8 @@ class Worker:
 
             ni += rho.compute_for_all(y)
 
+        # logging.info("WORKER: ni = {0}".format(ni))
+
         # Calculate three-body contributions to ni
         for j in range(len(self.ffgs)):
             ffg_list = self.ffgs[j]
@@ -294,6 +297,8 @@ class Worker:
 
             u = self.us[u_idx]
 
+            self.us[u_idx].indices.append(i)
+
             # TODO: clear_struct_vec(); sets struct_vec = []
 
             u.add_to_struct_vec(ni[i])
@@ -317,6 +322,12 @@ class Worker:
                 u.struct_vecs = tmp_struct
 
             energy += np.sum(u(y))
+            # logging.info("WORKER: U'({0}) = {1}".format(ni, u(y,1)))
+            # self.uprimes += u(y, 1)
+            np.add.at(self.uprimes, u.indices, u(y, 1))
+
+        # logging.info("WORKER: ni = {0}".format(ni))
+        # logging.info("WORKER: U' = {0}".format(self.uprimes))
 
         return energy - zero_point_energy
 
@@ -327,9 +338,9 @@ class Worker:
         phi_pvecs, rho_pvecs, u_pvecs, f_pvecs, g_pvecs = \
             self.parse_parameters(parameters)
 
-        forces = np.zeros((len(self.atoms), 3))
+        self.forces = np.zeros((len(self.atoms), 3))
 
-        # Pair forces
+        # Pair forces (phi)
         for phi_idx in range(len(self.phis)):
             y = phi_pvecs[phi_idx]
             s = self.phis[phi_idx]
@@ -340,36 +351,75 @@ class Worker:
 
             if len(phi_dirs) > 0:
                 phi_forces = np.einsum('ij,i->ij', phi_dirs, phi_primes)
+                phi_indices = np.array(s.indices)
 
-                # Parse the indices to know which forces to add to which atoms
-                indices = np.array(s.indices)
-                forwards_indices = indices[:,0]
-                backwards_indices = indices[:,1]
+                self.update_forces(phi_forces, phi_indices)
 
-                # by the power of NumPy, I shamelessly write enigmatic one-liners;
-                # long story short: directions get sorted and grouped per atom
+        # Electron density embedding (rho)
+        for rho_idx in range(len(self.rhos)):
+            y = rho_pvecs[rho_idx]
+            s = self.rhos[rho_idx]
 
-                forces_grouped = np.split(phi_forces, np.where(np.diff(
-                    forwards_indices[forwards_indices.argsort()]))[0]+1)
+            rho_primes = s(y, 1)
+            rho_dirs = self.rho_directions[rho_idx]
 
-                # forwards_forces = np.sum(np.array(forces_grouped), axis=0)
-                forwards_forces = np.array([np.sum(el, axis=0) for el in \
-                        forces_grouped])
+            if len(rho_dirs) > 0:
+                # rzm: why does len(rho_dirs) != len(rho_primes)
+                rho_forces = np.einsum('ij,i->ij', rho_dirs, rho_primes)
+                rho_indices = np.array(s.indices)
+                rho_forces = np.einsum('ij,i->ij', rho_forces, self.uprimes[
+                    rho_indices[:,0]])
 
-                atom_ids_to_add_f, count_to_add_f = np.unique(forwards_indices,
-                                                          return_counts=True)
-                atom_ids_to_add_b, count_to_add_b = np.unique(backwards_indices,
-                                                          return_counts=True)
-                forwards_forces = np.repeat(forwards_forces, count_to_add_f,
-                                            axis=0)
-                backwards_forces = np.repeat(forwards_forces, count_to_add_b,
-                                            axis=0)
+                self.update_forces(rho_forces, rho_indices)
 
-                # rzm: when indices longer than forward_fs, need to repeat add
-                np.add.at(forces, atom_ids_to_add_f, forwards_forces)
-                np.add.at(forces, atom_ids_to_add_b, -backwards_forces)
+        return self.forces
 
-        return forces
+    def update_forces(self, new_forces, indices):
+        """Updates the system's per atom forces.
+
+        Args:
+            new_forces (np.arr):
+                Nx3 array of force vectors to add to the system ordered to
+                match indices
+            indices (np.arr):
+                Nx2 array of indices where the first column is the atom ID
+                of the first atom, and the second column is the neighbor's ID
+
+        Returns:
+            None; manually updates self.forces"""
+
+        # Parse unsorted atom ID's
+        forwards_indices = indices[:,0]
+        backwards_indices = indices[:,1]
+
+        # Get ordered set of atom tags
+        indices_to_sort_tags_f = forwards_indices.argsort()
+        sorted_indices_f = set(forwards_indices[indices_to_sort_tags_f])
+
+        indices_to_sort_tags_b = backwards_indices.argsort()
+        sorted_indices_b = set(backwards_indices[indices_to_sort_tags_b])
+
+        # Sort forces for forwards/backwards
+        forwards_forces = new_forces[indices_to_sort_tags_f]
+        backwards_forces = new_forces[indices_to_sort_tags_b]
+
+        # Split into groups per atom tag
+        forwards_forces = np.split(forwards_forces, np.where(np.diff(
+            forwards_indices[indices_to_sort_tags_f]))[0]+1)
+
+        backwards_forces = np.split(backwards_forces, np.where(np.diff(
+            backwards_indices[indices_to_sort_tags_b]))[0]+1)
+
+        # Sum per atom forces and add to total
+        forwards_forces = np.array([np.sum(el, axis=0) for el in
+                                    forwards_forces])
+        backwards_forces = np.array([np.sum(el, axis=0) for el in
+                                     backwards_forces])
+
+        np.add.at(self.forces, np.array(list(sorted_indices_f)),
+                  forwards_forces)
+        np.add.at(self.forces, np.array(list(sorted_indices_b)),
+                  -backwards_forces)
 
     def parse_parameters(self, parameters):
         """Separates the pre-ordered 1D vector of all spline parameters into

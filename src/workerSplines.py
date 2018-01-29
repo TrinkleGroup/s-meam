@@ -50,7 +50,7 @@ class WorkerSpline:
         indices (list [tuple-like]):
             indices for matching values to atoms; needed for force
             calculations, which require per-atom grouping. Tuple needed to do
-            forwards/backwards directions
+            forwards/backwards directions. For U, this is just a single ID
 
     Notes:
         This object is distinct from a spline.Spline since it requires some

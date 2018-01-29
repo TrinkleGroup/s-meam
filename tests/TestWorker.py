@@ -18,9 +18,9 @@ from tests.testStructs import dimers, trimers, bulk_vac_ortho, \
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
-logging.disable(logging.CRITICAL)
+# logging.disable(logging.CRITICAL)
 
-EPS = 1e-14
+EPS = 1e-12
 
 N = 1
 
@@ -33,15 +33,15 @@ const_pots_flag = True*0
 rand_pots_flag  = True*1
 
 meam_flag       = True*0
-phionly_flag    = True*1
+phionly_flag    = True*0
 rhophi_flag     = True*0
 nophi_flag      = True*0
-rho_flag        = True*0
+rho_flag        = True*1
 norho_flag      = True*0
 norhophi_flag   = True*0
 
-dimers_flag  = True*1
-trimers_flag = True*1
+dimers_flag  = True*0
+trimers_flag = True*0
 bulk_flag    = True*0
 
 allstructs = {}
@@ -54,9 +54,13 @@ if bulk_flag:
     allstructs = {**allstructs, **bulk_vac_ortho, **bulk_periodic_ortho,
                   **bulk_vac_rhombo, **bulk_periodic_rhombo, **extra}
 
-# allstructs = {'aaa':trimers['aaa']}
-# allstructs = {'bulk_vac_ortho_type1':bulk_vac_ortho['bulk_vac_ortho_type1']}
-allstructs = {'8_atoms':extra['8_atoms']}
+allstructs = {'aaa':trimers['aaa']}
+# allstructs = {'bulk_vac_rhombo_mixed':bulk_vac_rhombo['bulk_vac_rhombo_mixed']}
+# allstructs = {'8_atoms':extra['8_atoms']}
+
+# import lammpsTools
+# lammpsTools.atoms_to_LAMMPS_file('../data/structs/data.dimerab', allstructs[
+#     'ab'])
 
 ################################################################################
 # Helper functions
