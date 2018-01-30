@@ -24,6 +24,7 @@ class Worker:
           d0,dN), then 'natural' or 'fixed' decided later"""
 
     # TODO: an assumption is made that all potentials have the same cutoffs
+    # TODO: check speeds of list append() vs. numpy vstack/concatenate/append
 
     def __init__(self, atoms, knot_xcoords, x_indices, types):
         """Organizes data structures and pre-computes structure information.
@@ -147,6 +148,8 @@ class Worker:
         # Splines track their own indices
         self.phi_directions = [np.empty((0,3)) for i in range(len(self.phis))]
         self.rho_directions = [np.empty((0,3)) for i in range(len(self.rhos))]
+        self.ffg_directions = [[np.empty((0,3)) for i in range(len(self.fs))]
+                               for j in range(len(self.fs))]
 
         # Allows double counting; needed for embedding energy calculations
         nl = NeighborList(np.ones(len(atoms))*(self.cutoff/2.),\
@@ -227,13 +230,18 @@ class Worker:
                         # fk information
                         fk_idx = meam.i_to_potl(ktype)
 
-                        # self.ffgs[fj_idx][fk_idx].add_to_struct_vec(rij, rik,
-                        #                                      cos_theta, [i,j,k])
                         self.ffgs[fj_idx][fk_idx].add_to_struct_vec(rij, rik,
-                                                             cos_theta, [i,j,k])
+                                                     cos_theta, [i,j,k])
 
-        # self.phi_directions = [np.array(el) for el in self.phi_directions]
-        # self.rho_directions = [np.array(el) for el in self.rho_directions]
+                        # Directions added to match ordering of terms in
+                        # first derivative of fj*fk*g
+                        d0 = jvec; d1 = cos_theta*jvec; d2 = -kvec
+                        d3 = kvec; d4 = cos_theta*kvec; d5 = -jvec
+
+                        self.ffg_directions[fj_idx][fk_idx] = np.vstack((
+                            self.ffg_directions[fj_idx][fk_idx],
+                            d0, d1, d2, d3, d4, d5))
+
 
     def compute_energies(self, parameters):
         """Calculates energies for all potentials using information
@@ -307,6 +315,7 @@ class Worker:
 
             # TODO: clear_struct_vec(); sets struct_vec = []
 
+            # TODO: it's dumb that you have to pass in [i,i] for U b/c inherits
             u.add_to_struct_vec(ni[i], [i,i])
 
         # Evaluate u splines and zero-point energies
@@ -330,10 +339,10 @@ class Worker:
                 u.struct_vecs   = tmp_struct
                 u.indices       = tmp_indices
 
-            energy += np.sum(u(y))
-            # logging.info("WORKER: U'({0}) = {1}".format(ni, u(y,1)))
-            # self.uprimes += u(y, 1)
-            np.add.at(self.uprimes, u.indices[:,0].astype(int), u(y, 1))
+                energy += np.sum(u(y))
+                # logging.info("WORKER: U'({0}) = {1}".format(ni, u(y,1)))
+                # self.uprimes += u(y, 1)
+                np.add.at(self.uprimes, u.indices[:,0], u(y, 1))
 
         # logging.info("WORKER: ni = {0}".format(ni))
         # logging.info("WORKER: U' = {0}".format(self.uprimes))
@@ -371,7 +380,6 @@ class Worker:
             s = self.rhos[rho_idx]
 
             rho_primes = s(y, 1)
-            # rho_primes = s.compute_for_all(y, 1)
             rho_dirs = self.rho_directions[rho_idx]
 
             if len(rho_dirs) > 0:
@@ -384,8 +392,28 @@ class Worker:
                 self.update_forces(rho_forces, rho_indices)
 
         # Angular terms
-        for ffg_idx in range(len(self.ffgs)):
-            y_fj = f_pvecs[]
+        for j in range(len(self.ffgs)):
+            ffg_list = self.ffgs[j]
+
+            y_fj = f_pvecs[j]
+
+            for k in range(len(ffg_list)):
+                ffg = ffg_list[k]
+
+                ffg_indices = ffg.indices[1]
+                ffg_dirs = self.ffg_directions[j][k]
+
+                y_fk = f_pvecs[k]
+                y_g = g_pvecs[meam.ij_to_potl(j+1, k+1, self.ntypes)]
+
+                ffg_primes = ffg(y_fj, y_fk, y_g, 1)
+
+                if len(ffg_dirs) > 0:
+                    ffg_forces = np.einsum('ij,i->ij', ffg_dirs, ffg_primes)
+                    ffg_forces = np.einsum('ij,i->ij', ffg_forces,
+                                           self.uprimes[ffg_indices[:,0]])
+
+                    self.update_forces(ffg_forces, ffg_indices)
 
         return self.forces
 

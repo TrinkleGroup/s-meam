@@ -363,7 +363,8 @@ class ffgSpline:
 
         # Variables that will be set at some point
         self.struct_vecs = [[], []]
-        self.indices = np.empty((0,3))
+        self.indices = [np.empty((0,3)), np.empty((0,2))]
+        self.angles = []
 
     def __call__(self, y_fj, y_fk, y_g, deriv=0):
 
@@ -397,12 +398,14 @@ class ffgSpline:
 
         if len(self.struct_vecs[deriv]) == 0: return ni
 
+        indices = self.indices[deriv]
+
         results = self.__call__(y_fj, y_fk, y_g, deriv)
 
         # TODO: weird vectorization stuff to avoid this for loop; group/sum
 
         for i in range(self.natoms):
-            ni[i] = np.sum(results[self.indices[:,0] == i])
+            ni[i] = np.sum(results[indices[:,0] == i])
 
         return ni
 
@@ -421,20 +424,23 @@ class ffgSpline:
                 the value at which to evaluate g
 
             deriv (int):
-                deriv at which to evaluate the splines"""
+                derivatives at which to evaluate the splines, ordered as [
+                fj_deriv, fk_deriv, g_deriv]"""
+
+        fj_deriv, fk_deriv, g_deriv = deriv
 
         add_rij = np.atleast_1d(rij)
         add_rik = np.atleast_1d(rik)
         add_cos_theta = np.atleast_1d(cos_theta)
 
         # TODO: using ravel() b/c multi-value is not ready for ffgSpline
-        fj_abcd = self.fj.get_abcd(add_rij, deriv)
+        fj_abcd = self.fj.get_abcd(add_rij, fj_deriv)
         fj_abcd = np.ravel(fj_abcd)
 
-        fk_abcd = self.fk.get_abcd(add_rik, deriv)
+        fk_abcd = self.fk.get_abcd(add_rik, fk_deriv)
         fk_abcd = np.ravel(fk_abcd)
 
-        g_abcd = self.g.get_abcd(add_cos_theta, deriv)
+        g_abcd = self.g.get_abcd(add_cos_theta, g_deriv)
         g_abcd = np.ravel(g_abcd)
 
         full_abcd = np.prod(cartesian_product(fj_abcd, fk_abcd, g_abcd), axis=1)
@@ -442,8 +448,16 @@ class ffgSpline:
         return full_abcd
 
     def add_to_struct_vec(self, rij, rik, cos_theta, indices):
-        """Computes the vector of coefficients for evaluating the complete
-        product of fj*fk*g
+        """To the first structure vector (direct evaluation), adds one row for
+        corresponding to the product of fj*fk*g
+
+        To the second structure vector (first derivative), adds all 6 terms
+        associated with the derivative of fj*fk*g (these can be derived by
+        using chain/product rule on the derivative of fj*fk*g, keeping in
+        mind that they are functions of rij/rik/cos_theta respectively)
+
+        Note that factors (like negatives signs and the additional cos_theta)
+        are ignored here, and will be multiplied with the direction later
 
         Args:
             rij (float):
@@ -459,8 +473,20 @@ class ffgSpline:
                 [i,j,k] atom tags where i is the center atom, and i and j are
                 the neighbors"""
 
-        abcd_0 = self.get_abcd(rij, rik, cos_theta, 0)
-        abcd_1 = self.get_abcd(rij, rik, cos_theta, 1)
+        self.angles.append(cos_theta)
+
+        abcd_0 = self.get_abcd(rij, rik, cos_theta, [0,0,0])
+
+        abcd_1 = self.get_abcd(rij, rik, cos_theta, [1,0,0])
+        abcd_2 = self.get_abcd(rij, rik, cos_theta, [0,0,1])
+        abcd_3 = self.get_abcd(rij, rik, cos_theta, [0,1,0])
+
+        deriv_rows = np.vstack((abcd_1, abcd_3, abcd_3, abcd_2, abcd_3, abcd_3))
+
+        # abcd_3 = self.get_abcd(rij, rik, cos_theta, [0,0,1])
+        # abcd_6 = self.get_abcd(rij, rik, cos_theta, [1,1,1])
+
+        # rzm: find which orders of f'f'g' are needed for forces; save these
 
         # Add to struct_vec for normal eval
         if self.struct_vecs[0] == []:
@@ -470,16 +496,22 @@ class ffgSpline:
 
         # Add to struct_vec for deriv eval
         if self.struct_vecs[1] == []:
-            self.struct_vecs[1] = abcd_1
+            self.struct_vecs[1] = deriv_rows
         else:
-            self.struct_vecs[1] = np.vstack((self.struct_vecs[1], abcd_1))
+            self.struct_vecs[1] = np.vstack((self.struct_vecs[1], deriv_rows))
+
+        # rzm: now 1st deriv != len straight eval
 
         # Reshape indices; replicate if adding an array of values
-        indices = np.atleast_1d(indices)
-        indices = indices.reshape((1,3))
+        i,j,k = indices
+        deriv_indices = np.array([[i,j],[i,j],[i,j],[i,k],[i,k],[i,k]])
 
-        self.indices = np.concatenate((self.indices, indices),
-                                      axis=0).astype(int)
+        indices = np.atleast_1d(indices)
+
+        self.indices[0] = np.concatenate((self.indices[0], indices.reshape(
+                                                    (1,3))),axis=0).astype(int)
+        self.indices[1] = np.concatenate((self.indices[1], deriv_indices),
+                                                            axis=0).astype(int)
 
 def build_M(num_x, dx, bc_type):
     """Builds the A and B matrices that are needed to find the function

@@ -36,9 +36,9 @@ meam_flag       = True*0
 phionly_flag    = True*0
 rhophi_flag     = True*0
 nophi_flag      = True*0
-rho_flag        = True*1
+rho_flag        = True*0
 norho_flag      = True*0
-norhophi_flag   = True*0
+norhophi_flag   = True*1
 
 dimers_flag  = True*1
 trimers_flag = True*1
@@ -53,6 +53,8 @@ if trimers_flag:
 if bulk_flag:
     allstructs = {**allstructs, **bulk_vac_ortho, **bulk_periodic_ortho,
                   **bulk_vac_rhombo, **bulk_periodic_rhombo, **extra}
+
+# rzm: trimers are running, but not giving correct results
 
 allstructs = {'aba':trimers['aba']}
 # allstructs = {**allstructs, 'bulk_vac_rhombo_mixed':bulk_vac_rhombo[
@@ -159,6 +161,7 @@ def runner_forces(pots, structs):
         w = Worker(atoms, x_pvec, indices, pots[0].types)
         start = time.time()
         # TODO: to optimize, preserve workers for each struct
+        # TODO: this runs absurdly slowly; uses lots of memory???
         forces[name] = w.compute_forces(y_pvec)
         # py_calcduration += time.time() - start
 
