@@ -37,12 +37,11 @@ class WorkerSplineTests(unittest.TestCase):
 
         test_x = np.linspace(-10, 20, 1000)
 
-        ws.add_to_struct_vec(test_x)
+        ws.add_to_struct_vec(test_x, [0,0])
 
         results = ws(self.y)
 
         for i in range(len(test_x)):
-            print(test_x[i])
             self.assertAlmostEqual(results[i], cs(test_x[i]), DIGITS)
 
     def test_rhs_extrap(self):
@@ -55,7 +54,7 @@ class WorkerSplineTests(unittest.TestCase):
         test_x = np.linspace(self.x[-1], self.x[-1]+2, 100)
         # test_x = np.array([1.5])
 
-        ws.add_to_struct_vec(test_x)
+        ws.add_to_struct_vec(test_x, [0,0])
 
         results = ws(self.y)
 
@@ -71,7 +70,7 @@ class WorkerSplineTests(unittest.TestCase):
 
         test_x = np.linspace(self.x[0]-2, self.x[0], 1000)
 
-        ws.add_to_struct_vec(test_x)
+        ws.add_to_struct_vec(test_x, [0,0])
 
         results = ws(self.y)
 
@@ -86,8 +85,7 @@ class WorkerSplineTests(unittest.TestCase):
 
         test_x = np.linspace(self.x[1], self.x[-2], 1000)
 
-        for i in range(len(test_x)):
-            ws.add_to_struct_vec(test_x[i])
+        ws.add_to_struct_vec(test_x, [0,0])
 
         results = ws(self.y)
 
@@ -102,8 +100,7 @@ class WorkerSplineTests(unittest.TestCase):
 
         test_x = np.linspace(self.x[0], self.x[1], 100)
 
-        for i in range(len(test_x)):
-            ws.add_to_struct_vec(test_x[i])
+        ws.add_to_struct_vec(test_x, [0,0])
 
         results = ws(self.y)
 
@@ -118,12 +115,11 @@ class WorkerSplineTests(unittest.TestCase):
 
         test_x = np.linspace(self.x[-2], self.x[-1]-0.01, 100)
 
-        ws.add_to_struct_vec(test_x)
+        ws.add_to_struct_vec(test_x, [0,0])
 
         results = ws(self.y)
 
         for i in range(len(test_x)):
-            print(i)
             self.assertAlmostEqual(results[i], cs(test_x[i]))
 
     def test_constructor_bad_x(self):
@@ -140,7 +136,7 @@ class WorkerSplineTests(unittest.TestCase):
         r = 0.5
 
         ws = WorkerSpline(x, ('fixed', 'fixed'))
-        ws.add_to_struct_vec(r)
+        ws.add_to_struct_vec(r, [0,0])
 
         true = np.array([0.5, 0.5, 0, 0.125, -0.125, 0]).reshape((1,6))
         np.testing.assert_allclose(ws.struct_vecs[0], true, atol=EPS, rtol=0)
@@ -150,7 +146,7 @@ class WorkerSplineTests(unittest.TestCase):
         r = -0.5
 
         ws = WorkerSpline(x, ('fixed', 'fixed'))
-        ws.add_to_struct_vec(r)
+        ws.add_to_struct_vec(r, [0,0])
 
         true = np.array([1, 0, 0, -0.5, 0, 0]).reshape((1,6))
         np.testing.assert_allclose(ws.struct_vecs[0], true, atol=EPS, rtol=0)
@@ -160,7 +156,7 @@ class WorkerSplineTests(unittest.TestCase):
         r = 2.5
 
         ws = WorkerSpline(x, ('fixed', 'fixed'))
-        ws.add_to_struct_vec(r)
+        ws.add_to_struct_vec(r, [0,0])
 
         true = np.array([0, 0, 1, 0, 0, 0.5]).reshape((1,6))
         np.testing.assert_allclose(ws.struct_vecs[0], true, atol=EPS, rtol=0)
@@ -170,7 +166,7 @@ class WorkerSplineTests(unittest.TestCase):
         y = np.zeros(12)
 
         ws = WorkerSpline(x, ('natural', 'natural'))
-        ws.add_to_struct_vec(4)
+        ws.add_to_struct_vec(4, [0,0])
 
         self.assertEqual(ws(y), 0.)
 
@@ -183,7 +179,7 @@ class WorkerSplineTests(unittest.TestCase):
         # TODO: should be same with 'nat'
         ws = WorkerSpline(x, ('fixed', 'fixed'))
 
-        ws.add_to_struct_vec(test_x)
+        ws.add_to_struct_vec(test_x, [0,0])
 
         for i in range(100):
             np.testing.assert_allclose(np.sum(ws(y)), np.sum(test_x), atol=EPS, rtol=0)
@@ -193,7 +189,7 @@ class WorkerSplineTests(unittest.TestCase):
         y = np.zeros(12)
 
         ws = WorkerSpline(x, ('natural', 'natural'))
-        ws.add_to_struct_vec(-1)
+        ws.add_to_struct_vec(-1, [0,0])
 
         self.assertEqual(ws(y), 0.)
 
@@ -202,8 +198,8 @@ class WorkerSplineTests(unittest.TestCase):
         y = np.arange(12, dtype=float); y[-2] = y[-1] = 1
 
         ws = WorkerSpline(x, ('fixed', 'fixed'))
-        ws.add_to_struct_vec(-1.)
-        ws.add_to_struct_vec(-2)
+        ws.add_to_struct_vec(-1., [0,0])
+        ws.add_to_struct_vec(-2, [0,0])
 
         np.testing.assert_allclose(ws(y), [-1., -2])
 
@@ -212,7 +208,7 @@ class WorkerSplineTests(unittest.TestCase):
         y = np.zeros(12)
 
         ws = WorkerSpline(x, ('natural', 'natural'))
-        ws.add_to_struct_vec(10)
+        ws.add_to_struct_vec(10, [0,0])
 
         self.assertEqual(ws(y), 0.)
 
@@ -221,7 +217,7 @@ class WorkerSplineTests(unittest.TestCase):
         y = np.arange(12, dtype=float); y[-2] = y[-1] = 1
 
         ws = WorkerSpline(x, ('fixed', 'fixed'))
-        ws.add_to_struct_vec(10.)
+        ws.add_to_struct_vec(10., [0,0])
 
         self.assertEqual(ws(y), 10.)
 
@@ -302,9 +298,9 @@ class WorkerSplineTests(unittest.TestCase):
 
         ws = WorkerSpline(x, ('fixed', 'fixed'))
 
-        ws.add_to_struct_vec(0)
-        ws.add_to_struct_vec(0)
-        ws.add_to_struct_vec(0)
+        ws.add_to_struct_vec(0, [0,0])
+        ws.add_to_struct_vec(0, [0,0])
+        ws.add_to_struct_vec(0, [0,0])
 
         self.assertEqual(np.sum(ws(y)), 3)
 
@@ -378,14 +374,12 @@ class WorkerSplineVsMEAMTests(unittest.TestCase):
 
             test_vals = np.linspace(w_phi.x[0]-1, w_phi.x[-1]+1, 100)
 
-            w_phi.add_to_struct_vec(test_vals)
+            w_phi.add_to_struct_vec(test_vals, [0,0])
             y_pvec = self.phi_ys[i]
 
             w_results = w_phi(y_pvec)
 
             for j in range(100):
-                # print(test_vals[j])
-                print(j)
                 if j == 86:
                     self.assertAlmostEqual(w_results[j], m_phi(test_vals[j]), DIGITS)
 
@@ -401,25 +395,30 @@ class RhoSplineTests(unittest.TestCase):
         self.s = RhoSpline(self.x, ('fixed', 'fixed'), 5)
         self.s.y = self.y
 
-    def test_update_dict(self):
-        self.s.update_struct_vec_dict(0., 0)
-        self.s.update_struct_vec_dict(0., 0)
+    def test_update_struct_vec(self):
+        # self.s.update_struct_vec_dict(0., 0)
+        # self.s.update_struct_vec_dict(0., 0)
 
-        self.s.update_struct_vec_dict(0., 1)
-        self.s.update_struct_vec_dict(0., 1)
-        self.s.update_struct_vec_dict(0., 1)
+        self.s.add_to_struct_vec(0, [0,1])
+        self.s.add_to_struct_vec(0, [0,1])
 
-        self.assertEquals(len(self.s.struct_vec_dict), 5)
-        self.assertEqual(self.s.struct_vec_dict[0][0].shape[0], 2)
-        self.assertEqual(self.s.struct_vec_dict[1][0].shape[0], 3)
+        # self.s.update_struct_vec_dict(0., 1)
+        # self.s.update_struct_vec_dict(0., 1)
+        # self.s.update_struct_vec_dict(0., 1)
+
+        self.s.add_to_struct_vec(0, [1,0])
+        self.s.add_to_struct_vec(0, [1,0])
+        self.s.add_to_struct_vec(0, [1,0])
+
+        self.assertEqual(len(self.s.struct_vecs[0]), 5)
+        self.assertEqual(len(self.s.struct_vecs[1]), 5)
 
     def test_compute_zeros(self):
-        self.s.update_struct_vec_dict(0., 0)
-        self.s.update_struct_vec_dict(0., 0)
-
-        self.s.update_struct_vec_dict(0., 1)
-        self.s.update_struct_vec_dict(0., 1)
-        self.s.update_struct_vec_dict(0., 1)
+        self.s.add_to_struct_vec(0, [0,1])
+        self.s.add_to_struct_vec(0, [0,1])
+        self.s.add_to_struct_vec(0, [1,0])
+        self.s.add_to_struct_vec(0, [1,0])
+        self.s.add_to_struct_vec(0, [1,0])
 
         results = self.s.compute_for_all(self.y)
 
@@ -428,12 +427,18 @@ class RhoSplineTests(unittest.TestCase):
 
 
     def test_compute_ones(self):
-        self.s.update_struct_vec_dict(1., 0)
-        self.s.update_struct_vec_dict(1., 0)
+        # self.s.update_struct_vec_dict(1., 0)
+        # self.s.update_struct_vec_dict(1., 0)
 
-        self.s.update_struct_vec_dict(1., 1)
-        self.s.update_struct_vec_dict(1., 1)
-        self.s.update_struct_vec_dict(1., 1)
+        # self.s.update_struct_vec_dict(1., 1)
+        # self.s.update_struct_vec_dict(1., 1)
+        # self.s.update_struct_vec_dict(1., 1)
+
+        self.s.add_to_struct_vec(1., [0,1])
+        self.s.add_to_struct_vec(1., [0,1])
+        self.s.add_to_struct_vec(1., [1,0])
+        self.s.add_to_struct_vec(1., [1,0])
+        self.s.add_to_struct_vec(1., [1,0])
 
         results = self.s.compute_for_all(self.y)
 

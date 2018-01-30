@@ -176,11 +176,11 @@ class Worker:
 
                 phi_idx = meam.ij_to_potl(itype, jtype, self.ntypes)
 
-                self.phis[phi_idx].add_to_struct_vec(rij)
+                self.phis[phi_idx].add_to_struct_vec(rij, [i,j])
 
                 self.phi_directions[phi_idx] = np.vstack((self.phi_directions[
                                                              phi_idx], jvec))
-                self.phis[phi_idx].indices.append([i,j])
+                # self.phis[phi_idx].indices.append([i,j])
 
             # Store distances, angle, and index info for embedding terms
             j_counter = 0 # for tracking neighbor
@@ -198,11 +198,12 @@ class Worker:
 
                 rho_idx = meam.i_to_potl(jtype)
 
-                self.rhos[rho_idx].update_struct_vec_dict(rij, i)
+                # self.rhos[rho_idx].update_struct_vec_dict(rij, i)
+                self.rhos[rho_idx].add_to_struct_vec(rij, [i,j])
 
                 self.rho_directions[rho_idx] = np.vstack((self.rho_directions[
                                                              rho_idx], jvec))
-                self.rhos[rho_idx].indices.append([i,j])
+                # self.rhos[rho_idx].indices.append([i,j])
 
                 fj_idx = meam.i_to_potl(jtype)
 
@@ -226,8 +227,10 @@ class Worker:
                         # fk information
                         fk_idx = meam.i_to_potl(ktype)
 
-                        self.ffgs[fj_idx][fk_idx].update_struct_vec_dict(rij,
-                                     rik, cos_theta, i)
+                        # self.ffgs[fj_idx][fk_idx].add_to_struct_vec(rij, rik,
+                        #                                      cos_theta, [i,j,k])
+                        self.ffgs[fj_idx][fk_idx].add_to_struct_vec(rij, rik,
+                                                             cos_theta, [i,j,k])
 
         # self.phi_directions = [np.array(el) for el in self.phi_directions]
         # self.rho_directions = [np.array(el) for el in self.rho_directions]
@@ -269,9 +272,9 @@ class Worker:
             rho = self.rhos[i]
             y = rho_pvecs[i]
 
+            # val = np.sum(rho.compute_for_all(y), axis=0)
             ni += rho.compute_for_all(y)
 
-        # logging.info("WORKER: ni = {0}".format(ni))
 
         # Calculate three-body contributions to ni
         for j in range(len(self.ffgs)):
@@ -288,6 +291,8 @@ class Worker:
                 val = ffg.compute_for_all(y_fj, y_fk, y_g)
                 ni += val
 
+        # logging.info("WORKER: ni = {0}".format(ni))
+
         # TODO: vectorize this
         # TODO: build a zero_struct here to avoid iterating over each atom twice
         # Add ni values to respective u splines
@@ -297,11 +302,12 @@ class Worker:
 
             u = self.us[u_idx]
 
-            self.us[u_idx].indices.append(i)
+            # self.us[u_idx].indices.append(i)
+            # self.us[u_idx].indices = np.append(self.us[u_idx].indices, i)
 
             # TODO: clear_struct_vec(); sets struct_vec = []
 
-            u.add_to_struct_vec(ni[i])
+            u.add_to_struct_vec(ni[i], [i,i])
 
         # Evaluate u splines and zero-point energies
         zero_point_energy = 0
@@ -312,19 +318,22 @@ class Worker:
             # zero-point has to be calculated separately bc has to be SUBTRACTED
             # off of the energy
             if u.struct_vecs != [[],[]]:
-                tmp_struct = u.struct_vecs
+                tmp_struct  = u.struct_vecs
+                tmp_indices = u.indices
 
                 u.struct_vecs = [[],[]]
-                u.add_to_struct_vec(np.zeros(len(tmp_struct[0])))
+                u.indices = np.empty((0,2))
+                u.add_to_struct_vec(np.zeros(len(tmp_struct[0])), [0,0])
 
                 zero_point_energy += np.sum(u(y))
 
-                u.struct_vecs = tmp_struct
+                u.struct_vecs   = tmp_struct
+                u.indices       = tmp_indices
 
             energy += np.sum(u(y))
             # logging.info("WORKER: U'({0}) = {1}".format(ni, u(y,1)))
             # self.uprimes += u(y, 1)
-            np.add.at(self.uprimes, u.indices, u(y, 1))
+            np.add.at(self.uprimes, u.indices[:,0].astype(int), u(y, 1))
 
         # logging.info("WORKER: ni = {0}".format(ni))
         # logging.info("WORKER: U' = {0}".format(self.uprimes))
@@ -351,7 +360,8 @@ class Worker:
 
             if len(phi_dirs) > 0:
                 phi_forces = np.einsum('ij,i->ij', phi_dirs, phi_primes)
-                phi_indices = np.array(s.indices)
+
+                phi_indices = s.indices
 
                 self.update_forces(phi_forces, phi_indices)
 
@@ -361,16 +371,21 @@ class Worker:
             s = self.rhos[rho_idx]
 
             rho_primes = s(y, 1)
+            # rho_primes = s.compute_for_all(y, 1)
             rho_dirs = self.rho_directions[rho_idx]
 
             if len(rho_dirs) > 0:
                 # rzm: why does len(rho_dirs) != len(rho_primes)
                 rho_forces = np.einsum('ij,i->ij', rho_dirs, rho_primes)
-                rho_indices = np.array(s.indices)
+                rho_indices = s.indices
                 rho_forces = np.einsum('ij,i->ij', rho_forces, self.uprimes[
                     rho_indices[:,0]])
 
                 self.update_forces(rho_forces, rho_indices)
+
+        # Angular terms
+        for ffg_idx in range(len(self.ffgs)):
+            y_fj = f_pvecs[]
 
         return self.forces
 

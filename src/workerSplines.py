@@ -81,7 +81,7 @@ class WorkerSpline:
 
         # Variables that will be set at some point
         self.struct_vecs = [[], []]
-        self.indices = []
+        self.indices = np.empty((0,2))
 
         # Variables that will be set on evaluation
         self._y = None
@@ -97,7 +97,7 @@ class WorkerSpline:
         if self.struct_vecs[deriv] == []:
             return np.array([0.])
         else:
-            return self.struct_vecs[deriv] @ z.transpose()
+            return np.atleast_1d(self.struct_vecs[deriv] @ z.transpose())
 
     # self.y made as a property to ensure setting of self.y1 and self.end_derivs
     @property
@@ -226,14 +226,17 @@ class WorkerSpline:
 
         return vec
 
-    def add_to_struct_vec(self, val):
+    def add_to_struct_vec(self, val, indices):
         """Builds the ABCD vectors for all elements in val, then adds to
         struct_vec
 
         Args:
             val (int, float, np.arr, list):
                 collection of values to add; converted into a np.arr in this
-                function"""
+                function
+
+            indices (tuple-like):
+                index values to append to self.indices"""
 
         add = np.atleast_1d(val)
 
@@ -251,6 +254,17 @@ class WorkerSpline:
             self.struct_vecs[1] = abcd_1
         else:
             self.struct_vecs[1] = np.vstack((self.struct_vecs[1], abcd_1))
+
+        # Reshape indices; replicate if adding an array of values
+        indices = np.atleast_1d(indices)
+
+        indices = indices.reshape((1,2))
+
+        if add.shape[0] > 1:
+            indices = np.repeat(indices, add.shape[0], axis=0)
+
+        self.indices = np.concatenate((self.indices, indices),
+                                      axis=0).astype(int)
 
     def plot(self, fname=''):
         raise NotImplementedError("Worker plotting is not ready yet")
@@ -301,8 +315,6 @@ class RhoSpline(WorkerSpline):
         super(RhoSpline, self).__init__(x, bc_type)
 
         self.natoms = natoms
-        # TODO: could convert to numpy array rather than dict?
-        self.struct_vec_dict = {key:[[], []] for key in np.arange(natoms)}
 
     def compute_for_all(self, y, deriv=0):
         """Computes results for every struct_vec in struct_vec_dict
@@ -312,46 +324,23 @@ class RhoSpline(WorkerSpline):
                 each entry is the set of all ni for a specific atom
 
             deriv (int):
-                which derivative to evaluate"""
+                which derivative to evaluate
+
+        Note:
+            for RhoSplines, indices can be interpreted as indices[0] embedded in
+            indices[1]"""
 
         ni = np.zeros(self.natoms)
 
-        for i in self.struct_vec_dict.keys():
-            self.struct_vecs = self.struct_vec_dict[i]
+        if len(self.struct_vecs[deriv]) == 0: return ni
 
-            val = super(RhoSpline, self).__call__(y, deriv)
-            np.set_printoptions(precision=16)
-            #logging.info("WORKER: i, val = {0}, {1}".format(i, val, digits=15))
-            ni[i] = np.sum(np.array(super(RhoSpline, self).__call__(y, deriv)))
+        # for i in self.struct_vec_dict.keys():
+        results = super(RhoSpline, self).__call__(y, deriv)
 
-        return ni
+        for i in range(self.natoms):
+            ni[i] = np.sum(results[self.indices[:,0] == i])
 
-    def update_struct_vec_dict(self, val, atom_id):
-        """Updates the structure vector of the <i>th spline of type <type> for a value of r
-
-        Args:
-            val (float):
-                value to evaluate the spline at
-
-            atom_id (int):
-                atom id"""
-
-        add = np.atleast_1d(val)
-
-        abcd_0 = self.get_abcd(add, 0)
-        abcd_1 = self.get_abcd(add, 1)
-
-        if self.struct_vec_dict[atom_id][0] == []:
-            self.struct_vec_dict[atom_id][0] = abcd_0
-        else:
-            struct_vec = np.vstack((self.struct_vec_dict[atom_id][0], abcd_0))
-            self.struct_vec_dict[atom_id][0] = struct_vec
-
-        if self.struct_vec_dict[atom_id][1] == []:
-            self.struct_vec_dict[atom_id][1] = abcd_1
-        else:
-            struct_vec = np.vstack((self.struct_vec_dict[atom_id][1], abcd_1))
-            self.struct_vec_dict[atom_id][1] = struct_vec
+        return np.array(ni)
 
 class ffgSpline:
     """Spline representation specifically used for building a spline
@@ -370,13 +359,11 @@ class ffgSpline:
         self.fk = fk
         self.g = g
 
-        # TODO: is this assignment by reference? does it make a NEW spline?
-        # does it matter??
-
         self.natoms = natoms
-        # TODO: could convert to numpy array rather than dict?
-        self.struct_vec_dict = {key:[[], []] for key in np.arange(natoms)}
+
+        # Variables that will be set at some point
         self.struct_vecs = [[], []]
+        self.indices = np.empty((0,3))
 
     def __call__(self, y_fj, y_fk, y_g, deriv=0):
 
@@ -394,7 +381,7 @@ class ffgSpline:
 
         self.y = np.prod(cartesian_product(fj_vec, fk_vec, g_vec), axis=1)
 
-        return self.struct_vecs[deriv] @ self.y
+        return np.atleast_1d(self.struct_vecs[deriv] @ self.y)
 
     def compute_for_all(self, y_fj, y_fk, y_g, deriv=0):
         """Computes results for every struct_vec in struct_vec_dict
@@ -408,19 +395,19 @@ class ffgSpline:
 
         ni = np.zeros(self.natoms)
 
-        for i in self.struct_vec_dict.keys():
-            self.struct_vecs = self.struct_vec_dict[i]
+        if len(self.struct_vecs[deriv]) == 0: return ni
 
-            val = np.sum(self.__call__(y_fj, y_fk, y_g, deriv))
+        results = self.__call__(y_fj, y_fk, y_g, deriv)
 
-            ni[i] = val
+        # TODO: weird vectorization stuff to avoid this for loop; group/sum
+
+        for i in range(self.natoms):
+            ni[i] = np.sum(results[self.indices[:,0] == i])
 
         return ni
 
     def get_abcd(self, rij, rik, cos_theta, deriv=0):
-        """Ovverrides WorkerSpline.get_abcd()
-
-        Computes the full parameter vector for the multiplication of ffg
+        """Computes the full parameter vector for the multiplication of ffg
         splines
 
         Args:
@@ -454,7 +441,7 @@ class ffgSpline:
 
         return full_abcd
 
-    def update_struct_vec_dict(self, rij, rik, cos_theta, atom_id):
+    def add_to_struct_vec(self, rij, rik, cos_theta, indices):
         """Computes the vector of coefficients for evaluating the complete
         product of fj*fk*g
 
@@ -468,23 +455,31 @@ class ffgSpline:
             cos_theta (float):
                 the value at which to evaluate g
 
-            atom_id (int):
-                atom id"""
+            indices (tuple-like):
+                [i,j,k] atom tags where i is the center atom, and i and j are
+                the neighbors"""
 
         abcd_0 = self.get_abcd(rij, rik, cos_theta, 0)
         abcd_1 = self.get_abcd(rij, rik, cos_theta, 1)
 
-        if self.struct_vec_dict[atom_id][0] == []:
-            self.struct_vec_dict[atom_id][0] = abcd_0.reshape((1,len(abcd_0)))
+        # Add to struct_vec for normal eval
+        if self.struct_vecs[0] == []:
+            self.struct_vecs[0] = abcd_0
         else:
-            struct_vec = np.vstack((self.struct_vec_dict[atom_id][0], abcd_0))
-            self.struct_vec_dict[atom_id][0] = struct_vec
+            self.struct_vecs[0] = np.vstack((self.struct_vecs[0], abcd_0))
 
-        if self.struct_vec_dict[atom_id][1] == []:
-            self.struct_vec_dict[atom_id][1] = abcd_1.reshape((1,len(abcd_1)))
+        # Add to struct_vec for deriv eval
+        if self.struct_vecs[1] == []:
+            self.struct_vecs[1] = abcd_1
         else:
-            struct_vec = np.vstack((self.struct_vec_dict[atom_id][1], abcd_1))
-            self.struct_vec_dict[atom_id][1] = struct_vec
+            self.struct_vecs[1] = np.vstack((self.struct_vecs[1], abcd_1))
+
+        # Reshape indices; replicate if adding an array of values
+        indices = np.atleast_1d(indices)
+        indices = indices.reshape((1,3))
+
+        self.indices = np.concatenate((self.indices, indices),
+                                      axis=0).astype(int)
 
 def build_M(num_x, dx, bc_type):
     """Builds the A and B matrices that are needed to find the function

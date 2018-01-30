@@ -18,7 +18,7 @@ from tests.testStructs import dimers, trimers, bulk_vac_ortho, \
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
-# logging.disable(logging.CRITICAL)
+logging.disable(logging.CRITICAL)
 
 EPS = 1e-12
 
@@ -40,8 +40,8 @@ rho_flag        = True*1
 norho_flag      = True*0
 norhophi_flag   = True*0
 
-dimers_flag  = True*0
-trimers_flag = True*0
+dimers_flag  = True*1
+trimers_flag = True*1
 bulk_flag    = True*0
 
 allstructs = {}
@@ -54,8 +54,10 @@ if bulk_flag:
     allstructs = {**allstructs, **bulk_vac_ortho, **bulk_periodic_ortho,
                   **bulk_vac_rhombo, **bulk_periodic_rhombo, **extra}
 
-allstructs = {'aaa':trimers['aaa']}
-# allstructs = {'bulk_vac_rhombo_mixed':bulk_vac_rhombo['bulk_vac_rhombo_mixed']}
+allstructs = {'aba':trimers['aba']}
+# allstructs = {**allstructs, 'bulk_vac_rhombo_mixed':bulk_vac_rhombo[
+#     'bulk_vac_rhombo_mixed'],
+# 'bulk_periodic_rhombo_mixed':bulk_periodic_rhombo['bulk_periodic_rhombo_mixed']}
 # allstructs = {'8_atoms':extra['8_atoms']}
 
 # import lammpsTools
@@ -130,6 +132,7 @@ def runner_energy(pots, structs):
 
     energies = {}
     for name in structs.keys():
+        logging.info("WORKER: computing {0}".format(name))
         atoms = structs[name]
 
         global py_calcduration
@@ -139,6 +142,7 @@ def runner_energy(pots, structs):
         # TODO: to optimize, preserve workers for each struct
         energies[name] = w.compute_energies(y_pvec)/len(atoms)
         # py_calcduration += time.time() - start
+
 
     return energies
 
@@ -328,8 +332,8 @@ if rand_pots_flag:
 
             @parameterized.expand(loader_energy('', calc_energies, energies))
             def test_random_potential_meam_energy(name, a, b):
-               logging.info("WORKER energy = {0}".format(a))
-               logging.info("LAMMPS energy = {0}".format(b))
+               # logging.info("WORKER energy = {0}".format(a))
+               # logging.info("LAMMPS energy = {0}".format(b))
                np.testing.assert_allclose(a,b,atol=EPS,rtol=0)
 
         if forces_flag:
