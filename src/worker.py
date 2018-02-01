@@ -235,8 +235,15 @@ class Worker:
 
                         # Directions added to match ordering of terms in
                         # first derivative of fj*fk*g
-                        d0 = jvec; d1 = cos_theta*jvec; d2 = -kvec
-                        d3 = kvec; d4 = cos_theta*kvec; d5 = -jvec
+                        d0 = jvec; d1 = -cos_theta*jvec/rij; d2 = kvec/rij
+                        d3 = kvec; d4 = -cos_theta*kvec/rik; d5 = jvec/rik
+
+                        # rzm: may be wrong b/c MEAM i -= j_forces
+
+                        # logging.info("WORKER: jdel = {0}".format(jvec))
+                        # logging.info("WORKER: jdel*cos = {0}".format(d1))
+                        # logging.info("WORKER: kdel = {0}".format(kvec))
+                        # logging.info("WORKER: kdel*cos = {0}".format(d4))
 
                         self.ffg_directions[fj_idx][fk_idx] = np.vstack((
                             self.ffg_directions[fj_idx][fk_idx],
@@ -383,7 +390,6 @@ class Worker:
             rho_dirs = self.rho_directions[rho_idx]
 
             if len(rho_dirs) > 0:
-                # rzm: why does len(rho_dirs) != len(rho_primes)
                 rho_forces = np.einsum('ij,i->ij', rho_dirs, rho_primes)
                 rho_indices = s.indices
                 rho_forces = np.einsum('ij,i->ij', rho_forces, self.uprimes[
@@ -410,10 +416,17 @@ class Worker:
 
                 if len(ffg_dirs) > 0:
                     ffg_forces = np.einsum('ij,i->ij', ffg_dirs, ffg_primes)
+
                     ffg_forces = np.einsum('ij,i->ij', ffg_forces,
                                            self.uprimes[ffg_indices[:,0]])
+                    # logging.info("WORKER: ffg_forces = {0}".format(ffg_forces))
 
                     self.update_forces(ffg_forces, ffg_indices)
+
+
+                    # logging.info("WORKER: ffg_dirs = {0}".format(ffg_dirs))
+                    # logging.info("WORKER: ffg = {0}".format(ffg_primes))
+                    # logging.info("WORKER: indices = {0}".format(ffg_indices))
 
         return self.forces
 

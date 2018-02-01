@@ -478,15 +478,10 @@ class ffgSpline:
         abcd_0 = self.get_abcd(rij, rik, cos_theta, [0,0,0])
 
         abcd_1 = self.get_abcd(rij, rik, cos_theta, [1,0,0])
-        abcd_2 = self.get_abcd(rij, rik, cos_theta, [0,0,1])
-        abcd_3 = self.get_abcd(rij, rik, cos_theta, [0,1,0])
+        abcd_2 = self.get_abcd(rij, rik, cos_theta, [0,1,0])
+        abcd_3 = self.get_abcd(rij, rik, cos_theta, [0,0,1])
 
         deriv_rows = np.vstack((abcd_1, abcd_3, abcd_3, abcd_2, abcd_3, abcd_3))
-
-        # abcd_3 = self.get_abcd(rij, rik, cos_theta, [0,0,1])
-        # abcd_6 = self.get_abcd(rij, rik, cos_theta, [1,1,1])
-
-        # rzm: find which orders of f'f'g' are needed for forces; save these
 
         # Add to struct_vec for normal eval
         if self.struct_vecs[0] == []:
@@ -500,11 +495,10 @@ class ffgSpline:
         else:
             self.struct_vecs[1] = np.vstack((self.struct_vecs[1], deriv_rows))
 
-        # rzm: now 1st deriv != len straight eval
-
         # Reshape indices; replicate if adding an array of values
         i,j,k = indices
         deriv_indices = np.array([[i,j],[i,j],[i,j],[i,k],[i,k],[i,k]])
+        # deriv_indices = np.array([[j,i],[j,i],[j,i],[j,i],[k,i],[k,i]])
 
         indices = np.atleast_1d(indices)
 

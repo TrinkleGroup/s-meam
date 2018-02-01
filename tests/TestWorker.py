@@ -16,9 +16,9 @@ import tests.testPotentials
 from tests.testStructs import dimers, trimers, bulk_vac_ortho, \
     bulk_periodic_ortho, bulk_vac_rhombo, bulk_periodic_rhombo, extra
 
-logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO)
-logging.disable(logging.CRITICAL)
+# logger = logging.getLogger(__name__)
+logging.basicConfig(filename='test_results.dat', level=logging.DEBUG)
+# logging.disable(logging.CRITICAL)
 
 EPS = 1e-12
 
@@ -32,17 +32,17 @@ zero_pots_flag  = True*0
 const_pots_flag = True*0
 rand_pots_flag  = True*1
 
-meam_flag       = True*0
+meam_flag       = True*1
 phionly_flag    = True*0
 rhophi_flag     = True*0
 nophi_flag      = True*0
 rho_flag        = True*0
 norho_flag      = True*0
-norhophi_flag   = True*1
+norhophi_flag   = True*0
 
 dimers_flag  = True*1
 trimers_flag = True*1
-bulk_flag    = True*0
+bulk_flag    = True*1
 
 allstructs = {}
 
@@ -54,11 +54,9 @@ if bulk_flag:
     allstructs = {**allstructs, **bulk_vac_ortho, **bulk_periodic_ortho,
                   **bulk_vac_rhombo, **bulk_periodic_rhombo, **extra}
 
-# rzm: trimers are running, but not giving correct results
-
-allstructs = {'aba':trimers['aba']}
+# allstructs = {'aba':trimers['aba']}
 # allstructs = {**allstructs, 'bulk_vac_rhombo_mixed':bulk_vac_rhombo[
-#     'bulk_vac_rhombo_mixed'],
+#     'bulk_vac_rhombo_mixed']}
 # 'bulk_periodic_rhombo_mixed':bulk_periodic_rhombo['bulk_periodic_rhombo_mixed']}
 # allstructs = {'8_atoms':extra['8_atoms']}
 
@@ -88,8 +86,8 @@ def loader_forces(group_name, calculated, lammps):
 
     tests = []
     for name in calculated.keys():
-        logging.info("WORKER: forces = {0}".format(calculated[name]))
-        logging.info("MEAM: forces = {0}".format(calculated[name]))
+        # logging.info("WORKER: forces = {0}".format(calculated[name]))
+        # logging.info("MEAM: forces = {0}".format(lammps[name]))
         test_name = group_name + '_' + name + '_forces'
         tests.append((test_name, calculated[name], lammps[name][0]))
 
@@ -115,7 +113,8 @@ def getLammpsResults(pots, structs):
         for name in structs.keys():
             atoms = structs[name]
 
-            val = p.compute_energy(atoms)
+            # val = p.compute_energy(atoms)
+            val2 = p.compute_forces(atoms)
 
             # cstart = time.time()
             results = p.get_lammps_results(atoms)
@@ -154,16 +153,18 @@ def runner_forces(pots, structs):
 
     forces = {}
     for name in structs.keys():
+        start = time.time()
+        logging.info("WORKER: computing {0}".format(name))
         atoms = structs[name]
 
         global py_calcduration
 
         w = Worker(atoms, x_pvec, indices, pots[0].types)
-        start = time.time()
         # TODO: to optimize, preserve workers for each struct
         # TODO: this runs absurdly slowly; uses lots of memory???
         forces[name] = w.compute_forces(y_pvec)
         # py_calcduration += time.time() - start
+        logging.info("...... {0} second(s)".format(time.time()-start))
 
     return forces
 
@@ -177,7 +178,6 @@ if zero_pots_flag:
 
     if energy_flag:
         calc_energies = runner_energy([p], allstructs)
-        print()
 
         @parameterized.expand(loader_energy('', calc_energies, energies))
         def test_zero_potential_energy(name, a, b):
@@ -416,7 +416,6 @@ if rand_pots_flag:
 
         if energy_flag:
             calc_energies = runner_energy(p, allstructs)
-            print()
 
             @parameterized.expand(loader_energy('', calc_energies, energies))
             def test_random_potential_rho_energy(name, a, b):

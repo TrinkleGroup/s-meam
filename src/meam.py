@@ -419,20 +419,55 @@ class MEAM:
                             g_prime = self.gs[ij_to_potl(jtype, ktype, \
                                                      self.ntypes)](cos_theta, 1)
 
+                            # logging.info("MEAM: i,j,k = {0},{1},{2}".format(
+                            #     i, neighbors[0][j], neighbors[0][k]))
+
+                            # logging.info("MEAM: jdel = {0}".format(jdel))
+                            # logging.info("MEAM: jdel*cos = {0}".format(
+                            #     jdel*cos_theta))
+                            # logging.info("MEAM: kdel = {0}".format(kdel))
+                            # logging.info("MEAM: kdel*cos = {0}".format(
+                            #     kdel*cos_theta))
+
                             fij = -Uprime_i * g_val * fk_val * fj_prime
                             fik = -Uprime_i * g_val * fj_val * fk_prime
+                            #
+                            # logging.info("MEAM: adding {0}".format(
+                            #     fij*jdel))
 
                             prefactor = Uprime_i * fj_val * fk_val * g_prime
                             prefactor_ij = prefactor / r_ij
                             prefactor_ik = prefactor / r_ik
                             fij += prefactor_ij * cos_theta
+                            #
+                            # logging.info("MEAM: adding {0}".format(
+                            #     prefactor_ij*jdel*cos_theta))
+                            #
+                            # logging.info("MEAM: adding {0}".format(
+                            #     prefactor_ij*kdel))
+                            #
+                            # logging.info("MEAM: adding {0}".format(
+                            #     fik*kdel))
+
                             fik += prefactor_ik * cos_theta
+                            #
+                            # logging.info("MEAM: adding {0}".format(
+                            #     prefactor_ik*cos_theta*kdel))
+                            #
+                            # logging.info("MEAM: adding {0}".format(
+                            #     prefactor_ik*jdel))
+
+                            # logging.info("MEAM: prefactor = {0}".format(
+                            #     prefactor/Uprime_i))
 
                             fj = jdel * fij - kdel * prefactor_ij
                             forces_j += fj
 
                             fk = kdel * fik - jdel * prefactor_ik
                             forces_i -= fk
+
+                            # logging.info("MEAM: fj = {0}".format(fj))
+                            # logging.info("MEAM: fk = {0}".format(fk))
 
                             self.forces[neighbors[0][k]] += fk
                     # end triplet loop
