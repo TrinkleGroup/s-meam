@@ -238,8 +238,6 @@ class Worker:
                         d0 = jvec; d1 = -cos_theta*jvec/rij; d2 = kvec/rij
                         d3 = kvec; d4 = -cos_theta*kvec/rik; d5 = jvec/rik
 
-                        # rzm: may be wrong b/c MEAM i -= j_forces
-
                         # logging.info("WORKER: jdel = {0}".format(jvec))
                         # logging.info("WORKER: jdel*cos = {0}".format(d1))
                         # logging.info("WORKER: kdel = {0}".format(kvec))
@@ -357,9 +355,18 @@ class Worker:
         return energy - zero_point_energy
 
     def compute_forces(self, parameters):
+        """Calculates the force vectors on each atom using the given spline
+        parameters.
 
+        Args:
+            parameters (np.arr):
+                the 1D array of concatenated parameter vectors for all
+                splines in the system"""
+
+        # Compute system energy; needed for U' values
         self.compute_energies(parameters)
 
+        # Parse vectors into groups of splines; init variables
         phi_pvecs, rho_pvecs, u_pvecs, f_pvecs, g_pvecs = \
             self.parse_parameters(parameters)
 
@@ -367,62 +374,64 @@ class Worker:
 
         # Pair forces (phi)
         for phi_idx in range(len(self.phis)):
-            y = phi_pvecs[phi_idx]
+            # Extract spline and corresponding parameter vector
             s = self.phis[phi_idx]
 
-            # multiply the directions by the magnitudes
-            phi_primes = s(y, 1)
             phi_dirs = self.phi_directions[phi_idx]
 
             if len(phi_dirs) > 0:
+                y = phi_pvecs[phi_idx]
+
+                # Evaluate derivatives and multiply by direction vectors
+                phi_primes = s(y, 1)
                 phi_forces = np.einsum('ij,i->ij', phi_dirs, phi_primes)
 
+                # Pull atom ID info and update forces in both directions
                 phi_indices = s.indices
 
                 self.update_forces(phi_forces, phi_indices)
 
         # Electron density embedding (rho)
         for rho_idx in range(len(self.rhos)):
-            y = rho_pvecs[rho_idx]
             s = self.rhos[rho_idx]
 
-            rho_primes = s(y, 1)
             rho_dirs = self.rho_directions[rho_idx]
 
             if len(rho_dirs) > 0:
+                y = rho_pvecs[rho_idx]
+                rho_primes = s(y, 1)
                 rho_forces = np.einsum('ij,i->ij', rho_dirs, rho_primes)
+
                 rho_indices = s.indices
                 rho_forces = np.einsum('ij,i->ij', rho_forces, self.uprimes[
                     rho_indices[:,0]])
 
                 self.update_forces(rho_forces, rho_indices)
 
-        # Angular terms
+        # Angular terms (ffg)
         for j in range(len(self.ffgs)):
             ffg_list = self.ffgs[j]
-
-            y_fj = f_pvecs[j]
 
             for k in range(len(ffg_list)):
                 ffg = ffg_list[k]
 
-                ffg_indices = ffg.indices[1]
                 ffg_dirs = self.ffg_directions[j][k]
 
-                y_fk = f_pvecs[k]
-                y_g = g_pvecs[meam.ij_to_potl(j+1, k+1, self.ntypes)]
-
-                ffg_primes = ffg(y_fj, y_fk, y_g, 1)
-
                 if len(ffg_dirs) > 0:
+
+                    y_fj = f_pvecs[j]
+                    y_fk = f_pvecs[k]
+                    y_g = g_pvecs[meam.ij_to_potl(j+1, k+1, self.ntypes)]
+
+                    ffg_primes = ffg(y_fj, y_fk, y_g, 1)
                     ffg_forces = np.einsum('ij,i->ij', ffg_dirs, ffg_primes)
 
+                    ffg_indices = ffg.indices[1]
                     ffg_forces = np.einsum('ij,i->ij', ffg_forces,
                                            self.uprimes[ffg_indices[:,0]])
                     # logging.info("WORKER: ffg_forces = {0}".format(ffg_forces))
 
                     self.update_forces(ffg_forces, ffg_indices)
-
 
                     # logging.info("WORKER: ffg_dirs = {0}".format(ffg_dirs))
                     # logging.info("WORKER: ffg = {0}".format(ffg_primes))
