@@ -60,7 +60,8 @@ class Spline(CubicSpline):
     def __call__(self,x,i=None):
         """Evaluates the spline at the given point, linearly extrapolating if
         outside of the spline cutoff. If 'i' is specified, evaluates the ith
-        derivative instead."""
+        derivative instead.
+        """
 
         if i:
             if x < self.cutoff[0]:

@@ -7,7 +7,7 @@ import meam
 from meam import MEAM
 from spline import Spline, ZeroSpline
 
-from tests.testStructs import dimers, trimers, bulk_periodic_ortho,\
+from tests.testStructs import dimers, trimers, bulk_periodic_ortho, \
     bulk_vac_ortho, bulk_periodic_rhombo, bulk_vac_rhombo
 
 DIGITS = 8
@@ -15,6 +15,7 @@ EPS = 1e-8
 
 print("If energy/force calculations are failing, try following the note in "
       "the README about updating lammpsrun.py")
+
 
 class ConstructorTests(unittest.TestCase):
 
@@ -24,11 +25,11 @@ class ConstructorTests(unittest.TestCase):
 
         self.types = ['H', 'He']
 
-        self.splines = [Spline(x, y, end_derivs=(1.,1.))]*13
+        self.splines = [Spline(x, y, end_derivs=(1., 1.))] * 13
 
-        self.x_pvec = np.array((list(x)+[1,1])*12)
-        self.y_pvec = np.array(list(y)*12)
-        self.x_indices = np.array([12*i for i in range(1,12)])
+        self.x_pvec = np.array((list(x) + [1, 1]) * 12)
+        self.y_pvec = np.array(list(y) * 12)
+        self.x_indices = np.array([12 * i for i in range(1, 12)])
 
     def test_splines_good(self):
         p = MEAM(self.splines[:12], self.types)
@@ -43,8 +44,8 @@ class ConstructorTests(unittest.TestCase):
         self.assertEqual(['H', 'He'], p.types)
         self.assertEqual(2, p.ntypes)
         self.assertAlmostEqual(9., p.cutoff)
-        self.assertAlmostEqual(1., p.phis[0](p.phis[0].x[0],1))
-        self.assertAlmostEqual(1., p.phis[0](p.phis[0].x[-1],1))
+        self.assertAlmostEqual(1., p.phis[0](p.phis[0].x[0], 1))
+        self.assertAlmostEqual(1., p.phis[0](p.phis[0].x[-1], 1))
 
         # TODO: these tests should check correct results from trimer, inp/outp
 
@@ -66,7 +67,7 @@ class ConstructorTests(unittest.TestCase):
 
     def test_splines_ternary_not_implemented(self):
         self.assertRaises(NotImplementedError, MEAM, self.splines,
-                          self.types+['Li'])
+                          self.types + ['Li'])
 
     def test_pvec_good(self):
         p = MEAM.from_pvec(self.x_pvec, self.y_pvec, self.x_indices, self.types)
@@ -81,8 +82,8 @@ class ConstructorTests(unittest.TestCase):
         self.assertEqual(p.types, ['H', 'He'])
         self.assertEqual(p.ntypes, 2)
         self.assertAlmostEqual(p.cutoff, 9.)
-        self.assertAlmostEqual(1., p.phis[0](p.phis[0].x[0],1))
-        self.assertAlmostEqual(1., p.phis[0](p.phis[0].x[-1],1))
+        self.assertAlmostEqual(1., p.phis[0](p.phis[0].x[0], 1))
+        self.assertAlmostEqual(1., p.phis[0](p.phis[0].x[-1], 1))
 
     def test_pvec_mismatch_xy(self):
         self.assertRaises(ValueError, MEAM.from_pvec, self.x_pvec,
@@ -101,13 +102,13 @@ class ConstructorTests(unittest.TestCase):
         self.assertEqual(['Ti', 'O'], p.types)
         self.assertEqual(2, p.ntypes)
         self.assertAlmostEqual(5.5, p.cutoff)
-        self.assertAlmostEqual(-20., p.phis[0](p.phis[0].x[0],1))
-        self.assertAlmostEqual(0., p.phis[0](p.phis[0].x[-1],1))
+        self.assertAlmostEqual(-20., p.phis[0](p.phis[0].x[0], 1))
+        self.assertAlmostEqual(0., p.phis[0](p.phis[0].x[-1], 1))
 
     def test_splines_matches_pvec(self):
-        p_splines  = MEAM(self.splines[:12], self.types)
+        p_splines = MEAM(self.splines[:12], self.types)
         p_pvec = MEAM.from_pvec(self.x_pvec, self.y_pvec, self.x_indices,
-                            self.types)
+                                self.types)
 
         self.assertEqual(len(p_splines.phis), len(p_pvec.phis))
         self.assertEqual(len(p_splines.rhos), len(p_pvec.rhos))
@@ -119,16 +120,18 @@ class ConstructorTests(unittest.TestCase):
         self.assertEqual(p_splines.types, p_pvec.types)
         self.assertEqual(p_splines.cutoff, p_pvec.cutoff)
 
-        group_splines =  p_splines.phis + p_splines.rhos + p_splines.us + \
-                         p_splines.fs + p_splines.gs
-        group_pvec =  p_pvec.phis + p_pvec.rhos + p_pvec.us + p_pvec.fs + \
-                      p_pvec.gs
+        group_splines = p_splines.phis + p_splines.rhos + p_splines.us + \
+            p_splines.fs + p_splines.gs
+
+        group_pvec = p_pvec.phis + p_pvec.rhos + p_pvec.us + p_pvec.fs + \
+            p_pvec.gs
 
         for i in range(12):
             s_splines = group_splines[i]
             s_pvec = group_pvec[i]
 
             self.assertTrue(s_splines == s_pvec)
+
 
 class MethodTests(unittest.TestCase):
 
@@ -143,7 +146,6 @@ class MethodTests(unittest.TestCase):
 
         true = open('test.write', 'r').readlines()[1:]
 
-        p = MEAM.from_file('test.write')
         new = open('test.write', 'r').readlines()[1:]
 
         self.assertEqual(new, true)
@@ -154,11 +156,11 @@ class MethodTests(unittest.TestCase):
         x = np.arange(10, dtype=float)
         y = np.arange(10, dtype=float)
 
-        splines = [Spline(x, y)]*12
+        splines = [Spline(x, y)] * 12
 
-        x_pvec = np.array((list(x))*12)
-        y_pvec = np.array((list(y)+[1,1])*12)
-        x_indices = np.array([10*i for i in range(12)])
+        x_pvec = np.array((list(x)) * 12)
+        y_pvec = np.array((list(y) + [1, 1]) * 12)
+        x_indices = np.array([10 * i for i in range(12)])
 
         new_x_pvec, new_y_pvec, new_x_indices = meam.splines_to_pvec(splines)
 
@@ -179,14 +181,14 @@ class MethodTests(unittest.TestCase):
         y = np.arange(10, dtype=float)
         d0 = dN = 1
 
-        old_splines = [Spline(x, y, bc_type=((1,d0),(1,dN)), end_derivs=(
-            d0,dN))]*12
+        old_splines = [Spline(x, y, bc_type=((1, d0), (1, dN)), end_derivs=(
+            d0, dN))] * 12
 
-        x_pvec = np.array((list(x)+[d0,dN])*12)
-        y_pvec = np.array(list(y)*12)
-        x_indices = np.array([12*i for i in range(1,12)])
+        x_pvec = np.array((list(x) + [d0, dN]) * 12)
+        y_pvec = np.array(list(y) * 12)
+        x_indices = np.array([12 * i for i in range(1, 12)])
 
-        new_splines = meam.splines_from_pvec(x_pvec, y_pvec, x_indices)
+        new_splines = meam.splines_from_pvec(x_pvec, y_pvec, list(x_indices))
 
         for i in range(len(old_splines)):
             self.assertTrue(new_splines[i] == old_splines[i])
@@ -200,14 +202,10 @@ class MethodTests(unittest.TestCase):
         self.assertRaises(ValueError, meam.i_to_potl, -1)
 
     def test_ij_to_potl_good(self):
-        self.assertEqual(0, meam.ij_to_potl(1,1,2))
-        self.assertEqual(1, meam.ij_to_potl(1,2,2))
-        self.assertEqual(1, meam.ij_to_potl(2,1,2))
-        self.assertEqual(2, meam.ij_to_potl(2,2,2))
-
-    def test_ij_to_potl_bad(self):
-        self.assertRaises(ValueError, meam.ij_to_potl, 0, 1, 2)
-        self.assertRaises(ValueError, meam.ij_to_potl, 1, 0, 2)
+        self.assertEqual(0, meam.ij_to_potl(1, 1, 2))
+        self.assertEqual(1, meam.ij_to_potl(1, 2, 2))
+        self.assertEqual(1, meam.ij_to_potl(2, 1, 2))
+        self.assertEqual(2, meam.ij_to_potl(2, 2, 2))
 
     def test_ij_to_potl_ternary_unimplemented(self):
         self.assertRaises(NotImplementedError, meam.ij_to_potl, 1, 1, 3)
@@ -222,13 +220,13 @@ class MethodTests(unittest.TestCase):
 
         types = ['H', 'He']
 
-        splines = [Spline(x, y)]*12
+        splines = [Spline(x, y)] * 12
 
         p = MEAM(splines, types).phionly_subtype()
 
         p.plot('test')
 
-        for i in range(1,13):
+        for i in range(1, 13):
             os.remove('test%i.png' % i)
 
     def test_phionly_subtype(self):
@@ -237,7 +235,7 @@ class MethodTests(unittest.TestCase):
 
         types = ['H', 'He']
 
-        splines = [Spline(x, y)]*12
+        splines = [Spline(x, y)] * 12
 
         p = MEAM(splines, types).phionly_subtype()
 
@@ -255,7 +253,7 @@ class MethodTests(unittest.TestCase):
 
         types = ['H', 'He']
 
-        splines = [Spline(x, y)]*12
+        splines = [Spline(x, y)] * 12
 
         p = MEAM(splines, types).nophi_subtype()
 
@@ -273,7 +271,7 @@ class MethodTests(unittest.TestCase):
 
         types = ['H', 'He']
 
-        splines = [Spline(x, y)]*12
+        splines = [Spline(x, y)] * 12
 
         p = MEAM(splines, types).rhophi_subtype()
 
@@ -291,7 +289,7 @@ class MethodTests(unittest.TestCase):
 
         types = ['H', 'He']
 
-        splines = [Spline(x, y)]*12
+        splines = [Spline(x, y)] * 12
 
         p = MEAM(splines, types).norhophi_subtype()
 
@@ -309,14 +307,14 @@ class MethodTests(unittest.TestCase):
 
         types = ['H', 'He']
 
-        splines = [Spline(x, y)]*12
+        splines = [Spline(x, y)] * 12
 
         p = MEAM(splines, types).norho_subtype()
 
         all_splines = p.phis + p.rhos + p.us + p.fs + p.gs
 
         for i in range(12):
-            if (i<3) or (i>=5):
+            if (i < 3) or (i >= 5):
                 self.assertTrue(isinstance(all_splines[i], Spline))
             else:
                 self.assertTrue(isinstance(all_splines[i], ZeroSpline))
@@ -327,14 +325,14 @@ class MethodTests(unittest.TestCase):
 
         types = ['H', 'He']
 
-        splines = [Spline(x, y)]*12
+        splines = [Spline(x, y)] * 12
 
         p = MEAM(splines, types).rho_subtype()
 
         all_splines = p.phis + p.rhos + p.us + p.fs + p.gs
 
         for i in range(12):
-            if (i>2) and (i<7):
+            if (i > 2) and (i < 7):
                 self.assertTrue(isinstance(all_splines[i], Spline))
             else:
                 self.assertTrue(isinstance(all_splines[i], ZeroSpline))
@@ -345,7 +343,7 @@ class MethodTests(unittest.TestCase):
 
         types = ['H', 'He']
 
-        splines = [Spline(x, y)]*12
+        splines = [Spline(x, y)] * 12
 
         p = MEAM(splines, types).nog_subtype()
 
@@ -356,6 +354,7 @@ class MethodTests(unittest.TestCase):
                 self.assertTrue(isinstance(all_splines[i], Spline))
             else:
                 self.assertTrue(isinstance(all_splines[i], ZeroSpline))
+
 
 class EnergyTests(unittest.TestCase):
 
@@ -370,7 +369,7 @@ class EnergyTests(unittest.TestCase):
             guess = self.p.compute_energy(atoms)
             true = self.p.get_lammps_results(atoms)['energy']
 
-        self.assertAlmostEqual(guess, true, places=DIGITS)
+            self.assertAlmostEqual(guess, true, places=DIGITS)
 
     def test_energy_trimers(self):
 
@@ -380,7 +379,7 @@ class EnergyTests(unittest.TestCase):
             guess = self.p.compute_energy(atoms)
             true = self.p.get_lammps_results(atoms)['energy']
 
-        self.assertAlmostEqual(guess, true, places=DIGITS)
+            self.assertAlmostEqual(guess, true, places=DIGITS)
 
     def test_energy_bulk_vac_rhombo(self):
 
@@ -390,15 +389,15 @@ class EnergyTests(unittest.TestCase):
             guess = self.p.compute_energy(atoms)
             true = self.p.get_lammps_results(atoms)['energy']
 
-        self.assertAlmostEqual(guess, true, places=DIGITS)
+            self.assertAlmostEqual(guess, true, places=DIGITS)
 
     def test_energy_bulk_periodic_rhombo(self):
 
         for name in bulk_periodic_rhombo.keys():
             atoms = bulk_periodic_rhombo[name]
 
-            guess = self.p.compute_energy(atoms)/len(atoms)
-            true = self.p.get_lammps_results(atoms)['energy']/len(atoms)
+            guess = self.p.compute_energy(atoms) / len(atoms)
+            true = self.p.get_lammps_results(atoms)['energy'] / len(atoms)
 
             self.assertAlmostEqual(guess, true, places=DIGITS)
 
@@ -407,8 +406,8 @@ class EnergyTests(unittest.TestCase):
         for name in bulk_periodic_ortho.keys():
             atoms = bulk_periodic_ortho[name]
 
-            guess = self.p.compute_energy(atoms)/len(atoms)
-            true = self.p.get_lammps_results(atoms)['energy']/len(atoms)
+            guess = self.p.compute_energy(atoms) / len(atoms)
+            true = self.p.get_lammps_results(atoms)['energy'] / len(atoms)
 
             self.assertAlmostEqual(guess, true, places=DIGITS)
 
@@ -417,10 +416,11 @@ class EnergyTests(unittest.TestCase):
         for name in bulk_vac_ortho.keys():
             atoms = bulk_vac_ortho[name]
 
-            guess = self.p.compute_energy(atoms)/len(atoms)
-            true = self.p.get_lammps_results(atoms)['energy']/len(atoms)
+            guess = self.p.compute_energy(atoms) / len(atoms)
+            true = self.p.get_lammps_results(atoms)['energy'] / len(atoms)
 
             self.assertAlmostEqual(guess, true, places=DIGITS)
+
 
 class ForcesTests(unittest.TestCase):
 
@@ -429,13 +429,13 @@ class ForcesTests(unittest.TestCase):
 
     def test_forces_dimer(self):
 
-        tmp_dimers = {'aa':dimers['aa']}
+        tmp_dimers = {'aa': dimers['aa']}
 
         for name in tmp_dimers.keys():
             atoms = tmp_dimers[name]
 
-            guess = self.p.compute_forces(atoms)/len(atoms)
-            true = self.p.get_lammps_results(atoms)['forces']/len(atoms)
+            guess = self.p.compute_forces(atoms) / len(atoms)
+            true = self.p.get_lammps_results(atoms)['forces'] / len(atoms)
 
             np.testing.assert_allclose(guess, true, atol=EPS)
 
@@ -444,8 +444,8 @@ class ForcesTests(unittest.TestCase):
         for name in trimers.keys():
             atoms = trimers[name]
 
-            guess = self.p.compute_forces(atoms)/len(atoms)
-            true = self.p.get_lammps_results(atoms)['forces']/len(atoms)
+            guess = self.p.compute_forces(atoms) / len(atoms)
+            true = self.p.get_lammps_results(atoms)['forces'] / len(atoms)
 
             np.testing.assert_allclose(guess, true, atol=EPS)
 
@@ -454,8 +454,8 @@ class ForcesTests(unittest.TestCase):
         for name in bulk_vac_ortho.keys():
             atoms = bulk_vac_ortho[name]
 
-            guess = self.p.compute_forces(atoms)/len(atoms)
-            true = self.p.get_lammps_results(atoms)['forces']/len(atoms)
+            guess = self.p.compute_forces(atoms) / len(atoms)
+            true = self.p.get_lammps_results(atoms)['forces'] / len(atoms)
 
             np.testing.assert_allclose(guess, true, atol=EPS)
 
@@ -464,8 +464,8 @@ class ForcesTests(unittest.TestCase):
         for name in bulk_vac_rhombo.keys():
             atoms = bulk_vac_rhombo[name]
 
-            guess = self.p.compute_forces(atoms)/len(atoms)
-            true = self.p.get_lammps_results(atoms)['forces']/len(atoms)
+            guess = self.p.compute_forces(atoms) / len(atoms)
+            true = self.p.get_lammps_results(atoms)['forces'] / len(atoms)
 
             np.testing.assert_allclose(guess, true, atol=EPS)
 
@@ -474,8 +474,8 @@ class ForcesTests(unittest.TestCase):
         for name in bulk_periodic_ortho.keys():
             atoms = bulk_periodic_ortho[name]
 
-            guess = self.p.compute_forces(atoms)/len(atoms)
-            true = self.p.get_lammps_results(atoms)['forces']/len(atoms)
+            guess = self.p.compute_forces(atoms) / len(atoms)
+            true = self.p.get_lammps_results(atoms)['forces'] / len(atoms)
 
             np.testing.assert_allclose(guess, true, atol=EPS)
 
@@ -484,8 +484,7 @@ class ForcesTests(unittest.TestCase):
         for name in bulk_periodic_rhombo.keys():
             atoms = bulk_periodic_rhombo[name]
 
-            guess = self.p.compute_forces(atoms)/len(atoms)
-            true = self.p.get_lammps_results(atoms)['forces']/len(atoms)
+            guess = self.p.compute_forces(atoms) / len(atoms)
+            true = self.p.get_lammps_results(atoms)['forces'] / len(atoms)
 
             np.testing.assert_allclose(guess, true, atol=EPS)
-

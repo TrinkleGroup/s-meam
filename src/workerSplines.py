@@ -1,9 +1,10 @@
 import numpy as np
-
 import logging
-logger = logging.getLogger(__name__)
 
 from scipy.sparse import diags
+
+logger = logging.getLogger(__name__)
+
 
 class WorkerSpline:
     """A representation of a cubic spline specifically tailored to meet
@@ -17,10 +18,10 @@ class WorkerSpline:
             knot spacing (assumes equally-spaced)
 
         y (np.arr):
-            y-coordinates of knot points; only set by solve_for_derivs()
+            y-coordinates of knot points only set by solve_for_derivs()
 
         y1 (np.arr):
-            first derivatives at knot points; only set by solve_for_derivs()
+            first derivatives at knot points only set by solve_for_derivs()
 
         M (np.arr):
             M = AB where A and B are the matrices from the system of
@@ -44,17 +45,18 @@ class WorkerSpline:
             vector used to evaluate the function at the i-th derivative.
 
             each structure vector is a 2D list for evaluating the spline on
-            the structure; each row corresponds to a single pair/triplet
+            the structure each row corresponds to a single pair/triplet
             evaluation. Converted to NumPy array for calculations
 
         indices (list [tuple-like]):
-            indices for matching values to atoms; needed for force
+            indices for matching values to atoms needed for force
             calculations, which require per-atom grouping. Tuple needed to do
             forwards/backwards directions. For U, this is just a single ID
 
     Notes:
         This object is distinct from a spline.Spline since it requires some
-        attributes and functionality that a spline.Spline doesn't have."""
+        attributes and functionality that a spline.Spline doesn't have.
+    """
 
     def __init__(self, x, bc_type):
 
@@ -72,7 +74,7 @@ class WorkerSpline:
 
         # Variables that can be set at beginning
         self.x = x
-        self.h = x[1]-x[0]
+        self.h = x[1] - x[0]
 
         self.bc_type = bc_type
 
@@ -100,9 +102,12 @@ class WorkerSpline:
         else:
             return np.array([0.])
 
-    # self.y made as a property to ensure setting of self.y1 and self.end_derivs
     @property
     def y(self):
+        """Made as a property to ensure setting of self.y1 and
+        self.end_derivs
+        """
+
         return self._y
 
     @y.setter
@@ -114,16 +119,16 @@ class WorkerSpline:
         """Calculates the coefficients needed for spline interpolation.
 
         Args:
-            x (float):
+            x (ndarray):
                 point at which to evaluate spline
 
             deriv (int):
-                order of derivative to evaluate; default is zero, meaning
+                order of derivative to evaluate default is zero, meaning
                 evaluate original function
 
         Returns:
             vec (np.arr):
-                vector of length len(knots)*2; this formatting is used since for
+                vector of length len(knots)*2 this formatting is used since for
                 evaluation, vec will be dotted with a vector consisting of first
                 the y-values at the knots, then the y1-values at the knots
 
@@ -147,25 +152,26 @@ class WorkerSpline:
             h_01 = t^2 ( 3-2t)
             h_11 = t^2 (t-1)
 
-            with t = (x-x_k)/(x_k+1 - x_k)"""
+            with t = (x-x_k)/(x_k+1 - x_k)
+        """
 
         knots = self.x.copy()
 
         # Find spline interval
         h = knots[1] - knots[0]
-        all_k = np.floor((x-knots[0])/h).astype(int)
+        all_k = np.floor((x - knots[0]) / h).astype(int)
 
         nknots = len(knots)
-        # vec = np.zeros((len(x), 2*nknots))
+
         # To do multiple adds at once, can't add 2D to list elements
-        vec = np.zeros((len(x), 2*nknots))
+        vec = np.zeros((len(x), 2 * nknots))
 
         for i in range(len(all_k)):  # for every point to be evaluated
             k = all_k[i]
 
-            if k < 0: # LHS extrapolation
-                h_00 = np.poly1d([0,0,0,1])
-                h_10 = np.poly1d([0,0,1,0])
+            if k < 0:  # LHS extrapolation
+                h_00 = np.poly1d([0, 0, 0, 1])
+                h_10 = np.poly1d([0, 0, 1, 0])
 
                 t = (x[i] - knots[0])
 
@@ -178,11 +184,11 @@ class WorkerSpline:
                 vec[i][0] = A
                 vec[i][nknots] = B
 
-            elif k >= nknots-1: # RHS extrapolation
-                k = nknots-1 # centered at second-to-last knot for indexing
+            elif k >= nknots - 1:  # RHS extrapolation
+                k = nknots - 1  # centered at second-to-last knot for indexing
 
-                h_00 = np.poly1d([0,0,0,1])
-                h_10 = np.poly1d([0,0,1,0])
+                h_00 = np.poly1d([0, 0, 0, 1])
+                h_10 = np.poly1d([0, 0, 1, 0])
 
                 t = (x[i] - knots[k])
 
@@ -196,14 +202,14 @@ class WorkerSpline:
                 vec[i][-1] = B
 
             else:
-                prefactor  = (knots[k+1] - knots[k])
+                prefactor = (knots[k + 1] - knots[k])
 
-                h_00 = np.poly1d([2,-3,0,1])
-                h_10 = np.poly1d([1,-2,1,0])
-                h_01 = np.poly1d([-2,3,0,0])
-                h_11 = np.poly1d([1,-1,0,0])
+                h_00 = np.poly1d([2, -3, 0, 1])
+                h_10 = np.poly1d([1, -2, 1, 0])
+                h_01 = np.poly1d([-2, 3, 0, 0])
+                h_11 = np.poly1d([1, -1, 0, 0])
 
-                t = (x[i] - knots[k])/prefactor
+                t = (x[i] - knots[k]) / prefactor
 
                 h_00 = np.polyder(h_00, deriv)
                 h_10 = np.polyder(h_10, deriv)
@@ -211,19 +217,19 @@ class WorkerSpline:
                 h_11 = np.polyder(h_11, deriv)
 
                 A = h_00(t)
-                B = h_10(t)*prefactor
+                B = h_10(t) * prefactor
                 C = h_01(t)
-                D = h_11(t)*prefactor
+                D = h_11(t) * prefactor
 
                 vec[i][k] = A
-                vec[i][k+nknots] = B
-                vec[i][k+1] = C
-                vec[i][k+1+nknots] = D
+                vec[i][k + nknots] = B
+                vec[i][k + 1] = C
+                vec[i][k + 1 + nknots] = D
 
                 if deriv == 0:
                     scaling = 1
                 else:
-                    scaling = 1/(prefactor*deriv)
+                    scaling = 1 / (prefactor * deriv)
 
                 vec[i] *= scaling
 
@@ -235,53 +241,31 @@ class WorkerSpline:
 
         Args:
             val (int, float, np.arr, list):
-                collection of values to add; converted into a np.arr in this
+                collection of values to add converted into a np.arr in this
                 function
 
             indices (tuple-like):
-                index values to append to self.indices"""
+                index values to append to self.indices
+        """
 
         add = np.atleast_1d(val)
 
         abcd_0 = self.get_abcd(add, 0)
         abcd_1 = self.get_abcd(add, 1)
 
-        # Add to struct_vec for normal eval
-        # if self.struct_vecs[0] == []:
-        #     self.struct_vecs[0] = [abcd_0]
-        # else:
-        #     # self.struct_vecs[0] = np.vstack((self.struct_vecs[0], abcd_0))
-        #     self.struct_vecs[0].append(abcd_0)
-        #
-        # # Add to struct_vec for deriv eval
-        # if self.struct_vecs[1] == []:
-        #     self.struct_vecs[1] = [abcd_1]
-        # else:
-        #     # self.struct_vecs[1] = np.vstack((self.struct_vecs[1], abcd_1))
-        #     self.struct_vecs[1].append(abcd_1)
-
         self.struct_vecs[0] += [abcd_0.squeeze()]
         self.struct_vecs[1] += [abcd_1.squeeze()]
 
-        # Reshape indices; replicate if adding an array of values
-        # indices = np.atleast_1d(indices)
-
-        # indices = indices.reshape((1,2))
-
-        # if add.shape[0] > 1:
-        #     indices = np.repeat(indices, add.shape[0], axis=0)
+        # Reshape indices replicate if adding an array of values
         indices = [indices for i in range(add.shape[0])]
-
-        # self.indices = np.concatenate((self.indices, indices),
-        #                               axis=0).astype(int)
         self.indices += indices
 
     def plot(self, fname=''):
         raise NotImplementedError("Worker plotting is not ready yet")
 
-        low,high = self.cutoff
-        low -= abs(0.2*low)
-        high += abs(0.2*high)
+        low, high = self.cutoff
+        low -= abs(0.2 * low)
+        high += abs(0.2 * high)
 
         if self.y is None:
             raise ValueError("Must specify y before plotting")
@@ -292,7 +276,7 @@ class WorkerSpline:
         tmp_struct = self.struct_vecs
         self.struct_vecs = None
 
-        plot_x = np.linspace(low,high,1000)
+        plot_x = np.linspace(low, high, 1000)
 
         for i in range(len(plot_x)):
             self.add_to_struct_vec(plot_x[i])
@@ -305,21 +289,16 @@ class WorkerSpline:
         plt.legend()
         plt.show()
 
+
 class RhoSpline(WorkerSpline):
     """Special case of a WorkerSpline that is used for rho since it is
     'inside' of the U function and has to keep its per-atom contributions
     separate until it passes the results to U
 
     Attributes:
-        ntypes (int):
-            number of atomic types in the system
-
-        struct_vec_dict (list[np.arr]):
-            key = original atom id
-            value = structure vector corresponding to one atom's neighbors
-
         natoms (int):
-            the number of atoms in the system"""
+            the number of atoms in the system
+    """
 
     def __init__(self, x, bc_type, natoms):
         super(RhoSpline, self).__init__(x, bc_type)
@@ -348,14 +327,16 @@ class RhoSpline(WorkerSpline):
         results = super(RhoSpline, self).__call__(y, deriv)
 
         for i in range(self.natoms):
-            ni[i] = np.sum(results[np.array(self.indices)[:,0] == i])
+            ni[i] = np.sum(results[np.array(self.indices)[:, 0] == i])
 
         return np.array(ni)
+
 
 class ffgSpline:
     """Spline representation specifically used for building a spline
     representation of the combined funcions f_j*f_k*g_jk used in the
-    three-body interactions."""
+    three-body interactions.
+    """
 
     def __init__(self, fj, fk, g, natoms):
         """Args:
@@ -363,7 +344,8 @@ class ffgSpline:
                 fully initialized WorkerSpline objects for each spline
 
             natoms (int):
-                the number of atoms in the system"""
+                the number of atoms in the system
+        """
 
         self.fj = fj
         self.fk = fk
@@ -378,7 +360,7 @@ class ffgSpline:
 
     def __call__(self, y_fj, y_fk, y_g, deriv=0):
 
-        if self.struct_vecs[deriv] == []:
+        if self.struct_vecs[deriv]:
             return 0.
 
         self.fj.y = y_fj
@@ -402,7 +384,8 @@ class ffgSpline:
                 each entry is the set of all ni for a specific atom
 
             deriv (int):
-                derivative at which to evaluate the function"""
+                derivative at which to evaluate the function
+        """
 
         ni = np.zeros(self.natoms)
 
@@ -412,10 +395,10 @@ class ffgSpline:
 
         results = self.__call__(y_fj, y_fk, y_g, deriv)
 
-        # TODO: weird vectorization stuff to avoid this for loop; group/sum
+        # TODO: weird vectorization stuff to avoid this for loop group/sum
 
         for i in range(self.natoms):
-            ni[i] = np.sum(results[indices[:,0] == i])
+            ni[i] = np.sum(results[indices[:, 0] == i])
 
         return ni
 
@@ -427,15 +410,16 @@ class ffgSpline:
             rij (float):
                 the value at which to evaluate fj
 
-            fik (float):
+            rik (float):
                 the value at which to evaluate fk
 
             cos_theta (float):
                 the value at which to evaluate g
 
-            deriv (int):
+            deriv (list):
                 derivatives at which to evaluate the splines, ordered as [
-                fj_deriv, fk_deriv, g_deriv]"""
+                fj_deriv, fk_deriv, g_deriv]
+        """
 
         fj_deriv, fk_deriv, g_deriv = deriv
 
@@ -481,49 +465,25 @@ class ffgSpline:
 
             indices (tuple-like):
                 [i,j,k] atom tags where i is the center atom, and i and j are
-                the neighbors"""
+                the neighbors
+        """
 
-        abcd_0 = self.get_abcd(rij, rik, cos_theta, [0,0,0])
+        abcd_0 = self.get_abcd(rij, rik, cos_theta, [0, 0, 0])
 
-        abcd_1 = self.get_abcd(rij, rik, cos_theta, [1,0,0])
-        abcd_2 = self.get_abcd(rij, rik, cos_theta, [0,1,0])
-        abcd_3 = self.get_abcd(rij, rik, cos_theta, [0,0,1])
-
-        # deriv_rows = np.vstack((abcd_1, abcd_3, abcd_3, abcd_2, abcd_3, abcd_3))
-        deriv_rows = [abcd_1, abcd_3, abcd_3, abcd_2, abcd_3, abcd_3]
-
-        # Add to struct_vec for normal eval
-        # if self.struct_vecs[0] == []:
-        #     self.struct_vecs[0] = [abcd_0]
-        # else:
-        #     # self.struct_vecs[0] = np.vstack((self.struct_vecs[0], abcd_0))
-        #     self.struct_vecs[0] += [abcd_0]
-        #
-        # # Add to struct_vec for deriv eval
-        # if self.struct_vecs[1] == []:
-        #     self.struct_vecs[1] = deriv_rows
-        # else:
-        #     # self.struct_vecs[1] = np.vstack((self.struct_vecs[1], deriv_rows))
-        #     self.struct_vecs[1] += [abcd_1, abcd_3, abcd_3, abcd_2, abcd_3,
-        #                             abcd_3]
+        abcd_1 = self.get_abcd(rij, rik, cos_theta, [1, 0, 0])
+        abcd_2 = self.get_abcd(rij, rik, cos_theta, [0, 1, 0])
+        abcd_3 = self.get_abcd(rij, rik, cos_theta, [0, 0, 1])
 
         self.struct_vecs[0] += [abcd_0]
         self.struct_vecs[1] += [abcd_1, abcd_3, abcd_3, abcd_2, abcd_3, abcd_3]
 
-        # Reshape indices; replicate if adding an array of values
-        i,j,k = indices
-        deriv_indices = [[i,j],[i,j],[i,j],[i,k],[i,k],[i,k]]
-        # deriv_indices = np.array([[j,i],[j,i],[j,i],[j,i],[k,i],[k,i]])
-
-        # indices = np.atleast_1d(indices)
-
-        # self.indices[0] = np.concatenate((self.indices[0], indices.reshape(
-        #                                             (1,3))),axis=0).astype(int)
-        # self.indices[1] = np.concatenate((self.indices[1], deriv_indices),
-        #                                                     axis=0).astype(int)
+        # Reshape indices replicate if adding an array of values
+        i, j, k = indices
+        deriv_indices = [[i, j], [i, j], [i, j], [i, k], [i, k], [i, k]]
 
         self.indices[0] += [indices]
         self.indices[1] += deriv_indices
+
 
 def build_M(num_x, dx, bc_type):
     """Builds the A and B matrices that are needed to find the function
@@ -574,7 +534,8 @@ def build_M(num_x, dx, bc_type):
 
     Returns:
         M (np.arr):
-            A^(-1)B"""
+            A^(-1)B
+    """
 
     n = num_x - 2
 
@@ -583,10 +544,10 @@ def build_M(num_x, dx, bc_type):
 
     # note that values for h''_ij(0) and h''_ij(1) are substituted in
     # TODO: add checks for non-grid x-coordinates
-    A = diags(np.array([2,8,2]), [0,1,2], (n,n+2))
+    A = diags(np.array([2, 8, 2]), [0, 1, 2], (n, n + 2))
     A = A.toarray()
 
-    B = diags([-6, 0, 6], [0,1,2], (n,n+2))
+    B = diags([-6, 0, 6], [0, 1, 2], (n, n + 2))
     B = B.toarray()
 
     bc_lhs, bc_rhs = bc_type
@@ -595,27 +556,39 @@ def build_M(num_x, dx, bc_type):
 
     # Determine 1st equation based on LHS boundary condition
     if bc_lhs == 'natural':
-        topA = np.zeros(n+2).reshape((1,n+2)); topA[0,0] = -4; topA[0,1] = -2
-        topB = np.zeros(n+2).reshape((1,n+2)); topB[0,0] = 6; topB[0,1] = -6
+        topA = np.zeros(n + 2).reshape((1, n + 2))
+        topA[0, 0] = -4
+        topA[0, 1] = -2
+        topB = np.zeros(n + 2).reshape((1, n + 2))
+        topB[0, 0] = 6
+        topB[0, 1] = -6
     elif bc_lhs == 'fixed':
-        topA = np.zeros(n+2).reshape((1,n+2)); topA[0,0] = 1/dx;
-        topB = np.zeros(n+2).reshape((1,n+2));
+        topA = np.zeros(n + 2).reshape((1, n + 2))
+        topA[0, 0] = 1 / dx
+        topB = np.zeros(n + 2).reshape((1, n + 2))
     else:
         raise ValueError("Invalid boundary condition. Must be 'natural' "
                          "or 'fixed'")
 
     # Determine last equation based on RHS boundary condition
     if bc_rhs == 'natural':
-        botA = np.zeros(n+2).reshape((1,n+2)); botA[0,-2] = 2; botA[0,-1] = 4
-        botB = np.zeros(n+2).reshape((1,n+2)); botB[0,-2] = -6; botB[0,-1] = 6
+        botA = np.zeros(n + 2).reshape((1, n + 2))
+        botA[0, -2] = 2
+        botA[0, -1] = 4
+        botB = np.zeros(n + 2).reshape((1, n + 2))
+        botB[0, -2] = -6
+        botB[0, -1] = 6
     elif bc_rhs == 'fixed':
-        botA = np.zeros(n+2).reshape((1,n+2)); botA[0,-1] = 1/dx;
-        botB = np.zeros(n+2).reshape((1,n+2));# botB[0,-2] = 6; botB[0,-1] = -6
+        botA = np.zeros(n + 2).reshape((1, n + 2))
+        botA[0, -1] = 1 / dx
+        botB = np.zeros(n + 2).reshape(
+            (1, n + 2))  # botB[0,-2] = 6 botB[0,-1] = -6
     else:
         raise ValueError("Invalid boundary condition. Must be 'natural' "
                          "or 'fixed'")
 
-    rightB = np.zeros((n+2,2)); rightB[0,0] = rightB[-1,-1] = 1
+    rightB = np.zeros((n + 2, 2))
+    rightB[0, 0] = rightB[-1, -1] = 1
 
     # Build matrices
     A = np.concatenate((topA, A), axis=0)
@@ -630,6 +603,7 @@ def build_M(num_x, dx, bc_type):
     # M = A^(-1)B
     return np.dot(np.linalg.inv(A), B)
 
+
 def cartesian_product(*arrays):
     """Function for calculating the Cartesian product of any number of input
     arrays.
@@ -639,11 +613,14 @@ def cartesian_product(*arrays):
             any number of numpy arrays
 
     Note: this function comes from the stackoverflow user 'senderle' in the
-    thread https://stackoverflow.com/questions/11144513/numpy-cartesian-product-of-x-and-y-array-points-into-single-array-of-2d-points/11146645#11146645"""
+    thread https://stackoverflow.com/questions/11144513/numpy-cartesian-product
+    -of-x-and-y-array-points-into-single-array-of-2d-points/11146645#11146645
+    """
+
     la = len(arrays)
     dtype = np.result_type(*arrays)
     arr = np.empty([len(a) for a in arrays] + [la], dtype=dtype)
     for i, a in enumerate(np.ix_(*arrays)):
-        arr[...,i] = a
+        arr[..., i] = a
 
     return arr.reshape(-1, la)
