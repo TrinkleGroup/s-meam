@@ -201,6 +201,11 @@ def get_random_pots(newN):
             p = MEAM(splines=splines, types=['H','He'])
             # p = MEAM.from_file("../data/pot_files/HHe.meam.spline")
 
+            # import meam
+            # x_pvec, y_pvec, indices = meam.splines_to_pvec(p.splines)
+            # splines = meam.splines_from_pvec(x_pvec, y_pvec, indices)
+            # p = MEAM(splines=splines, types=p.types)
+
             rng_meams[n]        = p
             rng_nophis[n]       = p.nophi_subtype()
             rng_phionlys[n]     = p.phionly_subtype()

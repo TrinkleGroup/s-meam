@@ -55,14 +55,19 @@ if bulk_flag:
                   **bulk_vac_rhombo, **bulk_periodic_rhombo, **extra}
 
 # allstructs = {'aba':trimers['aba']}
-# allstructs = {**allstructs, 'bulk_vac_rhombo_mixed':bulk_vac_rhombo[
-#     'bulk_vac_rhombo_mixed']}
+allstructs = {'bulk_vac_rhombo_mixed':bulk_vac_rhombo[
+    'bulk_vac_rhombo_mixed']}
 # 'bulk_periodic_rhombo_mixed':bulk_periodic_rhombo['bulk_periodic_rhombo_mixed']}
 # allstructs = {'8_atoms':extra['8_atoms']}
 
 # import lammpsTools
-# lammpsTools.atoms_to_LAMMPS_file('../data/structs/data.dimerab', allstructs[
-#     'ab'])
+# lammpsTools.atoms_to_LAMMPS_file('../data/structs/data.bvo_mixed', allstructs[
+#     'bulk_vac_ortho_mixed'])
+
+# import lammpsTools
+# atoms = lammpsTools.atoms_from_file("../data/structs/data.bvr_mixed_orth", ['H',
+#                                                                        'He'])
+# allstructs = {'dummy':atoms}
 
 ################################################################################
 # Helper functions
@@ -86,10 +91,17 @@ def loader_forces(group_name, calculated, lammps):
 
     tests = []
     for name in calculated.keys():
-        # logging.info("WORKER: forces = {0}".format(calculated[name]))
-        # logging.info("MEAM: forces = {0}".format(lammps[name]))
+        logging.info("WORKER: forces = {0}".format(calculated[name]))
+        logging.info("MEAM: forces = {0}".format(lammps[name]))
+        natoms = len(allstructs[name])
+        max_diff = np.max(calculated[name] - lammps[name])
+        logging.info("NATOMS = {0}".format(natoms))
+        logging.info("MAX DIFFERENCE = {0}".format(max_diff))
         test_name = group_name + '_' + name + '_forces'
         tests.append((test_name, calculated[name], lammps[name][0]))
+
+        np.savetxt('force_calc_bad.dat'.format(name), calculated[name])
+        np.savetxt('forces_lammps.dat', lammps[name][0])
 
     return tests
 
@@ -114,7 +126,7 @@ def getLammpsResults(pots, structs):
             atoms = structs[name]
 
             # val = p.compute_energy(atoms)
-            val2 = p.compute_forces(atoms)
+            # val2 = p.compute_forces(atoms)
 
             # cstart = time.time()
             results = p.get_lammps_results(atoms)
@@ -150,6 +162,8 @@ def runner_energy(pots, structs):
 def runner_forces(pots, structs):
 
     x_pvec, y_pvec, indices = meam.splines_to_pvec(pots[0].splines)
+
+    pots[0].write_to_file('../data/pot_files/random.spline')
 
     forces = {}
     for name in structs.keys():

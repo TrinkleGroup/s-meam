@@ -39,13 +39,13 @@ class WorkerSpline:
             'fixed' (fixed first derivative). If 'fixed' on one/both ends,
             self.end_derivatives cannot be None for that end
 
-        struct_vecs (list [np.arr]):
+        struct_vecs (list [list]):
             list of structure vects, where struct_vec[i] is the structure
             vector used to evaluate the function at the i-th derivative.
 
-            each structure vector is a 2D array for evaluating the spline on
+            each structure vector is a 2D list for evaluating the spline on
             the structure; each row corresponds to a single pair/triplet
-            evaluation
+            evaluation. Converted to NumPy array for calculations
 
         indices (list [tuple-like]):
             indices for matching values to atoms; needed for force
@@ -81,7 +81,7 @@ class WorkerSpline:
 
         # Variables that will be set at some point
         self.struct_vecs = [[], []]
-        self.indices = np.empty((0,2))
+        self.indices = []
 
         # Variables that will be set on evaluation
         self._y = None
@@ -94,10 +94,11 @@ class WorkerSpline:
 
         z = np.concatenate((self.y, self.y1))
 
-        if self.struct_vecs[deriv] == []:
-            return np.array([0.])
+        if self.struct_vecs[deriv]:
+            return np.atleast_1d(np.array(self.struct_vecs[deriv]) @
+                                 z.transpose())
         else:
-            return np.atleast_1d(self.struct_vecs[deriv] @ z.transpose())
+            return np.array([0.])
 
     # self.y made as a property to ensure setting of self.y1 and self.end_derivs
     @property
@@ -155,6 +156,8 @@ class WorkerSpline:
         all_k = np.floor((x-knots[0])/h).astype(int)
 
         nknots = len(knots)
+        # vec = np.zeros((len(x), 2*nknots))
+        # To do multiple adds at once, can't add 2D to list elements
         vec = np.zeros((len(x), 2*nknots))
 
         for i in range(len(all_k)):  # for every point to be evaluated
@@ -244,27 +247,34 @@ class WorkerSpline:
         abcd_1 = self.get_abcd(add, 1)
 
         # Add to struct_vec for normal eval
-        if self.struct_vecs[0] == []:
-            self.struct_vecs[0] = abcd_0
-        else:
-            self.struct_vecs[0] = np.vstack((self.struct_vecs[0], abcd_0))
+        # if self.struct_vecs[0] == []:
+        #     self.struct_vecs[0] = [abcd_0]
+        # else:
+        #     # self.struct_vecs[0] = np.vstack((self.struct_vecs[0], abcd_0))
+        #     self.struct_vecs[0].append(abcd_0)
+        #
+        # # Add to struct_vec for deriv eval
+        # if self.struct_vecs[1] == []:
+        #     self.struct_vecs[1] = [abcd_1]
+        # else:
+        #     # self.struct_vecs[1] = np.vstack((self.struct_vecs[1], abcd_1))
+        #     self.struct_vecs[1].append(abcd_1)
 
-        # Add to struct_vec for deriv eval
-        if self.struct_vecs[1] == []:
-            self.struct_vecs[1] = abcd_1
-        else:
-            self.struct_vecs[1] = np.vstack((self.struct_vecs[1], abcd_1))
+        self.struct_vecs[0] += [abcd_0.squeeze()]
+        self.struct_vecs[1] += [abcd_1.squeeze()]
 
         # Reshape indices; replicate if adding an array of values
-        indices = np.atleast_1d(indices)
+        # indices = np.atleast_1d(indices)
 
-        indices = indices.reshape((1,2))
+        # indices = indices.reshape((1,2))
 
-        if add.shape[0] > 1:
-            indices = np.repeat(indices, add.shape[0], axis=0)
+        # if add.shape[0] > 1:
+        #     indices = np.repeat(indices, add.shape[0], axis=0)
+        indices = [indices for i in range(add.shape[0])]
 
-        self.indices = np.concatenate((self.indices, indices),
-                                      axis=0).astype(int)
+        # self.indices = np.concatenate((self.indices, indices),
+        #                               axis=0).astype(int)
+        self.indices += indices
 
     def plot(self, fname=''):
         raise NotImplementedError("Worker plotting is not ready yet")
@@ -338,7 +348,7 @@ class RhoSpline(WorkerSpline):
         results = super(RhoSpline, self).__call__(y, deriv)
 
         for i in range(self.natoms):
-            ni[i] = np.sum(results[self.indices[:,0] == i])
+            ni[i] = np.sum(results[np.array(self.indices)[:,0] == i])
 
         return np.array(ni)
 
@@ -363,8 +373,8 @@ class ffgSpline:
 
         # Variables that will be set at some point
         self.struct_vecs = [[], []]
-        self.indices = [np.empty((0,3)), np.empty((0,2))]
-        self.angles = []
+        # self.indices = [np.empty((0,3)), np.empty((0,2))]
+        self.indices = [[], []]
 
     def __call__(self, y_fj, y_fk, y_g, deriv=0):
 
@@ -398,7 +408,7 @@ class ffgSpline:
 
         if len(self.struct_vecs[deriv]) == 0: return ni
 
-        indices = self.indices[deriv]
+        indices = np.array(self.indices[deriv])
 
         results = self.__call__(y_fj, y_fk, y_g, deriv)
 
@@ -473,39 +483,47 @@ class ffgSpline:
                 [i,j,k] atom tags where i is the center atom, and i and j are
                 the neighbors"""
 
-        self.angles.append(cos_theta)
-
         abcd_0 = self.get_abcd(rij, rik, cos_theta, [0,0,0])
 
         abcd_1 = self.get_abcd(rij, rik, cos_theta, [1,0,0])
         abcd_2 = self.get_abcd(rij, rik, cos_theta, [0,1,0])
         abcd_3 = self.get_abcd(rij, rik, cos_theta, [0,0,1])
 
-        deriv_rows = np.vstack((abcd_1, abcd_3, abcd_3, abcd_2, abcd_3, abcd_3))
+        # deriv_rows = np.vstack((abcd_1, abcd_3, abcd_3, abcd_2, abcd_3, abcd_3))
+        deriv_rows = [abcd_1, abcd_3, abcd_3, abcd_2, abcd_3, abcd_3]
 
         # Add to struct_vec for normal eval
-        if self.struct_vecs[0] == []:
-            self.struct_vecs[0] = abcd_0
-        else:
-            self.struct_vecs[0] = np.vstack((self.struct_vecs[0], abcd_0))
+        # if self.struct_vecs[0] == []:
+        #     self.struct_vecs[0] = [abcd_0]
+        # else:
+        #     # self.struct_vecs[0] = np.vstack((self.struct_vecs[0], abcd_0))
+        #     self.struct_vecs[0] += [abcd_0]
+        #
+        # # Add to struct_vec for deriv eval
+        # if self.struct_vecs[1] == []:
+        #     self.struct_vecs[1] = deriv_rows
+        # else:
+        #     # self.struct_vecs[1] = np.vstack((self.struct_vecs[1], deriv_rows))
+        #     self.struct_vecs[1] += [abcd_1, abcd_3, abcd_3, abcd_2, abcd_3,
+        #                             abcd_3]
 
-        # Add to struct_vec for deriv eval
-        if self.struct_vecs[1] == []:
-            self.struct_vecs[1] = deriv_rows
-        else:
-            self.struct_vecs[1] = np.vstack((self.struct_vecs[1], deriv_rows))
+        self.struct_vecs[0] += [abcd_0]
+        self.struct_vecs[1] += [abcd_1, abcd_3, abcd_3, abcd_2, abcd_3, abcd_3]
 
         # Reshape indices; replicate if adding an array of values
         i,j,k = indices
-        deriv_indices = np.array([[i,j],[i,j],[i,j],[i,k],[i,k],[i,k]])
+        deriv_indices = [[i,j],[i,j],[i,j],[i,k],[i,k],[i,k]]
         # deriv_indices = np.array([[j,i],[j,i],[j,i],[j,i],[k,i],[k,i]])
 
-        indices = np.atleast_1d(indices)
+        # indices = np.atleast_1d(indices)
 
-        self.indices[0] = np.concatenate((self.indices[0], indices.reshape(
-                                                    (1,3))),axis=0).astype(int)
-        self.indices[1] = np.concatenate((self.indices[1], deriv_indices),
-                                                            axis=0).astype(int)
+        # self.indices[0] = np.concatenate((self.indices[0], indices.reshape(
+        #                                             (1,3))),axis=0).astype(int)
+        # self.indices[1] = np.concatenate((self.indices[1], deriv_indices),
+        #                                                     axis=0).astype(int)
+
+        self.indices[0] += [indices]
+        self.indices[1] += deriv_indices
 
 def build_M(num_x, dx, bc_type):
     """Builds the A and B matrices that are needed to find the function

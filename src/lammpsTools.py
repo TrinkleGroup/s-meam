@@ -307,7 +307,8 @@ def atoms_to_LAMMPS_file(fname, atoms):
 
         for i in range(len(types_idx)):
             f.write("%d %d %.16f %.16f %.16f\n" % (i+1,\
-                symbol_to_type(types[i-1],types),p[i][0],p[i][1],p[i][2]))
+                symbol_to_type(types[i],list(set(types))),p[i][0],p[i][1],
+                                                   p[i][2]))
 
 def read_forces(fname):
     """Reads in the atomic forces from a file with the following format:

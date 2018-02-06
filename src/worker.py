@@ -170,7 +170,7 @@ class Worker:
             for j,offset in zip(neighbors_noboth, offsets_noboth):
 
                 jtype = lammpsTools.symbol_to_type(atoms[j].symbol, self.types)
-                jpos = atoms[j].position + np.dot(offset,atoms.get_cell())
+                jpos = atoms[j].position + np.dot(offset, atoms.get_cell())
 
                 jvec = jpos - ipos
 
@@ -181,9 +181,13 @@ class Worker:
 
                 self.phis[phi_idx].add_to_struct_vec(rij, [i,j])
 
+                # TODO: don't use vstack to add directions
                 self.phi_directions[phi_idx] = np.vstack((self.phi_directions[
                                                              phi_idx], jvec))
                 # self.phis[phi_idx].indices.append([i,j])
+                # jvec *= rij
+                # logging.info("WORKER: {0}, {1}, {2}, {3}, {4}".format(i,j,
+                #                                       jvec[0], jvec[1], jvec[2]))
 
             # Store distances, angle, and index info for embedding terms
             j_counter = 0 # for tracking neighbor
@@ -196,9 +200,6 @@ class Worker:
                 rij = np.linalg.norm(jvec)
                 jvec /= rij
 
-                a = jpos - ipos
-                na = np.linalg.norm(a)
-
                 rho_idx = meam.i_to_potl(jtype)
 
                 # self.rhos[rho_idx].update_struct_vec_dict(rij, i)
@@ -207,6 +208,9 @@ class Worker:
                 self.rho_directions[rho_idx] = np.vstack((self.rho_directions[
                                                              rho_idx], jvec))
                 # self.rhos[rho_idx].indices.append([i,j])
+
+                a = jpos - ipos
+                na = np.linalg.norm(a)
 
                 fj_idx = meam.i_to_potl(jtype)
 
@@ -336,7 +340,7 @@ class Worker:
                 tmp_indices = u.indices
 
                 u.struct_vecs = [[],[]]
-                u.indices = np.empty((0,2))
+                u.indices = []
                 u.add_to_struct_vec(np.zeros(len(tmp_struct[0])), [0,0])
 
                 zero_point_energy += np.sum(u(y))
@@ -347,7 +351,7 @@ class Worker:
                 energy += np.sum(u(y))
                 # logging.info("WORKER: U'({0}) = {1}".format(ni, u(y,1)))
                 # self.uprimes += u(y, 1)
-                np.add.at(self.uprimes, u.indices[:,0], u(y, 1))
+                np.add.at(self.uprimes, np.array(u.indices)[:,0], u(y, 1))
 
         # logging.info("WORKER: ni = {0}".format(ni))
         # logging.info("WORKER: U' = {0}".format(self.uprimes))
@@ -387,8 +391,12 @@ class Worker:
                 phi_forces = np.einsum('ij,i->ij', phi_dirs, phi_primes)
 
                 # Pull atom ID info and update forces in both directions
-                phi_indices = s.indices
+                phi_indices = np.array(s.indices)
 
+                joined = np.concatenate((phi_indices, phi_dirs), axis=1)
+
+                # logging.info("WORKER: {0}".format(joined))
+                #
                 self.update_forces(phi_forces, phi_indices)
 
         # Electron density embedding (rho)
@@ -402,9 +410,9 @@ class Worker:
                 rho_primes = s(y, 1)
                 rho_forces = np.einsum('ij,i->ij', rho_dirs, rho_primes)
 
-                rho_indices = s.indices
+                rho_indices = np.array(s.indices)
                 rho_forces = np.einsum('ij,i->ij', rho_forces, self.uprimes[
-                    rho_indices[:,0]])
+                                       rho_indices[:,0]])
 
                 self.update_forces(rho_forces, rho_indices)
 
@@ -426,7 +434,7 @@ class Worker:
                     ffg_primes = ffg(y_fj, y_fk, y_g, 1)
                     ffg_forces = np.einsum('ij,i->ij', ffg_dirs, ffg_primes)
 
-                    ffg_indices = ffg.indices[1]
+                    ffg_indices = np.array(ffg.indices[1])
                     ffg_forces = np.einsum('ij,i->ij', ffg_forces,
                                            self.uprimes[ffg_indices[:,0]])
                     # logging.info("WORKER: ffg_forces = {0}".format(ffg_forces))
@@ -453,38 +461,43 @@ class Worker:
         Returns:
             None; manually updates self.forces"""
 
-        # Parse unsorted atom ID's
-        forwards_indices = indices[:,0]
-        backwards_indices = indices[:,1]
+        # # Parse unsorted atom ID's
+        # forwards_indices = indices[:,0]
+        # backwards_indices = indices[:,1]
+        #
+        # # Get ordered set of atom tags
+        # indices_to_sort_tags_f = forwards_indices.argsort()
+        # sorted_indices_f = set(forwards_indices[indices_to_sort_tags_f])
+        #
+        # indices_to_sort_tags_b = backwards_indices.argsort()
+        # sorted_indices_b = set(backwards_indices[indices_to_sort_tags_b])
+        #
+        # # Sort forces for forwards/backwards
+        # forwards_forces = new_forces[indices_to_sort_tags_f]
+        # backwards_forces = new_forces[indices_to_sort_tags_b]
+        #
+        # # Split into groups per atom tag
+        # forwards_forces = np.split(forwards_forces, np.where(np.diff(
+        #     forwards_indices[indices_to_sort_tags_f]))[0]+1)
+        #
+        # backwards_forces = np.split(backwards_forces, np.where(np.diff(
+        #     backwards_indices[indices_to_sort_tags_b]))[0]+1)
+        #
+        # # Sum per atom forces and add to total
+        # forwards_forces = np.array([np.sum(el, axis=0) for el in
+        #                             forwards_forces])
+        # backwards_forces = np.array([np.sum(el, axis=0) for el in
+        #                              backwards_forces])
+        #
+        # np.add.at(self.forces, np.array(list(sorted_indices_f)),
+        #           forwards_forces)
+        # np.add.at(self.forces, np.array(list(sorted_indices_b)),
+        #           -backwards_forces)
 
-        # Get ordered set of atom tags
-        indices_to_sort_tags_f = forwards_indices.argsort()
-        sorted_indices_f = set(forwards_indices[indices_to_sort_tags_f])
+        # joined = np.concatenate((indices, new_forces), axis=1)
 
-        indices_to_sort_tags_b = backwards_indices.argsort()
-        sorted_indices_b = set(backwards_indices[indices_to_sort_tags_b])
-
-        # Sort forces for forwards/backwards
-        forwards_forces = new_forces[indices_to_sort_tags_f]
-        backwards_forces = new_forces[indices_to_sort_tags_b]
-
-        # Split into groups per atom tag
-        forwards_forces = np.split(forwards_forces, np.where(np.diff(
-            forwards_indices[indices_to_sort_tags_f]))[0]+1)
-
-        backwards_forces = np.split(backwards_forces, np.where(np.diff(
-            backwards_indices[indices_to_sort_tags_b]))[0]+1)
-
-        # Sum per atom forces and add to total
-        forwards_forces = np.array([np.sum(el, axis=0) for el in
-                                    forwards_forces])
-        backwards_forces = np.array([np.sum(el, axis=0) for el in
-                                     backwards_forces])
-
-        np.add.at(self.forces, np.array(list(sorted_indices_f)),
-                  forwards_forces)
-        np.add.at(self.forces, np.array(list(sorted_indices_b)),
-                  -backwards_forces)
+        np.add.at(self.forces, indices[:,0], new_forces)
+        np.add.at(self.forces, indices[:,1], -new_forces)
 
     def parse_parameters(self, parameters):
         """Separates the pre-ordered 1D vector of all spline parameters into

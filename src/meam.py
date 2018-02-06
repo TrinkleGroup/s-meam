@@ -499,8 +499,12 @@ class MEAM:
                     fpair += phi_prime
                     fpair /= r_ij
 
+                    print("MEAM: ({0},{1}) = {2}".format(i, neighbors_noboth[
+                        0][j], fpair))
+
                     self.forces[i] += jdel * fpair
                     self.forces[neighbors_noboth[0][j]] -= jdel * fpair
+
                 # end phi loop
 
             # end atom loop
