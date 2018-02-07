@@ -57,16 +57,16 @@ class Worker:
         """
 
         # Basic variable initialization
-        self.atoms = atoms
-        self.types = types
+        self.atoms      = atoms
+        self.types      = types
 
-        ntypes = len(self.types)
-        self.ntypes = ntypes
+        ntypes          = len(self.types)
+        self.ntypes     = ntypes
 
-        nphi = int((self.ntypes + 1) * self.ntypes / 2)
-        self.nphi = nphi  # there are nphi phi functions and nphi g fxns
+        nphi            = int((self.ntypes+1)*self.ntypes/2)
+        self.nphi       = nphi # there are nphi phi functions and nphi g fxns
 
-        self.uprimes = np.zeros(len(atoms))
+        self.uprimes    = np.zeros(len(atoms))
 
         # Initialize splines; group by type and calculate potential cutoff range
 
@@ -141,11 +141,12 @@ class Worker:
         # Directions grouped by spline group AND by spline type
         # e.g. phi_directions = [phi_0 directions, phi_1 directions, ...]
         # Will be sorted into per-atom groups in evaluation
+
         # TODO: huge redundancy in directional information
-        self.phi_directions = [np.empty((0, 3)) for i in range(len(self.phis))]
-        self.rho_directions = [np.empty((0, 3)) for i in range(len(self.rhos))]
-        self.ffg_directions = [[np.empty((0, 3)) for i in range(len(self.fs))]
-                               for j in range(len(self.fs))]
+        self.phi_directions = [[] for i in range(len(self.phis))]
+        self.rho_directions = [[] for i in range(len(self.rhos))]
+        self.ffg_directions = [[[] for j in range(len(self.fs))] for i in range(
+            len(self.fs))]
 
         # Allows double counting; needed for embedding energy calculations
         nl = NeighborList(np.ones(len(atoms)) * (self.cutoff / 2.),
@@ -173,11 +174,9 @@ class Worker:
 
                 phi_idx = meam.ij_to_potl(itype, jtype, self.ntypes)
 
-                self.phis[phi_idx].add_to_struct_vec(rij, [i, j])
+                self.phis[phi_idx].add_to_struct_vec(rij, [i,j])
 
-                # TODO: don't use vstack to add directions
-                self.phi_directions[phi_idx] = np.vstack((self.phi_directions[
-                                                              phi_idx], jvec))
+                self.phi_directions[phi_idx].append(jvec)
 
             # Store distances, angle, and index info for embedding terms
             j_counter = 0  # for tracking neighbor
@@ -194,8 +193,7 @@ class Worker:
 
                 self.rhos[rho_idx].add_to_struct_vec(rij, [i, j])
 
-                self.rho_directions[rho_idx] = np.vstack((self.rho_directions[
-                                                              rho_idx], jvec))
+                self.rho_directions[rho_idx].append(jvec)
 
                 a = jpos - ipos
                 na = np.linalg.norm(a)
@@ -236,9 +234,16 @@ class Worker:
                         d4 = -cos_theta * kvec / rik
                         d5 = jvec / rik
 
-                        self.ffg_directions[fj_idx][fk_idx] = np.vstack((
-                            self.ffg_directions[fj_idx][fk_idx],
-                            d0, d1, d2, d3, d4, d5))
+                        self.ffg_directions[fj_idx][fk_idx] += [d0, d1, d2,
+                                                                d3, d4, d5]
+
+        # self.phi_directions = np.array(self.phi_directions)
+        # self.rho_directions = np.array(self.rho_directions)
+        # self.ffg_directions = np.array(self.ffg_directions)
+        self.phi_directions = [np.array(el) for el in self.phi_directions]
+        self.rho_directions = [np.array(el) for el in self.rho_directions]
+        self.ffg_directions = [[np.array(el) for el in l] for l in
+                               self.ffg_directions]
 
     def compute_energies(self, parameters):
         """Calculates energies for all potentials using information
@@ -412,6 +417,8 @@ class Worker:
                                            self.uprimes[ffg_indices[:, 0]])
 
                     self.update_forces(ffg_forces, ffg_indices)
+
+                    # rzm: forces are incorrect after vstack -> append?
 
         return self.forces
 

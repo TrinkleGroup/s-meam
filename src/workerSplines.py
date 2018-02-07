@@ -360,8 +360,8 @@ class ffgSpline:
 
     def __call__(self, y_fj, y_fk, y_g, deriv=0):
 
-        if self.struct_vecs[deriv]:
-            return 0.
+        if not self.struct_vecs[deriv]:
+            return np.array([0.])
 
         self.fj.y = y_fj
         fj_vec = np.concatenate((self.fj.y, self.fj.y1))

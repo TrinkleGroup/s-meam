@@ -26,21 +26,21 @@ N = 1
 energy_flag = True * 0
 forces_flag = True * 1
 
-zero_pots_flag = True * 0
+zero_pots_flag  = True * 0
 const_pots_flag = True * 0
-rand_pots_flag = True * 1
+rand_pots_flag  = True * 1
 
-meam_flag = True * 1
-phionly_flag = True * 0
-rhophi_flag = True * 0
-nophi_flag = True * 0
-rho_flag = True * 0
-norho_flag = True * 0
-norhophi_flag = True * 0
+meam_flag       = True * 1
+phionly_flag    = True * 0
+rhophi_flag     = True * 0
+nophi_flag      = True * 0
+rho_flag        = True * 0
+norho_flag      = True * 0
+norhophi_flag   = True * 0
 
-dimers_flag = True * 1
-trimers_flag = True * 1
-bulk_flag = True * 1
+dimers_flag     = True * 1
+trimers_flag    = True * 1
+bulk_flag       = True * 1
 
 allstructs = {}
 
@@ -55,6 +55,7 @@ if bulk_flag:
 
 # allstructs = {'bulk_vac_rhombo_mixed':bulk_vac_rhombo[
 #     'bulk_vac_rhombo_mixed']}
+# allstructs = {'aba':trimers['aba']}
 
 ################################################################################
 # Helper functions
@@ -106,7 +107,7 @@ def get_lammps_results(pots, structs):
 
             results = lmp_p.get_lammps_results(atoms)
             lmp_energies[name][pnum] = results['energy'] / len(atoms)
-            lmp_forces[name].append(results['lmp_forces'])
+            lmp_forces[name].append(results['forces'])
 
             # TODO: LAMMPS runtimes are inflated due to ASE internal read/write
             # TODO: need to create shell script to get actual runtimes
@@ -133,6 +134,7 @@ def runner_forces(pots, structs):
 
     wrk_forces = {}
     for name in structs.keys():
+        logging.info("WORKER: computing {0}".format(name))
         start = time.time()
         atoms = structs[name]
 
@@ -140,7 +142,7 @@ def runner_forces(pots, structs):
         wrk_forces[name] = w.compute_forces(y_pvec)
         logging.info(" ...... {0} second(s)".format(time.time() - start))
 
-    return forces
+    return wrk_forces
 
 
 ################################################################################
