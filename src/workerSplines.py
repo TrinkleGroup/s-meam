@@ -98,7 +98,7 @@ class WorkerSpline:
 
         if self.struct_vecs[deriv]:
             return np.atleast_1d(np.array(self.struct_vecs[deriv]) @
-                                 z.transpose())
+                                 z.transpose()).ravel()
         else:
             return np.array([0.])
 

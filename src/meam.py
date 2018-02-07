@@ -4,9 +4,10 @@ import os
 import sys
 
 from ase.calculators.lammpsrun import LAMMPS
-
-from spline import Spline, ZeroSpline
 from ase.neighborlist import NeighborList
+
+import lammpsTools
+from spline import Spline, ZeroSpline
 
 logger = logging.getLogger(__name__)
 
