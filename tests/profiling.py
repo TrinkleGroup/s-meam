@@ -1,3 +1,4 @@
+import os
 import numpy as np
 import cProfile
 import time
@@ -11,7 +12,9 @@ from spline import Spline
 from meam import MEAM
 from worker import Worker
 
-output_msg = "no-vstack"
+allow_overwrite = True
+
+output_msg = "5-ffg-call-np-matmul"
 
 date = datetime.datetime.now()
 
@@ -22,6 +25,13 @@ mem_filename = "../data/profiling/" \
 stats_filename = "../data/profiling/" \
            "{0}-{1}-{2}_profiling-stats_{3}.dat".format(date.year, date.month,
                                                       date.day, output_msg)
+
+if not allow_overwrite:
+    if (os.path.isfile(mem_filename)
+        or os.path.isfile(stats_filename)):
+
+        raise FileExistsError("Change file name to avoid overwriting previous "
+                              "results")
 
 np.random.seed(42)
 
@@ -86,11 +96,10 @@ print("done", flush=True)
 print("Performing calculations ... ", end="", flush=True)
 
 x_pvec, y_pvec, indices = meam.splines_to_pvec(potential.splines)
+worker = Worker(atoms, x_pvec, indices, potential.types)
 
-cProfile.run('worker = Worker(atoms, x_pvec, indices, potential.types);'
-             '_ = worker.compute_forces(y_pvec)',
-             stats_filename)
-# cProfile.run('_ = worker.compute_forces(y_pvec)', stats_filename)
+cProfile.run('_ = worker.compute_energies(y_pvec)', filename=stats_filename)
+# cProfile.run('_ = worker.compute_forces(y_pvec)', filename=stats_filename)
 
 print("done", flush=True)
 

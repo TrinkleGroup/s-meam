@@ -54,7 +54,7 @@ if bulk_flag:
 
 # allstructs = {'bulk_vac_rhombo_mixed':bulk_vac_rhombo[
 #     'bulk_vac_rhombo_mixed']}
-# allstructs = {'aba':trimers['aba']}
+allstructs = {'aba':trimers['aba']}
 
 ################################################################################
 # Helper functions

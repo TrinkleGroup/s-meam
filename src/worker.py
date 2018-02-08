@@ -237,9 +237,6 @@ class Worker:
                         self.ffg_directions[fj_idx][fk_idx] += [d0, d1, d2,
                                                                 d3, d4, d5]
 
-        # self.phi_directions = np.array(self.phi_directions)
-        # self.rho_directions = np.array(self.rho_directions)
-        # self.ffg_directions = np.array(self.ffg_directions)
         self.phi_directions = [np.array(el) for el in self.phi_directions]
         self.rho_directions = [np.array(el) for el in self.rho_directions]
         self.ffg_directions = [[np.array(el) for el in l] for l in
@@ -301,7 +298,6 @@ class Worker:
                 ni += val
 
         # TODO: vectorize this
-        # TODO: build a zero_struct here to avoid iterating over each atom twice
 
         # Add ni values to respective u splines
         for i in range(len(self.atoms)):
@@ -322,17 +318,7 @@ class Worker:
             # zero-point has to be calculated separately bc has to be SUBTRACTED
             # off of the energy
             if u.struct_vecs != [[], []]:
-                tmp_struct = u.struct_vecs
-                tmp_indices = u.indices
-
-                u.struct_vecs = [[], []]
-                u.indices = []
-                u.add_to_struct_vec(np.zeros(len(tmp_struct[0])), [0, 0])
-
-                zero_point_energy += np.sum(u(y))
-
-                u.struct_vecs = tmp_struct
-                u.indices = tmp_indices
+                zero_point_energy += np.sum(u.compute_zero_potential(y))
 
                 energy += np.sum(u(y))
 
@@ -417,8 +403,6 @@ class Worker:
                                            self.uprimes[ffg_indices[:, 0]])
 
                     self.update_forces(ffg_forces, ffg_indices)
-
-                    # rzm: forces are incorrect after vstack -> append?
 
         return self.forces
 

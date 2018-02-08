@@ -102,6 +102,31 @@ class WorkerSpline:
         else:
             return np.array([0.])
 
+    def compute_zero_potential(self, y):
+        """Calculates the value of the potential as if every entry in the
+        structure vector was a zero.
+
+        Args:
+            y (np.arr):
+                array of parameter vectors
+
+        Returns:
+            the value evaluated by the spline using num_zeros zeros"""
+
+        y1 = self.M @ y.transpose()
+
+        y = y[:-2]
+        z = np.concatenate((y, y1))
+
+        if self.struct_vecs[0]:
+            zero_abcd = self.get_abcd([0])
+            zero_struct_vec = np.repeat(zero_abcd, len(self.struct_vecs[0]),
+                                        axis=0)
+
+            return np.array(zero_struct_vec @ z)
+        else:
+            return 0.
+
     @property
     def y(self):
         """Made as a property to ensure setting of self.y1 and
@@ -154,6 +179,8 @@ class WorkerSpline:
 
             with t = (x-x_k)/(x_k+1 - x_k)
         """
+
+        # TODO: x should be converted to atleast_1D here, not outside
 
         knots = self.x.copy()
 
@@ -326,8 +353,12 @@ class RhoSpline(WorkerSpline):
         # for i in self.struct_vec_dict.keys():
         results = super(RhoSpline, self).__call__(y, deriv)
 
-        for i in range(self.natoms):
-            ni[i] = np.sum(results[np.array(self.indices)[:, 0] == i])
+        # TODO: store forwards/backwards indices separately to avoid np.arr()
+
+        # for i in range(self.natoms):
+        #     ni[i] = np.sum(results[np.array(self.indices)[:, 0] == i])
+
+        np.add.at(ni, np.array(self.indices)[:,0], results)
 
         return np.array(ni)
 
@@ -374,7 +405,8 @@ class ffgSpline:
 
         self.y = np.prod(cartesian_product(fj_vec, fk_vec, g_vec), axis=1)
 
-        return np.atleast_1d(self.struct_vecs[deriv] @ self.y)
+        # return np.atleast_1d(np.zeros(len(self.indices[0])))
+        return np.atleast_1d(np.array(self.struct_vecs[deriv]) @ self.y)
 
     def compute_for_all(self, y_fj, y_fk, y_g, deriv=0):
         """Computes results for every struct_vec in struct_vec_dict
@@ -397,8 +429,10 @@ class ffgSpline:
 
         # TODO: weird vectorization stuff to avoid this for loop group/sum
 
-        for i in range(self.natoms):
-            ni[i] = np.sum(results[indices[:, 0] == i])
+        # for i in range(self.natoms):
+        #     ni[i] = np.sum(results[indices[:, 0] == i])
+
+        np.add.at(ni, np.array(indices)[:,0], results)
 
         return ni
 

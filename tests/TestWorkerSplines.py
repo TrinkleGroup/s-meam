@@ -303,11 +303,11 @@ class WorkerSplineTests(unittest.TestCase):
 
         ws = WorkerSpline(x, ('fixed', 'fixed'))
 
-        ws.add_to_struct_vec(0, [0, 0])
-        ws.add_to_struct_vec(0, [0, 0])
-        ws.add_to_struct_vec(0, [0, 0])
+        ws.add_to_struct_vec(1, [0, 0])
+        ws.add_to_struct_vec(1, [0, 0])
+        ws.add_to_struct_vec(1, [0, 0])
 
-        self.assertEqual(np.sum(ws(y)), 3)
+        self.assertEqual(np.sum(ws.compute_zero_potential(y)), 3)
 
 
 class WorkerSplineVsMEAMTests(unittest.TestCase):
