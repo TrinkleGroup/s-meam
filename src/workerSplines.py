@@ -120,10 +120,8 @@ class WorkerSpline:
 
         if self.struct_vecs[0]:
             zero_abcd = self.get_abcd([0])
-            zero_struct_vec = np.repeat(zero_abcd, len(self.struct_vecs[0]),
-                                        axis=0)
 
-            return np.array(zero_struct_vec @ z)
+            return np.array(zero_abcd @ z)*len(self.struct_vecs[0])
         else:
             return 0.
 
@@ -181,6 +179,7 @@ class WorkerSpline:
         """
 
         # TODO: x should be converted to atleast_1D here, not outside
+        # TODO: change worker.__init__() to take advantage of multi-add
 
         knots = self.x.copy()
 
@@ -385,28 +384,44 @@ class ffgSpline:
         self.natoms = natoms
 
         # Variables that will be set at some point
-        self.struct_vecs = [[], []]
+        # self.struct_vecs = [[], []]
+        self.fj_struct_vecs = [[], []]
+        self.fk_struct_vecs = [[], []]
+        self.g_struct_vecs  = [[], []]
+
         # self.indices = [np.empty((0,3)), np.empty((0,2))]
         self.indices = [[], []]
+        # self.indices = []
 
     def __call__(self, y_fj, y_fk, y_g, deriv=0):
 
-        if not self.struct_vecs[deriv]:
+        if not self.fj_struct_vecs[deriv]:
             return np.array([0.])
+
+        # tmp_fj_struct_vec = self.fj.struct_vec[0]
+        # tmp_fk_struct_vec = self.fk.struct_vec[0]
+        # tmp_g_struct_vec = self.g.struct_vec[0]
 
         self.fj.y = y_fj
         fj_vec = np.concatenate((self.fj.y, self.fj.y1))
+        fj_results = np.array(self.fj_struct_vecs[deriv]) @ fj_vec
 
         self.fk.y = y_fk
         fk_vec = np.concatenate((self.fk.y, self.fk.y1))
+        fk_results = np.array(self.fk_struct_vecs[deriv]) @ fk_vec
 
         self.g.y = y_g
         g_vec = np.concatenate((self.g.y, self.g.y1))
+        g_results = np.array(self.g_struct_vecs[deriv]) @ g_vec
 
-        self.y = np.prod(cartesian_product(fj_vec, fk_vec, g_vec), axis=1)
+        # self.y = np.prod(cartesian_product(fj_vec, fk_vec, g_vec), axis=1)
 
         # return np.atleast_1d(np.zeros(len(self.indices[0])))
-        return np.atleast_1d(np.array(self.struct_vecs[deriv]) @ self.y)
+        # return np.atleast_1d(np.array(self.struct_vecs[deriv]) @ self.y)
+
+        val = np.multiply(np.multiply(fj_results, fk_results), g_results)
+
+        return val.ravel()
 
     def compute_for_all(self, y_fj, y_fk, y_g, deriv=0):
         """Computes results for every struct_vec in struct_vec_dict
@@ -421,18 +436,13 @@ class ffgSpline:
 
         ni = np.zeros(self.natoms)
 
-        if len(self.struct_vecs[deriv]) == 0: return ni
+        if not self.fj_struct_vecs[deriv]: return ni
 
-        indices = np.array(self.indices[deriv])
+        # indices = np.array(self.indices[deriv])
 
         results = self.__call__(y_fj, y_fk, y_g, deriv)
 
-        # TODO: weird vectorization stuff to avoid this for loop group/sum
-
-        # for i in range(self.natoms):
-        #     ni[i] = np.sum(results[indices[:, 0] == i])
-
-        np.add.at(ni, np.array(indices)[:,0], results)
+        np.add.at(ni, np.array(self.indices[deriv])[:,0], results)
 
         return ni
 
@@ -463,17 +473,18 @@ class ffgSpline:
 
         # TODO: using ravel() b/c multi-value is not ready for ffgSpline
         fj_abcd = self.fj.get_abcd(add_rij, fj_deriv)
-        fj_abcd = np.ravel(fj_abcd)
+        # fj_abcd = np.ravel(fj_abcd)
 
         fk_abcd = self.fk.get_abcd(add_rik, fk_deriv)
-        fk_abcd = np.ravel(fk_abcd)
+        # fk_abcd = np.ravel(fk_abcd)
 
         g_abcd = self.g.get_abcd(add_cos_theta, g_deriv)
-        g_abcd = np.ravel(g_abcd)
+        # g_abcd = np.ravel(g_abcd)
 
-        full_abcd = np.prod(cartesian_product(fj_abcd, fk_abcd, g_abcd), axis=1)
+        # full_abcd = np.prod(cartesian_product(fj_abcd, fk_abcd, g_abcd), axis=1)
 
-        return full_abcd
+        # return full_abcd
+        return fj_abcd, fk_abcd, g_abcd
 
     def add_to_struct_vec(self, rij, rik, cos_theta, indices):
         """To the first structure vector (direct evaluation), adds one row for
@@ -502,14 +513,27 @@ class ffgSpline:
                 the neighbors
         """
 
-        abcd_0 = self.get_abcd(rij, rik, cos_theta, [0, 0, 0])
+        # abcd_0 = self.get_abcd(rij, rik, cos_theta, [0, 0, 0])
 
-        abcd_1 = self.get_abcd(rij, rik, cos_theta, [1, 0, 0])
-        abcd_2 = self.get_abcd(rij, rik, cos_theta, [0, 1, 0])
-        abcd_3 = self.get_abcd(rij, rik, cos_theta, [0, 0, 1])
+        # abcd_1 = self.get_abcd(rij, rik, cos_theta, [1, 0, 0])
+        # abcd_2 = self.get_abcd(rij, rik, cos_theta, [0, 1, 0])
+        # abcd_3 = self.get_abcd(rij, rik, cos_theta, [0, 0, 1])
+        fj_0, fk_0, g_0 = self.get_abcd(rij, rik, cos_theta, [0, 0, 0])
+        fj_1, fk_1, g_1 = self.get_abcd(rij, rik, cos_theta, [1, 0, 0])
+        fj_2, fk_2, g_2 = self.get_abcd(rij, rik, cos_theta, [0, 1, 0])
+        fj_3, fk_3, g_3 = self.get_abcd(rij, rik, cos_theta, [0, 0, 1])
 
-        self.struct_vecs[0] += [abcd_0]
-        self.struct_vecs[1] += [abcd_1, abcd_3, abcd_3, abcd_2, abcd_3, abcd_3]
+
+        self.fj_struct_vecs[0].append(fj_0)
+        self.fk_struct_vecs[0].append(fk_0)
+        self.g_struct_vecs[0].append(g_0)
+
+        self.fj_struct_vecs[1]  += [fj_1, fj_3, fj_3, fj_2, fj_3, fj_3]
+        self.fk_struct_vecs[1]  += [fk_1, fk_3, fk_3, fk_2, fk_3, fk_3]
+        self.g_struct_vecs[1]   += [g_1, g_3, g_3, g_2, g_3, g_3]
+
+        # self.struct_vecs[0] += [abcd_0]
+        # self.struct_vecs[1] += [abcd_1, abcd_3, abcd_3, abcd_2, abcd_3, abcd_3]
 
         # Reshape indices replicate if adding an array of values
         i, j, k = indices

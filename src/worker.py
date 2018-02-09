@@ -145,6 +145,8 @@ class Worker:
         # TODO: huge redundancy in directional information
         self.phi_directions = [[] for i in range(len(self.phis))]
         self.rho_directions = [[] for i in range(len(self.rhos))]
+        # self.f_directions = [[] for i in range(len(self.rhos))]
+        # self.g_directions = [[] for i in range(len(self.rhos))]
         self.ffg_directions = [[[] for j in range(len(self.fs))] for i in range(
             len(self.fs))]
 
@@ -225,6 +227,15 @@ class Worker:
                                                                     cos_theta,
                                                                     [i, j, k])
 
+                        # fj_0, fk_0, g_0 = self.get_abcd(rij, rik, cos_theta, [0, 0, 0])
+                        # fj_1, fk_1, g_1 = self.get_abcd(rij, rik, cos_theta, [1, 0, 0])
+                        # fj_2, fk_2, g_2 = self.get_abcd(rij, rik, cos_theta, [0, 1, 0])
+                        # fj_3, fk_3, g_3 = self.get_abcd(rij, rik, cos_theta, [0, 0, 1])
+
+                        # fj = self.fs[fj_idx]
+                        # fk = self.fs[fk_idx]
+                        # g = self.gs[meam.ij_to_potl(itype, jtype, self.ntypes)]
+
                         # Directions added to match ordering of terms in
                         # first derivative of fj*fk*g
                         d0 = jvec
@@ -234,11 +245,36 @@ class Worker:
                         d4 = -cos_theta * kvec / rik
                         d5 = jvec / rik
 
+                        # TODO: turn directions into a list, map 2d -> 1d
+                        # TODO: but isn't it better to use more mem, less cpu?
+                        #
+                        # # First term
+                        # fj.add_to_struct_vec(rij, 0)
+                        # fk.add_to_struct_vec(rik, 0)
+                        # g.add_to_struct_vec(cos_theta, 0)
+                        #
+                        # # Second term
+                        # fj.add_to_struct_vec(rij, 1)
+                        # fk.add_to_struct_vec(rik, 0)
+                        # g.add_to_struct_vec(cos_theta, 0)
+                        #
+                        # # Third term
+                        # fj.add_to_struct_vec(rij, 0)
+                        # fk.add_to_struct_vec(rik, 1)
+                        # g.add_to_struct_vec(cos_theta, 0)
+                        #
+                        # # Fourth term
+                        # fj.add_to_struct_vec(rij, 0)
+                        # fk.add_to_struct_vec(rik, 0)
+                        # g.add_to_struct_vec(cos_theta, 1)
+
                         self.ffg_directions[fj_idx][fk_idx] += [d0, d1, d2,
                                                                 d3, d4, d5]
 
         self.phi_directions = [np.array(el) for el in self.phi_directions]
         self.rho_directions = [np.array(el) for el in self.rho_directions]
+        # self.f_directions = [np.array(el) for el in self.f_directions]
+        # self.g_directions = [np.array(el) for el in self.g_directions]
         self.ffg_directions = [[np.array(el) for el in l] for l in
                                self.ffg_directions]
 

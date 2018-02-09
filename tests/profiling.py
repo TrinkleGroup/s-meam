@@ -14,7 +14,7 @@ from worker import Worker
 
 allow_overwrite = True
 
-output_msg = "5-ffg-call-np-matmul"
+output_msg = "6-ffg-no-cartesian-prod"
 
 date = datetime.datetime.now()
 
