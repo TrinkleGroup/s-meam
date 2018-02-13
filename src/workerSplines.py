@@ -94,7 +94,7 @@ class WorkerSpline:
 
         self.y = y
 
-        z = np.concatenate((self.y, self.y1))
+        z = np.concatenate((self.y_with_extrap, self.y1_with_extrap))
 
         if self.struct_vecs[deriv]:
             return np.atleast_1d(np.array(self.struct_vecs[deriv]) @
@@ -116,7 +116,20 @@ class WorkerSpline:
         y1 = self.M @ y.transpose()
 
         y = y[:-2]
-        z = np.concatenate((y, y1))
+
+        y_with_extrap = y.copy()
+        y_with_extrap = np.insert(y_with_extrap, 0,
+                                       y[0] - self.h*y1[0])
+        y_with_extrap = np.append(y_with_extrap,
+                                       y[-1] + self.h*y1[-1])
+
+        y1_with_extrap = y1.copy()
+        y1_with_extrap = np.insert(y1_with_extrap, 0,
+                                        y1[0])
+        y1_with_extrap = np.append(y1_with_extrap,
+                                        y[-1])
+
+        z = np.concatenate((y_with_extrap, y1_with_extrap))
 
         if self.struct_vecs[0]:
             zero_abcd = self.get_abcd([0])
@@ -137,6 +150,18 @@ class WorkerSpline:
     def y(self, y):
         self._y, self.end_derivs = np.split(y, [-2])
         self.y1 = self.M @ y.transpose()
+
+        self.y_with_extrap = self.y.copy()
+        self.y_with_extrap = np.insert(self.y_with_extrap, 0,
+                                       self.y[0] - self.h*self.y1[0])
+        self.y_with_extrap = np.append(self.y_with_extrap,
+                                       self.y[-1] + self.h*self.y1[-1])
+
+        self.y1_with_extrap = self.y1.copy()
+        self.y1_with_extrap = np.insert(self.y1_with_extrap, 0,
+                                        self.y1[0])
+        self.y1_with_extrap = np.append(self.y1_with_extrap,
+                                        self.y1[-1])
 
     def get_abcd(self, x, deriv=0):
         """Calculates the coefficients needed for spline interpolation.
@@ -181,83 +206,89 @@ class WorkerSpline:
         # TODO: x should be converted to atleast_1D here, not outside
         # TODO: change worker.__init__() to take advantage of multi-add
 
-        knots = self.x.copy()
+        knots_with_extrap = self.x.copy()
+        knots_with_extrap = np.insert(knots_with_extrap, 0, self.x[0] - self.h)
+        knots_with_extrap = np.append(knots_with_extrap, self.x[-1] + self.h)
+
+        nknots_with_extrap = len(knots_with_extrap)
 
         # Find spline interval
-        h = knots[1] - knots[0]
-        all_k = np.floor((x - knots[0]) / h).astype(int)
-
-        nknots = len(knots)
+        all_k = np.floor((x - knots_with_extrap[1]) / self.h).astype(int)
+        all_k += 1
+        all_k = np.clip(all_k, 0, nknots_with_extrap-2)
 
         # To do multiple adds at once, can't add 2D to list elements
-        vec = np.zeros((len(x), 2 * nknots))
+        vec = np.zeros((len(x), 2*(nknots_with_extrap)))
 
         for i in range(len(all_k)):  # for every point to be evaluated
             k = all_k[i]
 
-            if k < 0:  # LHS extrapolation
-                h_00 = np.poly1d([0, 0, 0, 1])
-                h_10 = np.poly1d([0, 0, 1, 0])
+            # if k < 0:  # LHS extrapolation
+            # if False:
+            #     h_00 = np.poly1d([0, 0, 0, 1])
+            #     h_10 = np.poly1d([0, 0, 1, 0])
+            #
+            #     t = (x[i] - knots_with_extrap[0])
+            #
+            #     h_00 = np.polyder(h_00, deriv)
+            #     h_10 = np.polyder(h_10, deriv)
+            #
+            #     A = h_00(t)
+            #     B = h_10(t)
+            #
+            #     vec[i][0] = A
+            #     vec[i][nknots_with_extrap] = B
+            #
+            # # elif k >= nknots - 1:  # RHS extrapolation
+            # elif False:
+            #     k = nknots_with_extrap - 1  # centered at second-to-last knot for indexing
+            #
+            #     h_00 = np.poly1d([0, 0, 0, 1])
+            #     h_10 = np.poly1d([0, 0, 1, 0])
+            #
+            #     t = (x[i] - knots_with_extrap[k])
+            #
+            #     h_00 = np.polyder(h_00, deriv)
+            #     h_10 = np.polyder(h_10, deriv)
+            #
+            #     A = h_00(t)
+            #     B = h_10(t)
+            #
+            #     vec[i][k] = A
+            #     vec[i][-1] = B
+            #
+            # else:
+            prefactor = (knots_with_extrap[k + 1] - knots_with_extrap[k])
+            # prefactor = self.h
 
-                t = (x[i] - knots[0])
+            h_00 = np.poly1d([2, -3, 0, 1])
+            h_10 = np.poly1d([1, -2, 1, 0])
+            h_01 = np.poly1d([-2, 3, 0, 0])
+            h_11 = np.poly1d([1, -1, 0, 0])
 
-                h_00 = np.polyder(h_00, deriv)
-                h_10 = np.polyder(h_10, deriv)
+            t = (x[i] - knots_with_extrap[k]) / prefactor
 
-                A = h_00(t)
-                B = h_10(t)
+            h_00 = np.polyder(h_00, deriv)
+            h_10 = np.polyder(h_10, deriv)
+            h_01 = np.polyder(h_01, deriv)
+            h_11 = np.polyder(h_11, deriv)
 
-                vec[i][0] = A
-                vec[i][nknots] = B
+            A = h_00(t)
+            B = h_10(t) * prefactor
+            C = h_01(t)
+            D = h_11(t) * prefactor
 
-            elif k >= nknots - 1:  # RHS extrapolation
-                k = nknots - 1  # centered at second-to-last knot for indexing
+            vec[i][k] = A
+            vec[i][k + nknots_with_extrap] = B
+            vec[i][k + 1] = C
+            vec[i][k + 1 + nknots_with_extrap] = D
 
-                h_00 = np.poly1d([0, 0, 0, 1])
-                h_10 = np.poly1d([0, 0, 1, 0])
-
-                t = (x[i] - knots[k])
-
-                h_00 = np.polyder(h_00, deriv)
-                h_10 = np.polyder(h_10, deriv)
-
-                A = h_00(t)
-                B = h_10(t)
-
-                vec[i][k] = A
-                vec[i][-1] = B
-
+            if deriv == 0:
+                scaling = 1
             else:
-                prefactor = (knots[k + 1] - knots[k])
+                scaling = 1 / (prefactor * deriv)
 
-                h_00 = np.poly1d([2, -3, 0, 1])
-                h_10 = np.poly1d([1, -2, 1, 0])
-                h_01 = np.poly1d([-2, 3, 0, 0])
-                h_11 = np.poly1d([1, -1, 0, 0])
-
-                t = (x[i] - knots[k]) / prefactor
-
-                h_00 = np.polyder(h_00, deriv)
-                h_10 = np.polyder(h_10, deriv)
-                h_01 = np.polyder(h_01, deriv)
-                h_11 = np.polyder(h_11, deriv)
-
-                A = h_00(t)
-                B = h_10(t) * prefactor
-                C = h_01(t)
-                D = h_11(t) * prefactor
-
-                vec[i][k] = A
-                vec[i][k + nknots] = B
-                vec[i][k + 1] = C
-                vec[i][k + 1 + nknots] = D
-
-                if deriv == 0:
-                    scaling = 1
-                else:
-                    scaling = 1 / (prefactor * deriv)
-
-                vec[i] *= scaling
+            vec[i] *= scaling
 
         return vec
 
@@ -273,6 +304,15 @@ class WorkerSpline:
             indices (tuple-like):
                 index values to append to self.indices
         """
+        #
+        # min_to_add = np.min(val)
+        # max_to_add = np.max(val)
+        #
+        # if min_to_add < self.ghost_lhs_extrap_knot:
+        #     self.ghost_lhs_extrap_knot = min_to_add
+        #
+        # if max_to_add > self.ghost_rhs_extrap_knot:
+        #     self.ghost_rhs_extrap_knot = max_to_add
 
         add = np.atleast_1d(val)
 
@@ -286,12 +326,14 @@ class WorkerSpline:
         indices = [indices for i in range(add.shape[0])]
         self.indices += indices
 
-    def plot(self, fname=''):
-        raise NotImplementedError("Worker plotting is not ready yet")
+    def plot(self):
+
+        # raise NotImplementedError("Worker plotting is not ready yet")
+        import matplotlib.pyplot as plt
 
         low, high = self.cutoff
-        low -= abs(0.2 * low)
-        high += abs(0.2 * high)
+        low     -= abs(2 * self.h)
+        high    += abs(2 * self.h)
 
         if self.y is None:
             raise ValueError("Must specify y before plotting")
@@ -300,12 +342,12 @@ class WorkerSpline:
         plt.plot(self.x, self.y, 'ro', label='knots')
 
         tmp_struct = self.struct_vecs
-        self.struct_vecs = None
+        self.struct_vecs = [[],[]]
 
-        plot_x = np.linspace(low, high, 1000)
+        plot_x = np.linspace(self.ghost_lhs_extrap_knot,
+                             self.ghost_rhs_extrap_knot, 1000)
 
-        for i in range(len(plot_x)):
-            self.add_to_struct_vec(plot_x[i])
+        self.add_to_struct_vec(plot_x, [0,0])
 
         plot_y = self(np.concatenate((self.y, self.end_derivs)))
 
