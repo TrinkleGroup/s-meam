@@ -56,6 +56,12 @@ class WorkerSpline:
     Notes:
         This object is distinct from a spline.Spline since it requires some
         attributes and functionality that a spline.Spline doesn't have.
+
+        By default, splines are designed to extrapolate accurately to double
+        the effective range (half of the original range on each side)
+
+        It is assumed that the U potential will modify the extrapolation
+        parameters outside of the WorkerSpline based on calculated ni values
     """
 
     def __init__(self, x, bc_type):
@@ -73,13 +79,18 @@ class WorkerSpline:
                              "'fixed'")
 
         # Variables that can be set at beginning
-        self.x = x
+        self.x = np.array(x, dtype=float)
         self.h = x[1] - x[0]
 
         self.bc_type = bc_type
 
         self.cutoff = (x[0], x[-1])
         self.M = build_M(len(x), self.h, self.bc_type)
+
+        extrap_distance = (self.cutoff[1] - self.cutoff[0])/2.
+
+        self.num_ghost_knots = int(np.ceil(extrap_distance/self.h))
+
 
         # Variables that will be set at some point
         self.struct_vecs = [[], []]
@@ -117,17 +128,22 @@ class WorkerSpline:
 
         y = y[:-2]
 
-        y_with_extrap = y.copy()
-        y_with_extrap = np.insert(y_with_extrap, 0,
-                                       y[0] - self.h*y1[0])
-        y_with_extrap = np.append(y_with_extrap,
-                                       y[-1] + self.h*y1[-1])
+        lhs_y_extrap = np.arange(1, self.num_ghost_knots + 1,
+                                  dtype=float)*self.h*y1[0]
+        lhs_y_extrap = -lhs_y_extrap[::-1] + y[0]
 
-        y1_with_extrap = y1.copy()
-        y1_with_extrap = np.insert(y1_with_extrap, 0,
-                                        y1[0])
-        y1_with_extrap = np.append(y1_with_extrap,
-                                        y[-1])
+        rhs_y_extrap = np.arange(1, self.num_ghost_knots + 1,
+                                 dtype=float)*self.h*y1[-1]
+        rhs_y_extrap += y[-1]
+
+        y_with_extrap = np.concatenate((lhs_y_extrap, y.copy(),
+                                             rhs_y_extrap))
+
+        lhs_y1_extrap = np.ones(self.num_ghost_knots)*y1[0]
+        rhs_y1_extrap = np.ones(self.num_ghost_knots)*y1[-1]
+
+        y1_with_extrap = np.concatenate((lhs_y1_extrap, y1.copy(),
+                                              rhs_y1_extrap))
 
         z = np.concatenate((y_with_extrap, y1_with_extrap))
 
@@ -151,17 +167,22 @@ class WorkerSpline:
         self._y, self.end_derivs = np.split(y, [-2])
         self.y1 = self.M @ y.transpose()
 
-        self.y_with_extrap = self.y.copy()
-        self.y_with_extrap = np.insert(self.y_with_extrap, 0,
-                                       self.y[0] - self.h*self.y1[0])
-        self.y_with_extrap = np.append(self.y_with_extrap,
-                                       self.y[-1] + self.h*self.y1[-1])
+        lhs_y_extrap = np.arange(1, self.num_ghost_knots + 1,
+                                  dtype=float)*self.h*self.y1[0]
+        lhs_y_extrap = -lhs_y_extrap[::-1] + self.y[0]
 
-        self.y1_with_extrap = self.y1.copy()
-        self.y1_with_extrap = np.insert(self.y1_with_extrap, 0,
-                                        self.y1[0])
-        self.y1_with_extrap = np.append(self.y1_with_extrap,
-                                        self.y1[-1])
+        rhs_y_extrap = np.arange(1, self.num_ghost_knots + 1,
+                                 dtype=float)*self.h*self.y1[-1]
+        rhs_y_extrap += self.y[-1]
+
+        self.y_with_extrap = np.concatenate((lhs_y_extrap, self.y.copy(),
+                                             rhs_y_extrap))
+
+        lhs_y1_extrap = np.ones(self.num_ghost_knots)*self.y1[0]
+        rhs_y1_extrap = np.ones(self.num_ghost_knots)*self.y1[-1]
+
+        self.y1_with_extrap = np.concatenate((lhs_y1_extrap, self.y1.copy(),
+                                              rhs_y1_extrap))
 
     def get_abcd(self, x, deriv=0):
         """Calculates the coefficients needed for spline interpolation.
@@ -206,15 +227,31 @@ class WorkerSpline:
         # TODO: x should be converted to atleast_1D here, not outside
         # TODO: change worker.__init__() to take advantage of multi-add
 
-        knots_with_extrap = self.x.copy()
-        knots_with_extrap = np.insert(knots_with_extrap, 0, self.x[0] - self.h)
-        knots_with_extrap = np.append(knots_with_extrap, self.x[-1] + self.h)
+        # knots_with_extrap = self.x.copy()
+
+        # Build and append arrays of extrapolation knots
+        lhs_extrap_knots = np.arange(1, self.num_ghost_knots + 1,
+                                     dtype=float)*self.h
+        lhs_extrap_knots = self.x[0] - lhs_extrap_knots[::-1]
+
+        rhs_extrap_knots = np.arange(1, self.num_ghost_knots + 1,
+                                     dtype=float)*self.h
+        rhs_extrap_knots += self.x[-1]
+
+        knots_with_extrap = np.concatenate((lhs_extrap_knots, self.x.copy(),
+                                           rhs_extrap_knots))
+
+        # knots_with_extrap = np.insert(knots_with_extrap, 0, self.x[0] - self.h)
+        # knots_with_extrap = np.append(knots_with_extrap, self.x[-1] + self.h)
 
         nknots_with_extrap = len(knots_with_extrap)
 
         # Find spline interval
-        all_k = np.floor((x - knots_with_extrap[1]) / self.h).astype(int)
-        all_k += 1
+        all_k = np.floor((x - self.x[0]) / self.h).astype(int)
+
+        # logging.info("WORKER: extrapolating {0} points".format(np.sum(
+        #     np.where(all_k < 0) + np.where(all_k > len(self.x)-1))))
+        all_k += self.num_ghost_knots
         all_k = np.clip(all_k, 0, nknots_with_extrap-2)
 
         # To do multiple adds at once, can't add 2D to list elements
@@ -223,43 +260,7 @@ class WorkerSpline:
         for i in range(len(all_k)):  # for every point to be evaluated
             k = all_k[i]
 
-            # if k < 0:  # LHS extrapolation
-            # if False:
-            #     h_00 = np.poly1d([0, 0, 0, 1])
-            #     h_10 = np.poly1d([0, 0, 1, 0])
-            #
-            #     t = (x[i] - knots_with_extrap[0])
-            #
-            #     h_00 = np.polyder(h_00, deriv)
-            #     h_10 = np.polyder(h_10, deriv)
-            #
-            #     A = h_00(t)
-            #     B = h_10(t)
-            #
-            #     vec[i][0] = A
-            #     vec[i][nknots_with_extrap] = B
-            #
-            # # elif k >= nknots - 1:  # RHS extrapolation
-            # elif False:
-            #     k = nknots_with_extrap - 1  # centered at second-to-last knot for indexing
-            #
-            #     h_00 = np.poly1d([0, 0, 0, 1])
-            #     h_10 = np.poly1d([0, 0, 1, 0])
-            #
-            #     t = (x[i] - knots_with_extrap[k])
-            #
-            #     h_00 = np.polyder(h_00, deriv)
-            #     h_10 = np.polyder(h_10, deriv)
-            #
-            #     A = h_00(t)
-            #     B = h_10(t)
-            #
-            #     vec[i][k] = A
-            #     vec[i][-1] = B
-            #
-            # else:
             prefactor = (knots_with_extrap[k + 1] - knots_with_extrap[k])
-            # prefactor = self.h
 
             h_00 = np.poly1d([2, -3, 0, 1])
             h_10 = np.poly1d([1, -2, 1, 0])
@@ -344,8 +345,18 @@ class WorkerSpline:
         tmp_struct = self.struct_vecs
         self.struct_vecs = [[],[]]
 
-        plot_x = np.linspace(self.ghost_lhs_extrap_knot,
-                             self.ghost_rhs_extrap_knot, 1000)
+        lhs_extrap_knots = np.arange(1, self.num_ghost_knots + 1,
+                             dtype=float)*self.h
+        lhs_extrap_knots = self.x[0] - lhs_extrap_knots[::-1]
+
+        rhs_extrap_knots = np.arange(1, self.num_ghost_knots + 1,
+                                     dtype=float)*self.h
+        rhs_extrap_knots += self.x[-1]
+
+        plot_x = np.concatenate((lhs_extrap_knots,
+                                 np.linspace(self.x[0], self.x[-1]),
+                                 rhs_extrap_knots))
+
 
         self.add_to_struct_vec(plot_x, [0,0])
 
@@ -445,15 +456,15 @@ class ffgSpline:
         # tmp_g_struct_vec = self.g.struct_vec[0]
 
         self.fj.y = y_fj
-        fj_vec = np.concatenate((self.fj.y, self.fj.y1))
+        fj_vec = np.concatenate((self.fj.y_with_extrap, self.fj.y1_with_extrap))
         fj_results = np.array(self.fj_struct_vecs[deriv]) @ fj_vec
 
         self.fk.y = y_fk
-        fk_vec = np.concatenate((self.fk.y, self.fk.y1))
+        fk_vec = np.concatenate((self.fk.y_with_extrap, self.fk.y1_with_extrap))
         fk_results = np.array(self.fk_struct_vecs[deriv]) @ fk_vec
 
         self.g.y = y_g
-        g_vec = np.concatenate((self.g.y, self.g.y1))
+        g_vec = np.concatenate((self.g.y_with_extrap, self.g.y1_with_extrap))
         g_results = np.array(self.g_struct_vecs[deriv]) @ g_vec
 
         # self.y = np.prod(cartesian_product(fj_vec, fk_vec, g_vec), axis=1)

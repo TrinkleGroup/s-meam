@@ -28,23 +28,31 @@ class WorkerSplineTests(unittest.TestCase):
         np.testing.assert_allclose(ws.end_derivs, self.y[-2:], atol=EPS, rtol=0)
         np.testing.assert_allclose(ws.y1, np.array([-2, -1, 0, 1, 2]))
 
-    def test_full_eval(self):
+    def test_full_eval_extrap_double_range(self):
         d0, dN = self.y[-2:]
+
+        # rzm: why is this still not 1e-12 accurate
 
         ws = WorkerSpline(self.x, ('fixed', 'fixed'))
         cs = Spline(self.x, self.y[:-2], bc_type=((1, d0), (1, dN)),
                     end_derivs=(d0, dN))
 
-        test_x = np.linspace(-10, 20, 1000)
+        spline_range = self.x[-1] - self.x[0]
+
+        test_x = np.linspace(self.x[0] - spline_range/2., self.x[-1] +
+                             spline_range/2., 1000)
 
         ws.add_to_struct_vec(test_x, [0, 0])
 
         results = ws(self.y)
 
+        # ws.y = self.y
+        # ws.plot()
+
         for i in range(len(test_x)):
             # self.assertAlmostEqual(results[i], cs(test_x[i]), DIGITS)
-            np.testing.assert_allclose(results[i], cs(test_x[i]), atol=0,
-                                       rtol=EPS)
+            np.testing.assert_allclose(results[i], cs(test_x[i]), rtol=0,
+                                       atol=EPS)
 
     def test_rhs_extrap(self):
         d0, dN = self.y[-2:]
@@ -57,9 +65,6 @@ class WorkerSplineTests(unittest.TestCase):
         # test_x = np.array([1.5])
 
         ws.add_to_struct_vec(test_x, [0, 0])
-
-        # ws.y = self.y
-        # ws.plot()
 
         results = ws(self.y)
 

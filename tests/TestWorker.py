@@ -23,8 +23,8 @@ EPS = 1e-12
 N = 1
 
 # Flags for what tests to run
-energy_flag = True * 0
-forces_flag = True * 1
+energy_flag = True * 1
+forces_flag = True * 0
 
 zero_pots_flag  = True * 0
 const_pots_flag = True * 0
@@ -40,7 +40,7 @@ norhophi_flag   = True * 0
 
 dimers_flag     = True * 1
 trimers_flag    = True * 1
-bulk_flag       = True * 1
+bulk_flag       = True * 0
 
 allstructs = {}
 
@@ -54,7 +54,7 @@ if bulk_flag:
 
 # allstructs = {'bulk_vac_rhombo_mixed':bulk_vac_rhombo[
 #     'bulk_vac_rhombo_mixed']}
-allstructs = {'aba':trimers['aba']}
+# allstructs = {'aba':trimers['aba']}
 
 ################################################################################
 # Helper functions
@@ -66,6 +66,9 @@ def loader_energy(group_name, calculated, lammps):
 
     load_tests = []
     for name in calculated.keys():
+
+        logging.info("LAMMPS = {0}".format(lammps[name]))
+        logging.info("WORKER = {0}".format(calculated[name]))
         test_name = group_name + '_' + name + '_energy'
         load_tests.append((test_name, calculated[name], lammps[name]))
 
