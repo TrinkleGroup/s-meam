@@ -107,8 +107,10 @@ class WorkerSpline:
 
         z = np.concatenate((self.y_with_extrap, self.y1_with_extrap))
 
+        joined_struct_vec = np.concatenate(self.struct_vecs[deriv])
+
         if self.struct_vecs[deriv]:
-            return np.atleast_1d(np.array(self.struct_vecs[deriv]) @
+            return np.atleast_1d(joined_struct_vec @
                                  z.transpose()).ravel()
         else:
             return np.array([0.])
@@ -166,20 +168,28 @@ class WorkerSpline:
     def y(self, y):
         self._y, self.end_derivs = np.split(y, [-2])
         self.y1 = self.M @ y.transpose()
+        #
+        # lhs_y_extrap = np.arange(1, self.num_ghost_knots + 1,
+        #                           dtype=float)*self.h*self.y1[0]
+        # lhs_y_extrap = -lhs_y_extrap[::-1] + self.y[0]
+        #
+        # rhs_y_extrap = np.arange(1, self.num_ghost_knots + 1,
+        #                          dtype=float)*self.h*self.y1[-1]
+        # rhs_y_extrap += self.y[-1]
 
-        lhs_y_extrap = np.arange(1, self.num_ghost_knots + 1,
-                                  dtype=float)*self.h*self.y1[0]
-        lhs_y_extrap = -lhs_y_extrap[::-1] + self.y[0]
+        # rzm: why does single_lhs work, but not full?
 
-        rhs_y_extrap = np.arange(1, self.num_ghost_knots + 1,
-                                 dtype=float)*self.h*self.y1[-1]
-        rhs_y_extrap += self.y[-1]
+        lhs_y_extrap = np.array([self.y[0] - self.y1[0]])
+        rhs_y_extrap = np.array([self.y[-1] + self.y1[-1]])
 
         self.y_with_extrap = np.concatenate((lhs_y_extrap, self.y.copy(),
                                              rhs_y_extrap))
 
-        lhs_y1_extrap = np.ones(self.num_ghost_knots)*self.y1[0]
-        rhs_y1_extrap = np.ones(self.num_ghost_knots)*self.y1[-1]
+        # lhs_y1_extrap = np.ones(self.num_ghost_knots)*self.y1[0]
+        # rhs_y1_extrap = np.ones(self.num_ghost_knots)*self.y1[-1]
+
+        lhs_y1_extrap = np.array([self.y1[0]])
+        rhs_y1_extrap = np.array([self.y1[-1]])
 
         self.y1_with_extrap = np.concatenate((lhs_y1_extrap, self.y1.copy(),
                                               rhs_y1_extrap))
@@ -227,69 +237,94 @@ class WorkerSpline:
         # TODO: x should be converted to atleast_1D here, not outside
         # TODO: change worker.__init__() to take advantage of multi-add
 
-        # knots_with_extrap = self.x.copy()
+        x = np.atleast_1d(x)
 
-        # Build and append arrays of extrapolation knots
-        lhs_extrap_knots = np.arange(1, self.num_ghost_knots + 1,
-                                     dtype=float)*self.h
-        lhs_extrap_knots = self.x[0] - lhs_extrap_knots[::-1]
+        knots = self.x.copy()
 
-        rhs_extrap_knots = np.arange(1, self.num_ghost_knots + 1,
-                                     dtype=float)*self.h
-        rhs_extrap_knots += self.x[-1]
-
-        knots_with_extrap = np.concatenate((lhs_extrap_knots, self.x.copy(),
-                                           rhs_extrap_knots))
-
-        # knots_with_extrap = np.insert(knots_with_extrap, 0, self.x[0] - self.h)
-        # knots_with_extrap = np.append(knots_with_extrap, self.x[-1] + self.h)
+        # Ghosts knots added for extrapolation
+        knots_with_extrap = np.concatenate((np.array([knots[0]-1]),
+                                            knots,
+                                            np.array([knots[-1]+1])))
 
         nknots_with_extrap = len(knots_with_extrap)
 
-        # Find spline interval
-        all_k = np.floor((x - self.x[0]) / self.h).astype(int)
+        # Performs interval search and prepares prefactors
+        intervals_from_zero = np.floor((x - self.x[0]) / self.h).astype(int)
 
-        # logging.info("WORKER: extrapolating {0} points".format(np.sum(
-        #     np.where(all_k < 0) + np.where(all_k > len(self.x)-1))))
-        all_k += self.num_ghost_knots
-        all_k = np.clip(all_k, 0, nknots_with_extrap-2)
+        prefactors = intervals_from_zero.copy().astype(float)
+        prefactors[np.where(np.logical_and(prefactors >= 0,
+                                           prefactors < len(knots)))] = 1
 
-        # To do multiple adds at once, can't add 2D to list elements
+        prefactors = np.abs(prefactors)*self.h
+
+        all_k = np.clip(intervals_from_zero, -1, nknots_with_extrap - 2)
+        all_k += 1
+
+        all_t = (x - knots_with_extrap[all_k]) / prefactors
+
+        h_00 = np.poly1d([2, -3, 0, 1])
+        h_10 = np.poly1d([1, -2, 1, 0])
+        h_01 = np.poly1d([-2, 3, 0, 0])
+        h_11 = np.poly1d([1, -1, 0, 0])
+
+        h_00 = np.polyder(h_00, deriv)
+        h_10 = np.polyder(h_10, deriv)
+        h_01 = np.polyder(h_01, deriv)
+        h_11 = np.polyder(h_11, deriv)
+
+        all_A = h_00(all_t)
+        all_B = h_10(all_t) * prefactors
+        all_C = h_01(all_t)
+        all_D = h_11(all_t) * prefactors
+
         vec = np.zeros((len(x), 2*(nknots_with_extrap)))
 
-        for i in range(len(all_k)):  # for every point to be evaluated
-            k = all_k[i]
+        vec[:, all_k] += all_A
+        vec[:, all_k + nknots_with_extrap] += all_B
+        vec[:, all_k + 1] += all_C
+        vec[:, all_k + 1 + nknots_with_extrap] += all_D
 
-            prefactor = (knots_with_extrap[k + 1] - knots_with_extrap[k])
+        if deriv == 0: scaling = np.ones(len(prefactors))
+        else: scaling =  1 / (prefactors * deriv)
 
-            h_00 = np.poly1d([2, -3, 0, 1])
-            h_10 = np.poly1d([1, -2, 1, 0])
-            h_01 = np.poly1d([-2, 3, 0, 0])
-            h_11 = np.poly1d([1, -1, 0, 0])
+        scaling = scaling.reshape((len(scaling), 1))
 
-            t = (x[i] - knots_with_extrap[k]) / prefactor
+        vec *= scaling
 
-            h_00 = np.polyder(h_00, deriv)
-            h_10 = np.polyder(h_10, deriv)
-            h_01 = np.polyder(h_01, deriv)
-            h_11 = np.polyder(h_11, deriv)
-
-            A = h_00(t)
-            B = h_10(t) * prefactor
-            C = h_01(t)
-            D = h_11(t) * prefactor
-
-            vec[i][k] = A
-            vec[i][k + nknots_with_extrap] = B
-            vec[i][k + 1] = C
-            vec[i][k + 1 + nknots_with_extrap] = D
-
-            if deriv == 0:
-                scaling = 1
-            else:
-                scaling = 1 / (prefactor * deriv)
-
-            vec[i] *= scaling
+        #
+        # for i in range(len(all_k)):  # for every point to be evaluated
+        #     k = all_k[i]
+        #
+        #     prefactor = (knots_with_extrap[k + 1] - knots_with_extrap[k])
+        #
+        #     h_00 = np.poly1d([2, -3, 0, 1])
+        #     h_10 = np.poly1d([1, -2, 1, 0])
+        #     h_01 = np.poly1d([-2, 3, 0, 0])
+        #     h_11 = np.poly1d([1, -1, 0, 0])
+        #
+        #     t = (x[i] - knots_with_extrap[k]) / prefactor
+        #
+        #     h_00 = np.polyder(h_00, deriv)
+        #     h_10 = np.polyder(h_10, deriv)
+        #     h_01 = np.polyder(h_01, deriv)
+        #     h_11 = np.polyder(h_11, deriv)
+        #
+        #     A = h_00(t)
+        #     B = h_10(t) * prefactor
+        #     C = h_01(t)
+        #     D = h_11(t) * prefactor
+        #
+        #     vec[i][k] = A
+        #     vec[i][k + nknots_with_extrap] = B
+        #     vec[i][k + 1] = C
+        #     vec[i][k + 1 + nknots_with_extrap] = D
+        #
+        #     if deriv == 0:
+        #         scaling = 1
+        #     else:
+        #         scaling = 1 / (prefactor * deriv)
+        #
+        #     vec[i] *= scaling
 
         return vec
 
