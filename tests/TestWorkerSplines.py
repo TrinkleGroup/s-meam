@@ -31,8 +31,6 @@ class WorkerSplineTests(unittest.TestCase):
     def test_full_eval_extrap_double_range(self):
         d0, dN = self.y[-2:]
 
-        # rzm: why is this still not 1e-12 accurate
-
         ws = WorkerSpline(self.x, ('fixed', 'fixed'))
         cs = Spline(self.x, self.y[:-2], bc_type=((1, d0), (1, dN)),
                     end_derivs=(d0, dN))
@@ -40,19 +38,43 @@ class WorkerSplineTests(unittest.TestCase):
         spline_range = self.x[-1] - self.x[0]
 
         test_x = np.linspace(self.x[0] - spline_range/2., self.x[-1] +
-                             spline_range/2., 1000)
+                             spline_range/2., 10)
 
         ws.add_to_struct_vec(test_x, [0, 0])
 
         results = ws(self.y)
 
-        # ws.y = self.y
-        # ws.plot()
-
         for i in range(len(test_x)):
-            # self.assertAlmostEqual(results[i], cs(test_x[i]), DIGITS)
-            np.testing.assert_allclose(results[i], cs(test_x[i]), rtol=0,
-                                       atol=EPS)
+            self.assertAlmostEqual(results[i], cs(test_x[i]), DIGITS)
+            # np.testing.assert_allclose(results[i], cs(test_x[i]), rtol=0,
+            #                            atol=EPS)
+
+    def test_single_rhs_extrap(self):
+        d0, dN = self.y[-2:]
+
+        ws = WorkerSpline(self.x, ('fixed', 'fixed'))
+        cs = Spline(self.x, self.y[:-2], bc_type=((1, d0), (1, dN)),
+                    end_derivs=(d0, dN))
+
+        test_x = 2
+
+        ws.add_to_struct_vec(test_x, [0,0])
+
+        self.assertAlmostEqual(ws(self.y)[0], cs(test_x))
+
+    def test_two_rhs_extrap(self):
+        d0, dN = self.y[-2:]
+
+        ws = WorkerSpline(self.x, ('fixed', 'fixed'))
+        cs = Spline(self.x, self.y[:-2], bc_type=((1, d0), (1, dN)),
+                    end_derivs=(d0, dN))
+
+        test_x = [2, 3]
+
+        ws.add_to_struct_vec(test_x, [0,0])
+
+        self.assertAlmostEqual(ws(self.y)[1], cs(test_x[1]))
+        self.assertAlmostEqual(ws(self.y)[0], cs(test_x[0]))
 
     def test_rhs_extrap(self):
         d0, dN = self.y[-2:]
@@ -85,6 +107,34 @@ class WorkerSplineTests(unittest.TestCase):
         ws.add_to_struct_vec(test_x, [0,0])
 
         self.assertAlmostEqual(ws(self.y)[0], cs(test_x))
+
+    def test_two_lhs_extrap(self):
+        d0, dN = self.y[-2:]
+
+        ws = WorkerSpline(self.x, ('fixed', 'fixed'))
+        cs = Spline(self.x, self.y[:-2], bc_type=((1, d0), (1, dN)),
+                    end_derivs=(d0, dN))
+
+        test_x = [-2, -3]
+
+        ws.add_to_struct_vec(test_x, [0,0])
+
+        self.assertAlmostEqual(ws(self.y)[1], cs(test_x[1]))
+        self.assertAlmostEqual(ws(self.y)[0], cs(test_x[0]))
+
+    def test_lhs_extrap_one_in_one_out(self):
+        d0, dN = self.y[-2:]
+
+        ws = WorkerSpline(self.x, ('fixed', 'fixed'))
+        cs = Spline(self.x, self.y[:-2], bc_type=((1, d0), (1, dN)),
+                    end_derivs=(d0, dN))
+
+        test_x = [-1.5, -0.25]
+
+        ws.add_to_struct_vec(test_x, [0,0])
+
+        self.assertAlmostEqual(ws(self.y)[1], cs(test_x[1]))
+        self.assertAlmostEqual(ws(self.y)[0], cs(test_x[0]))
 
     def test_lhs_extrap(self):
         d0, dN = self.y[-2:]
@@ -164,6 +214,7 @@ class WorkerSplineTests(unittest.TestCase):
         ws.add_to_struct_vec(r, [0, 0])
 
         true = np.array([0,0.5,0.5,0,0,0,0.125,-0.125,0,0]).reshape((1,10))
+        # true = np.array([0.5, 0.5, 0, 0.125, -0.125, 0]).reshape((1,6))
         np.testing.assert_allclose(ws.struct_vecs[0], true, atol=EPS, rtol=0)
 
     def test_get_abcd_lhs_extrap(self):
@@ -173,8 +224,8 @@ class WorkerSplineTests(unittest.TestCase):
         ws = WorkerSpline(x, ('fixed', 'fixed'))
         ws.add_to_struct_vec(r, [0, 0])
 
-        true = np.array([0.5, 0.5, 0, 0, 0, 0.125, -0.125, 0, 0, 0]).reshape(
-            (1,10))
+        # true = np.array([1, 0, 0, 0, 0, 0, 0, 0]).reshape((1,8))
+        true = np.array([0.5,0.5,0,0,0,0.125,-0.125,0,0,0]).reshape((1,10))
         np.testing.assert_allclose(ws.struct_vecs[0], true, atol=EPS, rtol=0)
 
     def test_get_abcd_rhs_extrap(self):
@@ -184,6 +235,7 @@ class WorkerSplineTests(unittest.TestCase):
         ws = WorkerSpline(x, ('fixed', 'fixed'))
         ws.add_to_struct_vec(r, [0, 0])
 
+        # true = np.array([0, 0, 0, 1, 0, 0, 0, 0]).reshape((1,8))
         true = np.array([0,0,0,0.5,0.5,0,0,0,0.125,-0.125]).reshape((1,10))
         np.testing.assert_allclose(ws.struct_vecs[0], true, atol=EPS, rtol=0)
 
@@ -228,9 +280,8 @@ class WorkerSplineTests(unittest.TestCase):
 
         ws = WorkerSpline(x, ('fixed', 'fixed'))
         ws.add_to_struct_vec(-1., [0, 0])
-        ws.add_to_struct_vec(-2, [0, 0])
 
-        np.testing.assert_allclose(ws(y), [-1., -2])
+        self.assertAlmostEqual(ws(y), -1)
 
     def test_eval_flat_rhs_extrap(self):
         x = np.arange(10, dtype=float)
@@ -329,9 +380,7 @@ class WorkerSplineTests(unittest.TestCase):
 
         ws = WorkerSpline(x, ('fixed', 'fixed'))
 
-        ws.add_to_struct_vec(1, [0, 0])
-        ws.add_to_struct_vec(1, [0, 0])
-        ws.add_to_struct_vec(1, [0, 0])
+        ws.add_to_struct_vec(np.ones(3), [[0,0], [0,0], [0,0]])
 
         self.assertEqual(np.sum(ws.compute_zero_potential(y)), 3)
 
@@ -432,26 +481,30 @@ class RhoSplineTests(unittest.TestCase):
         # self.s.update_struct_vec_dict(0., 0)
         # self.s.update_struct_vec_dict(0., 0)
 
-        self.s.add_to_struct_vec(0, [0, 1])
-        self.s.add_to_struct_vec(0, [0, 1])
+        # self.s.add_to_struct_vec(0, [0, 1])
+        # self.s.add_to_struct_vec(0, [0, 1])
 
         # self.s.update_struct_vec_dict(0., 1)
         # self.s.update_struct_vec_dict(0., 1)
         # self.s.update_struct_vec_dict(0., 1)
 
-        self.s.add_to_struct_vec(0, [1, 0])
-        self.s.add_to_struct_vec(0, [1, 0])
-        self.s.add_to_struct_vec(0, [1, 0])
+        # self.s.add_to_struct_vec(0, [1, 0])
+        # self.s.add_to_struct_vec(0, [1, 0])
+        # self.s.add_to_struct_vec(0, [1, 0])
 
-        self.assertEqual(len(self.s.struct_vecs[0]), 5)
-        self.assertEqual(len(self.s.struct_vecs[1]), 5)
+        self.s.add_to_struct_vec(np.zeros(5), [[0,1]]*2 + [[1,0]]*3)
+
+        self.assertEqual(len(np.vstack(self.s.struct_vecs[0])), 5)
+        self.assertEqual(len(np.vstack(self.s.struct_vecs[1])), 5)
 
     def test_compute_zeros(self):
-        self.s.add_to_struct_vec(0, [0, 1])
-        self.s.add_to_struct_vec(0, [0, 1])
-        self.s.add_to_struct_vec(0, [1, 0])
-        self.s.add_to_struct_vec(0, [1, 0])
-        self.s.add_to_struct_vec(0, [1, 0])
+        # self.s.add_to_struct_vec(0, [0, 1])
+        # self.s.add_to_struct_vec(0, [0, 1])
+        # self.s.add_to_struct_vec(0, [1, 0])
+        # self.s.add_to_struct_vec(0, [1, 0])
+        # self.s.add_to_struct_vec(0, [1, 0])
+
+        self.s.add_to_struct_vec(np.zeros(5), [[0,1]]*2 + [[1,0]]*3)
 
         results = self.s.compute_for_all(self.y)
 
@@ -465,12 +518,15 @@ class RhoSplineTests(unittest.TestCase):
         # self.s.update_struct_vec_dict(1., 1)
         # self.s.update_struct_vec_dict(1., 1)
         # self.s.update_struct_vec_dict(1., 1)
+        #
+        # self.s.add_to_struct_vec(1., [0, 1])
+        # self.s.add_to_struct_vec(1., [0, 1])
+        # self.s.add_to_struct_vec(1., [1, 0])
+        # self.s.add_to_struct_vec(1., [1, 0])
+        # self.s.add_to_struct_vec(1., [1, 0])
 
-        self.s.add_to_struct_vec(1., [0, 1])
-        self.s.add_to_struct_vec(1., [0, 1])
-        self.s.add_to_struct_vec(1., [1, 0])
-        self.s.add_to_struct_vec(1., [1, 0])
-        self.s.add_to_struct_vec(1., [1, 0])
+        self.s.add_to_struct_vec(np.ones(5),
+                                 [[0,1], [0,1], [1,0], [1,0], [1,0]])
 
         results = self.s.compute_for_all(self.y)
 

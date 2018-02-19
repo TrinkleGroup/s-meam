@@ -150,6 +150,18 @@ class Worker:
         self.ffg_directions = [[[] for j in range(len(self.fs))] for i in range(
             len(self.fs))]
 
+        all_phi_rij = [[] for i in range(len(self.phis))]
+        phi_rij_indices = [[] for i in range(len(self.phis))]
+
+        all_rho_rij = [[] for i in range(len(self.rhos))]
+        rho_rij_indices = [[] for i in range(len(self.rhos))]
+
+        num_f = len(self.fs)
+        all_ffg_rij = [[[] for i in range(num_f)] for j in range(num_f)]
+        all_ffg_rik = [[[] for i in range(num_f)] for j in range(num_f)]
+        all_ffg_cos = [[[] for i in range(num_f)] for j in range(num_f)]
+        ffg_indices= [[[] for i in range(num_f)] for j in range(num_f)]
+
         # Allows double counting; needed for embedding energy calculations
         nl = NeighborList(np.ones(len(atoms)) * (self.cutoff / 2.),
                           self_interaction=False, bothways=True, skin=0.0)
@@ -164,6 +176,9 @@ class Worker:
             neighbors_noboth, offsets_noboth = nl_noboth.get_neighbors(i)
             neighbors, offsets = nl.get_neighbors(i)
 
+            # logging.info("WORKER: num_noboth = {0}".format(len(neighbors_noboth)))
+            # logging.info("WORKER: num = {0}".format(len(neighbors)))
+
             # Stores pair information for phi
             for j, offset in zip(neighbors_noboth, offsets_noboth):
                 jtype = lammpsTools.symbol_to_type(atoms[j].symbol, self.types)
@@ -176,9 +191,12 @@ class Worker:
 
                 phi_idx = meam.ij_to_potl(itype, jtype, self.ntypes)
 
-                self.phis[phi_idx].add_to_struct_vec(rij, [i,j])
+                # self.phis[phi_idx].add_to_struct_vec(rij, [i,j])
+                all_phi_rij[phi_idx].append(rij)
+                phi_rij_indices[phi_idx].append([i,j])
 
                 self.phi_directions[phi_idx].append(jvec)
+                # logging.info("WORKER: r_ij = {0}".format(rij))
 
             # Store distances, angle, and index info for embedding terms
             j_counter = 0  # for tracking neighbor
@@ -193,7 +211,8 @@ class Worker:
 
                 rho_idx = meam.i_to_potl(jtype)
 
-                self.rhos[rho_idx].add_to_struct_vec(rij, [i, j])
+                all_rho_rij[rho_idx].append(rij)
+                rho_rij_indices[rho_idx].append([i,j])
 
                 self.rho_directions[rho_idx].append(jvec)
 
@@ -220,12 +239,25 @@ class Worker:
 
                         cos_theta = np.dot(a, b) / na / nb
 
+                        # logging.info("WORKER: cos_theta = {0}".format(cos_theta))
+
                         # fk information
                         fk_idx = meam.i_to_potl(ktype)
 
-                        self.ffgs[fj_idx][fk_idx].add_to_struct_vec(rij, rik,
-                                                                    cos_theta,
-                                                                    [i, j, k])
+                        # self.ffgs[fj_idx][fk_idx].add_to_struct_vec(rij, rik,
+                        #                                             cos_theta,
+                        #                                             [i, j, k])
+
+                        # logging.info("WORKER: j,i,k = {0},{1},{2}".format(i,
+                        #                                                   j,k))
+
+                        # logging.info("WORKER: rij, rik, cos = {0}\t{1}\t{"
+                        #              "2}".format(rij, rik, cos_theta))
+
+                        all_ffg_rij[fj_idx][fk_idx].append(rij)
+                        all_ffg_rik[fj_idx][fk_idx].append(rik)
+                        all_ffg_cos[fj_idx][fk_idx].append(cos_theta)
+                        ffg_indices[fj_idx][fk_idx].append([i,j,k])
 
                         # fj_0, fk_0, g_0 = self.get_abcd(rij, rik, cos_theta, [0, 0, 0])
                         # fj_1, fk_1, g_1 = self.get_abcd(rij, rik, cos_theta, [1, 0, 0])
@@ -271,6 +303,24 @@ class Worker:
                         self.ffg_directions[fj_idx][fk_idx] += [d0, d1, d2,
                                                                 d3, d4, d5]
 
+        for phi_idx in range(len(self.phis)):
+            self.phis[phi_idx].add_to_struct_vec(all_phi_rij[phi_idx],
+                                                 phi_rij_indices[phi_idx])
+
+        for rho_idx in range(len(self.rhos)):
+            self.rhos[rho_idx].add_to_struct_vec(all_rho_rij[rho_idx],
+                                                 rho_rij_indices[rho_idx])
+
+        for fj_idx in range(len(self.fs)):
+            for fk_idx in range(len(self.fs)):
+                rij = all_ffg_rij[fj_idx][fk_idx]
+                rik = all_ffg_rik[fj_idx][fk_idx]
+                cos_theta = all_ffg_cos[fj_idx][fk_idx]
+                indices = ffg_indices[fj_idx][fk_idx]
+
+                self.ffgs[fj_idx][fk_idx].add_to_struct_vec(rij, rik, cos_theta,
+                                                            indices)
+
         self.phi_directions = [np.array(el) for el in self.phi_directions]
         self.rho_directions = [np.array(el) for el in self.rho_directions]
         # self.f_directions = [np.array(el) for el in self.f_directions]
@@ -307,6 +357,8 @@ class Worker:
             y = phi_pvecs[i]
             s = self.phis[i]
 
+            # logging.info("WORKER: phi() = {0}".format(s(y)))
+
             energy += np.sum(s(y))
 
         # Calculate rho contributions to ni
@@ -333,18 +385,29 @@ class Worker:
                 val = ffg.compute_for_all(y_fj, y_fk, y_g)
                 ni += val
 
+                # logging.info("WORKER: ffg_val = {0}".format(val))
+
+        # logging.info("WORKER: ni = {0}".format(ni))
+
         # TODO: vectorize this
+
+        sorted_ni = [[] for i in range(len(self.us))]
+        ni_indices = [[] for i in range(len(self.us))]
 
         # Add ni values to respective u splines
         for i in range(len(self.atoms)):
             itype = lammpsTools.symbol_to_type(self.atoms[i].symbol, self.types)
             u_idx = meam.i_to_potl(itype)
 
-            u = self.us[u_idx]
+            sorted_ni[u_idx].append(ni[i])
+            ni_indices[u_idx].append([i,j])
 
             # TODO: it's dumb that you have to pass in [i,i] for U b/c inherits
-            u.add_to_struct_vec(ni[i], [i, i])
 
+        for u_idx in range(len(self.us)):
+            self.us[u_idx].add_to_struct_vec(sorted_ni[u_idx],ni_indices[u_idx])
+
+        # logging.info("WORKER: ni = {0}".format(ni))
         # Evaluate u splines and zero-point energies
         zero_point_energy = 0
         for i in range(len(self.us)):
@@ -353,11 +416,16 @@ class Worker:
 
             # zero-point has to be calculated separately bc has to be SUBTRACTED
             # off of the energy
-            if u.struct_vecs != [[], []]:
+            # if u.struct_vecs != [[], []]:
+            if len(np.vstack(u.struct_vecs[0])) > 0:
                 zero_point_energy += np.sum(u.compute_zero_potential(y))
+
+                # logging.info("WORKER: zero_point = {0}".format(
+                #     u.compute_zero_potential(y)))
 
                 energy += np.sum(u(y))
 
+                # logging.info("U = {0}".format(u(y)))
                 np.add.at(self.uprimes, np.array(u.indices)[:, 0], u(y, 1))
 
         return energy - zero_point_energy
