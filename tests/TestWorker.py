@@ -56,10 +56,10 @@ if bulk_flag:
 # allstructs = {'bulk_periodic_rhombo_mixed':bulk_periodic_rhombo[
 #     'bulk_periodic_rhombo_mixed']}
 # allstructs = {'aba':trimers['aba']}
-allstructs = {'8_atom':extra['8_atoms']}
+# allstructs = {'8_atom':extra['8_atoms']}
 
 import lammpsTools
-lammpsTools.atoms_to_LAMMPS_file('data.poop_8atoms', allstructs['8_atom'])
+# lammpsTools.atoms_to_LAMMPS_file('data.poop_8atoms', allstructs['8_atom'])
 
 ################################################################################
 # Helper functions
@@ -117,7 +117,7 @@ def get_lammps_results(pots, structs):
             lmp_p.compute_energy(atoms)
 
             results = lmp_p.get_lammps_results(atoms)
-            lmp_energies[name][pnum] = results['energy']# / len(atoms)
+            lmp_energies[name][pnum] = results['energy'] / len(atoms)
             lmp_forces[name].append(results['forces'])
 
             # TODO: LAMMPS runtimes are inflated due to ASE internal read/write
@@ -136,7 +136,7 @@ def runner_energy(pots, structs):
         logging.info("COMPUTING - name = {0}".format(name))
         w = Worker(atoms, x_pvec, indices, pots[0].types)
         # TODO: to optimize, preserve workers for each struct
-        wrk_energies[name] = w.compute_energies(y_pvec)# / len(atoms)
+        wrk_energies[name] = w.compute_energies(y_pvec) / len(atoms)
 
     return wrk_energies
 

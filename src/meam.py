@@ -215,6 +215,9 @@ class MEAM:
             num_neighbors = len(neighbors[0])
             num_neighbors_noboth = len(neighbors_noboth[0])
 
+            # logging.info("MEAM: num_noboth = {0}".format(num_neighbors_noboth))
+            # logging.info("MEAM: num = {0}".format(num_neighbors))
+
             # Build the list of shifted positions for atoms outside of unit cell
             neighbor_shifted_positions = []
 
@@ -244,6 +247,7 @@ class MEAM:
 
                     phi = self.phis[ij_to_potl(itype, jtype, self.ntypes)]
 
+                    # logging.info("MEAM: phi({0}) = {1}".format(r_ij, phi(r_ij)))
                     total_phi += phi(r_ij)
                 # end phi loop
 
@@ -259,6 +263,8 @@ class MEAM:
                     # Used for triplet calculations
                     a = neighbor_shifted_positions[j] - ipos
                     na = np.linalg.norm(a)
+
+                    fj_val = fj(r_ij)
 
                     partialsum = 0.0
                     for k in range(j, num_neighbors):
@@ -284,13 +290,29 @@ class MEAM:
 
                             partialsum += fk_val * g_val
                             tripcounter += 1
+
+                            # logging.info("MEAM: cos_theta = {0}".format(cos_theta))
+                            # logging.info("MEAM: ffg = {0}".format(fj_val*partialsum))
+
+                            # logging.info("MEAM: rij, rik, cos = {0}\t{1}\t{"
+                            #              "2}".format(r_ij, r_ik, cos_theta))
+
+                            # logging.info("MEAM: j,i,k = {0},{1},{2}".format(
+                            #     neighbors[0][j], i, neighbors[0][k]))
+                            # logging.info("MEAM: {0}\t{1}\t{2}".format(
+                            #     fj_val, fk_val, g_val))
                     # end triplet loop
 
-                    fj_val = fj(r_ij)
                     total_ni += fj_val * partialsum
                     total_ni += rho(r_ij)
+
+                    # logging.info("MEAM: fj_val = {0}".format(fj_val))
                 # end u loop
 
+                # logging.info("MEAM: u({0}) = {1}".format(total_ni, u(total_ni)))
+                # logging.info("MEAM: ni = {0}".format(total_ni))
+                # logging.info("MEAM: zero_point = {0}".format(
+                #     self.zero_atom_energies[i_to_potl(itype)]))
                 atom_e = total_phi + u(total_ni) - self.zero_atom_energies[
                     i_to_potl(itype)]
 

@@ -105,6 +105,7 @@ class WorkerSpline:
 
         self.y = y
 
+
         if self.struct_vecs[deriv]:
 
             # default extrapolation distance is half of full spline range
@@ -515,7 +516,8 @@ class ffgSpline:
 
         val = np.multiply(np.multiply(fj_results, fk_results), g_results)
 
-        logging.info("WORKER: fj_results = {0}".format(fj_results))
+        # np.set_printoptions(precision=16)
+        # logging.info("WORKER: fj_results = {0}".format(fj_results))
 
         return val.ravel()
 

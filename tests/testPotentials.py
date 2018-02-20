@@ -134,6 +134,9 @@ def get_random_pots(new_n):
                 #     knots_y = np.arange(num_knots)/10.
                 #     d0 = dN = 0
 
+                if i > 8:
+                    knots_x = np.linspace(-1, 1, num=num_knots)
+
                 temp = Spline(knots_x, knots_y, bc_type=((1, d0), (1, dN)), \
                               end_derivs=(d0, dN))
 
