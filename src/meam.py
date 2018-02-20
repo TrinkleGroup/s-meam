@@ -426,7 +426,29 @@ class MEAM:
                             fij = -Uprime_i * g_val * fk_val * fj_prime
                             fik = -Uprime_i * g_val * fj_val * fk_prime
 
+                            # logging.info("MEAM: fij = {0}".format(fij))
+                            # logging.info("MEAM: fik = {0}".format(fik))
+                            #
+                            # logging.info("MEAM: d0 = {0}\t{1}\t{2}".format(
+                            #     fj_prime, fk_val, g_val))
+                            #
+                            # logging.info("MEAM: d1 = {0}\t{1}\t{2}".format(
+                            #     fj_val, fk_val, g_prime))
+                            #
+                            # logging.info("MEAM: d2 = {0}\t{1}\t{2}".format(
+                            #     fj_val, fk_val, g_prime))
+                            #
+                            # logging.info("MEAM: d3 = {0}\t{1}\t{2}".format(
+                            #     fj_val, fk_prime, g_val))
+                            #
+                            # logging.info("MEAM: d4 = {0}\t{1}\t{2}".format(
+                            #     fj_val, fk_val, g_prime))
+                            #
+                            # logging.info("MEAM: d5 = {0}\t{1}\t{2}".format(
+                            #     fj_val, fk_val, g_prime))
+
                             prefactor = Uprime_i * fj_val * fk_val * g_prime
+                            # logging.info("MEAM: prefactor = {0}".format(prefactor))
                             prefactor_ij = prefactor / r_ij
                             prefactor_ik = prefactor / r_ik
                             fij += prefactor_ij * cos_theta

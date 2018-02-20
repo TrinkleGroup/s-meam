@@ -344,6 +344,42 @@ class WorkerSpline:
         # Reshape indices replicate if adding an array of values
         self.indices += indices
 
+    def call_with_args(self, y, new_sv, new_extrap, deriv):
+        """Uses the spline to evaluate a structure vector with the given
+        extrapolation range without overwriting any necessary class
+        variables.
+
+        Args:
+            y (np.arr):
+                y value parameter vector
+
+            new_sv (np.arr):
+                structure vector to be evaluated
+
+            new_extrap (tuple [float]):
+                min/max extrapolation values to be used
+
+        Returns:
+            values (np.arr):
+                results of computation
+        """
+
+        tmp_sv = self.struct_vecs[deriv]
+        tmp_lhs_extrap = self.lhs_extrap_dist
+        tmp_rhs_extrap = self.rhs_extrap_dist
+
+        self.struct_vecs[deriv] = new_sv
+        self.lhs_extrap_dist = new_extrap[0]
+        self.rhs_extrap_dist = new_extrap[1]
+
+        results = self.__call__(y, deriv)
+
+        self.struct_vecs[deriv] = tmp_sv
+        self.lhs_extrap_dist = tmp_lhs_extrap
+        self.rhs_extrap_dist = tmp_rhs_extrap
+
+        return results
+
     def plot(self):
 
         # raise NotImplementedError("Worker plotting is not ready yet")
@@ -451,7 +487,7 @@ class ffgSpline:
 
         self.indices = [[], []]
 
-    def __call__(self, y_fj, y_fk, y_g, deriv=0):
+    def __call__(self, y_fj, y_fk, y_g, deriv=[0,0,0]):
 
         if not self.fj_struct_vecs[deriv]:
             return np.array([0.])
@@ -460,64 +496,24 @@ class ffgSpline:
         fk  = self.fk
         g   = self.g
 
-        # fj evaluation
-        tmp_lhs_extrap = fj.lhs_extrap_dist
-        tmp_rhs_extrap = fj.rhs_extrap_dist
+        fj_results = fj.call_with_args(y_fj, self.fj_struct_vecs[deriv],
+                                       self.fj_extrap_distances, deriv)
 
-        tmp_struct_vec = fj.struct_vecs[deriv]
+        fk_results = fk.call_with_args(y_fk, self.fk_struct_vecs[deriv],
+                                       self.fk_extrap_distances, deriv)
 
-        fj.lhs_extrap_dist = max(self.fj_extrap_distances[0], tmp_lhs_extrap)
-        fj.rhs_extrap_dist = max(self.fj_extrap_distances[1], tmp_rhs_extrap)
-
-        fj.struct_vecs[deriv] = self.fj_struct_vecs[deriv]
-
-        fj_results = fj(y_fj)
-
-        fj.lhs_extrap_dist = tmp_lhs_extrap
-        fj.rhs_extrap_dist = tmp_rhs_extrap
-
-        fj.struct_vecs[deriv] = tmp_struct_vec
-
-        # fk evaluation
-        tmp_lhs_extrap = fk.lhs_extrap_dist
-        tmp_rhs_extrap = fk.rhs_extrap_dist
-
-        tmp_struct_vec = fk.struct_vecs[deriv]
-
-        fk.lhs_extrap_dist = max(self.fk_extrap_distances[0], tmp_lhs_extrap)
-        fk.rhs_extrap_dist = max(self.fk_extrap_distances[1], tmp_rhs_extrap)
-
-        fk.struct_vecs[deriv] = self.fk_struct_vecs[deriv]
-
-        fk_results = fk(y_fk)
-
-        fk.lhs_extrap_dist = tmp_lhs_extrap
-        fk.rhs_extrap_dist = tmp_rhs_extrap
-
-        fk.struct_vecs[deriv] = tmp_struct_vec
-
-        # g evaluation
-        tmp_lhs_extrap = g.lhs_extrap_dist
-        tmp_rhs_extrap = g.rhs_extrap_dist
-
-        tmp_struct_vec = g.struct_vecs[deriv]
-
-        g.lhs_extrap_dist = max(self.g_extrap_distances[0], tmp_lhs_extrap)
-        g.rhs_extrap_dist = max(self.g_extrap_distances[1], tmp_rhs_extrap)
-
-        g.struct_vecs[deriv] = self.g_struct_vecs[deriv]
-
-        g_results = g(y_g)
-
-        g.lhs_extrap_dist = tmp_lhs_extrap
-        g.rhs_extrap_dist = tmp_rhs_extrap
-
-        g.struct_vecs[deriv] = tmp_struct_vec
+        g_results = g.call_with_args(y_g, self.g_struct_vecs[deriv],
+                                       self.g_extrap_distances, deriv)
 
         val = np.multiply(np.multiply(fj_results, fk_results), g_results)
 
-        # np.set_printoptions(precision=16)
-        # logging.info("WORKER: fj_results = {0}".format(fj_results))
+        if deriv == 1:
+            np.set_printoptions(precision=16)
+            tmp = np.vstack((fj_results, fk_results, g_results))
+            # logging.info("WORKER: fj, fk, g = {0}".format(tmp.T))
+            # logging.info("WORKER: fj_results = {0}".format(fj_results))
+            # logging.info("WORKER: fk_results = {0}".format(fk_results))
+            # logging.info("WORKER: g_results = {0}".format(g_results))
 
         return val.ravel()
 
@@ -534,7 +530,7 @@ class ffgSpline:
 
         ni = np.zeros(self.natoms)
 
-        if len(np.vstack(self.fj_struct_vecs[deriv])) < 1: return ni
+        if len(self.fj_struct_vecs[deriv]) < 1: return ni
 
         results = self.__call__(y_fj, y_fk, y_g, deriv)
 
@@ -609,31 +605,10 @@ class ffgSpline:
                 the neighbors
         """
 
-        # abcd_0 = self.get_abcd(rij, rik, cos_theta, [0, 0, 0])
-
-        # abcd_1 = self.get_abcd(rij, rik, cos_theta, [1, 0, 0])
-        # abcd_2 = self.get_abcd(rij, rik, cos_theta, [0, 1, 0])
-        # abcd_3 = self.get_abcd(rij, rik, cos_theta, [0, 0, 1])
         fj_0, fk_0, g_0 = self.get_abcd(rij, rik, cos_theta, [0, 0, 0])
         fj_1, fk_1, g_1 = self.get_abcd(rij, rik, cos_theta, [1, 0, 0])
         fj_2, fk_2, g_2 = self.get_abcd(rij, rik, cos_theta, [0, 1, 0])
         fj_3, fk_3, g_3 = self.get_abcd(rij, rik, cos_theta, [0, 0, 1])
-        #
-        # fj_0 = fj_0.squeeze()
-        # fk_0 = fk_0.squeeze()
-        # g_0 = g_0.squeeze()
-        #
-        # fj_1 = fj_1.squeeze()
-        # fk_1 = fk_1.squeeze()
-        # g_1 = g_1.squeeze()
-        #
-        # fj_2 = fj_2.squeeze()
-        # fk_2 = fk_2.squeeze()
-        # g_2 = g_2.squeeze()
-        #
-        # fj_3 = fj_3.squeeze()
-        # fk_3 = fk_3.squeeze()
-        # g_3 = g_3.squeeze()
 
         self.fj_struct_vecs[0].append(fj_0)
         self.fk_struct_vecs[0].append(fk_0)
@@ -643,11 +618,24 @@ class ffgSpline:
         self.fk_struct_vecs[1]  += [fk_1, fk_3, fk_3, fk_2, fk_3, fk_3]
         self.g_struct_vecs[1]   += [g_1, g_3, g_3, g_2, g_3, g_3]
 
-        for row in indices:
-            i, j, k = row
-            deriv_indices = [[i, j], [i, j], [i, j], [i, k], [i, k], [i, k]]
+        num_evals = len(indices)
 
-            self.indices[1] += deriv_indices
+        # for row in indices:
+        #     i, j, k = indices
+        #     deriv_indices = [[i, j], [i, j], [i, j], [i, k], [i, k], [i, k]]
+        # deriv_indices = [[i, j]*num_evals, [i, j]*num_evals,
+        #                  [i, j]*num_evals, [i, k]*num_evals,
+        #                  [i, k]*num_evals, [i, k]*num_evals]
+
+        tmp_indices = np.array(indices)
+        ij = tmp_indices[:,[0,1]]
+        ik = tmp_indices[:,[0,2]]
+
+        # deriv_indices = [[list(indices[:,2])]*3, list(indices[:,[0,2]])]
+        deriv_indices = list(ij) + list(ij) + list(ij) + list(ik) + list(ik) \
+                        + list(ik)
+
+        self.indices[1] += deriv_indices
 
         self.indices[0] += indices
 

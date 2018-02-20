@@ -177,7 +177,14 @@ atoms8.set_chemical_symbols(np.random.randint(1, 3, size=len(atoms8)))
 
 atoms8.center(vacuum=vac)
 
-extra = {'8_atoms': atoms8}
+atoms4 = Atoms([1, 1, 1, 1],
+                   positions=[[0, 0, 0], [r0, 0, 0], [-1.5*r0, 0, 0],
+                              [r0 / 2, np.sqrt(3) * r0 / 2, 0]])
+
+atoms4.set_pbc(True)
+atoms4.center(vacuum=vac)
+
+extra = {'8_atoms': atoms8, '4_atoms':atoms4}
 
 ################################################################################
 allstructs = {**dimers, **trimers, **bulk_vac_ortho, **bulk_periodic_ortho,

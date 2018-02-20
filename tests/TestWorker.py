@@ -8,7 +8,7 @@ import meam
 
 from worker import Worker
 
-np.random.seed(9001)
+np.random.seed(42)
 
 import tests.testPotentials
 
@@ -19,25 +19,25 @@ logging.basicConfig(filename='test_results.dat', level=logging.DEBUG)
 # logging.disable(logging.CRITICAL)
 
 EPS = 1e-14
-DECIMAL = 14
+DECIMAL = 13
 
 N = 1
 
 # Flags for what tests to run
-energy_flag = True * 1
-forces_flag = True * 0
+energy_flag = True * 0
+forces_flag = True * 1
 
 zero_pots_flag  = True * 0
 const_pots_flag = True * 0
 rand_pots_flag  = True * 1
 
-meam_flag       = True * 0
+meam_flag       = True * 1
 phionly_flag    = True * 0
 rhophi_flag     = True * 0
 nophi_flag      = True * 0
 rho_flag        = True * 0
 norho_flag      = True * 0
-norhophi_flag   = True * 1
+norhophi_flag   = True * 0
 
 dimers_flag     = True * 1
 trimers_flag    = True * 1
@@ -58,8 +58,8 @@ if bulk_flag:
 # allstructs = {'aba':trimers['aba']}
 # allstructs = {'8_atom':extra['8_atoms']}
 
-import lammpsTools
-# lammpsTools.atoms_to_LAMMPS_file('data.poop_8atoms', allstructs['8_atom'])
+# import lammpsTools
+# lammpsTools.atoms_to_LAMMPS_file('data.poop_4atoms', allstructs['4_atom'])
 
 ################################################################################
 # Helper functions
@@ -114,11 +114,11 @@ def get_lammps_results(pots, structs):
         for name in structs.keys():
             atoms = structs[name]
 
-            lmp_p.compute_energy(atoms)
+            lmp_p.compute_forces(atoms)
 
             results = lmp_p.get_lammps_results(atoms)
             lmp_energies[name][pnum] = results['energy'] / len(atoms)
-            lmp_forces[name].append(results['forces'])
+            lmp_forces[name].append(results['forces'] / len(atoms))
 
             # TODO: LAMMPS runtimes are inflated due to ASE internal read/write
             # TODO: need to create shell script to get actual runtimes
@@ -151,7 +151,7 @@ def runner_forces(pots, structs):
         atoms = structs[name]
 
         w = Worker(atoms, x_pvec, indices, pots[0].types)
-        wrk_forces[name] = w.compute_forces(y_pvec)
+        wrk_forces[name] = w.compute_forces(y_pvec) / len(atoms)
         logging.info(" ...... {0} second(s)".format(time.time() - start))
 
     return wrk_forces
@@ -172,7 +172,7 @@ if zero_pots_flag:
         @parameterized.expand(loader_energy('', calc_energies, energies))
         def test_zero_potential_energy(name, a, b):
             diff = np.abs(a - b)
-            np.testing.assert_almost_equal(0.0, diff, decimal=DECIMAL)
+            np.testing.assert_almost_equal(diff, 0.0, decimal=DECIMAL)
             # np.testing.assert_allclose(a, b, atol=EPS, rtol=0)
 
     if forces_flag:
@@ -182,7 +182,7 @@ if zero_pots_flag:
         @parameterized.expand(loader_forces('', calc_forces, forces))
         def test_zero_potential_forces(name, a, b):
             max_diff = np.max(np.abs(a - b))
-            np.testing.assert_almost_equal(0.0, max_diff)
+            np.testing.assert_almost_equal(max_diff, 0.0, decimal=DECIMAL)
             # np.testing.assert_allclose(a, b, atol=EPS, rtol=0)
 ################################################################################
 # TODO: const_pot test needs multiple potentials at once
@@ -202,7 +202,7 @@ if const_pots_flag:
             @parameterized.expand(loader_energy('', calc_energies, energies))
             def test_constant_potential_meam_energy(name, a, b):
                 diff = np.abs(a - b)
-                np.testing.assert_almost_equal(0.0, diff, decimal=DECIMAL)
+                np.testing.assert_almost_equal(diff, 0.0, decimal=DECIMAL)
                 # np.testing.assert_allclose(a, b, atol=EPS, rtol=0)
 
         if forces_flag:
@@ -213,7 +213,7 @@ if const_pots_flag:
             def test_constant_potential_meam_forces(name, a, b):
                 np.testing.assert_allclose(a, b, atol=EPS, rtol=0)
                 max_diff = np.max(np.abs(a - b))
-                np.testing.assert_almost_equal(0.0, max_diff)
+                np.testing.assert_almost_equal(max_diff, 0.0, decimal=DECIMAL)
 
     if phionly_flag:
         """phionly subtype"""
@@ -227,7 +227,7 @@ if const_pots_flag:
             def test_constant_potential_phionly_energy(name, a, b):
                 # np.testing.assert_allclose(a, b, atol=EPS, rtol=0)
                 diff = np.abs(a - b)
-                np.testing.assert_almost_equal(0.0, diff, decimal=DECIMAL)
+                np.testing.assert_almost_equal(diff, 0.0, decimal=DECIMAL)
 
         if forces_flag:
             calc_forces = runner_forces([p.phionly_subtype()], allstructs)
@@ -237,7 +237,7 @@ if const_pots_flag:
             def test_constant_potential_phionly_forces(name, a, b):
                 # np.testing.assert_allclose(a, b, atol=EPS, rtol=0)
                 max_diff = np.max(np.abs(a - b))
-                np.testing.assert_almost_equal(0.0, max_diff)
+                np.testing.assert_almost_equal(max_diff, 0.0, decimal=DECIMAL)
 
     if rhophi_flag:
         """rhophi subtype"""
@@ -251,7 +251,7 @@ if const_pots_flag:
             def test_constant_potential_rhophi_energy(name, a, b):
                 # np.testing.assert_allclose(a, b, atol=EPS, rtol=0)
                 diff = np.abs(a - b)
-                np.testing.assert_almost_equal(0.0, diff, decimal=DECIMAL)
+                np.testing.assert_almost_equal(diff, 0.0, decimal=DECIMAL)
 
         if forces_flag:
             calc_forces = runner_forces([p.rhophi_subtype()], allstructs)
@@ -261,7 +261,7 @@ if const_pots_flag:
             def test_constant_potential_rhophi_forces(name, a, b):
                 # np.testing.assert_allclose(a, b, atol=EPS, rtol=0)
                 max_diff = np.max(np.abs(a - b))
-                np.testing.assert_almost_equal(0.0, max_diff)
+                np.testing.assert_almost_equal(max_diff, 0.0, decimal=DECIMAL)
 
     if nophi_flag:
         """nophi subtype"""
@@ -275,7 +275,7 @@ if const_pots_flag:
             def test_constant_potential_nophi_energy(name, a, b):
                 # np.testing.assert_allclose(a, b, atol=EPS, rtol=0)
                 diff = np.abs(a - b)
-                np.testing.assert_almost_equal(0.0, diff, decimal=DECIMAL)
+                np.testing.assert_almost_equal(diff, 0.0, decimal=DECIMAL)
 
         if forces_flag:
             calc_forces = runner_forces([p.nophi_subtype()], allstructs)
@@ -285,7 +285,7 @@ if const_pots_flag:
             def test_constant_potential_nophi_forces(name, a, b):
                 # np.testing.assert_allclose(a, b, atol=EPS, rtol=0)
                 max_diff = np.max(np.abs(a - b))
-                np.testing.assert_almost_equal(0.0, max_diff)
+                np.testing.assert_almost_equal(max_diff, 0.0, decimal=DECIMAL)
 
     if rho_flag:
         """rho subtype"""
@@ -299,7 +299,7 @@ if const_pots_flag:
             def test_constant_potential_rho_energy(name, a, b):
                 # np.testing.assert_allclose(a, b, atol=EPS, rtol=0)
                 diff = np.abs(a - b)
-                np.testing.assert_almost_equal(0.0, diff, decimal=DECIMAL)
+                np.testing.assert_almost_equal(diff, 0.0, decimal=DECIMAL)
 
         if forces_flag:
             calc_forces = runner_forces([p.rho_subtype()], allstructs)
@@ -309,7 +309,7 @@ if const_pots_flag:
             def test_constant_potential_rho_forces(name, a, b):
                 # np.testing.assert_allclose(a, b, atol=EPS, rtol=0)
                 max_diff = np.max(np.abs(a - b))
-                np.testing.assert_almost_equal(0.0, max_diff)
+                np.testing.assert_almost_equal(max_diff, 0.0, decimal=DECIMAL)
 
     if norho_flag:
         """norho subtype"""
@@ -323,7 +323,7 @@ if const_pots_flag:
             def test_constant_potential_norho_energy(name, a, b):
                 # np.testing.assert_allclose(a, b, atol=EPS, rtol=0)
                 diff = np.abs(a - b)
-                np.testing.assert_almost_equal(0.0, diff, decimal=DECIMAL)
+                np.testing.assert_almost_equal(diff, 0.0, decimal=DECIMAL)
 
         if forces_flag:
             calc_forces = runner_forces([p.norho_subtype()], allstructs)
@@ -333,7 +333,7 @@ if const_pots_flag:
             def test_constant_potential_norho_forces(name, a, b):
                 # np.testing.assert_allclose(a, b, atol=EPS, rtol=0)
                 max_diff = np.max(np.abs(a - b))
-                np.testing.assert_almost_equal(0.0, max_diff)
+                np.testing.assert_almost_equal(max_diff, 0.0, decimal=DECIMAL)
 
     if norhophi_flag:
         """norhophi subtype"""
@@ -348,7 +348,7 @@ if const_pots_flag:
             def test_constant_potential_norhophi_energy(name, a, b):
                 # np.testing.assert_allclose(a, b, atol=EPS, rtol=0)
                 diff = np.abs(a - b)
-                np.testing.assert_almost_equal(0.0, diff, decimal=DECIMAL)
+                np.testing.assert_almost_equal(diff, 0.0, decimal=DECIMAL)
 
         if forces_flag:
             calc_forces = runner_forces([p.norhophi_subtype()], allstructs)
@@ -358,7 +358,7 @@ if const_pots_flag:
             def test_constant_potential_norhophi_forces(name, a, b):
                 # np.testing.assert_allclose(a, b, atol=EPS, rtol=0)
                 max_diff = np.max(np.abs(a - b))
-                np.testing.assert_almost_equal(0.0, max_diff)
+                np.testing.assert_almost_equal(max_diff, 0.0, decimal=DECIMAL)
 ################################################################################
 
 if rand_pots_flag:
@@ -378,7 +378,7 @@ if rand_pots_flag:
             @parameterized.expand(loader_energy('', calc_energies, energies))
             def test_random_potential_meam_energy(name, a, b):
                 diff = np.abs(a - b)
-                np.testing.assert_almost_equal(0.0, diff, decimal=DECIMAL)
+                np.testing.assert_almost_equal(diff, 0.0, decimal=DECIMAL)
                 # np.testing.assert_allclose(a, b, atol=EPS, rtol=0)
 
         if forces_flag:
@@ -389,7 +389,7 @@ if rand_pots_flag:
             def test_random_potential_meam_forces(name, a, b):
                 # np.testing.assert_allclose(a, b, atol=EPS, rtol=0)
                 max_diff = np.max(np.abs(a - b))
-                np.testing.assert_almost_equal(0.0, max_diff)
+                np.testing.assert_almost_equal(max_diff, 0.0, decimal=DECIMAL)
 
     if phionly_flag:
         """phionly subtype"""
@@ -405,7 +405,7 @@ if rand_pots_flag:
             def test_random_potential_phionly_energy(name, a, b):
                 # np.testing.assert_allclose(a, b, atol=EPS, rtol=0)
                 diff = np.abs(a - b)
-                np.testing.assert_almost_equal(0.0, diff, decimal=DECIMAL)
+                np.testing.assert_almost_equal(diff, 0.0, decimal=DECIMAL)
 
         if forces_flag:
             calc_forces = runner_forces(p, allstructs)
@@ -415,7 +415,7 @@ if rand_pots_flag:
             def test_random_potential_phionly_forces(name, a, b):
                 # np.testing.assert_allclose(a, b, atol=EPS, rtol=0)
                 max_diff = np.max(np.abs(a - b))
-                np.testing.assert_almost_equal(0.0, max_diff)
+                np.testing.assert_almost_equal(max_diff, 0.0, decimal=DECIMAL)
 
     if rhophi_flag:
         """rhophi subtype"""
@@ -431,7 +431,7 @@ if rand_pots_flag:
             def test_random_potential_rhophi_energy(name, a, b):
                 # np.testing.assert_allclose(a, b, atol=EPS, rtol=0)
                 diff = np.abs(a - b)
-                np.testing.assert_almost_equal(0.0, diff, decimal=DECIMAL)
+                np.testing.assert_almost_equal(diff, 0.0, decimal=DECIMAL)
 
         if forces_flag:
             calc_forces = runner_forces(p, allstructs)
@@ -441,7 +441,7 @@ if rand_pots_flag:
             def test_random_potential_rhophi_forces(name, a, b):
                 # np.testing.assert_allclose(a, b, atol=EPS, rtol=0)
                 max_diff = np.max(np.abs(a - b))
-                np.testing.assert_almost_equal(0.0, max_diff)
+                np.testing.assert_almost_equal(max_diff, 0.0, decimal=DECIMAL)
 
     if nophi_flag:
         """nophi subtype"""
@@ -457,7 +457,7 @@ if rand_pots_flag:
             def test_random_potential_nophi_energy(name, a, b):
                 # np.testing.assert_allclose(a, b, atol=EPS, rtol=0)
                 diff = np.abs(a - b)
-                np.testing.assert_almost_equal(0.0, diff, decimal=DECIMAL)
+                np.testing.assert_almost_equal(diff, 0.0, decimal=DECIMAL)
 
         if forces_flag:
             calc_forces = runner_forces(p, allstructs)
@@ -467,7 +467,7 @@ if rand_pots_flag:
             def test_random_potential_nophi_forces(name, a, b):
                 # np.testing.assert_allclose(a, b, atol=EPS, rtol=0)
                 max_diff = np.max(np.abs(a - b))
-                np.testing.assert_almost_equal(0.0, max_diff)
+                np.testing.assert_almost_equal(max_diff, 0.0, decimal=DECIMAL)
 
     if rho_flag:
         """rho subtype"""
@@ -483,7 +483,7 @@ if rand_pots_flag:
             def test_random_potential_rho_energy(name, a, b):
                 # np.testing.assert_allclose(a, b, atol=EPS, rtol=0)
                 diff = np.abs(a - b)
-                np.testing.assert_almost_equal(0.0, diff, decimal=DECIMAL)
+                np.testing.assert_almost_equal(diff, 0.0, decimal=DECIMAL)
 
         if forces_flag:
             calc_forces = runner_forces(p, allstructs)
@@ -493,7 +493,7 @@ if rand_pots_flag:
             def test_random_potential_rho_forces(name, a, b):
                 # np.testing.assert_allclose(a, b, atol=EPS, rtol=0)
                 max_diff = np.max(np.abs(a - b))
-                np.testing.assert_almost_equal(0.0, max_diff)
+                np.testing.assert_almost_equal(max_diff, 0.0, decimal=DECIMAL)
 
     if norho_flag:
         """norho subtype"""
@@ -509,7 +509,7 @@ if rand_pots_flag:
             def test_random_potential_norho_energy(name, a, b):
                 # np.testing.assert_allclose(a, b, atol=EPS, rtol=0)
                 diff = np.abs(a - b)
-                np.testing.assert_almost_equal(0.0, diff, decimal=DECIMAL)
+                np.testing.assert_almost_equal(diff, 0.0, decimal=DECIMAL)
 
         if forces_flag:
             calc_forces = runner_forces(p, allstructs)
@@ -519,7 +519,7 @@ if rand_pots_flag:
             def test_random_potential_norho_forces(name, a, b):
                 # np.testing.assert_allclose(a, b, atol=EPS, rtol=0)
                 max_diff = np.max(np.abs(a - b))
-                np.testing.assert_almost_equal(0.0, max_diff)
+                np.testing.assert_almost_equal(max_diff, 0.0, decimal=DECIMAL)
 
     if norhophi_flag:
         """norhophi subtype"""
@@ -537,7 +537,7 @@ if rand_pots_flag:
             def test_random_potential_norhophi_energy(name, a, b):
                 # np.testing.assert_allclose(a, b, atol=EPS, rtol=0)
                 diff = np.abs(a - b)
-                np.testing.assert_almost_equal(0.0, diff, decimal=DECIMAL)
+                np.testing.assert_almost_equal(diff, 0.0, decimal=DECIMAL)
 
         if forces_flag:
             calc_forces = runner_forces(p, allstructs)
@@ -547,6 +547,6 @@ if rand_pots_flag:
             def test_random_potential_norhophi_forces(name, a, b):
                 # np.testing.assert_allclose(a, b, atol=EPS, rtol=0)
                 max_diff = np.max(np.abs(a - b))
-                np.testing.assert_almost_equal(0.0, max_diff)
+                np.testing.assert_almost_equal(max_diff, 0.0, decimal=DECIMAL)
 
 ################################################################################

@@ -147,8 +147,10 @@ class Worker:
         self.rho_directions = [[] for i in range(len(self.rhos))]
         # self.f_directions = [[] for i in range(len(self.rhos))]
         # self.g_directions = [[] for i in range(len(self.rhos))]
-        self.ffg_directions = [[[] for j in range(len(self.fs))] for i in range(
-            len(self.fs))]
+        self.ffg_directions = [[[[] for k in range(6)] for j in range(len(
+            self.fs))] for i in range(len(self.fs))]
+
+        # self.ffg_six_directions = [[] for i in range(6)]
 
         all_phi_rij = [[] for i in range(len(self.phis))]
         phi_rij_indices = [[] for i in range(len(self.phis))]
@@ -300,8 +302,14 @@ class Worker:
                         # fk.add_to_struct_vec(rik, 0)
                         # g.add_to_struct_vec(cos_theta, 1)
 
-                        self.ffg_directions[fj_idx][fk_idx] += [d0, d1, d2,
-                                                                d3, d4, d5]
+                        # self.ffg_directions[fj_idx][fk_idx] += [d0, d1, d2,
+                        #                                         d3, d4, d5]
+                        self.ffg_directions[fj_idx][fk_idx][0].append(d0)
+                        self.ffg_directions[fj_idx][fk_idx][1].append(d1)
+                        self.ffg_directions[fj_idx][fk_idx][2].append(d2)
+                        self.ffg_directions[fj_idx][fk_idx][3].append(d3)
+                        self.ffg_directions[fj_idx][fk_idx][4].append(d4)
+                        self.ffg_directions[fj_idx][fk_idx][5].append(d5)
 
         for phi_idx in range(len(self.phis)):
             self.phis[phi_idx].add_to_struct_vec(all_phi_rij[phi_idx],
@@ -318,15 +326,25 @@ class Worker:
                 cos_theta = all_ffg_cos[fj_idx][fk_idx]
                 indices = ffg_indices[fj_idx][fk_idx]
 
-                self.ffgs[fj_idx][fk_idx].add_to_struct_vec(rij, rik, cos_theta,
-                                                            indices)
+                if len(rij) > 0:
+                    self.ffgs[fj_idx][fk_idx].add_to_struct_vec(rij, rik,
+                                                                cos_theta,
+                                                                indices)
 
         self.phi_directions = [np.array(el) for el in self.phi_directions]
         self.rho_directions = [np.array(el) for el in self.rho_directions]
         # self.f_directions = [np.array(el) for el in self.f_directions]
         # self.g_directions = [np.array(el) for el in self.g_directions]
-        self.ffg_directions = [[np.array(el) for el in l] for l in
-                               self.ffg_directions]
+
+        for j,fj_dirs in enumerate(self.ffg_directions):
+            for k,fk_dirs in enumerate(fj_dirs):
+                for p,dir in enumerate(fk_dirs):
+                    self.ffg_directions[j][k][p] = np.array(dir)
+
+        # self.ffg_directions = [[np.array(d) for d in fk] for fk in fj for fj in
+        #                        self.ffg_directions]
+
+        # self.ffg_directions = [np.array(el) for el in self.ffg_six_directions]
 
     def compute_energies(self, parameters):
         """Calculates energies for all potentials using information
@@ -493,16 +511,19 @@ class Worker:
                 ffg = ffg_list[k]
 
                 ffg_dirs = self.ffg_directions[j][k]
+                ffg_dirs = np.vstack(ffg_dirs)
 
-                if len(ffg_dirs) > 0:
+                ffg_indices = np.array(ffg.indices[1])
+
+                if len(ffg_indices) > 0:
                     y_fj = f_pvecs[j]
                     y_fk = f_pvecs[k]
                     y_g = g_pvecs[meam.ij_to_potl(j + 1, k + 1, self.ntypes)]
 
                     ffg_primes = ffg(y_fj, y_fk, y_g, 1)
+                    # logging.info("WORKER: ffg_primes = {0}".format(ffg_primes))
                     ffg_forces = np.einsum('ij,i->ij', ffg_dirs, ffg_primes)
 
-                    ffg_indices = np.array(ffg.indices[1])
                     ffg_forces = np.einsum('ij,i->ij', ffg_forces,
                                            self.uprimes[ffg_indices[:, 0]])
 
