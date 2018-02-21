@@ -4,10 +4,10 @@ used for spline-MEAM potential fitting
 Author: Josh Vita, University of Illinois at Urbana-Champaign
 Date:   8/14/17"""
 
-import sys
 import numpy as np
 import glob
 import ase.io
+
 from ase import Atoms
 from scipy.interpolate import CubicSpline
 
@@ -30,9 +30,8 @@ def read_spline_meam(fname):
             ordered list of y-coordinates of all knots
 
         indices (list):
-            list of indices deliminating groups of splines"""
-
-    # TODO: convert types to lowercase by default
+            list of indices deliminating groups of splines
+    """
 
     try:
         f = open(fname, 'r')
@@ -350,7 +349,8 @@ def symbol_to_type(symbol, types):
         e.g. for ['Ti', 'O'], symbol_to_type('Ti',types) returns 1"""
 
     try:
-        return np.where(np.array(types)==symbol)[0][0] + 1
+        # return np.where(np.array(types)==symbol)[0][0] + 1
+        return types.index(symbol) + 1
     except (IndexError):
         raise ValueError('Atom type could not be found in the given set of '
                          'types')
