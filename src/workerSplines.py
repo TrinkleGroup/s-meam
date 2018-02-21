@@ -507,14 +507,6 @@ class ffgSpline:
 
         val = np.multiply(np.multiply(fj_results, fk_results), g_results)
 
-        if deriv == 1:
-            np.set_printoptions(precision=16)
-            tmp = np.vstack((fj_results, fk_results, g_results))
-            # logging.info("WORKER: fj, fk, g = {0}".format(tmp.T))
-            # logging.info("WORKER: fj_results = {0}".format(fj_results))
-            # logging.info("WORKER: fk_results = {0}".format(fk_results))
-            # logging.info("WORKER: g_results = {0}".format(g_results))
-
         return val.ravel()
 
     def compute_for_all(self, y_fj, y_fk, y_g, deriv=0):
@@ -534,7 +526,10 @@ class ffgSpline:
 
         results = self.__call__(y_fj, y_fk, y_g, deriv)
 
-        np.add.at(ni, np.array(self.indices[deriv])[:,0], results)
+        indices = [el[0] for el in self.indices[deriv]]
+
+        # np.add.at(ni, np.array(self.indices[deriv])[:,0], results)
+        np.add.at(ni, indices, results)
 
         return ni
 

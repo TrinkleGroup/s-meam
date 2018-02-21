@@ -529,7 +529,7 @@ class Worker:
 
                     self.update_forces(ffg_forces, ffg_indices)
 
-        return self.forces
+        return self.forces# + 1
 
     def update_forces(self, new_forces, indices):
         """Updates the system's per atom forces.
