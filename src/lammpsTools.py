@@ -349,8 +349,7 @@ def symbol_to_type(symbol, types):
         e.g. for ['Ti', 'O'], symbol_to_type('Ti',types) returns 1"""
 
     try:
-        # return np.where(np.array(types)==symbol)[0][0] + 1
-        return types.index(symbol) + 1
+        return types.index(symbol)+1
     except (IndexError):
         raise ValueError('Atom type could not be found in the given set of '
                          'types')

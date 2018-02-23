@@ -528,7 +528,6 @@ class ffgSpline:
 
         indices = [el[0] for el in self.indices[deriv]]
 
-        # np.add.at(ni, np.array(self.indices[deriv])[:,0], results)
         np.add.at(ni, indices, results)
 
         return ni
@@ -600,6 +599,8 @@ class ffgSpline:
                 the neighbors
         """
 
+        if not rij: return
+
         fj_0, fk_0, g_0 = self.get_abcd(rij, rik, cos_theta, [0, 0, 0])
         fj_1, fk_1, g_1 = self.get_abcd(rij, rik, cos_theta, [1, 0, 0])
         fj_2, fk_2, g_2 = self.get_abcd(rij, rik, cos_theta, [0, 1, 0])
@@ -612,15 +613,6 @@ class ffgSpline:
         self.fj_struct_vecs[1]  += [fj_1, fj_3, fj_3, fj_2, fj_3, fj_3]
         self.fk_struct_vecs[1]  += [fk_1, fk_3, fk_3, fk_2, fk_3, fk_3]
         self.g_struct_vecs[1]   += [g_1, g_3, g_3, g_2, g_3, g_3]
-
-        num_evals = len(indices)
-
-        # for row in indices:
-        #     i, j, k = indices
-        #     deriv_indices = [[i, j], [i, j], [i, j], [i, k], [i, k], [i, k]]
-        # deriv_indices = [[i, j]*num_evals, [i, j]*num_evals,
-        #                  [i, j]*num_evals, [i, k]*num_evals,
-        #                  [i, k]*num_evals, [i, k]*num_evals]
 
         tmp_indices = np.array(indices)
         ij = tmp_indices[:,[0,1]]
