@@ -15,16 +15,15 @@ import tests.testPotentials
 from tests.testStructs import dimers, trimers, bulk_vac_ortho, \
     bulk_periodic_ortho, bulk_vac_rhombo, bulk_periodic_rhombo, extra
 
-logging.basicConfig(filename='test_results.dat', level=logging.DEBUG)
 # logging.disable(logging.CRITICAL)
 
-DECIMAL = 14
+DECIMAL = 13
 
 N = 1
 
 # Flags for what tests to run
 energy_flag = True * 1
-forces_flag = True * 0
+forces_flag = True * 1
 
 zero_pots_flag  = True * 0
 const_pots_flag = True * 0
@@ -52,8 +51,7 @@ if bulk_flag:
     allstructs = {**allstructs, **bulk_vac_ortho, **bulk_periodic_ortho,
                   **bulk_vac_rhombo, **bulk_periodic_rhombo, **extra}
 
-# allstructs = {'bulk_periodic_rhombo_mixed':bulk_periodic_rhombo[
-#     'bulk_periodic_rhombo_mixed']}
+# allstructs = {'bulk_vac_rhombo_type1':bulk_vac_rhombo['bulk_vac_rhombo_type1']}
 # allstructs = {'aba':trimers['aba']}
 allstructs = {'8_atom':extra['8_atoms']}
 
@@ -75,8 +73,8 @@ def loader_energy(group_name, calculated, lammps):
 
         np.set_printoptions(precision=16)
 
-        logging.info("LAMMPS = {0}".format(lammps[name][0]))
-        logging.info("WORKER = {0}".format(calculated[name]))
+        # logging.info("LAMMPS = {0}".format(lammps[name][0]))
+        # logging.info("WORKER = {0}".format(calculated[name]))
         test_name = group_name + '_' + name + '_energy'
         load_tests.append((test_name, calculated[name], lammps[name]))
 
@@ -92,8 +90,8 @@ def loader_forces(group_name, calculated, lammps):
     for name in calculated.keys():
         test_name = group_name + '_' + name + '_forces'
         np.set_printoptions(precision=16)
-        logging.info("LAMMPS = {0}".format(lammps[name][0]))
-        logging.info("WORKER = {0}".format(calculated[name]))
+        # logging.info("LAMMPS = {0}".format(lammps[name][0]))
+        # logging.info("WORKER = {0}".format(calculated[name]))
         load_tests.append((test_name, calculated[name], lammps[name][0]))
 
     return load_tests
@@ -137,7 +135,7 @@ def runner_energy(pots, structs):
     for name in structs.keys():
         atoms = structs[name]
 
-        logging.info("COMPUTING - name = {0}".format(name))
+        logging.info("COMPUTING: {0}".format(name))
         w = Worker(atoms, x_pvec, indices, pots[0].types)
         # TODO: to optimize, preserve workers for each struct
         wrk_energies[name] = w.compute_energies(y_pvec) / len(atoms)
@@ -150,13 +148,12 @@ def runner_forces(pots, structs):
 
     wrk_forces = {}
     for name in structs.keys():
-        logging.info("WORKER: computing {0}".format(name))
         start = time.time()
         atoms = structs[name]
 
         w = Worker(atoms, x_pvec, indices, pots[0].types)
         w.compute_energies(y_pvec)
-        wrk_forces[name] = w.compute_forces(y_pvec) / len(atoms)
+        wrk_forces[name] = np.array(w.compute_forces(y_pvec)) / len(atoms)
         logging.info(" ...... {0} second(s)".format(time.time() - start))
 
     return wrk_forces
@@ -358,7 +355,6 @@ if rand_pots_flag:
         p = tests.testPotentials.get_random_pots(N)['meams']
         # p[0].write_to_file("spline.poop.test")
         from meam import MEAM
-        p[0] = MEAM.from_file('spline.poop.test')
 
         energies, forces = get_lammps_results(p, allstructs)
 

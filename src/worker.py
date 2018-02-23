@@ -452,9 +452,8 @@ class Worker:
         parameters.
 
         Args:
-            parameters (np.arr):
-                the 1D array of concatenated parameter vectors for all
-                splines in the system
+            parameters (np.arr): the 1D array of concatenated parameter
+                vectors for all splines in the system
         """
 
         phi_pvecs, rho_pvecs, u_pvecs, f_pvecs, g_pvecs = \
@@ -476,8 +475,13 @@ class Worker:
                 indices_0 = list(indices_0)
                 indices_1 = list(indices_1)
 
-                np.add.at(forces, indices_0, phi_forces)
-                np.add.at(forces, indices_1, -phi_forces)
+                f0 = lambda a: np.bincount(indices_0, weights=a,
+                                           minlength=self.natoms)
+                f1 = lambda a: np.bincount(indices_1, weights=a,
+                                           minlength=self.natoms)
+
+                forces += np.apply_along_axis(f0, 0, phi_forces)
+                forces -= np.apply_along_axis(f1, 0, phi_forces)
 
         ni = self.compute_ni(rho_pvecs, f_pvecs, g_pvecs)
         uprimes = self.evaluate_uprimes(ni, u_pvecs)
@@ -496,8 +500,13 @@ class Worker:
                 rho_forces = np.einsum('ij,i->ij', rho_forces,
                                        uprimes[indices_0])
 
-                np.add.at(forces, indices_0, rho_forces)
-                np.add.at(forces, indices_1, -rho_forces)
+                f0 = lambda a: np.bincount(indices_0, weights=a,
+                                           minlength=self.natoms)
+                f1 = lambda a: np.bincount(indices_1, weights=a,
+                                           minlength=self.natoms)
+
+                forces += np.apply_along_axis(f0, 0, rho_forces)
+                forces -= np.apply_along_axis(f1, 0, rho_forces)
 
         # Angular terms (ffg)
         for j in range(len(self.ffgs)):
@@ -509,11 +518,11 @@ class Worker:
                 ffg_dirs = self.ffg_directions[j][k]
                 ffg_dirs = np.vstack(ffg_dirs)
 
-                indices_0, indices_1 = zip(*ffg.indices[1])
-                indices_0 = list(indices_0)
-                indices_1 = list(indices_1)
+                if len(ffg.indices[1]) > 0:
+                    indices_0, indices_1 = zip(*ffg.indices[1])
+                    indices_0 = list(indices_0)
+                    indices_1 = list(indices_1)
 
-                if len(indices_0) > 0:
                     y_fj = f_pvecs[j]
                     y_fk = f_pvecs[k]
                     y_g = g_pvecs[meam.ij_to_potl(j + 1, k + 1, self.ntypes)]
@@ -524,8 +533,13 @@ class Worker:
                     ffg_forces = np.einsum('ij,i->ij', ffg_forces,
                                            uprimes[indices_0])
 
-                    np.add.at(forces, indices_0, ffg_forces)
-                    np.add.at(forces, indices_1, -ffg_forces)
+                    f0 = lambda a: np.bincount(indices_0, weights=a,
+                                               minlength=self.natoms)
+                    f1 = lambda a: np.bincount(indices_1, weights=a,
+                                               minlength=self.natoms)
+
+                    forces += np.apply_along_axis(f0, 0, ffg_forces)
+                    forces -= np.apply_along_axis(f1, 0, ffg_forces)
 
         return forces
 
@@ -561,17 +575,6 @@ class Worker:
             params_split, split_indices)
 
         return phi_pvecs, rho_pvecs, u_pvecs, f_pvecs, g_pvecs
-
-# from numba import double, int32
-# from numba.decorators import jit
-
-# @jit(signature = [double[:,:], int32[:], double[:,:]])
-# @jit
-# def add_at(A, indices, values):
-#
-#     for i in range(values.shape[0]):
-#         for j in range(values.shape[1]):
-        # A[indices[i]] += values[i]
 
 if __name__ == "__main__":
     pass
