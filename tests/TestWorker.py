@@ -18,13 +18,12 @@ from tests.testStructs import dimers, trimers, bulk_vac_ortho, \
 logging.basicConfig(filename='test_results.dat', level=logging.DEBUG)
 # logging.disable(logging.CRITICAL)
 
-EPS = 1e-14
-DECIMAL = 13
+DECIMAL = 14
 
 N = 1
 
 # Flags for what tests to run
-energy_flag = True * 0
+energy_flag = True * 1
 forces_flag = True * 1
 
 zero_pots_flag  = True * 0
@@ -56,7 +55,7 @@ if bulk_flag:
 # allstructs = {'bulk_periodic_rhombo_mixed':bulk_periodic_rhombo[
 #     'bulk_periodic_rhombo_mixed']}
 # allstructs = {'aba':trimers['aba']}
-# allstructs = {'8_atom':extra['8_atoms']}
+allstructs = {'8_atom':extra['8_atoms']}
 
 # import lammpsTools
 # lammpsTools.atoms_to_LAMMPS_file('data.poop_4atoms', allstructs['4_atom'])
@@ -173,7 +172,6 @@ if zero_pots_flag:
         def test_zero_potential_energy(name, a, b):
             diff = np.abs(a - b)
             np.testing.assert_almost_equal(diff, 0.0, decimal=DECIMAL)
-            # np.testing.assert_allclose(a, b, atol=EPS, rtol=0)
 
     if forces_flag:
         calc_forces = runner_forces([p], allstructs)
@@ -183,7 +181,6 @@ if zero_pots_flag:
         def test_zero_potential_forces(name, a, b):
             max_diff = np.max(np.abs(a - b))
             np.testing.assert_almost_equal(max_diff, 0.0, decimal=DECIMAL)
-            # np.testing.assert_allclose(a, b, atol=EPS, rtol=0)
 ################################################################################
 # TODO: const_pot test needs multiple potentials at once
 if const_pots_flag:
@@ -203,7 +200,6 @@ if const_pots_flag:
             def test_constant_potential_meam_energy(name, a, b):
                 diff = np.abs(a - b)
                 np.testing.assert_almost_equal(diff, 0.0, decimal=DECIMAL)
-                # np.testing.assert_allclose(a, b, atol=EPS, rtol=0)
 
         if forces_flag:
             calc_forces = runner_forces([p], allstructs)
@@ -211,7 +207,6 @@ if const_pots_flag:
 
             @parameterized.expand(loader_forces('', calc_forces, forces))
             def test_constant_potential_meam_forces(name, a, b):
-                np.testing.assert_allclose(a, b, atol=EPS, rtol=0)
                 max_diff = np.max(np.abs(a - b))
                 np.testing.assert_almost_equal(max_diff, 0.0, decimal=DECIMAL)
 
@@ -225,7 +220,6 @@ if const_pots_flag:
 
             @parameterized.expand(loader_energy('', calc_energies, energies))
             def test_constant_potential_phionly_energy(name, a, b):
-                # np.testing.assert_allclose(a, b, atol=EPS, rtol=0)
                 diff = np.abs(a - b)
                 np.testing.assert_almost_equal(diff, 0.0, decimal=DECIMAL)
 
@@ -235,7 +229,6 @@ if const_pots_flag:
 
             @parameterized.expand(loader_forces('', calc_forces, forces))
             def test_constant_potential_phionly_forces(name, a, b):
-                # np.testing.assert_allclose(a, b, atol=EPS, rtol=0)
                 max_diff = np.max(np.abs(a - b))
                 np.testing.assert_almost_equal(max_diff, 0.0, decimal=DECIMAL)
 
@@ -249,7 +242,6 @@ if const_pots_flag:
 
             @parameterized.expand(loader_energy('', calc_energies, energies))
             def test_constant_potential_rhophi_energy(name, a, b):
-                # np.testing.assert_allclose(a, b, atol=EPS, rtol=0)
                 diff = np.abs(a - b)
                 np.testing.assert_almost_equal(diff, 0.0, decimal=DECIMAL)
 
@@ -259,7 +251,6 @@ if const_pots_flag:
 
             @parameterized.expand(loader_forces('', calc_forces, forces))
             def test_constant_potential_rhophi_forces(name, a, b):
-                # np.testing.assert_allclose(a, b, atol=EPS, rtol=0)
                 max_diff = np.max(np.abs(a - b))
                 np.testing.assert_almost_equal(max_diff, 0.0, decimal=DECIMAL)
 
@@ -273,7 +264,6 @@ if const_pots_flag:
 
             @parameterized.expand(loader_energy('', calc_energies, energies))
             def test_constant_potential_nophi_energy(name, a, b):
-                # np.testing.assert_allclose(a, b, atol=EPS, rtol=0)
                 diff = np.abs(a - b)
                 np.testing.assert_almost_equal(diff, 0.0, decimal=DECIMAL)
 
@@ -283,7 +273,6 @@ if const_pots_flag:
 
             @parameterized.expand(loader_forces('', calc_forces, forces))
             def test_constant_potential_nophi_forces(name, a, b):
-                # np.testing.assert_allclose(a, b, atol=EPS, rtol=0)
                 max_diff = np.max(np.abs(a - b))
                 np.testing.assert_almost_equal(max_diff, 0.0, decimal=DECIMAL)
 
@@ -297,7 +286,6 @@ if const_pots_flag:
 
             @parameterized.expand(loader_energy('', calc_energies, energies))
             def test_constant_potential_rho_energy(name, a, b):
-                # np.testing.assert_allclose(a, b, atol=EPS, rtol=0)
                 diff = np.abs(a - b)
                 np.testing.assert_almost_equal(diff, 0.0, decimal=DECIMAL)
 
@@ -307,7 +295,6 @@ if const_pots_flag:
 
             @parameterized.expand(loader_forces('', calc_forces, forces))
             def test_constant_potential_rho_forces(name, a, b):
-                # np.testing.assert_allclose(a, b, atol=EPS, rtol=0)
                 max_diff = np.max(np.abs(a - b))
                 np.testing.assert_almost_equal(max_diff, 0.0, decimal=DECIMAL)
 
@@ -321,7 +308,6 @@ if const_pots_flag:
 
             @parameterized.expand(loader_energy('', calc_energies, energies))
             def test_constant_potential_norho_energy(name, a, b):
-                # np.testing.assert_allclose(a, b, atol=EPS, rtol=0)
                 diff = np.abs(a - b)
                 np.testing.assert_almost_equal(diff, 0.0, decimal=DECIMAL)
 
@@ -331,7 +317,6 @@ if const_pots_flag:
 
             @parameterized.expand(loader_forces('', calc_forces, forces))
             def test_constant_potential_norho_forces(name, a, b):
-                # np.testing.assert_allclose(a, b, atol=EPS, rtol=0)
                 max_diff = np.max(np.abs(a - b))
                 np.testing.assert_almost_equal(max_diff, 0.0, decimal=DECIMAL)
 
@@ -346,7 +331,6 @@ if const_pots_flag:
 
             @parameterized.expand(loader_energy('', calc_energies, energies))
             def test_constant_potential_norhophi_energy(name, a, b):
-                # np.testing.assert_allclose(a, b, atol=EPS, rtol=0)
                 diff = np.abs(a - b)
                 np.testing.assert_almost_equal(diff, 0.0, decimal=DECIMAL)
 
@@ -356,7 +340,6 @@ if const_pots_flag:
 
             @parameterized.expand(loader_forces('', calc_forces, forces))
             def test_constant_potential_norhophi_forces(name, a, b):
-                # np.testing.assert_allclose(a, b, atol=EPS, rtol=0)
                 max_diff = np.max(np.abs(a - b))
                 np.testing.assert_almost_equal(max_diff, 0.0, decimal=DECIMAL)
 ################################################################################
@@ -379,7 +362,6 @@ if rand_pots_flag:
             def test_random_potential_meam_energy(name, a, b):
                 diff = np.abs(a - b)
                 np.testing.assert_almost_equal(diff, 0.0, decimal=DECIMAL)
-                # np.testing.assert_allclose(a, b, atol=EPS, rtol=0)
 
         if forces_flag:
             calc_forces = runner_forces(p, allstructs)
@@ -387,7 +369,6 @@ if rand_pots_flag:
 
             @parameterized.expand(loader_forces('', calc_forces, forces))
             def test_random_potential_meam_forces(name, a, b):
-                # np.testing.assert_allclose(a, b, atol=EPS, rtol=0)
                 max_diff = np.max(np.abs(a - b))
                 np.testing.assert_almost_equal(max_diff, 0.0, decimal=DECIMAL)
 
@@ -403,7 +384,6 @@ if rand_pots_flag:
 
             @parameterized.expand(loader_energy('', calc_energies, energies))
             def test_random_potential_phionly_energy(name, a, b):
-                # np.testing.assert_allclose(a, b, atol=EPS, rtol=0)
                 diff = np.abs(a - b)
                 np.testing.assert_almost_equal(diff, 0.0, decimal=DECIMAL)
 
@@ -413,7 +393,6 @@ if rand_pots_flag:
 
             @parameterized.expand(loader_forces('', calc_forces, forces))
             def test_random_potential_phionly_forces(name, a, b):
-                # np.testing.assert_allclose(a, b, atol=EPS, rtol=0)
                 max_diff = np.max(np.abs(a - b))
                 np.testing.assert_almost_equal(max_diff, 0.0, decimal=DECIMAL)
 
@@ -429,7 +408,6 @@ if rand_pots_flag:
 
             @parameterized.expand(loader_energy('', calc_energies, energies))
             def test_random_potential_rhophi_energy(name, a, b):
-                # np.testing.assert_allclose(a, b, atol=EPS, rtol=0)
                 diff = np.abs(a - b)
                 np.testing.assert_almost_equal(diff, 0.0, decimal=DECIMAL)
 
@@ -439,7 +417,6 @@ if rand_pots_flag:
 
             @parameterized.expand(loader_forces('', calc_forces, forces))
             def test_random_potential_rhophi_forces(name, a, b):
-                # np.testing.assert_allclose(a, b, atol=EPS, rtol=0)
                 max_diff = np.max(np.abs(a - b))
                 np.testing.assert_almost_equal(max_diff, 0.0, decimal=DECIMAL)
 
@@ -455,7 +432,6 @@ if rand_pots_flag:
 
             @parameterized.expand(loader_energy('', calc_energies, energies))
             def test_random_potential_nophi_energy(name, a, b):
-                # np.testing.assert_allclose(a, b, atol=EPS, rtol=0)
                 diff = np.abs(a - b)
                 np.testing.assert_almost_equal(diff, 0.0, decimal=DECIMAL)
 
@@ -465,7 +441,6 @@ if rand_pots_flag:
 
             @parameterized.expand(loader_forces('', calc_forces, forces))
             def test_random_potential_nophi_forces(name, a, b):
-                # np.testing.assert_allclose(a, b, atol=EPS, rtol=0)
                 max_diff = np.max(np.abs(a - b))
                 np.testing.assert_almost_equal(max_diff, 0.0, decimal=DECIMAL)
 
@@ -481,7 +456,6 @@ if rand_pots_flag:
 
             @parameterized.expand(loader_energy('', calc_energies, energies))
             def test_random_potential_rho_energy(name, a, b):
-                # np.testing.assert_allclose(a, b, atol=EPS, rtol=0)
                 diff = np.abs(a - b)
                 np.testing.assert_almost_equal(diff, 0.0, decimal=DECIMAL)
 
@@ -491,7 +465,6 @@ if rand_pots_flag:
 
             @parameterized.expand(loader_forces('', calc_forces, forces))
             def test_random_potential_rho_forces(name, a, b):
-                # np.testing.assert_allclose(a, b, atol=EPS, rtol=0)
                 max_diff = np.max(np.abs(a - b))
                 np.testing.assert_almost_equal(max_diff, 0.0, decimal=DECIMAL)
 
@@ -507,7 +480,6 @@ if rand_pots_flag:
 
             @parameterized.expand(loader_energy('', calc_energies, energies))
             def test_random_potential_norho_energy(name, a, b):
-                # np.testing.assert_allclose(a, b, atol=EPS, rtol=0)
                 diff = np.abs(a - b)
                 np.testing.assert_almost_equal(diff, 0.0, decimal=DECIMAL)
 
@@ -517,7 +489,6 @@ if rand_pots_flag:
 
             @parameterized.expand(loader_forces('', calc_forces, forces))
             def test_random_potential_norho_forces(name, a, b):
-                # np.testing.assert_allclose(a, b, atol=EPS, rtol=0)
                 max_diff = np.max(np.abs(a - b))
                 np.testing.assert_almost_equal(max_diff, 0.0, decimal=DECIMAL)
 
@@ -535,7 +506,6 @@ if rand_pots_flag:
 
             @parameterized.expand(loader_energy('', calc_energies, energies))
             def test_random_potential_norhophi_energy(name, a, b):
-                # np.testing.assert_allclose(a, b, atol=EPS, rtol=0)
                 diff = np.abs(a - b)
                 np.testing.assert_almost_equal(diff, 0.0, decimal=DECIMAL)
 
@@ -545,7 +515,6 @@ if rand_pots_flag:
 
             @parameterized.expand(loader_forces('', calc_forces, forces))
             def test_random_potential_norhophi_forces(name, a, b):
-                # np.testing.assert_allclose(a, b, atol=EPS, rtol=0)
                 max_diff = np.max(np.abs(a - b))
                 np.testing.assert_almost_equal(max_diff, 0.0, decimal=DECIMAL)
 
