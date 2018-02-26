@@ -53,9 +53,9 @@ if bulk_flag:
 
 # allstructs = {'bulk_vac_rhombo_type1':bulk_vac_rhombo['bulk_vac_rhombo_type1']}
 # allstructs = {'aba':trimers['aba']}
-allstructs = {'8_atom':extra['8_atoms']}
+# allstructs = {'8_atom':extra['8_atoms']}
 
-import lammpsTools
+# import lammpsTools
 # lammpsTools.atoms_to_LAMMPS_file('data.poop_8atoms', allstructs['8_atom'])
 
 # allstructs = {'read':lammpsTools.atoms_from_file('data.poop_8atoms', ['H',

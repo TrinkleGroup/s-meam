@@ -254,18 +254,19 @@ class WorkerSpline:
         max_lhs_extrap_distance = extrap_distances[0]
         max_rhs_extrap_distance = extrap_distances[1]
 
-        if max_lhs_extrap_distance > self.lhs_extrap_dist:
-            self.lhs_extrap_dist = max_lhs_extrap_distance
-
-        if max_rhs_extrap_distance > self.rhs_extrap_dist:
-            self.rhs_extrap_dist = max_rhs_extrap_distance
+        self.lhs_extrap_dist = max(self.lhs_extrap_dist,max_lhs_extrap_distance)
+        self.rhs_extrap_dist = max(self.rhs_extrap_dist,max_rhs_extrap_distance)
 
         # add ghost knots
-        knots = np.concatenate(\
-            (np.array([knots[0] - self.lhs_extrap_dist]), knots))
+        # knots = np.concatenate(\
+        #     (np.array([knots[0] - self.lhs_extrap_dist]), knots))
 
-        knots = np.concatenate(\
-            (knots, np.array([knots[-1] + self.rhs_extrap_dist])))
+        # knots = np.concatenate(\
+        #     (knots, np.array([knots[-1] + self.rhs_extrap_dist])))
+
+        knots = [knots[0] - self.lhs_extrap_dist] + list(knots) + [knots[-1] +
+                self.rhs_extrap_dist]
+        knots = np.array(knots)
 
         nknots = len(knots)
 

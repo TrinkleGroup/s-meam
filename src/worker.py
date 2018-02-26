@@ -245,6 +245,8 @@ class Worker:
                 for p,dir in enumerate(fk_dirs):
                     self.ffg_directions[j][k][p] = np.array(dir)
 
+                self.ffg_directions[j][k] = np.vstack(self.ffg_directions[j][k])
+
     def build_spline_lists(self, knot_xcoords, x_indices):
         """
         Builds lists of phi, rho, u, f, and g WorkerSpline objects
@@ -516,7 +518,6 @@ class Worker:
                 ffg = ffg_list[k]
 
                 ffg_dirs = self.ffg_directions[j][k]
-                ffg_dirs = np.vstack(ffg_dirs)
 
                 if len(ffg.indices[1]) > 0:
                     indices_0, indices_1 = zip(*ffg.indices[1])
