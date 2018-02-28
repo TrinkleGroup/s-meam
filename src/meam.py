@@ -6,8 +6,8 @@ import sys
 from ase.calculators.lammpsrun import LAMMPS
 from ase.neighborlist import NeighborList
 
-import lammpsTools
-from spline import Spline, ZeroSpline
+import src.lammpsTools
+from src.spline import Spline, ZeroSpline
 
 logger = logging.getLogger(__name__)
 
@@ -205,7 +205,7 @@ class MEAM:
         self.uprimes = [None] * natoms
 
         for i in range(natoms):
-            itype = lammpsTools.symbol_to_type(atoms[i].symbol, self.types)
+            itype = src.lammpsTools.symbol_to_type(atoms[i].symbol, self.types)
             ipos = atoms[i].position
 
             # Pull atom-specific neighbor lists
@@ -239,7 +239,7 @@ class MEAM:
 
                 # Calculate pair interactions (phi)
                 for j in range(num_neighbors_noboth):
-                    jtype = lammpsTools.symbol_to_type(
+                    jtype = src.lammpsTools.symbol_to_type(
                         atoms[neighbors_noboth[0][j]].symbol, self.types)
 
                     r_ij = np.linalg.norm(
@@ -252,7 +252,7 @@ class MEAM:
                 # end phi loop
 
                 for j in range(num_neighbors):
-                    jtype = lammpsTools.symbol_to_type(
+                    jtype = src.lammpsTools.symbol_to_type(
                         atoms[neighbors[0][j]].symbol, self.types)
                     r_ij = np.linalg.norm(
                         ipos - neighbor_shifted_positions[j])
@@ -269,7 +269,7 @@ class MEAM:
                     partialsum = 0.0
                     for k in range(j, num_neighbors):
                         if k != j:
-                            ktype = lammpsTools.symbol_to_type(
+                            ktype = src.lammpsTools.symbol_to_type(
                                 atoms[neighbors[0][k]].symbol, self.types)
 
                             r_ik = np.linalg.norm(ipos -
@@ -357,7 +357,7 @@ class MEAM:
         cellx, celly, cellz = atoms.get_cell()
 
         for i in range(natoms):
-            itype = lammpsTools.symbol_to_type(atoms[i].symbol, self.types)
+            itype = src.lammpsTools.symbol_to_type(atoms[i].symbol, self.types)
             ipos = atoms[i].position
 
             Uprime_i = self.uprimes[i]
@@ -382,7 +382,7 @@ class MEAM:
             forces_i = np.zeros((3,))
             if len(neighbors[0]) > 0:
                 for j in range(num_neighbors):
-                    jtype = lammpsTools.symbol_to_type(
+                    jtype = src.lammpsTools.symbol_to_type(
                         atoms[neighbors[0][j]].symbol, self.types)
 
                     jpos = neighbor_shifted_positions[j]
@@ -401,7 +401,7 @@ class MEAM:
 
                     for k in range(j, num_neighbors):
                         if k != j:
-                            ktype = lammpsTools.symbol_to_type(
+                            ktype = src.lammpsTools.symbol_to_type(
                                 atoms[neighbors[0][k]].symbol, self.types)
                             kpos = neighbor_shifted_positions[k]
                             kdel = kpos - ipos
@@ -473,7 +473,7 @@ class MEAM:
                 # Calculate pair interactions (phi)
                 for j in range(
                         num_neighbors_noboth):  # j = index for neighbor list
-                    jtype = lammpsTools.symbol_to_type(
+                    jtype = src.lammpsTools.symbol_to_type(
                         atoms[neighbors_noboth[0][j]].symbol, self.types)
                     jpos = neighbor_shifted_positions[j]
                     jdel = jpos - ipos
@@ -886,7 +886,7 @@ def splines_from_pvec(x_pvec, y_pvec, x_indices):
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
 
-    import lammpsTools
+    import src.lammpsTools
 
     p = MEAM('TiO.meam.spline', ['Ti', 'O'])
-    atoms = lammpsTools.atoms_from_file('Ti_only_crowd.Ti', ['Ti'])
+    atoms = src.lammpsTools.atoms_from_file('Ti_only_crowd.Ti', ['Ti'])

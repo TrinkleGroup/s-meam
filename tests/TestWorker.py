@@ -4,9 +4,9 @@ import time
 
 from nose_parameterized import parameterized
 
-import meam
+import src.meam
 
-from worker import Worker
+from src.worker import Worker
 
 np.random.seed(42)
 
@@ -51,8 +51,8 @@ if bulk_flag:
     allstructs = {**allstructs, **bulk_vac_ortho, **bulk_periodic_ortho,
                   **bulk_vac_rhombo, **bulk_periodic_rhombo, **extra}
 
-# allstructs = {'bulk_vac_rhombo_type1':bulk_vac_rhombo['bulk_vac_rhombo_type1']}
-# allstructs = {'aba':trimers['aba']}
+# allstructs = {'bulk_periodic_rhombo_mixed':bulk_periodic_rhombo['bulk_periodic_rhombo_mixed']}
+# allstructs = {'ab':dimers['ab']}
 # allstructs = {'8_atom':extra['8_atoms']}
 
 # import lammpsTools
@@ -129,7 +129,7 @@ def get_lammps_results(pots, structs):
 
 
 def runner_energy(pots, structs):
-    x_pvec, y_pvec, indices = meam.splines_to_pvec(pots[0].splines)
+    x_pvec, y_pvec, indices = src.meam.splines_to_pvec(pots[0].splines)
 
     wrk_energies = {}
     for name in structs.keys():
@@ -144,17 +144,17 @@ def runner_energy(pots, structs):
 
 
 def runner_forces(pots, structs):
-    x_pvec, y_pvec, indices = meam.splines_to_pvec(pots[0].splines)
+    x_pvec, y_pvec, indices = src.meam.splines_to_pvec(pots[0].splines)
 
     wrk_forces = {}
+    start = time.time()
     for name in structs.keys():
-        start = time.time()
         atoms = structs[name]
 
         w = Worker(atoms, x_pvec, indices, pots[0].types)
         w.compute_energies(y_pvec)
         wrk_forces[name] = np.array(w.compute_forces(y_pvec)) / len(atoms)
-        logging.info(" ...... {0} second(s)".format(time.time() - start))
+    logging.info(" ...... {0} second(s)".format(time.time() - start))
 
     return wrk_forces
 
@@ -353,8 +353,6 @@ if rand_pots_flag:
     if meam_flag:
         """meam subtype"""
         p = tests.testPotentials.get_random_pots(N)['meams']
-        # p[0].write_to_file("spline.poop.test")
-        from meam import MEAM
 
         energies, forces = get_lammps_results(p, allstructs)
 
