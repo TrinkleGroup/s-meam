@@ -17,12 +17,12 @@ from tests.testStructs import dimers, trimers, bulk_vac_ortho, \
 
 # logging.disable(logging.CRITICAL)
 
-DECIMAL = 13
+DECIMAL = 12
 
 N = 1
 
 # Flags for what tests to run
-energy_flag = True * 1
+energy_flag = True * 0
 forces_flag = True * 1
 
 zero_pots_flag  = True * 0
@@ -51,8 +51,8 @@ if bulk_flag:
     allstructs = {**allstructs, **bulk_vac_ortho, **bulk_periodic_ortho,
                   **bulk_vac_rhombo, **bulk_periodic_rhombo, **extra}
 
-# allstructs = {'bulk_periodic_rhombo_mixed':bulk_periodic_rhombo['bulk_periodic_rhombo_mixed']}
-# allstructs = {'aba':trimers['aba']}
+allstructs = {'bulk_periodic_rhombo_mixed':bulk_periodic_rhombo['bulk_periodic_rhombo_mixed']}
+# allstructs = {'ab':dimers['ab']}
 # allstructs = {'8_atom':extra['8_atoms']}
 
 ################################################################################
@@ -115,7 +115,7 @@ def get_lammps_results(pots, structs):
 
             results = lmp_p.get_lammps_results(atoms)
             lmp_energies[name][pnum] = results['energy'] / len(atoms)
-            lmp_forces[name].append(results['forces'] / len(atoms))
+            lmp_forces[name].append(results['forces'])# / len(atoms))
 
             # TODO: LAMMPS runtimes are inflated due to ASE internal read/write
             # TODO: need to create shell script to get actual runtimes
@@ -148,7 +148,7 @@ def runner_forces(pots, structs):
 
         w = Worker(atoms, x_pvec, indices, pots[0].types)
         w.compute_energies(y_pvec)
-        wrk_forces[name] = np.array(w.compute_forces(y_pvec)) / len(atoms)
+        wrk_forces[name] = np.array(w.compute_forces(y_pvec))# / len(atoms)
     logging.info(" ...... {0} second(s)".format(time.time() - start))
 
     return wrk_forces

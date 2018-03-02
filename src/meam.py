@@ -485,11 +485,20 @@ class MEAM:
                     fpair = rho_prime_j * self.uprimes[i] + rho_prime_i * \
                         self.uprimes[neighbors_noboth[0][j]]
 
+                    # logging.info("MEAM: uprime_i = {0}".format(self.uprimes[i]))
+                    # logging.info("MEAM: uprime_j = {0}"\
+                    #              .format(self.uprimes[neighbors_noboth[0][j]]))
+
                     phi_prime = self.phis[ij_to_potl(itype, jtype,
                                                      self.ntypes)](r_ij, 1)
 
                     fpair += phi_prime
                     fpair /= r_ij
+
+                    # logging.info("MEAM: jdel*rho_j = {0}".format(
+                    #     jdel*rho_prime_j/r_ij))
+                    # logging.info("MEAM: jdel*rho_i = {0}".format(
+                    #     jdel*rho_prime_i/r_ij))
 
                     self.forces[i] += jdel * fpair
                     self.forces[neighbors_noboth[0][j]] -= jdel * fpair
