@@ -71,9 +71,9 @@ class Worker:
         self.ntypes     = ntypes
         self.natoms     = len(atoms)
 
-        self.type_each_atom = []
+        self.type_of_each_atom = []
         for atom in atoms:
-            self.type_each_atom.append(src.lammpsTools.symbol_to_type(
+            self.type_of_each_atom.append(src.lammpsTools.symbol_to_type(
                 atom.symbol, self.types))
 
         # there are nphi phi functions and nphi g fxns
@@ -99,22 +99,30 @@ class Worker:
 
         # Directional information for force calculations; grouped by spline
         # e.g. phi_directions = [phi_0 directions, phi_1 directions, ...]
-        self.phi_directions = [[] for i in range(len(self.phis))]
-        self.rho_directions = [[] for i in range(len(self.rhos))]
+        phi_directions = [[[] for j in range(self.natoms)]
+                               for i in range(len(self.phis))]
+        self.rho_directions = [[[] for j in range(self.natoms)]
+                               for i in range(len(self.rhos))]
         self.ffg_directions = [[[[] for k in range(6)] for j in range(len(
             self.fs))] for i in range(len(self.fs))]
 
         # Temporary collectors for spline values to optimize spline get_abcd()
-        all_phi_rij = [[] for i in range(len(self.phis))]
+        # 3D lists; indexed by (spline number, atom number, value)
+        energy_phi_rij = [[[] for j in range(self.natoms)]
+                       for i in range(len(self.phis))]
+        forces_phi_rij = [[[] for j in range(self.natoms)]
+                          for i in range(len(self.phis))]
         all_rho_rij = [[] for i in range(len(self.rhos))]
 
         num_f = len(self.fs)
+        # 4D list; (fj index, fk index, atom number, value)
         all_ffg_rij = [[[] for i in range(num_f)] for j in range(num_f)]
         all_ffg_rik = [[[] for i in range(num_f)] for j in range(num_f)]
         all_ffg_cos = [[[] for i in range(num_f)] for j in range(num_f)]
 
         # Tags to track which atom each spline eval corresponds to
-        phi_rij_indices = [[] for i in range(len(self.phis))]
+        phi_rij_indices = [[[] for j in range(self.natoms)]
+                           for i in range(len(self.phis))]
         rho_rij_indices = [[] for i in range(len(self.rhos))]
         ffg_indices= [[[] for i in range(num_f)] for j in range(num_f)]
 
@@ -134,8 +142,7 @@ class Worker:
         # for i in range(self.natoms):
         for i, atom in enumerate(self.atoms):
             # Record atom type info
-            # itype = src.lammpsTools.symbol_to_type(atom.symbol, self.types)
-            itype = self.type_each_atom[i]
+            itype = self.type_of_each_atom[i]
             ipos = atom.position
 
             # Extract neigbor list for atom i
@@ -144,9 +151,7 @@ class Worker:
 
             # Stores pair information for phi
             for j, offset in zip(neighbors_noboth, offsets_noboth):
-
-                # jtype = src.lammpsTools.symbol_to_type(atoms[j].symbol, self.types)
-                jtype = self.type_each_atom[j]
+                jtype = self.type_of_each_atom[j]
 
                 # Find displacement vector (with periodic boundary conditions)
                 jpos = atoms[j].position + np.dot(offset, atoms.get_cell())
@@ -156,17 +161,21 @@ class Worker:
                 # Add distance/index/direction information to necessary lists
                 phi_idx = src.meam.ij_to_potl(itype, jtype, self.ntypes)
 
-                all_phi_rij[phi_idx].append(rij)
-                phi_rij_indices[phi_idx].append([i,j])
+                energy_phi_rij[phi_idx][i].append(rij)
 
-                self.phi_directions[phi_idx].append(jvec / rij)
+                forces_phi_rij[phi_idx][i].append(rij)
+                forces_phi_rij[phi_idx][j].append(rij)
+
+                phi_rij_indices[phi_idx][i].append([i,j])
+
+                phi_directions[phi_idx][i].append(jvec / rij)
+                phi_directions[phi_idx][j].append(-jvec / rij)
 
             # Store distances, angle, and index info for embedding terms
             j_counter = 0  # for tracking neighbor
             for j, offsetj in zip(neighbors, offsets):
 
-                # jtype = src.lammpsTools.symbol_to_type(atoms[j].symbol, self.types)
-                jtype = self.type_each_atom[j]
+                jtype = self.type_of_each_atom[j]
 
                 jpos = atoms[j].position + np.dot(offsetj, atoms.get_cell())
 
@@ -191,9 +200,7 @@ class Worker:
                 for k, offsetk in zip(neighbors[j_counter:],
                                       offsets[j_counter:]):
                     if k != j:
-                        # ktype = src.lammpsTools.symbol_to_type(atoms[k].symbol,
-                        #                                    self.types)
-                        ktype = self.type_each_atom[k]
+                        ktype = self.type_of_each_atom[k]
                         kpos = atoms[k].position + np.dot(offsetk,
                                                           atoms.get_cell())
 
@@ -232,9 +239,27 @@ class Worker:
                         self.ffg_directions[fj_idx][fk_idx][5].append(d5)
 
         # Add full groups of spline evaluations to respective splines
-        for phi_idx in range(len(self.phis)):
-            self.phis[phi_idx].add_to_struct_vec(all_phi_rij[phi_idx],
-                                                 phi_rij_indices[phi_idx])
+        for phi_idx, phi in enumerate(self.phis):
+            max_num_evals_eng = max([len(el) for el in energy_phi_rij[phi_idx]])
+            max_num_evals_fcs = max([len(el) for el in forces_phi_rij[phi_idx]])
+
+            if max_num_evals_eng > 0: phi.max_num_evals_eng = max_num_evals_eng
+            if max_num_evals_fcs > 0: phi.max_num_evals_fcs = max_num_evals_fcs
+
+            sv_width_eng = (2*len(phi.x) + 4)*phi.max_num_evals_eng
+            sv_width_fcs = (2*len(phi.x) + 4)*phi.max_num_evals_fcs
+
+            phi.energy_struct_vec = np.zeros((self.natoms, sv_width_eng))
+            phi.forces_struct_vec = np.zeros((self.natoms, sv_width_fcs, 3))
+
+            for i, (energy_vals, dirs, force_vals) in enumerate(zip(
+                    energy_phi_rij[phi_idx], phi_directions[phi_idx],
+                                                    forces_phi_rij[phi_idx])):
+
+                phi.add_to_energy_struct_vec(energy_vals, i)
+
+                if dirs:
+                    phi.add_to_forces_struct_vec(force_vals, dirs, i)
 
         for rho_idx in range(len(self.rhos)):
             self.rhos[rho_idx].add_to_struct_vec(all_rho_rij[rho_idx],
@@ -252,13 +277,6 @@ class Worker:
                                                             indices)
 
         # Convert directional information to arrays for future computations
-        # self.phi_directions = [np.vstack(el) for el in self.phi_directions]
-        # self.rho_directions = [np.vstack(el) for el in self.rho_directions]
-
-        for i, block in enumerate(self.phi_directions):
-            if block:
-                self.phi_directions[i] = np.vstack(block)
-
         for i, block in enumerate(self.rho_directions):
             if block:
                 self.rho_directions[i] = np.vstack(block)
@@ -294,7 +312,7 @@ class Worker:
             if (i < self.nphi)\
                 or (self.nphi + self.ntypes <= i < self.nphi + 2 *self.ntypes):
 
-                s = WorkerSpline(knots, bc_type)
+                s = WorkerSpline(knots, bc_type, self.natoms)
             else:
                 s = RhoSpline(knots, bc_type, self.natoms)
 
@@ -360,8 +378,9 @@ class Worker:
 
         # Pair interactions
         for y, phi in zip(phi_pvecs, self.phis, ):
-            if phi.struct_vecs[0] != []:
-                energy += np.sum(phi(y))
+            # if phi.struct_vecs[0] != []:
+            if len(phi.energy_struct_vec) > 0:
+                energy += phi.calc_energy(y)
 
         # Embedding terms
         ni = self.compute_ni(rho_pvecs, f_pvecs, g_pvecs)
@@ -417,7 +436,7 @@ class Worker:
         # for i, atom in enumerate(self.atoms):
         for i in range(self.natoms):
             # itype = src.lammpsTools.symbol_to_type(atom.symbol, self.types)
-            itype = self.type_each_atom[i]
+            itype = self.type_of_each_atom[i]
             u_idx = itype - 1
 
             sorted_ni[u_idx].append(ni[i])
@@ -453,7 +472,7 @@ class Worker:
         ni_indices = [[] for i in range(len(self.us))]
 
         # Add ni values to respective u splines
-        for i, itype in enumerate(self.type_each_atom):
+        for i, itype in enumerate(self.type_of_each_atom):
             u_idx = src.meam.i_to_potl(itype)
 
             sorted_ni[u_idx].append(ni[i])
@@ -496,13 +515,11 @@ class Worker:
         # forces = [np.zeros(3) for i in range(len(self.atoms))]
 
         # Pair forces (phi)
-        for phi_idx, (phi, phi_dirs, y) in\
-            enumerate(zip(self.phis, self.phi_directions, phi_pvecs)):
+        for phi_idx, (phi, y) in enumerate(zip(self.phis, phi_pvecs)):
 
-            # if len(phi_dirs) > 0:
-            if phi.struct_vecs[1] != []:
+            if len(phi.forces_struct_vec) > 0:
                 # Evaluate derivatives and multiply by direction vectors
-                phi_forces = np.einsum('ij,i->ij', phi_dirs, phi(y, 1))
+                forces += phi.calc_forces(y)
 
                 # f0 = lambda a: np.bincount(phi.indices_f, weights=a,
                 #                            minlength=self.natoms)
@@ -512,8 +529,8 @@ class Worker:
                 # forces += np.apply_along_axis(f0, 0, phi_forces)
                 # forces -= np.apply_along_axis(f1, 0, phi_forces)
 
-                forces += jit_add_at_2D(phi.indices_f, phi_forces, self.natoms)
-                forces -= jit_add_at_2D(phi.indices_b, phi_forces, self.natoms)
+                # forces += jit_add_at_2D(phi.indices_f, phi_forces, self.natoms)
+                # forces -= jit_add_at_2D(phi.indices_b, phi_forces, self.natoms)
 
                 # cython_add_at_2D(forces.astype(np.float64),
                 #                  np.array(phi.indices_f, dtype=np.int32),
