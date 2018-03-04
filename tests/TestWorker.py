@@ -4,9 +4,9 @@ import time
 
 from nose_parameterized import parameterized
 
-import meam
+import src.meam
 
-from worker import Worker
+from src.worker import Worker
 
 np.random.seed(42)
 
@@ -17,25 +17,25 @@ from tests.testStructs import dimers, trimers, bulk_vac_ortho, \
 
 # logging.disable(logging.CRITICAL)
 
-DECIMAL = 13
+DECIMAL = 12
 
 N = 1
 
 # Flags for what tests to run
 energy_flag = True * 1
-forces_flag = True * 1
+forces_flag = True * 0
 
 zero_pots_flag  = True * 0
 const_pots_flag = True * 0
 rand_pots_flag  = True * 1
 
-meam_flag       = True * 1
+meam_flag       = True * 0
 phionly_flag    = True * 0
 rhophi_flag     = True * 0
 nophi_flag      = True * 0
 rho_flag        = True * 0
 norho_flag      = True * 0
-norhophi_flag   = True * 0
+norhophi_flag   = True * 1
 
 dimers_flag     = True * 1
 trimers_flag    = True * 1
@@ -51,15 +51,10 @@ if bulk_flag:
     allstructs = {**allstructs, **bulk_vac_ortho, **bulk_periodic_ortho,
                   **bulk_vac_rhombo, **bulk_periodic_rhombo, **extra}
 
-# allstructs = {'bulk_vac_rhombo_type1':bulk_vac_rhombo['bulk_vac_rhombo_type1']}
+# allstructs = {'bulk_periodic_rhombo_mixed':bulk_periodic_rhombo['bulk_periodic_rhombo_mixed']}
 # allstructs = {'aba':trimers['aba']}
 # allstructs = {'8_atom':extra['8_atoms']}
 
-# import lammpsTools
-# lammpsTools.atoms_to_LAMMPS_file('data.poop_8atoms', allstructs['8_atom'])
-
-# allstructs = {'read':lammpsTools.atoms_from_file('data.poop_8atoms', ['H',
-#                                                                       'He'])}
 ################################################################################
 # Helper functions
 
@@ -120,7 +115,7 @@ def get_lammps_results(pots, structs):
 
             results = lmp_p.get_lammps_results(atoms)
             lmp_energies[name][pnum] = results['energy'] / len(atoms)
-            lmp_forces[name].append(results['forces'] / len(atoms))
+            lmp_forces[name].append(results['forces'])# / len(atoms))
 
             # TODO: LAMMPS runtimes are inflated due to ASE internal read/write
             # TODO: need to create shell script to get actual runtimes
@@ -129,7 +124,7 @@ def get_lammps_results(pots, structs):
 
 
 def runner_energy(pots, structs):
-    x_pvec, y_pvec, indices = meam.splines_to_pvec(pots[0].splines)
+    x_pvec, y_pvec, indices = src.meam.splines_to_pvec(pots[0].splines)
 
     wrk_energies = {}
     for name in structs.keys():
@@ -144,17 +139,17 @@ def runner_energy(pots, structs):
 
 
 def runner_forces(pots, structs):
-    x_pvec, y_pvec, indices = meam.splines_to_pvec(pots[0].splines)
+    x_pvec, y_pvec, indices = src.meam.splines_to_pvec(pots[0].splines)
 
     wrk_forces = {}
+    start = time.time()
     for name in structs.keys():
-        start = time.time()
         atoms = structs[name]
 
         w = Worker(atoms, x_pvec, indices, pots[0].types)
         w.compute_energies(y_pvec)
-        wrk_forces[name] = np.array(w.compute_forces(y_pvec)) / len(atoms)
-        logging.info(" ...... {0} second(s)".format(time.time() - start))
+        wrk_forces[name] = np.array(w.compute_forces(y_pvec))# / len(atoms)
+    logging.info(" ...... {0} second(s)".format(time.time() - start))
 
     return wrk_forces
 
@@ -353,8 +348,6 @@ if rand_pots_flag:
     if meam_flag:
         """meam subtype"""
         p = tests.testPotentials.get_random_pots(N)['meams']
-        # p[0].write_to_file("spline.poop.test")
-        from meam import MEAM
 
         energies, forces = get_lammps_results(p, allstructs)
 

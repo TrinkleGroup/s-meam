@@ -1,9 +1,9 @@
 """Generates N random potentials and 'subtypes' potentials for use in testing"""
 import numpy as np
 
-from spline import Spline
-from spline import ZeroSpline
-from meam import MEAM
+from src.spline import Spline
+from src.spline import ZeroSpline
+from src.meam import MEAM
 from .testVars import a0
 
 N = 0
