@@ -27,6 +27,7 @@ class Worker:
 
     # TODO: an assumption is made that all potentials have the same cutoffs
 
+    # @profile
     def __init__(self, atoms, knot_xcoords, x_indices, types):
         """Organizes data structures and pre-computes structure information.
 
@@ -103,8 +104,11 @@ class Worker:
                                for i in range(len(self.phis))]
         rho_directions = [[[] for j in range(self.natoms)]
                                for i in range(len(self.rhos))]
-        self.ffg_directions = [[[[] for k in range(6)] for j in range(len(
-            self.fs))] for i in range(len(self.fs))]
+        ffg_directions = [[[[] for k in range(self.natoms)]
+                           for j in range(len(self.fs))]
+                               for i in range(len(self.fs))]
+        # self.ffg_directions = [[[[] for k in range(6)] for j in range(len(
+        #     self.fs))] for i in range(len(self.fs))]
 
         # Temporary collectors for spline values to optimize spline get_abcd()
         # 3D lists; indexed by (spline number, atom number, value)
@@ -112,6 +116,7 @@ class Worker:
                        for i in range(len(self.phis))]
         forces_phi_rij = [[[] for j in range(self.natoms)]
                           for i in range(len(self.phis))]
+
         energy_rho_rij = [[[] for j in range(self.natoms)]
                        for i in range(len(self.rhos))]
         forces_rho_rij = [[[] for j in range(self.natoms)]
@@ -119,16 +124,27 @@ class Worker:
 
         num_f = len(self.fs)
         # 4D list; (fj index, fk index, atom number, value)
-        all_ffg_rij = [[[] for i in range(num_f)] for j in range(num_f)]
-        all_ffg_rik = [[[] for i in range(num_f)] for j in range(num_f)]
-        all_ffg_cos = [[[] for i in range(num_f)] for j in range(num_f)]
+        energy_ffg_rij = [[[[] for k in range(self.natoms)]
+                           for i in range(num_f)] for j in range(num_f)]
+        energy_ffg_rik = [[[[] for k in range(self.natoms)]
+                           for i in range(num_f)] for j in range(num_f)]
+        energy_ffg_cos = [[[[] for k in range(self.natoms)]
+                           for i in range(num_f)] for j in range(num_f)]
+
+        forces_ffg_rij = [[[[] for k in range(self.natoms)]
+                           for i in range(num_f)] for j in range(num_f)]
+        forces_ffg_rik = [[[[] for k in range(self.natoms)]
+                           for i in range(num_f)] for j in range(num_f)]
+        forces_ffg_cos = [[[[] for k in range(self.natoms)]
+                           for i in range(num_f)] for j in range(num_f)]
 
         # Tags to track which atom each spline eval corresponds to
         phi_rij_indices = [[[] for j in range(self.natoms)]
                            for i in range(len(self.phis))]
         self.rho_rij_indices = [[[] for j in range(self.natoms)]
                            for i in range(len(self.rhos))]
-        ffg_indices= [[[] for i in range(num_f)] for j in range(num_f)]
+        self.ffg_indices= [[[[] for k in range(self.natoms)]
+                            for i in range(num_f)] for j in range(num_f)]
 
         # Build neighbor lists
 
@@ -149,8 +165,6 @@ class Worker:
             itype = self.type_of_each_atom[i]
             ipos = atom.position
 
-            rho_idx_b = src.meam.i_to_potl(itype)
-
             # Extract neigbor list for atom i
             neighbors_noboth, offsets_noboth = nl_noboth.get_neighbors(i)
             neighbors, offsets = nl.get_neighbors(i)
@@ -162,7 +176,7 @@ class Worker:
                 # Find displacement vector (with periodic boundary conditions)
                 jpos = atoms[j].position + np.dot(offset, atoms.get_cell())
                 jvec = jpos - ipos
-                rij = np.linalg.norm(jvec)
+                rij = np.sqrt(jvec[0]**2 + jvec[1]**2 + jvec[2]**2)
                 jvec /= rij
 
                 # Add distance/index/direction information to necessary lists
@@ -187,7 +201,7 @@ class Worker:
                 jpos = atoms[j].position + np.dot(offsetj, atoms.get_cell())
 
                 jvec = jpos - ipos
-                rij = np.linalg.norm(jvec)
+                rij = np.sqrt(jvec[0]**2 + jvec[1]**2 + jvec[2]**2)
                 jvec /= rij
 
                 rho_idx = src.meam.i_to_potl(jtype)
@@ -205,7 +219,7 @@ class Worker:
 
                 # prepare for angular calculations
                 a = jpos - ipos
-                na = np.linalg.norm(a)
+                na = np.sqrt(a[0]**2 + a[1]**2 + a[2]**2)
 
                 fj_idx = src.meam.i_to_potl(jtype)
 
@@ -218,38 +232,39 @@ class Worker:
                                                           atoms.get_cell())
 
                         kvec = kpos - ipos
-                        rik = np.linalg.norm(kvec)
+                        rik = np.sqrt(kvec[0]**2 + kvec[1]**2 + kvec[2]**2)
                         kvec /= rik
 
                         b = kpos - ipos
-                        nb = np.linalg.norm(b)
+                        nb = np.sqrt(b[0]**2 + b[1]**2 + b[2]**2)
 
                         cos_theta = np.dot(a, b) / na / nb
 
                         # fk information
                         fk_idx = src.meam.i_to_potl(ktype)
 
-                        all_ffg_rij[fj_idx][fk_idx].append(rij)
-                        all_ffg_rik[fj_idx][fk_idx].append(rik)
-                        all_ffg_cos[fj_idx][fk_idx].append(cos_theta)
+                        energy_ffg_rij[fj_idx][fk_idx][i].append(rij)
+                        energy_ffg_rik[fj_idx][fk_idx][i].append(rik)
+                        energy_ffg_cos[fj_idx][fk_idx][i].append(cos_theta)
 
-                        ffg_indices[fj_idx][fk_idx].append([i,j,k])
+                        forces_ffg_rij[fj_idx][fk_idx][i].append(rij)
+                        forces_ffg_rik[fj_idx][fk_idx][i].append(rik)
+                        forces_ffg_cos[fj_idx][fk_idx][i].append(cos_theta)
+
+                        self.ffg_indices[fj_idx][fk_idx][i] += [i]*6
+                        # self.ffg_indices[fj_idx][fk_idx][j] += [i]*6
 
                         # Directions added to match ordering of terms in
                         # first derivative of fj*fk*g
                         d0 = jvec
-                        d1 = -cos_theta * jvec / rij
-                        d2 = kvec / rij
+                        d1 = -cos_theta * jvec# / rij
+                        d2 = kvec# / rij
                         d3 = kvec
-                        d4 = -cos_theta * kvec / rik
-                        d5 = jvec / rik
+                        d4 = -cos_theta * kvec# / rik
+                        d5 = jvec# / rik
 
-                        self.ffg_directions[fj_idx][fk_idx][0].append(d0)
-                        self.ffg_directions[fj_idx][fk_idx][1].append(d1)
-                        self.ffg_directions[fj_idx][fk_idx][2].append(d2)
-                        self.ffg_directions[fj_idx][fk_idx][3].append(d3)
-                        self.ffg_directions[fj_idx][fk_idx][4].append(d4)
-                        self.ffg_directions[fj_idx][fk_idx][5].append(d5)
+                        ffg_directions[fj_idx][fk_idx][i] += [d0, d1, d2, d3,
+                                                              d4, d5]
 
         # Add full groups of spline evaluations to respective splines
         for phi_idx, (phi, phi_dirs) in enumerate(zip(self.phis,
@@ -261,8 +276,7 @@ class Worker:
             if max_num_evals_eng > 0: phi.max_num_evals_eng = max_num_evals_eng
             if max_num_evals_fcs > 0: phi.max_num_evals_fcs = max_num_evals_fcs
 
-            phi.energy_struct_vec = np.zeros((self.natoms, 2*len(phi.x)+4,
-                                              max_num_evals_eng))
+            phi.energy_struct_vec = np.zeros((self.natoms, 2*len(phi.x)+4))
             phi.forces_struct_vec = np.zeros((self.natoms, 2*len(phi.x)+4,
                                               max_num_evals_fcs, 3))
 
@@ -275,9 +289,6 @@ class Worker:
                     phi.add_to_forces_struct_vec(force_vals, dirs, i)
 
         for rho_idx, rho in enumerate(self.rhos):
-
-            # rho.indices_f = [el[0] for el in rho_indices]
-            # rho.indices_b = [el[1] for el in rho_indices]
 
             max_num_evals_eng = max([len(el) for el in energy_rho_rij[rho_idx]])
             max_num_evals_fcs = max([len(el) for el in forces_rho_rij[rho_idx]])
@@ -292,8 +303,7 @@ class Worker:
             if max_num_evals_eng > 0: rho.max_num_evals_eng = max_num_evals_eng
             if max_num_evals_fcs > 0: rho.max_num_evals_fcs = max_num_evals_fcs
 
-            rho.energy_struct_vec = np.zeros((self.natoms, 2*len(rho.x)+4,
-                                              max_num_evals_eng))
+            rho.energy_struct_vec = np.zeros((self.natoms, 2*len(rho.x)+4))
             rho.forces_struct_vec = np.zeros((self.natoms, 2*len(rho.x)+4,
                                               max_num_evals_fcs, 3))
 
@@ -306,21 +316,61 @@ class Worker:
                 if dirs:
                     rho.add_to_forces_struct_vec(force_vals, dirs, i)
 
-        for fj_idx in range(len(self.fs)):
-            for fk_idx in range(len(self.fs)):
-                rij = all_ffg_rij[fj_idx][fk_idx]
-                rik = all_ffg_rik[fj_idx][fk_idx]
-                cos_theta = all_ffg_cos[fj_idx][fk_idx]
-                indices = ffg_indices[fj_idx][fk_idx]
+        for fj_idx in range(len(self.ffgs)):
+            for fk_idx in range(len(self.ffgs)):
+                ffg = self.ffgs[fj_idx][fk_idx]
 
-                self.ffgs[fj_idx][fk_idx].add_to_struct_vec(rij, rik,
-                                                            cos_theta,
-                                                            indices)
+                max_num_evals_eng = max([len(el) for el in energy_ffg_rij[
+                    fj_idx][fk_idx]])
+                max_num_evals_fcs = max([len(el) for el in forces_ffg_rij[
+                    fj_idx][fk_idx]])
 
-        for j,fj_dirs in enumerate(self.ffg_directions):
-            for k,fk_dirs in enumerate(fj_dirs):
+                if max_num_evals_eng > 0: ffg.max_num_evals_eng = max_num_evals_eng
+                if max_num_evals_fcs > 0: ffg.max_num_evals_fcs = max_num_evals_fcs
 
-                self.ffg_directions[j][k] = np.vstack(self.ffg_directions[j][k])
+                indices = np.zeros((self.natoms, 6*max_num_evals_fcs)) - 1
+
+                for i, row in enumerate(self.ffg_indices[fj_idx][fk_idx]):
+                    indices[i, :len(row)] = row
+
+                self.ffg_indices[fj_idx][fk_idx] = indices
+
+                energy_struct_vec = np.zeros((self.natoms, 2*len(rho.x)+4,
+                                                  max_num_evals_eng))
+
+                ffg.fj_energy_struct_vec = energy_struct_vec.copy()
+                ffg.fk_energy_struct_vec = energy_struct_vec.copy()
+                ffg.g_energy_struct_vec = energy_struct_vec.copy()
+
+                energy_rij = energy_ffg_rij[fj_idx][fk_idx]
+                energy_rik = energy_ffg_rik[fj_idx][fk_idx]
+                energy_cos = energy_ffg_cos[fj_idx][fk_idx]
+
+                # for i in range(len(energy_rij)):
+                for i, (rij, rik, cos) in enumerate(zip(energy_rij, energy_rik,
+                                                    energy_cos)):
+
+                    ffg.add_to_energy_struct_vec(rij, rik, cos, i)
+
+                forces_struct_vec = np.zeros((self.natoms, 2*len(rho.x)+4,
+                                                  6*max_num_evals_fcs, 3))
+
+                ffg.fj_forces_struct_vec = forces_struct_vec.copy()
+                ffg.fk_forces_struct_vec = forces_struct_vec.copy()
+                ffg.g_forces_struct_vec = forces_struct_vec.copy()
+
+                forces_rij = forces_ffg_rij[fj_idx][fk_idx]
+                forces_rik = forces_ffg_rik[fj_idx][fk_idx]
+                forces_cos = forces_ffg_cos[fj_idx][fk_idx]
+
+                # TODO: self.*_indices -> *.indices; have spline store
+
+                for i, (rij, rik, cos, dirs) in\
+                    enumerate(zip(forces_rij, forces_rik, forces_cos,
+                                  ffg_directions[fj_idx][fk_idx])):
+
+                    if dirs:
+                        ffg.add_to_forces_struct_vec(rij, rik, cos, dirs, i)
 
     def build_spline_lists(self, knot_xcoords, x_indices):
         """
@@ -439,7 +489,6 @@ class Worker:
 
         # Rho contribution
         for y, rho in zip(rho_pvecs, self.rhos):
-            # ni += rho.compute_for_all(y)
             ni += rho.calc_energy(y)
 
         # Three-body contribution
@@ -448,7 +497,7 @@ class Worker:
 
                 y_g = g_pvecs[src.meam.ij_to_potl(j + 1, k + 1, self.ntypes)]
 
-                ni += ffg.compute_for_all(y_fj, y_fk, y_g)
+                ni += ffg.calc_energy(y_fj, y_fk, y_g)
 
         return ni
 
@@ -557,20 +606,16 @@ class Worker:
 
         ni = self.compute_ni(rho_pvecs, f_pvecs, g_pvecs)
         uprimes = self.evaluate_uprimes(ni, u_pvecs)
+        uprimes = np.append(uprimes, 0.)
 
         # Electron density embedding (rho)
         for rho_idx, (rho, y) in enumerate(zip(self.rhos, rho_pvecs)):
 
             if len(rho.forces_struct_vec) > 0:
-                # rho_forces = np.einsum('ij,i->ij', rho_dirs, rho.calc_forces(y))
                 rho_forces = rho.calc_forces(y)
 
-                # uprimes = np.append(uprimes, 0.)
-                uprime_scales = np.take(np.append(uprimes, 0.),\
+                uprime_scales = np.take(uprimes,\
                                     self.rho_rij_indices[rho_idx].astype(int))
-
-                # logging.info("WORKER: rho_forces = {0}".format(rho_forces))
-                # logging.info("WORKER: uprimes = {0}".format(uprime_scales))
 
                 forces += np.einsum('ijk,ij->ik', rho_forces, uprime_scales)
 
@@ -581,27 +626,38 @@ class Worker:
             for k in range(len(ffg_list)):
                 ffg = ffg_list[k]
 
-                ffg_dirs = self.ffg_directions[j][k]
-
-                if len(ffg.indices_f[0]) > 0:
+                # if len(ffg.indices_f[0]) > 0:
+                if len(ffg.fj_forces_struct_vec) > 0:
 
                     y_fj = f_pvecs[j]
                     y_fk = f_pvecs[k]
                     y_g = g_pvecs[src.meam.ij_to_potl(j + 1, k + 1, self.ntypes)]
 
-                    ffg_forces = np.einsum('ij,i->ij', ffg_dirs,
-                                           ffg(y_fj, y_fk, y_g, 1))
+                    uprime_scales = np.take(uprimes,
+                                            self.ffg_indices[j][k].astype(int))
 
-                    ffg_forces = np.einsum('ij,i->ij', ffg_forces,
-                                           uprimes[ffg.indices_f[1]])
+                    # logging.info("WORKER: u' = {0}".format(uprime_scales))
 
-                    f0 = lambda a: np.bincount(ffg.indices_f[1], weights=a,
-                                               minlength=self.natoms)
-                    f1 = lambda a: np.bincount(ffg.indices_b[1], weights=a,
-                                               minlength=self.natoms)
+                    ffg_forces = ffg.calc_forces(y_fj, y_fk, y_g)
+                    forces += np.einsum('ijk,ij->ik', ffg_forces, uprime_scales)
 
-                    forces += np.apply_along_axis(f0, 0, ffg_forces)
-                    forces -= np.apply_along_axis(f1, 0, ffg_forces)
+                    # logging.info("WORKER: {0}".format(np.einsum('ijk,'\
+                    #                     'ij->ijk',ffg_forces, uprime_scales)))
+                    # logging.info("WORKER: {0}".format(ffg_forces[:,:,1]))
+
+                    # ffg_forces = np.einsum('ij,i->ij', ffg_dirs,
+                    #                        ffg(y_fj, y_fk, y_g, 1))
+
+                    # ffg_forces = np.einsum('ij,i->ij', ffg_forces,
+                    #                        uprimes[ffg.indices_f[1]])
+
+                    # f0 = lambda a: np.bincount(ffg.indices_f[1], weights=a,
+                    #                            minlength=self.natoms)
+                    # f1 = lambda a: np.bincount(ffg.indices_b[1], weights=a,
+                    #                            minlength=self.natoms)
+
+                    # forces += np.apply_along_axis(f0, 0, ffg_forces)
+                    # forces -= np.apply_along_axis(f1, 0, ffg_forces)
 
                     # forces += jit_add_at_2D(ffg.indices_f[1], ffg_forces,
                     #                         self.natoms)

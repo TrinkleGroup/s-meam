@@ -3,7 +3,7 @@ import logging
 
 from scipy.sparse import diags
 
-from src.numba_functions import jit_add_at_1D, jit_add_at_2D
+# from src.numba_functions import jit_add_at_1D, jit_add_at_2D
 
 logger = logging.getLogger(__name__)
 
@@ -221,7 +221,9 @@ class WorkerSpline:
         """
 
         x = np.atleast_1d(x)
-        if x.shape[0] < 1: return np.zeros(self.x.shape)
+        if x.shape[0] < 1:
+            n_eval = 2*len(self.x) + 4
+            return np.zeros(n_eval).reshape((1, n_eval))
 
         # knots = self.x.copy()
 
@@ -296,20 +298,21 @@ class WorkerSpline:
             [self.y[-1] + self.y1[-1]*self.rhs_extrap_dist, self.y1[0]] +\
             self.y1.tolist() + [self.y1[-1]]
 
-        z = z*self.max_num_evals_eng
+        z = z
 
-        return np.einsum('ij,j->', self.energy_struct_vec, z)
+        return np.einsum('ij,j->i', self.energy_struct_vec, z)
 
     def calc_forces(self, y):
+        self.y = y
 
         z = [self.y[0] - self.y1[0]*self.lhs_extrap_dist] +\
             self.y.tolist() +\
             [self.y[-1] + self.y1[-1]*self.rhs_extrap_dist, self.y1[0]] +\
             self.y1.tolist() + [self.y1[-1]]
 
-        z = z*self.max_num_evals_fcs
+        z = z#*self.max_num_evals_fcs
 
-        return np.einsum('ijk,j->ik', self.forces_struct_vec, z)
+        return np.einsum('ijkl,j->ikl', self.forces_struct_vec, z)
 
     def add_to_forces_struct_vec(self, values, dirs, atom_id):
         dirs = np.array(dirs)
@@ -317,66 +320,14 @@ class WorkerSpline:
         abcd = self.get_abcd(values, 1)
 
         for a in range(3):
-            abcd_3d = np.einsum('ij,i->ij', abcd, dirs[:,a]).ravel()
-            if abcd_3d.shape[0] == 286:
-                print()
-            self.forces_struct_vec[atom_id, :abcd_3d.shape[0], a] = abcd_3d
+            abcd_3d = np.einsum('ij,i->ij', abcd, dirs[:,a])#.ravel()
 
-        # abcd_3d = np.einsum('ij,jk->ikj', dirs, abcd)
-        # abcd_3d = abcd_3d.reshape((1, abcd.ravel().shape[0], 3))
-
-        # self.forces_struct_vec[atom_id, :abcd_3d.shape[1], :] = abcd_3d
+            self.forces_struct_vec[atom_id, :, :abcd_3d.shape[0], a] = abcd_3d.T
 
     def add_to_energy_struct_vec(self, values, atom_id):
-        abcd = self.get_abcd(values, 0).ravel()
+        abcd = np.sum(self.get_abcd(values, 0), axis=0)#.ravel()
 
-        self.energy_struct_vec[atom_id, :len(abcd)] = abcd
-
-    def add_to_struct_vec_new(self, values, deriv):
-        """
-        Adds the values to the atom_id row in the struct vec; assumes added
-        in order of atomic id
-
-        Args:
-            values: set of values to add (e.g. all rij values)
-            deriv: which struct vec to add to
-
-        Returns:
-            None; updates instance variable
-        """
-
-        if deriv == 0:
-            abcd = self.get_abcd(values, 0).ravel()
-            diff = (2*len(self.x) + 4)*self.max_num_evals - abcd.shape[0]
-
-            if diff > 0:
-                abcd = np.concatenate((abcd, np.zeros(diff)))
-
-        elif deriv == 1:
-            abcd_x = self.get_abcd(values[:,0], 1).ravel()
-            abcd_y = self.get_abcd(values[:,1], 1).ravel()
-            abcd_z = self.get_abcd(values[:,2], 1).ravel()
-
-            diff = (2*len(self.x) + 4)*self.max_num_evals - abcd_x.shape[0]
-
-            if diff > 0:
-                abcd_x = np.concatenate((abcd_x, np.zeros(diff)))
-                abcd_y = np.concatenate((abcd_y, np.zeros(diff)))
-                abcd_z = np.concatenate((abcd_z, np.zeros(diff)))
-
-            abcd = np.vstack((abcd_x, abcd_y, abcd_z))
-        else:
-            raise ValueError("derivative must be 0 or 1")
-
-        self.struct_vecs[deriv].append(abcd)
-        # abcd_1 = self.get_abcd(values, 0).ravel()
-        # diff = (2*len(self.x) + 4)*self.max_num_evals - abcd_1.shape[0]
-        #
-        # if diff > 0:
-        #     abcd_1 = np.concatenate((abcd_1, np.zeros(diff)))
-        #     # abcd_1 = np.pad(abcd_1, diff, 'constant', constant_values=0)
-        #
-        # self.struct_vecs[1].append(abcd_1)
+        self.energy_struct_vec[atom_id, :] += abcd
 
     def add_to_struct_vec(self, val, indices):
         """Builds the ABCD vectors for all elements in val, then adds to
@@ -468,31 +419,31 @@ class RhoSpline(WorkerSpline):
 
         self.natoms = natoms
 
-    def compute_for_all(self, y, deriv=0):
-        """Computes results for every struct_vec in struct_vec_dict
-
-        Returns:
-            ni (np.arr):
-                each entry is the set of all ni for a specific atom
-
-            deriv (int):
-                which derivative to evaluate
-
-        Note:
-            for RhoSplines, indices can be interpreted as indices[0] embedded in
-            indices[1]"""
-
-        ni = np.zeros(self.natoms)
-
-        if len(self.struct_vecs[deriv]) == 0: return ni
-
-        results = super(RhoSpline, self).__call__(y, deriv)
-
-        # ni += np.bincount(self.indices_f, weights=results,
-        #                   minlength=self.natoms)
-        ni += jit_add_at_1D(self.indices_f, results, self.natoms)
-
-        return np.array(ni)
+    # def compute_for_all(self, y, deriv=0):
+    #     """Computes results for every struct_vec in struct_vec_dict
+    #
+    #     Returns:
+    #         ni (np.arr):
+    #             each entry is the set of all ni for a specific atom
+    #
+    #         deriv (int):
+    #             which derivative to evaluate
+    #
+    #     Note:
+    #         for RhoSplines, indices can be interpreted as indices[0] embedded in
+    #         indices[1]"""
+    #
+    #     ni = np.zeros(self.natoms)
+    #
+    #     if len(self.struct_vecs[deriv]) == 0: return ni
+    #
+    #     results = super(RhoSpline, self).__call__(y, deriv)
+    #
+    #     ni += np.bincount(self.indices_f, weights=results,
+    #                       minlength=self.natoms)
+    #     # ni += jit_add_at_1D(self.indices_f, results, self.natoms)
+    #
+    #     return np.array(ni)
 
 
 class ffgSpline:
@@ -521,12 +472,23 @@ class ffgSpline:
         self.fk_struct_vecs = [[], []]
         self.g_struct_vecs  = [[], []]
 
+        self.fj_energy_struct_vec = []
+        self.fk_energy_struct_vec = []
+        self.g_energy_struct_vec = []
+
+        self.fj_forces_struct_vec = []
+        self.fk_forces_struct_vec = []
+        self.g_forces_struct_vec = []
+
         self.fj_extrap_distances = [0., 0.]
         self.fk_extrap_distances = [0., 0.]
         self.g_extrap_distances = [0., 0.]
 
         self.indices_f = [[], []]
         self.indices_b = [[], []]
+
+        self.max_num_evals_eng = 1
+        self.max_num_evals_fcs = 1
 
     # @profile
     def __call__(self, y_fj, y_fk, y_g, deriv=[0,0,0]):
@@ -551,6 +513,118 @@ class ffgSpline:
 
         return val.ravel()
 
+    def calc_energy(self, y_fj, y_fk, y_g):
+        fj = self.fj
+        fk = self.fk
+        g = self.g
+
+        fj.y = y_fj
+        fk.y = y_fk
+        g.y = y_g
+
+        z_fj = [fj.y[0] - fj.y1[0]*fj.lhs_extrap_dist] + fj.y.tolist() +\
+               [fj.y[-1] + fj.y1[-1]*fj.rhs_extrap_dist, fj.y1[0]] +\
+               fj.y1.tolist() + [fj.y1[-1]]
+
+        z_fk = [fk.y[0] - fk.y1[0]*fk.lhs_extrap_dist] + fk.y.tolist() +\
+               [fk.y[-1] + fk.y1[-1]*fk.rhs_extrap_dist, fk.y1[0]] +\
+               fk.y1.tolist() + [fk.y1[-1]]
+
+        z_g = [g.y[0] - g.y1[0]*g.lhs_extrap_dist] + g.y.tolist() +\
+               [g.y[-1] + g.y1[-1]*g.rhs_extrap_dist, g.y1[0]] +\
+               g.y1.tolist() + [g.y1[-1]]
+
+        fj_results = np.einsum('ijk,j->ik', self.fj_energy_struct_vec, z_fj)
+        fk_results = np.einsum('ijk,j->ik', self.fk_energy_struct_vec, z_fk)
+        g_results = np.einsum('ijk,j->ik', self.g_energy_struct_vec, z_g)
+
+        return np.einsum('ik,ik,ik->i', fj_results, fk_results, g_results)
+
+    def calc_forces(self, y_fj, y_fk, y_g):
+
+        fj = self.fj
+        fk = self.fk
+        g = self.g
+
+        fj.y = y_fj
+        fk.y = y_fk
+        g.y = y_g
+
+        z_fj = [fj.y[0] - fj.y1[0]*fj.lhs_extrap_dist] + fj.y.tolist() +\
+               [fj.y[-1] + fj.y1[-1]*fj.rhs_extrap_dist, fj.y1[0]] +\
+               fj.y1.tolist() + [fj.y1[-1]]
+
+        z_fk = [fk.y[0] - fk.y1[0]*fk.lhs_extrap_dist] + fk.y.tolist() +\
+               [fk.y[-1] + fk.y1[-1]*fk.rhs_extrap_dist, fk.y1[0]] +\
+               fk.y1.tolist() + [fk.y1[-1]]
+
+        z_g = [g.y[0] - g.y1[0]*g.lhs_extrap_dist] + g.y.tolist() +\
+               [g.y[-1] + g.y1[-1]*g.rhs_extrap_dist, g.y1[0]] +\
+               g.y1.tolist() + [g.y1[-1]]
+
+        fj_results = np.einsum('ijkl,j->ikl', self.fj_forces_struct_vec, z_fj)
+        fk_results = np.einsum('ijkl,j->ikl', self.fk_forces_struct_vec, z_fk)
+        g_results = np.einsum('ijkl,j->ikl', self.g_forces_struct_vec, z_g)
+
+        # logging.info("WORKER: fj_results = {0}".format(fj_results[:,:,1]))
+        # logging.info("WORKER: fk_results = {0}".format(fk_results[:,:,1]))
+        # logging.info("WORKER: g_results = {0}".format(g_results[:,:,1]))
+        # logging.info("WORKER: results = {0}".format(np.einsum('ijk,ijk,'
+        #                                                       'ijk->ijk',
+        #                                                       fj_results,
+        #                                                       fk_results,
+        #                                                       g_results)[:,:,
+        #                                             1]))
+
+        return np.einsum('ijk,ijk,ijk->ijk', fj_results, fk_results, g_results)
+
+    def add_to_energy_struct_vec(self, rij, rik, cos, atom_id):
+        """Updates structure vectors with given values"""
+        abcd_fj = self.fj.get_abcd(rij, 0)#.ravel()
+        abcd_fk = self.fk.get_abcd(rik, 0)#.ravel()
+        abcd_g = self.g.get_abcd(cos, 0)#.ravel()
+
+        self.fj_energy_struct_vec[atom_id, :, :abcd_fj.shape[0]] = abcd_fj.T
+        self.fk_energy_struct_vec[atom_id, :, :abcd_fk.shape[0]] = abcd_fk.T
+        self.g_energy_struct_vec[atom_id, :, :abcd_g.shape[0]] = abcd_g.T
+
+    def add_to_forces_struct_vec(self, rij, rik, cos, dirs, atom_id):
+        """Adds all triplets contributions to the structure vector by
+        iterating over each one"""
+
+        dirs = np.array(dirs)
+        # dirs = np.ones(dirs.shape)
+        # logging.info("WORKER: dirs = {0}".format(dirs))
+
+        for i, (one_rij, one_rik, one_cos) in enumerate(zip(rij, rik, cos)):
+
+            fj_1, fk_1, g_1 = self.get_abcd(one_rij, one_rik, one_cos, [1, 0, 0])
+            fj_2, fk_2, g_2 = self.get_abcd(one_rij, one_rik, one_cos, [0, 1, 0])
+            fj_3, fk_3, g_3 = self.get_abcd(one_rij, one_rik, one_cos, [0, 0, 1])
+
+            p = 6*i
+
+            for a in range(3):
+                fj_stack = np.vstack((fj_1, fj_3, fj_3, fj_2, fj_3, fj_3))
+                fk_stack = np.vstack((fk_1, fk_3, fk_3, fk_2, fk_3, fk_3))
+                g_stack = np.vstack((g_1, g_3, g_3, g_2, g_3, g_3))
+
+                fj_stack = np.einsum('ij,i->ij', fj_stack, dirs[p:p+6,a])
+                fk_stack = np.einsum('ij,i->ij', fk_stack, dirs[p:p+6,a])
+                g_stack = np.einsum('ij,i->ij', g_stack, dirs[p:p+6,a])
+
+                fj_stack = fj_stack.swapaxes(0,1)
+                fk_stack = fk_stack.swapaxes(0,1)
+                g_stack = g_stack.swapaxes(0,1)
+
+                # abcd_3d = np.einsum('ij,i->ij', abcd, dirs[:,a])#.ravel()
+
+                # self.forces_struct_vec[atom_id, :, :abcd_3d.shape[0], a] = abcd_3d.T
+
+                self.fj_forces_struct_vec[atom_id, :, p:p+6, a] = fj_stack
+                self.fk_forces_struct_vec[atom_id, :, p:p+6, a] = fk_stack
+                self.g_forces_struct_vec[atom_id, :, p:p+6, a] = g_stack
+
     def compute_for_all(self, y_fj, y_fk, y_g, deriv=0):
         """Computes results for every struct_vec in struct_vec_dict
 
@@ -570,11 +644,12 @@ class ffgSpline:
 
         indices = self.indices_f[deriv]
 
-        ni += jit_add_at_1D(indices, results, self.natoms)
+        ni += np.bincount(indices, weights=results, minlength=self.natoms)
+        # ni += jit_add_at_1D(indices, results, self.natoms)
 
         return ni
 
-    def get_abcd(self, rij, rik, cos_theta, deriv=0):
+    def get_abcd(self, rij, rik, cos_theta, deriv=[0,0,0]):
         """Computes the full parameter vector for the multiplication of ffg
         splines
 
@@ -599,19 +674,10 @@ class ffgSpline:
         add_rik = np.atleast_1d(rik)
         add_cos_theta = np.atleast_1d(cos_theta)
 
-        # TODO: using ravel() b/c multi-value is not ready for ffgSpline
         fj_abcd = self.fj.get_abcd(add_rij, fj_deriv)
-        # fj_abcd = np.ravel(fj_abcd)
-
         fk_abcd = self.fk.get_abcd(add_rik, fk_deriv)
-        # fk_abcd = np.ravel(fk_abcd)
-
         g_abcd = self.g.get_abcd(add_cos_theta, g_deriv)
-        # g_abcd = np.ravel(g_abcd)
 
-        # full_abcd = np.prod(cartesian_product(fj_abcd, fk_abcd, g_abcd), axis=1)
-
-        # return full_abcd
         return fj_abcd.squeeze(), fk_abcd.squeeze(), g_abcd.squeeze()
 
     def add_to_struct_vec(self, rij, rik, cos_theta, indices):
