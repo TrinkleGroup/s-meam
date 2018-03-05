@@ -23,7 +23,7 @@ N = 1
 
 # Flags for what tests to run
 energy_flag = True * 1
-forces_flag = True * 0
+forces_flag = True * 1
 
 zero_pots_flag  = True * 0
 const_pots_flag = True * 0
@@ -52,7 +52,7 @@ if bulk_flag:
                   **bulk_vac_rhombo, **bulk_periodic_rhombo, **extra}
 
 # allstructs = {'bulk_periodic_rhombo_mixed':bulk_periodic_rhombo['bulk_periodic_rhombo_mixed']}
-# allstructs = {'aba':trimers['aba']}
+allstructs = {'aba':trimers['aba']}
 # allstructs = {'8_atom':extra['8_atoms']}
 
 ################################################################################

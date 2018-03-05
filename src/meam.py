@@ -319,6 +319,7 @@ class MEAM:
                 self.energies[i] = atom_e
                 total_pe += atom_e
 
+                # logging.info("MEAM: u' = {0}".format(u(total_ni, 1)))
                 self.uprimes[i] = u(total_ni, 1)
             # end atom loop
 
@@ -426,26 +427,33 @@ class MEAM:
                             fij = -Uprime_i * g_val * fk_val * fj_prime
                             fik = -Uprime_i * g_val * fj_val * fk_prime
 
+                            # logging.info("MEAM: {0}".format(jdel))
+                            # logging.info("MEAM: {0}".format(jdel*cos_theta))
+                            # logging.info("MEAM: {0}".format(kdel))
+                            # logging.info("MEAM: {0}".format(kdel))
+                            # logging.info("MEAM: {0}".format(kdel*cos_theta))
+                            # logging.info("MEAM: {0}".format(jdel))
+
                             # logging.info("MEAM: fij = {0}".format(fij))
                             # logging.info("MEAM: fik = {0}".format(fik))
-                            #
-                            # logging.info("MEAM: d0 = {0}\t{1}\t{2}".format(
-                            #     fj_prime, fk_val, g_val))
-                            #
-                            # logging.info("MEAM: d1 = {0}\t{1}\t{2}".format(
-                            #     fj_val, fk_val, g_prime))
-                            #
-                            # logging.info("MEAM: d2 = {0}\t{1}\t{2}".format(
-                            #     fj_val, fk_val, g_prime))
-                            #
-                            # logging.info("MEAM: d3 = {0}\t{1}\t{2}".format(
-                            #     fj_val, fk_prime, g_val))
-                            #
-                            # logging.info("MEAM: d4 = {0}\t{1}\t{2}".format(
-                            #     fj_val, fk_val, g_prime))
-                            #
-                            # logging.info("MEAM: d5 = {0}\t{1}\t{2}".format(
-                            #     fj_val, fk_val, g_prime))
+
+                            logging.info("MEAM: d0 = {0}\t{1}\t{2}".format(
+                                fj_prime*jdel, fk_val, g_val))
+
+                            logging.info("MEAM: d1 = {0}\t{1}\t{2}".format(
+                                fj_val*jdel*cos_theta, fk_val, g_prime))
+
+                            logging.info("MEAM: d2 = {0}\t{1}\t{2}".format(
+                                fj_val*kdel, fk_val, g_prime))
+
+                            logging.info("MEAM: d3 = {0}\t{1}\t{2}".format(
+                                fj_val*kdel, fk_prime, g_val))
+
+                            logging.info("MEAM: d4 = {0}\t{1}\t{2}".format(
+                                fj_val*kdel*cos_theta, fk_val, g_prime))
+
+                            logging.info("MEAM: d5 = {0}\t{1}\t{2}".format(
+                                fj_val*jdel, fk_val, g_prime))
 
                             prefactor = Uprime_i * fj_val * fk_val * g_prime
                             # logging.info("MEAM: prefactor = {0}".format(prefactor))
