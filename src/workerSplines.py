@@ -1,7 +1,7 @@
 import numpy as np
 import logging
 
-from scipy.sparse import diags
+from scipy.sparse import diags, dok_matrix
 
 # from src.numba_functions import jit_add_at_1D, jit_add_at_2D
 
@@ -94,21 +94,12 @@ class WorkerSpline:
 
         self.extrap_dist = (self.cutoff[1] - self.cutoff[0]) / 2.
 
-        # self.lhs_extrap_dist = extrap_distance
-        # self.rhs_extrap_dist = extrap_distance
+        self.lhs_extrap_dist = self.extrap_dist
+        self.rhs_extrap_dist = self.extrap_dist
 
         # Variables that will be set at some point
-        self.struct_vecs = [[], []]
-        self.energy_struct_vec = []
-        self.forces_struct_vec = []
-        # self.energy_struct_vec = []
-        # self.force_struct_vec = [[] for i in range(natoms)]
-
-        # self.indices = []
-        self.indices_f = []
-        self.indices_b = []
-        self.max_num_evals_eng = 1
-        self.max_num_evals_fcs = 1
+        self.energy_struct_vec = np.zeros(2*len(x)+4)
+        self.forces_struct_vec = np.zeros((natoms, 2*len(x)+4, 3))
 
         # Variables that will be set on evaluation
         self._y = None
@@ -116,40 +107,6 @@ class WorkerSpline:
         self.eval_y = [0]*(2*len(x) + 4)
         self.end_derivs = None
         self.len_x = len(self.x)
-
-        self.zero_abcd = self.get_abcd([0])
-
-    def __call__(self, y, deriv=0):
-
-        self.y = y
-
-        z = [self.y[0] - self.y1[0]*self.lhs_extrap_dist] +\
-            self.y.tolist() +\
-            [self.y[-1] + self.y1[-1]*self.rhs_extrap_dist, self.y1[0]] +\
-            self.y1.tolist() + [self.y1[-1]]
-
-        z = z*self.max_num_evals_eng
-
-        return (self.struct_vecs[deriv] @ z)
-
-    def compute_zero_potential(self, y):
-        """Calculates the value of the potential as if every entry in the
-        structure vector was a zero.
-
-        Args:
-            y (np.arr):
-                array of parameter vectors
-
-        Returns:
-            the value evaluated by the spline using num_zeros zeros"""
-
-        y1 = self.M @ y.transpose()
-
-        y = y[:-2]
-
-        z = [0] + y.tolist() + [0, 0] + y1.tolist() + [0]
-
-        return (self.zero_abcd @ z)*self.struct_vecs[0].shape[0]
 
     @property
     def y(self):
@@ -163,23 +120,7 @@ class WorkerSpline:
         self._y = y[:-2]; self.end_derivs = y[-2:]
         self.y1 = (self.M @ y)
 
-    def get_extrap_range(self, x):
-        """Calculates the maximum distance needed for LHS/RHS extrapolation
-        given a set of x points
-
-        Args:
-            x (np.arr):
-                set of points to be checked for extrapolation
-
-        Returns:
-            max_lhs_extrap_distance (float):
-                maximum distance from any point in x to the leftmost knot
-
-            max_rhs_extrap_distance (float):
-                maximum distance from any point in x to the rightmost knot
-        """
-        return np.min(x) - self.x[0], np.max(x) - self.x[-1]
-
+    # @profile
     def get_abcd(self, x, deriv=0):
         """Calculates the coefficients needed for spline interpolation.
 
@@ -225,15 +166,8 @@ class WorkerSpline:
             n_eval = 2*len(self.x) + 4
             return np.zeros(n_eval).reshape((1, n_eval))
 
-        # knots = self.x.copy()
-
-        extrap_distances = self.get_extrap_range(x)
-
-        max_lhs_extrap_distance = extrap_distances[0]
-        max_rhs_extrap_distance = extrap_distances[1]
-
-        self.lhs_extrap_dist = max(self.extrap_dist,max_lhs_extrap_distance)
-        self.rhs_extrap_dist = max(self.extrap_dist,max_rhs_extrap_distance)
+        self.lhs_extrap_dist = max(self.extrap_dist, np.min(x) - self.x[0])
+        self.rhs_extrap_dist = max(self.extrap_dist, np.max(x) - self.x[-1])
 
         # add ghost knots
         knots = [self.x[0] - self.lhs_extrap_dist] + list(self.x) + [self.x[-1]\
@@ -290,6 +224,7 @@ class WorkerSpline:
 
         return vec
 
+    # @profile
     def calc_energy(self, y):
         self.y = y
 
@@ -300,7 +235,7 @@ class WorkerSpline:
 
         z = z
 
-        return np.einsum('ijk,j->i', self.energy_struct_vec, z)
+        return self.energy_struct_vec @ z
 
     def calc_forces(self, y):
         self.y = y
@@ -310,9 +245,9 @@ class WorkerSpline:
             [self.y[-1] + self.y1[-1]*self.rhs_extrap_dist, self.y1[0]] +\
             self.y1.tolist() + [self.y1[-1]]
 
-        z = z#*self.max_num_evals_fcs
+        z = z
 
-        return np.einsum('ijkl,j->ikl', self.forces_struct_vec, z)
+        return np.einsum('ijk,j->ik', self.forces_struct_vec, z)
 
     def add_to_forces_struct_vec(self, values, dirs, atom_id):
         dirs = np.array(dirs)
@@ -322,128 +257,84 @@ class WorkerSpline:
         for a in range(3):
             abcd_3d = np.einsum('ij,i->ij', abcd, dirs[:,a])#.ravel()
 
-            self.forces_struct_vec[atom_id, :, :abcd_3d.shape[0], a] = abcd_3d.T
+            self.forces_struct_vec[atom_id, :, a] += np.sum(abcd_3d, axis=0)
 
-    def add_to_energy_struct_vec(self, values, atom_id):
-        abcd = self.get_abcd(values, 0)#.ravel()
+    def add_to_energy_struct_vec(self, values):
+        self.energy_struct_vec += np.sum(self.get_abcd(values, 0), axis=0)
 
-        self.energy_struct_vec[atom_id, :, :abcd.shape[0]] = abcd.T
 
-    def add_to_struct_vec(self, val, indices):
-        """Builds the ABCD vectors for all elements in val, then adds to
-        struct_vec
+class USpline(WorkerSpline):
 
-        Args:
-            val (int, float, np.arr, list):
-                collection of values to add converted into a np.arr in this
-                function
+    def __init__(self, x, bc_type, natoms):
+        super(USpline, self).__init__(x, bc_type, natoms)
 
-            indices (tuple-like):
-                index values to append to self.indices
-        """
-        if len(val) < 1: return
+        self.struct_vec_deriv = np.zeros((natoms, 2*len(self.x)+4))
 
-        abcd_0 = self.get_abcd(val, 0)
-        abcd_1 = self.get_abcd(val, 1)
+        self.zero_abcd = self.get_abcd([0])
 
-        # self.struct_vecs[0] += [abcd_0.squeeze()]
-        # self.struct_vecs[1] += [abcd_1.squeeze()]
+        self.atoms_embedded = 0
 
-        self.struct_vecs[0].append(abcd_0.squeeze())
-        self.struct_vecs[1].append(abcd_1.squeeze())
+    def add_to_energy_struct_vec(self, values):
+        values = np.atleast_1d(values)
 
-        self.struct_vecs[0] = np.vstack(self.struct_vecs[0])
-        self.struct_vecs[1] = np.vstack(self.struct_vecs[1])
+        super(USpline, self).add_to_energy_struct_vec(values)
 
-        # Reshape indices replicate if adding an array of values
-        indices_0, indices_1 = zip(*indices)
-        indices_0 = list(indices_0)
-        indices_1 = list(indices_1)
+        self.atoms_embedded += values.shape[0]
 
-        # self.indices += indices
-        self.indices_f += indices_0
-        self.indices_b += indices_1
+    def add_to_deriv_struct_vec(self, ni, atom_id):
+        abcd = self.get_abcd(ni, 1)
 
-        # self.indices_f.append(indices_0)
-        # self.indices_b.append(indices_1)
+        self.struct_vec_deriv[atom_id, :] = np.sum(abcd, axis=0)
 
-    def call_with_args(self, y, new_sv, new_extrap, deriv):
-        """Uses the spline to evaluate a structure vector with the given
-        extrapolation range without overwriting any necessary class
-        variables.
+    def calc_deriv(self, y):
+        self.y = y
+
+        z = [self.y[0] - self.y1[0]*self.lhs_extrap_dist] +\
+            self.y.tolist() +\
+            [self.y[-1] + self.y1[-1]*self.rhs_extrap_dist, self.y1[0]] +\
+            self.y1.tolist() + [self.y1[-1]]
+
+        z = z
+
+        return self.struct_vec_deriv @ z
+
+    def compute_zero_potential(self, y):
+        """Calculates the value of the potential as if every entry in the
+        structure vector was a zero.
 
         Args:
             y (np.arr):
-                y value parameter vector
-
-            new_sv (np.arr):
-                structure vector to be evaluated
-
-            new_extrap (tuple [float]):
-                min/max extrapolation values to be used
+                array of parameter vectors
 
         Returns:
-            values (np.arr):
-                results of computation
-        """
+            the value evaluated by the spline using num_zeros zeros"""
 
-        tmp_sv = self.struct_vecs[deriv]
-        tmp_lhs_extrap = self.lhs_extrap_dist
-        tmp_rhs_extrap = self.rhs_extrap_dist
+        y1 = self.M @ y.transpose()
 
-        self.struct_vecs[deriv] = new_sv
-        self.lhs_extrap_dist = new_extrap[0]
-        self.rhs_extrap_dist = new_extrap[1]
+        y = y[:-2]
 
-        results = self.__call__(y, deriv)
+        z = [0] + y.tolist() + [0, 0] + y1.tolist() + [0]
 
-        self.struct_vecs[deriv] = tmp_sv
-        self.lhs_extrap_dist = tmp_lhs_extrap
-        self.rhs_extrap_dist = tmp_rhs_extrap
-
-        return results
+        return (self.zero_abcd @ z)*self.atoms_embedded
 
 
 class RhoSpline(WorkerSpline):
-    """Special case of a WorkerSpline that is used for rho since it is
-    'inside' of the U function and has to keep its per-atom contributions
-    separate until it passes the results to U
-
-    Attributes:
-        natoms (int):
-            the number of atoms in the system
-    """
 
     def __init__(self, x, bc_type, natoms):
         super(RhoSpline, self).__init__(x, bc_type, natoms)
 
-        self.natoms = natoms
+        self.energy_struct_vec = np.zeros((self.natoms, 2*len(x)+4))
 
-    # def compute_for_all(self, y, deriv=0):
-    #     """Computes results for every struct_vec in struct_vec_dict
-    #
-    #     Returns:
-    #         ni (np.arr):
-    #             each entry is the set of all ni for a specific atom
-    #
-    #         deriv (int):
-    #             which derivative to evaluate
-    #
-    #     Note:
-    #         for RhoSplines, indices can be interpreted as indices[0] embedded in
-    #         indices[1]"""
-    #
-    #     ni = np.zeros(self.natoms)
-    #
-    #     if len(self.struct_vecs[deriv]) == 0: return ni
-    #
-    #     results = super(RhoSpline, self).__call__(y, deriv)
-    #
-    #     ni += np.bincount(self.indices_f, weights=results,
-    #                       minlength=self.natoms)
-    #     # ni += jit_add_at_1D(self.indices_f, results, self.natoms)
-    #
-    #     return np.array(ni)
+    # def calc_forces(self, y):
+    #     pass
+
+    def add_to_energy_struct_vec(self, values, atom_id):
+        abcd = np.sum(self.get_abcd(values, 0), axis=0)#.ravel()
+
+        self.energy_struct_vec[atom_id, :] += abcd
+
+    # def add_to_forces_struct_vec(self, values, dir, atom_id):
+    #     pass
 
 
 class ffgSpline:
@@ -468,51 +359,18 @@ class ffgSpline:
         self.natoms = natoms
 
         # Variables that will be set at some point
-        self.fj_struct_vecs = [[], []]
-        self.fk_struct_vecs = [[], []]
-        self.g_struct_vecs  = [[], []]
+        nknots_cartesian = (len(fj.x)*2+4)*(len(fk.x)*2+4)*(len(g.x)*2+4)
 
-        self.fj_energy_struct_vec = []
-        self.fk_energy_struct_vec = []
-        self.g_energy_struct_vec = []
+        self.energy_struct_vec = np.zeros((natoms, nknots_cartesian))
 
-        self.fj_forces_struct_vec = []
-        self.fk_forces_struct_vec = []
-        self.g_forces_struct_vec = []
+        sv_x = self.energy_struct_vec.copy()
+        sv_y = self.energy_struct_vec.copy()
+        sv_z = self.energy_struct_vec.copy()
 
-        self.fj_extrap_distances = [0., 0.]
-        self.fk_extrap_distances = [0., 0.]
-        self.g_extrap_distances = [0., 0.]
-
-        self.indices_f = [[], []]
-        self.indices_b = [[], []]
-
-        self.max_num_evals_eng = 1
-        self.max_num_evals_fcs = 1
+        self.forces_struct_vec = [sv_x, sv_y, sv_z]
+        # self.forces_struct_vec_j = self.forces_struct_vec_i.copy()
 
     # @profile
-    def __call__(self, y_fj, y_fk, y_g, deriv=[0,0,0]):
-
-        if self.fj_struct_vecs[deriv] is None:
-            return np.array([0.])
-
-        fj  = self.fj
-        fk  = self.fk
-        g   = self.g
-
-        fj_results = fj.call_with_args(y_fj, self.fj_struct_vecs[deriv],
-                                       self.fj_extrap_distances, deriv)
-
-        fk_results = fk.call_with_args(y_fk, self.fk_struct_vecs[deriv],
-                                       self.fk_extrap_distances, deriv)
-
-        g_results = g.call_with_args(y_g, self.g_struct_vecs[deriv],
-                                       self.g_extrap_distances, deriv)
-
-        val = np.multiply(np.multiply(fj_results, fk_results), g_results)
-
-        return val.ravel()
-
     def calc_energy(self, y_fj, y_fk, y_g):
         fj = self.fj
         fk = self.fk
@@ -534,11 +392,14 @@ class ffgSpline:
                [g.y[-1] + g.y1[-1]*g.rhs_extrap_dist, g.y1[0]] +\
                g.y1.tolist() + [g.y1[-1]]
 
-        fj_results = np.einsum('ijk,j->ik', self.fj_energy_struct_vec, z_fj)
-        fk_results = np.einsum('ijk,j->ik', self.fk_energy_struct_vec, z_fk)
-        g_results = np.einsum('ijk,j->ik', self.g_energy_struct_vec, z_g)
+        z_fj = np.array(z_fj)
+        z_fk = np.array(z_fk)
+        z_g = np.array(z_g)
 
-        return np.einsum('ik,ik,ik->i', fj_results, fk_results, g_results)
+        # z_cart = np.product(cartesian_product(z_fj, z_fk, z_g), axis=1)
+        z_cart = np.outer(np.outer(z_fj, z_fk), z_g).ravel()
+
+        return self.energy_struct_vec @ z_cart
 
     def calc_forces(self, y_fj, y_fk, y_g):
 
@@ -562,87 +423,66 @@ class ffgSpline:
                [g.y[-1] + g.y1[-1]*g.rhs_extrap_dist, g.y1[0]] +\
                g.y1.tolist() + [g.y1[-1]]
 
-        fj_results = np.einsum('ijkl,j->ikl', self.fj_forces_struct_vec, z_fj)
-        fk_results = np.einsum('ijkl,j->ikl', self.fk_forces_struct_vec, z_fk)
-        g_results = np.einsum('ijkl,j->ikl', self.g_forces_struct_vec, z_g)
+        z_fj = np.array(z_fj)
+        z_fk = np.array(z_fk)
+        z_g = np.array(z_g)
 
-        # logging.info("WORKER: fj_results = {0}".format(fj_results[:,:,1]))
-        # logging.info("WORKER: fk_results = {0}".format(fk_results[:,:,0]))
-        # logging.info("WORKER: g_results = {0}".format(g_results[:,:,0]))
+        # z_cart = np.product(cartesian_product(z_fj, z_fk, z_g), axis=1)
+        z_cart = np.outer(np.outer(z_fj, z_fk), z_g).ravel()
 
-        return np.einsum('ijk,ijk,ijk->ijk', fj_results, fk_results, g_results)
+        results = np.zeros((self.natoms, 3))
+
+        results[:,0] += self.forces_struct_vec[0] @ z_cart
+        results[:,1] += self.forces_struct_vec[1] @ z_cart
+        results[:,2] += self.forces_struct_vec[2] @ z_cart
+
+        # logging.info("WORKER: results =\n{0}".format(results))
+
+        return results
 
     def add_to_energy_struct_vec(self, rij, rik, cos, atom_id):
         """Updates structure vectors with given values"""
-        abcd_fj = self.fj.get_abcd(rij, 0)#.ravel()
-        abcd_fk = self.fk.get_abcd(rik, 0)#.ravel()
-        abcd_g = self.g.get_abcd(cos, 0)#.ravel()
+        abcd_fj = self.fj.get_abcd(rij, 0).ravel()
+        abcd_fk = self.fk.get_abcd(rik, 0).ravel()
+        abcd_g = self.g.get_abcd(cos, 0).ravel()
 
-        self.fj_energy_struct_vec[atom_id, :, :abcd_fj.shape[0]] = abcd_fj.T
-        self.fk_energy_struct_vec[atom_id, :, :abcd_fk.shape[0]] = abcd_fk.T
-        self.g_energy_struct_vec[atom_id, :, :abcd_g.shape[0]] = abcd_g.T
+        # cart = cartesian_product(abcd_fj, abcd_fk, abcd_g)
+        cart = np.outer(np.outer(abcd_fj, abcd_fk), abcd_g).ravel()
+
+        # self.energy_struct_vec[atom_id, :] += np.product(cart, axis=1)
+        self.energy_struct_vec[atom_id, :] += cart
 
     def add_to_forces_struct_vec(self, rij, rik, cos, dirs, atom_id):
-        """Adds all triplets contributions to the structure vector by
-        iterating over each one"""
+        """Adds all 6 directional information to the struct vector for the
+        given triplet values
 
-        dirs = np.array(dirs)
-        # dirs = np.ones(dirs.shape)
-        # logging.info("WORKER: dirs = {0}".format(dirs))
-
-        for i, (one_rij, one_rik, one_cos) in enumerate(zip(rij, rik, cos)):
-
-            fj_1, fk_1, g_1 = self.get_abcd(one_rij, one_rik, one_cos, [1, 0, 0])
-            fj_2, fk_2, g_2 = self.get_abcd(one_rij, one_rik, one_cos, [0, 1, 0])
-            fj_3, fk_3, g_3 = self.get_abcd(one_rij, one_rik, one_cos, [0, 0, 1])
-
-            for a in range(3):
-                fj_stack = np.vstack((fj_1, fj_3, fj_3, fj_2, fj_3, fj_3))
-                fk_stack = np.vstack((fk_1, fk_3, fk_3, fk_2, fk_3, fk_3))
-                g_stack = np.vstack((g_1, g_3, g_3, g_2, g_3, g_3))
-
-                fj_stack = np.einsum('ij,i->ij', fj_stack, dirs[:,a])
-                fk_stack = np.einsum('ij,i->ij', fk_stack, dirs[:,a])
-                g_stack = np.einsum('ij,i->ij', g_stack, dirs[:,a])
-
-                fj_stack = fj_stack.swapaxes(0,1)
-                fk_stack = fk_stack.swapaxes(0,1)
-                g_stack = g_stack.swapaxes(0,1)
-
-                # abcd_3d = np.einsum('ij,i->ij', abcd, dirs[:,a])#.ravel()
-
-                # self.forces_struct_vec[atom_id, :, :abcd_3d.shape[0], a] = abcd_3d.T
-
-
-                p = 6*i
-
-                self.fj_forces_struct_vec[atom_id, :, p:p+6, a] = fj_stack
-                self.fk_forces_struct_vec[atom_id, :, p:p+6, a] = fk_stack
-                self.g_forces_struct_vec[atom_id, :, p:p+6, a] = g_stack
-
-    def compute_for_all(self, y_fj, y_fk, y_g, deriv=0):
-        """Computes results for every struct_vec in struct_vec_dict
-
-        Returns:
-            ni (list [np.arr]):
-                each entry is the set of all ni for a specific atom
-
-            deriv (int):
-                derivative at which to evaluate the function
+        Args:
+            rij : single rij value
+            rik : single rik value
+            cos : single cos_theta value
+            dirs : ordered list of the six terms of the triplet deriv directions
         """
 
-        ni = np.zeros(self.natoms)
+        fj_1, fk_1, g_1 = self.get_abcd(rij, rik, cos, [1, 0, 0])
+        fj_2, fk_2, g_2 = self.get_abcd(rij, rik, cos, [0, 1, 0])
+        fj_3, fk_3, g_3 = self.get_abcd(rij, rik, cos, [0, 0, 1])
 
-        if len(self.fj_struct_vecs[deriv]) < 1: return ni
+        # v1 = np.product(cartesian_product(fj_1, fk_1, g_1), axis=1)
+        # v2 = np.product(cartesian_product(fj_2, fk_2, g_2), axis=1)
+        # v3 = np.product(cartesian_product(fj_3, fk_3, g_3), axis=1)
 
-        results = self.__call__(y_fj, y_fk, y_g, deriv)
+        v1 = np.outer(np.outer(fj_1, fk_1), g_1).ravel()
+        v2 = np.outer(np.outer(fj_2, fk_2), g_2).ravel()
+        v3 = np.outer(np.outer(fj_3, fk_3), g_3).ravel()
 
-        indices = self.indices_f[deriv]
+        for a in range(3):
 
-        ni += np.bincount(indices, weights=results, minlength=self.natoms)
-        # ni += jit_add_at_1D(indices, results, self.natoms)
-
-        return ni
+            self.forces_struct_vec[a][atom_id, :] += v1*dirs[0][a]
+            self.forces_struct_vec[a][atom_id, :] += v3*dirs[1][a]
+            self.forces_struct_vec[a][atom_id, :] += v3*dirs[2][a]
+            self.forces_struct_vec[a][atom_id, :] += v2*dirs[3][a]
+            self.forces_struct_vec[a][atom_id, :] += v3*dirs[4][a]
+            self.forces_struct_vec[a][atom_id, :] += v3*dirs[5][a]
 
     def get_abcd(self, rij, rik, cos_theta, deriv=[0,0,0]):
         """Computes the full parameter vector for the multiplication of ffg
@@ -674,75 +514,6 @@ class ffgSpline:
         g_abcd = self.g.get_abcd(add_cos_theta, g_deriv)
 
         return fj_abcd.squeeze(), fk_abcd.squeeze(), g_abcd.squeeze()
-
-    def add_to_struct_vec(self, rij, rik, cos_theta, indices):
-        """To the first structure vector (direct evaluation), adds one row for
-        corresponding to the product of fj*fk*g
-
-        To the second structure vector (first derivative), adds all 6 terms
-        associated with the derivative of fj*fk*g (these can be derived by
-        using chain/product rule on the derivative of fj*fk*g, keeping in
-        mind that they are functions of rij/rik/cos_theta respectively)
-
-        Note that factors (like negatives signs and the additional cos_theta)
-        are ignored here, and will be multiplied with the direction later
-
-        Args:
-            rij (float):
-                the value at which to evaluate fj
-
-            rik (float):
-                the value at which to evaluate fk
-
-            cos_theta (float):
-                the value at which to evaluate g
-
-            indices (tuple-like):
-                [i,j,k] atom tags where i is the center atom, and i and j are
-                the neighbors
-        """
-
-        if not rij: return
-
-        fj_0, fk_0, g_0 = self.get_abcd(rij, rik, cos_theta, [0, 0, 0])
-        fj_1, fk_1, g_1 = self.get_abcd(rij, rik, cos_theta, [1, 0, 0])
-        fj_2, fk_2, g_2 = self.get_abcd(rij, rik, cos_theta, [0, 1, 0])
-        fj_3, fk_3, g_3 = self.get_abcd(rij, rik, cos_theta, [0, 0, 1])
-
-        self.fj_struct_vecs[0].append(fj_0)
-        self.fk_struct_vecs[0].append(fk_0)
-        self.g_struct_vecs[0].append(g_0)
-
-        self.fj_struct_vecs[0] = np.vstack(self.fj_struct_vecs[0])
-        self.fk_struct_vecs[0] = np.vstack(self.fk_struct_vecs[0])
-        self.g_struct_vecs[0] = np.vstack(self.g_struct_vecs[0])
-
-        self.fj_struct_vecs[1]  += [fj_1, fj_3, fj_3, fj_2, fj_3, fj_3]
-        self.fk_struct_vecs[1]  += [fk_1, fk_3, fk_3, fk_2, fk_3, fk_3]
-        self.g_struct_vecs[1]   += [g_1, g_3, g_3, g_2, g_3, g_3]
-
-        self.fj_struct_vecs[1] = np.vstack(self.fj_struct_vecs[1])
-        self.fk_struct_vecs[1] = np.vstack(self.fk_struct_vecs[1])
-        self.g_struct_vecs[1] = np.vstack(self.g_struct_vecs[1])
-
-        tmp_indices = np.array(indices)
-        ij = tmp_indices[:,[0,1]]
-        ik = tmp_indices[:,[0,2]]
-
-        ij = ij.tolist()
-        ik = ik.tolist()
-
-        deriv_indices = ij*3 + ik*3
-
-        self.indices_f[0] += [el[0] for el in indices]
-        self.indices_b[0] += [el[1] for el in indices]
-
-        self.indices_f[1] += [el[0] for el in deriv_indices]
-        self.indices_b[1] += [el[1] for el in deriv_indices]
-
-        self.fj_extrap_distances = self.fj.get_extrap_range(rij)
-        self.fk_extrap_distances = self.fj.get_extrap_range(rik)
-        self.g_extrap_distances = self.fj.get_extrap_range(cos_theta)
 
 
 def build_M(num_x, dx, bc_type):

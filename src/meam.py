@@ -427,33 +427,46 @@ class MEAM:
                             fij = -Uprime_i * g_val * fk_val * fj_prime
                             fik = -Uprime_i * g_val * fj_val * fk_prime
 
-                            # logging.info("MEAM: {0}".format(jdel))
-                            # logging.info("MEAM: {0}".format(jdel*cos_theta))
-                            # logging.info("MEAM: {0}".format(kdel))
-                            # logging.info("MEAM: {0}".format(kdel))
-                            # logging.info("MEAM: {0}".format(kdel*cos_theta))
-                            # logging.info("MEAM: {0}".format(jdel))
-
                             # logging.info("MEAM: fij = {0}".format(fij))
                             # logging.info("MEAM: fik = {0}".format(fik))
 
-                            logging.info("MEAM: d0 = {0}\t{1}\t{2}".format(
-                                fj_prime*jdel, fk_val, g_val))
+                            # logging.info("MEAM: d0 = {0}".format(
+                            #     fj_prime*fk_val*g_val*jdel))
+                            #
+                            # logging.info("MEAM: d1 = {0}".format(
+                            #     fj_val*fk_val*g_prime*jdel*cos_theta))
+                            #
+                            # logging.info("MEAM: d2 = {0}".format(
+                            #     fj_val*fk_val*g_prime*kdel))
+                            #
+                            # logging.info("MEAM: d3 = {0}".format(
+                            #     fj_val*fk_prime*g_val*kdel))
+                            #
+                            # logging.info("MEAM: d4 = {0}".format(
+                            #     fj_val*fk_val*cos_theta*g_prime*kdel))
+                            #
+                            # logging.info("MEAM: d5 = {0}".format(
+                            #     fj_val*fk_val*g_prime*jdel))
 
-                            logging.info("MEAM: d1 = {0}\t{1}\t{2}".format(
-                                fj_val*jdel*cos_theta, fk_val, g_prime))
-
-                            logging.info("MEAM: d2 = {0}\t{1}\t{2}".format(
-                                fj_val*kdel, fk_val, g_prime))
-
-                            logging.info("MEAM: d3 = {0}\t{1}\t{2}".format(
-                                fj_val*kdel, fk_prime, g_val))
-
-                            logging.info("MEAM: d4 = {0}\t{1}\t{2}".format(
-                                fj_val*kdel*cos_theta, fk_val, g_prime))
-
-                            logging.info("MEAM: d5 = {0}\t{1}\t{2}".format(
-                                fj_val*jdel, fk_val, g_prime))
+                            # logging.info("MEAM: d0 = {0} {1} {2}".format(
+                            #     fj_prime*jdel, fk_val*jdel, g_val*jdel))
+                            #
+                            # logging.info("MEAM: d1 = {0} {1} {2}".format(
+                            #     fj_val*jdel*cos_theta,
+                            #     fk_val*jdel*cos_theta, g_prime*jdel*cos_theta))
+                            #
+                            # logging.info("MEAM: d2 = {0} {1} {2}".format(
+                            #     fj_val*kdel, fk_val*kdel, g_prime*kdel))
+                            #
+                            # logging.info("MEAM: d3 = {0} {1} {2}".format(
+                            #     fj_val*kdel, fk_prime*kdel, g_val*kdel))
+                            #
+                            # logging.info("MEAM: d4 = {0} {1} {2}".format(
+                            #     fj_val*kdel*cos_theta,
+                            #     fk_val*kdel*cos_theta, g_prime*kdel*cos_theta))
+                            #
+                            # logging.info("MEAM: d5 = {0} {1} {2}".format(
+                            #     fj_val*jdel, fk_val*jdel, g_prime*jdel))
 
                             prefactor = Uprime_i * fj_val * fk_val * g_prime
                             # logging.info("MEAM: prefactor = {0}".format(prefactor))
@@ -468,6 +481,14 @@ class MEAM:
 
                             fk = kdel * fik - jdel * prefactor_ik
                             forces_i -= fk
+
+                            # logging.info("MEAM: i, uprime = {0}, {1}".format(
+                            #     i, Uprime_i))
+
+                            logging.info("MEAM: i, fk = {0} {1}".format(
+                                i, fk))
+                            logging.info("MEAM: i, fj = {0} {1}".format(
+                                i, fj))
 
                             self.forces[neighbors[0][k]] += fk
                     # end triplet loop
