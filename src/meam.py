@@ -485,10 +485,10 @@ class MEAM:
                             # logging.info("MEAM: i, uprime = {0}, {1}".format(
                             #     i, Uprime_i))
 
-                            logging.info("MEAM: i, fk = {0} {1}".format(
-                                i, fk))
-                            logging.info("MEAM: i, fj = {0} {1}".format(
-                                i, fj))
+                            # logging.info("MEAM: i, fk = {0} {1}".format(
+                            #     i, fk))
+                            # logging.info("MEAM: i, fj = {0} {1}".format(
+                            #     i, fj))
 
                             self.forces[neighbors[0][k]] += fk
                     # end triplet loop
@@ -513,6 +513,11 @@ class MEAM:
 
                     fpair = rho_prime_j * self.uprimes[i] + rho_prime_i * \
                         self.uprimes[neighbors_noboth[0][j]]
+
+                    logging.info("MEAM: rho = {0}".format(
+                        rho_prime_j*jdel/r_ij))
+                    logging.info("MEAM: rho = {0}".format(
+                        rho_prime_i*-jdel/r_ij))
 
                     # logging.info("MEAM: uprime_i = {0}".format(self.uprimes[i]))
                     # logging.info("MEAM: uprime_j = {0}"\

@@ -209,14 +209,25 @@ class Worker:
 
                 energy_rho_rij[rho_idx][i].append(rij)
 
-                forces_rho_rij[rho_idx][i].append(rij)
-                forces_rho_rij[rho_idx][j].append(rij)
+                # forces_rho_rij[rho_idx][i].append(rij)
+                # forces_rho_rij[rho_idx][j].append(rij)
 
-                self.rho_rij_indices[rho_idx][j].append(i)
-                self.rho_rij_indices[rho_idx][i].append(i)
+                # self.rho_rij_indices[rho_idx][j].append(i)
+                # self.rho_rij_indices[rho_idx][i].append(i)
 
-                rho_directions[rho_idx][i].append(jvec)
-                rho_directions[rho_idx][j].append(-jvec)
+                # rho_directions[rho_idx][i].append(jvec)
+                # rho_directions[rho_idx][j].append(-jvec)
+
+                # self.rhos[rho_idx].add_to_forces_struct_vec(rij, jvec, i, i)
+                # self.rhos[itype-1].add_to_forces_struct_vec(rij, jvec, i, j)
+                # self.rhos[rho_idx].add_to_forces_struct_vec(rij, -jvec, j, i)
+                # self.rhos[itype-1].add_to_forces_struct_vec(rij, -jvec, j, j)
+
+                self.rhos[itype-1].add_to_forces_struct_vec(rij, jvec, j, i)
+                self.rhos[rho_idx].add_to_forces_struct_vec(rij, -jvec, j, i)
+
+                self.rhos[itype-1].add_to_forces_struct_vec(rij, jvec, i, j)
+                self.rhos[rho_idx].add_to_forces_struct_vec(rij, -jvec, i, j)
 
                 # prepare for angular calculations
                 a = jpos - ipos
@@ -500,7 +511,6 @@ class Worker:
 
                 ni += ffg.calc_energy(y_fj, y_fk, y_g)
 
-        # logging.info("WORKER: {0}".format(ni))
         return ni
 
     # @profile
@@ -552,30 +562,21 @@ class Worker:
         ni_indices = [[] for i in range(len(self.us))]
 
         # Add ni values to respective u splines
-        for i, itype in enumerate(self.type_of_each_atom):
+        for i, (itype, val) in enumerate(zip(self.type_of_each_atom, ni)):
             u_idx = src.meam.i_to_potl(itype)
 
-            sorted_ni[u_idx].append(ni[i])
-            ni_indices[u_idx].append([i,i])
+            sorted_ni[u_idx].append(val)
 
-        for u, ni, indices in zip(self.us, sorted_ni, ni_indices):
-            u.struct_vecs = [[], []]
-            u.indices_f = []
-            u.indices_b = []
-            u.add_to_deriv_struct_vec(ni, indices)
+        for i, (u, ni) in enumerate(zip(self.us, sorted_ni)):
+            u.struct_vecs = np.zeros((self.natoms, 2*len(u.x)+4))
+            u.add_to_deriv_struct_vec(ni, i)
 
         # Evaluate U, U', and compute zero-point energies
         uprimes = np.zeros(self.natoms)
         for y, u in zip(u_pvecs, self.us):
 
-            if len(u.struct_vecs[0]) > 0:
-                uprimes += u.calc_deriv(y)
-                # np.add.at(uprimes, u.indices_f, u(y, 1))
-                # uprimes += np.bincount(u.indices_f, weights=u(y, 1),
-                #                        minlength=len(uprimes))
-                # cython_add_at_1D(uprimes, np.array(u.indices_f,
-                #                                    dtype=np.int32), u(y, 1))
-                # uprimes += jit_add_at_1D(u.indices_f, u(y, 1), self.natoms)
+            # if len(u.deriv_struct_vec) > 0:
+            uprimes += u.calc_deriv(y)
 
         return uprimes
 
@@ -603,19 +604,24 @@ class Worker:
 
         ni = self.compute_ni(rho_pvecs, f_pvecs, g_pvecs)
         uprimes = self.evaluate_uprimes(ni, u_pvecs)
-        uprimes = np.append(uprimes, 0.)
+        # uprimes = np.append(uprimes, 0.)
 
         # Electron density embedding (rho)
         for rho_idx, (rho, y) in enumerate(zip(self.rhos, rho_pvecs)):
 
             if len(rho.forces_struct_vec) > 0:
                 rho_forces = rho.calc_forces(y)
+                logging.info("WORKER: rho =\n{0}".format(rho_forces[:,:,0]))
+
+                rho_forces = np.einsum('ijk,j->ik', rho.calc_forces(y), uprimes)
+                # logging.info("WORKER: rho =\n{0}".format(rho_forces))
 
                 # uprime_scales = np.take(uprimes,\
                 #                     self.rho_rij_indices[rho_idx].astype(int))
-                uprime_scales = np.take(uprimes, self.type_of_each_atom-1)
+                # uprime_scales = np.take(uprimes, self.type_of_each_atom-1)
 
-                forces += np.einsum('ij,i->ij', rho_forces, uprime_scales)
+                # forces += np.einsum('ij,i->ij', rho_forces, uprime_scales)
+                forces += rho_forces
 
         # Angular terms (ffg)
         for j in range(len(self.ffgs)):

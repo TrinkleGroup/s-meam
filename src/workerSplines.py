@@ -255,7 +255,7 @@ class WorkerSpline:
         abcd = self.get_abcd(values, 1)
 
         for a in range(3):
-            abcd_3d = np.einsum('ij,i->ij', abcd, dirs[:,a])#.ravel()
+            abcd_3d = np.einsum('ij,i->ij', abcd, dirs[:,a])
 
             self.forces_struct_vec[atom_id, :, a] += np.sum(abcd_3d, axis=0)
 
@@ -268,7 +268,7 @@ class USpline(WorkerSpline):
     def __init__(self, x, bc_type, natoms):
         super(USpline, self).__init__(x, bc_type, natoms)
 
-        self.struct_vec_deriv = np.zeros((natoms, 2*len(self.x)+4))
+        self.deriv_struct_vec = np.zeros((natoms, 2*len(self.x)+4))
 
         self.zero_abcd = self.get_abcd([0])
 
@@ -284,7 +284,7 @@ class USpline(WorkerSpline):
     def add_to_deriv_struct_vec(self, ni, atom_id):
         abcd = self.get_abcd(ni, 1)
 
-        self.struct_vec_deriv[atom_id, :] = np.sum(abcd, axis=0)
+        self.deriv_struct_vec[atom_id, :] = np.sum(abcd, axis=0)
 
     def calc_deriv(self, y):
         self.y = y
@@ -296,7 +296,7 @@ class USpline(WorkerSpline):
 
         z = z
 
-        return self.struct_vec_deriv @ z
+        return self.deriv_struct_vec @ z
 
     def compute_zero_potential(self, y):
         """Calculates the value of the potential as if every entry in the
@@ -325,16 +325,30 @@ class RhoSpline(WorkerSpline):
 
         self.energy_struct_vec = np.zeros((self.natoms, 2*len(x)+4))
 
-    # def calc_forces(self, y):
-    #     pass
+        self.forces_struct_vec = np.zeros((self.natoms, self.natoms,
+                                           2*len(x)+4, 3))
+
+    def calc_forces(self, y):
+        self.y = y
+
+        z = [self.y[0] - self.y1[0]*self.lhs_extrap_dist] +\
+            self.y.tolist() +\
+            [self.y[-1] + self.y1[-1]*self.rhs_extrap_dist, self.y1[0]] +\
+            self.y1.tolist() + [self.y1[-1]]
+
+        z = z
+
+        return np.einsum('ijkl,k->ijl', self.forces_struct_vec, z)
 
     def add_to_energy_struct_vec(self, values, atom_id):
-        abcd = np.sum(self.get_abcd(values, 0), axis=0)#.ravel()
+        self.energy_struct_vec[atom_id, :] += np.sum(self.get_abcd(values,0),
+                                                     axis=0)
 
-        self.energy_struct_vec[atom_id, :] += abcd
+    def add_to_forces_struct_vec(self, value, dir, atom_id, neighbor_id):
+        """Single add for neighbor"""
+        abcd_3d = np.einsum('i,j->ij', self.get_abcd(value, 1).ravel(), dir)
 
-    # def add_to_forces_struct_vec(self, values, dir, atom_id):
-    #     pass
+        self.forces_struct_vec[atom_id, neighbor_id, :, :] += abcd_3d
 
 
 class ffgSpline:
