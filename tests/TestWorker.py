@@ -31,9 +31,9 @@ rand_pots_flag  = True * 1
 
 meam_flag       = True * 0
 phionly_flag    = True * 0
-rhophi_flag     = True * 0
+rhophi_flag     = True * 1
 nophi_flag      = True * 0
-rho_flag        = True * 1
+rho_flag        = True * 0
 norho_flag      = True * 0
 norhophi_flag   = True * 0
 
@@ -52,7 +52,7 @@ if bulk_flag:
                   **bulk_vac_rhombo, **bulk_periodic_rhombo, **extra}
 
 # allstructs = {'bulk_periodic_rhombo_mixed':bulk_periodic_rhombo['bulk_periodic_rhombo_mixed']}
-allstructs = {'aba':trimers['aba']}
+# allstructs = {'aba':trimers['aba']}
 # allstructs = {'8_atom':extra['8_atoms']}
 
 ################################################################################
@@ -85,8 +85,8 @@ def loader_forces(group_name, calculated, lammps):
     for name in calculated.keys():
         test_name = group_name + '_' + name + '_forces'
         np.set_printoptions(precision=16)
-        logging.info("LAMMPS =\n{0}".format(lammps[name][0]))
-        logging.info("WORKER =\n{0}".format(calculated[name]))
+        # logging.info("LAMMPS =\n{0}".format(lammps[name][0]))
+        # logging.info("WORKER =\n{0}".format(calculated[name]))
         load_tests.append((test_name, calculated[name], lammps[name][0]))
 
     return load_tests
@@ -112,7 +112,7 @@ def get_lammps_results(pots, structs):
             atoms = structs[name]
 
             # lmp_p.compute_energy(atoms)
-            lmp_p.compute_forces(atoms)
+            # lmp_p.compute_forces(atoms)
 
             results = lmp_p.get_lammps_results(atoms)
             lmp_energies[name][pnum] = results['energy'] / len(atoms)

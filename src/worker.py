@@ -193,6 +193,12 @@ class Worker:
                 phi_directions[phi_idx][i].append(jvec)
                 phi_directions[phi_idx][j].append(-jvec)
 
+                self.rhos[jtype-1].add_to_forces_struct_vec(rij, jvec, i, i)
+                self.rhos[jtype-1].add_to_forces_struct_vec(rij, -jvec, j, i)
+
+                self.rhos[itype-1].add_to_forces_struct_vec(rij, jvec, i, j)
+                self.rhos[itype-1].add_to_forces_struct_vec(rij, -jvec, j, j)
+
             # Store distances, angle, and index info for embedding terms
             j_counter = 0  # for tracking neighbor
             for j, offsetj in zip(neighbors, offsets):
@@ -222,12 +228,6 @@ class Worker:
                 # self.rhos[itype-1].add_to_forces_struct_vec(rij, jvec, i, j)
                 # self.rhos[rho_idx].add_to_forces_struct_vec(rij, -jvec, j, i)
                 # self.rhos[itype-1].add_to_forces_struct_vec(rij, -jvec, j, j)
-
-                self.rhos[itype-1].add_to_forces_struct_vec(rij, jvec, j, i)
-                self.rhos[rho_idx].add_to_forces_struct_vec(rij, -jvec, j, i)
-
-                self.rhos[itype-1].add_to_forces_struct_vec(rij, jvec, i, j)
-                self.rhos[rho_idx].add_to_forces_struct_vec(rij, -jvec, i, j)
 
                 # prepare for angular calculations
                 a = jpos - ipos
@@ -559,17 +559,15 @@ class Worker:
         """
 
         sorted_ni = [[] for i in range(len(self.us))]
-        ni_indices = [[] for i in range(len(self.us))]
 
         # Add ni values to respective u splines
         for i, (itype, val) in enumerate(zip(self.type_of_each_atom, ni)):
-            u_idx = src.meam.i_to_potl(itype)
+            self.us[itype-1].add_to_deriv_struct_vec(val, i)
+            # sorted_ni[u_idx].append(val)
 
-            sorted_ni[u_idx].append(val)
-
-        for i, (u, ni) in enumerate(zip(self.us, sorted_ni)):
-            u.struct_vecs = np.zeros((self.natoms, 2*len(u.x)+4))
-            u.add_to_deriv_struct_vec(ni, i)
+        # for i, (u, ni) in enumerate(zip(self.us, sorted_ni)):
+        #     u.struct_vecs = np.zeros((self.natoms, 2*len(u.x)+4))
+        #     u.add_to_deriv_struct_vec(ni, i)
 
         # Evaluate U, U', and compute zero-point energies
         uprimes = np.zeros(self.natoms)
@@ -611,17 +609,19 @@ class Worker:
 
             if len(rho.forces_struct_vec) > 0:
                 rho_forces = rho.calc_forces(y)
-                logging.info("WORKER: rho =\n{0}".format(rho_forces[:,:,0]))
+                # logging.info("WORKER: rho =\n{0}".format(rho_forces[:,:,0]))
 
-                rho_forces = np.einsum('ijk,j->ik', rho.calc_forces(y), uprimes)
-                # logging.info("WORKER: rho =\n{0}".format(rho_forces))
+                rho_forces = np.einsum('ijk,j->ijk', rho.calc_forces(y),
+                                       uprimes)
+                # logging.info("WORKER: rho =\n{0}".format(rho_forces[:,0]))
+                # logging.info("WORKER: uprimes = {0}".format(uprimes))
 
                 # uprime_scales = np.take(uprimes,\
                 #                     self.rho_rij_indices[rho_idx].astype(int))
                 # uprime_scales = np.take(uprimes, self.type_of_each_atom-1)
 
                 # forces += np.einsum('ij,i->ij', rho_forces, uprime_scales)
-                forces += rho_forces
+                forces += np.sum(rho_forces, axis=1)
 
         # Angular terms (ffg)
         for j in range(len(self.ffgs)):

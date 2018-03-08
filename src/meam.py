@@ -514,10 +514,13 @@ class MEAM:
                     fpair = rho_prime_j * self.uprimes[i] + rho_prime_i * \
                         self.uprimes[neighbors_noboth[0][j]]
 
-                    logging.info("MEAM: rho = {0}".format(
-                        rho_prime_j*jdel/r_ij))
-                    logging.info("MEAM: rho = {0}".format(
-                        rho_prime_i*-jdel/r_ij))
+                    jt = neighbors_noboth[0][j]
+
+                    # logging.info("MEAM: rho = {1},{2} {0}".format(
+                    #     rho_prime_j*jdel/r_ij*self.uprimes[i], i, jt))
+                    # logging.info("MEAM: rho = {1},{2} {0}".format(
+                    #     rho_prime_i*jdel/r_ij*self.uprimes[neighbors_noboth[
+                    #         0][j]], i, jt))
 
                     # logging.info("MEAM: uprime_i = {0}".format(self.uprimes[i]))
                     # logging.info("MEAM: uprime_j = {0}"\
