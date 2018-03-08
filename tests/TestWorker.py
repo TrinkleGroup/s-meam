@@ -29,9 +29,9 @@ zero_pots_flag  = True * 0
 const_pots_flag = True * 0
 rand_pots_flag  = True * 1
 
-meam_flag       = True * 0
+meam_flag       = True * 1
 phionly_flag    = True * 0
-rhophi_flag     = True * 1
+rhophi_flag     = True * 0
 nophi_flag      = True * 0
 rho_flag        = True * 0
 norho_flag      = True * 0
@@ -52,7 +52,7 @@ if bulk_flag:
                   **bulk_vac_rhombo, **bulk_periodic_rhombo, **extra}
 
 # allstructs = {'bulk_periodic_rhombo_mixed':bulk_periodic_rhombo['bulk_periodic_rhombo_mixed']}
-# allstructs = {'aba':trimers['aba']}
+allstructs = {'aba':trimers['aba']}
 # allstructs = {'8_atom':extra['8_atoms']}
 
 ################################################################################

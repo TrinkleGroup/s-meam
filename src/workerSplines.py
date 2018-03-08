@@ -1,7 +1,7 @@
 import numpy as np
 import logging
 
-from scipy.sparse import diags, dok_matrix
+from scipy.sparse import diags, lil_matrix
 
 # from src.numba_functions import jit_add_at_1D, jit_add_at_2D
 
@@ -281,10 +281,10 @@ class USpline(WorkerSpline):
 
         self.atoms_embedded += values.shape[0]
 
-    def add_to_deriv_struct_vec(self, ni, atom_id):
-        abcd = self.get_abcd(ni, 1)
+    def add_to_deriv_struct_vec(self, all_ni, indices):
+        abcd = self.get_abcd(all_ni, 1)
 
-        self.deriv_struct_vec[atom_id, :] = np.sum(abcd, axis=0)
+        self.deriv_struct_vec[indices, :] = abcd
 
     def calc_deriv(self, y):
         self.y = y
@@ -325,8 +325,8 @@ class RhoSpline(WorkerSpline):
 
         self.energy_struct_vec = np.zeros((self.natoms, 2*len(x)+4))
 
-        self.forces_struct_vec = np.zeros((self.natoms, self.natoms,
-                                           2*len(x)+4, 3))
+        N = self.natoms
+        self.forces_struct_vec = lil_matrix((3*N*N, 2*len(x)+4), dtype=float)
 
     def calc_forces(self, y):
         self.y = y
@@ -338,18 +338,31 @@ class RhoSpline(WorkerSpline):
 
         z = z
 
-        return np.einsum('ijkl,k->ijl', self.forces_struct_vec, z)
+        return self.forces_struct_vec @ z
+        # return np.einsum('ijkl,k->ijl', self.forces_struct_vec, z)
 
     def add_to_energy_struct_vec(self, values, atom_id):
         self.energy_struct_vec[atom_id, :] += np.sum(self.get_abcd(values,0),
                                                      axis=0)
 
-    def add_to_forces_struct_vec(self, value, dir, atom_id, neighbor_id):
+    def add_to_forces_struct_vec(self, value, dir, i, j):
         """Single add for neighbor"""
         abcd_3d = np.einsum('i,j->ij', self.get_abcd(value, 1).ravel(), dir)
 
-        self.forces_struct_vec[atom_id, neighbor_id, :, :] += abcd_3d
+        N = self.natoms
 
+        for a in range(3):
+            self.forces_struct_vec[N*N*a + N*i+ j,:] += abcd_3d[:,a]
+
+    def add_many_to_forces_struct_vec(self, values, dirs):
+        """Assumes all values correspond to a single ij pair"""
+
+        # TODO: doesn't work; assumes only one rij for each neighbor
+        for i, (row, row_dirs) in enumerate(zip(values, dirs)):
+            # all abcd for neighbors of atom i
+            abcd_3d = np.einsum('ij,ik->jk', self.get_abcd(row, 1), row_dirs)
+
+            self.forces_struct_vec[i, :, :, :] += abcd_3d
 
 class ffgSpline:
     """Spline representation specifically used for building a spline
@@ -375,14 +388,12 @@ class ffgSpline:
         # Variables that will be set at some point
         nknots_cartesian = (len(fj.x)*2+4)*(len(fk.x)*2+4)*(len(g.x)*2+4)
 
+        # TODO: make a nice sparse matrix for energy_struct_vec too
         self.energy_struct_vec = np.zeros((natoms, nknots_cartesian))
 
-        sv_x = self.energy_struct_vec.copy()
-        sv_y = self.energy_struct_vec.copy()
-        sv_z = self.energy_struct_vec.copy()
-
-        self.forces_struct_vec = [sv_x, sv_y, sv_z]
-        # self.forces_struct_vec_j = self.forces_struct_vec_i.copy()
+        N = self.natoms
+        self.forces_struct_vec = lil_matrix((3*N*N, nknots_cartesian),
+                                            dtype=float)
 
     # @profile
     def calc_energy(self, y_fj, y_fk, y_g):
@@ -444,15 +455,8 @@ class ffgSpline:
         # z_cart = np.product(cartesian_product(z_fj, z_fk, z_g), axis=1)
         z_cart = np.outer(np.outer(z_fj, z_fk), z_g).ravel()
 
-        results = np.zeros((self.natoms, 3))
 
-        results[:,0] += self.forces_struct_vec[0] @ z_cart
-        results[:,1] += self.forces_struct_vec[1] @ z_cart
-        results[:,2] += self.forces_struct_vec[2] @ z_cart
-
-        # logging.info("WORKER: results =\n{0}".format(results))
-
-        return results
+        return self.forces_struct_vec @ z_cart
 
     def add_to_energy_struct_vec(self, rij, rik, cos, atom_id):
         """Updates structure vectors with given values"""
@@ -466,7 +470,7 @@ class ffgSpline:
         # self.energy_struct_vec[atom_id, :] += np.product(cart, axis=1)
         self.energy_struct_vec[atom_id, :] += cart
 
-    def add_to_forces_struct_vec(self, rij, rik, cos, dirs, atom_id):
+    def add_to_forces_struct_vec(self, rij, rik, cos, dirs, i, j, k):
         """Adds all 6 directional information to the struct vector for the
         given triplet values
 
@@ -475,28 +479,39 @@ class ffgSpline:
             rik : single rik value
             cos : single cos_theta value
             dirs : ordered list of the six terms of the triplet deriv directions
+            i : atom i tag
+            j : atom j tag
+            k : atom k tag
         """
 
         fj_1, fk_1, g_1 = self.get_abcd(rij, rik, cos, [1, 0, 0])
         fj_2, fk_2, g_2 = self.get_abcd(rij, rik, cos, [0, 1, 0])
         fj_3, fk_3, g_3 = self.get_abcd(rij, rik, cos, [0, 0, 1])
 
-        # v1 = np.product(cartesian_product(fj_1, fk_1, g_1), axis=1)
-        # v2 = np.product(cartesian_product(fj_2, fk_2, g_2), axis=1)
-        # v3 = np.product(cartesian_product(fj_3, fk_3, g_3), axis=1)
+        v1 = np.outer(np.outer(fj_1, fk_1), g_1).ravel() # fj' fk g
+        v2 = np.outer(np.outer(fj_2, fk_2), g_2).ravel() # fj fk' g
+        v3 = np.outer(np.outer(fj_3, fk_3), g_3).ravel() # fj fk g' -> PF
 
-        v1 = np.outer(np.outer(fj_1, fk_1), g_1).ravel()
-        v2 = np.outer(np.outer(fj_2, fk_2), g_2).ravel()
-        v3 = np.outer(np.outer(fj_3, fk_3), g_3).ravel()
+        # all 6 terms to be added
+        t0 = np.einsum('i,k->ik', v1, dirs[0])
+        t1 = np.einsum('i,k->ik', v3, dirs[1])
+        t2 = np.einsum('i,k->ik', v3, dirs[2])
 
+        t3 = np.einsum('i,k->ik', v2, dirs[3])
+        t4 = np.einsum('i,k->ik', v3, dirs[4])
+        t5 = np.einsum('i,k->ik', v3, dirs[5])
+
+        # condensed versions
+        fj = t0 + t1 + t2
+        fk = t3 + t4 + t5
+
+        N = self.natoms
         for a in range(3):
+            self.forces_struct_vec[N*N*a + N*i + i, :] += fj[:, a]
+            self.forces_struct_vec[N*N*a + N*j + i, :] -= fj[:, a]
 
-            self.forces_struct_vec[a][atom_id, :] += v1*dirs[0][a]
-            self.forces_struct_vec[a][atom_id, :] += v3*dirs[1][a]
-            self.forces_struct_vec[a][atom_id, :] += v3*dirs[2][a]
-            self.forces_struct_vec[a][atom_id, :] += v2*dirs[3][a]
-            self.forces_struct_vec[a][atom_id, :] += v3*dirs[4][a]
-            self.forces_struct_vec[a][atom_id, :] += v3*dirs[5][a]
+            self.forces_struct_vec[N*N*a + N*i + i, :] += fk[:, a]
+            self.forces_struct_vec[N*N*a + N*k + i, :] -= fk[:, a]
 
     def get_abcd(self, rij, rik, cos_theta, deriv=[0,0,0]):
         """Computes the full parameter vector for the multiplication of ffg

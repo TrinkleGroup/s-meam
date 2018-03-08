@@ -482,6 +482,11 @@ class MEAM:
                             fk = kdel * fik - jdel * prefactor_ik
                             forces_i -= fk
 
+                            # logging.info("MEAM: fj/u' = {0}".format(
+                            #     fj/Uprime_i))
+                            # logging.info("MEAM: fk/u' = {0}".format(
+                            #     fk/Uprime_i))
+
                             # logging.info("MEAM: i, uprime = {0}, {1}".format(
                             #     i, Uprime_i))
 
