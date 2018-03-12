@@ -1,6 +1,6 @@
 import numpy as np
 import logging
-from scipy.sparse import dok_matrix
+from scipy.sparse import lil_matrix
 
 from ase.neighborlist import NeighborList
 
@@ -104,16 +104,7 @@ class Worker:
         phi_directions = [[[] for j in range(self.natoms)]
                                for i in range(len(self.phis))]
 
-        # rho_directions = [[[] for j in range(self.natoms)]
-        #                   for i in range(len(self.rhos))]
-
         rho_directions = np.zeros((len(self.rhos), self.natoms, self.natoms, 3))
-
-        ffg_directions = [[[[] for k in range(self.natoms)]
-                           for j in range(len(self.fs))]
-                               for i in range(len(self.fs))]
-        # self.ffg_directions = [[[[] for k in range(6)] for j in range(len(
-        #     self.fs))] for i in range(len(self.fs))]
 
         # Temporary collectors for spline values to optimize spline get_abcd()
         # 3D lists; indexed by (spline number, atom number, value)
@@ -203,10 +194,10 @@ class Worker:
                 phi_directions[phi_idx][j].append(-jvec)
 
                 self.rhos[jtype-1].add_to_forces_struct_vec(rij, jvec, i, i)
-                # self.rhos[jtype-1].add_to_forces_struct_vec(rij, -jvec, j, i)
+                self.rhos[jtype-1].add_to_forces_struct_vec(rij, -jvec, j, i)
 
                 self.rhos[itype-1].add_to_forces_struct_vec(rij, jvec, i, j)
-                # self.rhos[itype-1].add_to_forces_struct_vec(rij, -jvec, j, j)
+                self.rhos[itype-1].add_to_forces_struct_vec(rij, -jvec, j, j)
 
                 forces_rho_rij[itype-1, i, i] = rij
                 forces_rho_rij[itype-1, j, i] = rij
@@ -306,16 +297,9 @@ class Worker:
 
         for ffg_list in self.ffgs:
             for ffg in ffg_list:
-                ffg.energy_struct_vec = dok_matrix(ffg.energy_struct_vec).tocsr()
+                ffg.energy_struct_vec =lil_matrix(ffg.energy_struct_vec).tocsr()
 
-                ffg.forces_struct_vec[0] = dok_matrix(ffg.forces_struct_vec[
-                                                          0]).tocsr()
-                ffg.forces_struct_vec[1] = dok_matrix(ffg.forces_struct_vec[
-                                                          1]).tocsr()
-                ffg.forces_struct_vec[2] = dok_matrix(ffg.forces_struct_vec[
-                                                          2]).tocsr()
-
-                ffg.forces_struct_vec = ffg.forces_struct_vec.tocsr()
+                ffg.forces_struct_vec =lil_matrix(ffg.forces_struct_vec).tocsr()
 
     def build_spline_lists(self, knot_xcoords, x_indices):
         """
@@ -542,15 +526,10 @@ class Worker:
 
             if rho.forces_struct_vec.shape[0] > 0:
                 rho_forces = rho.calc_forces(y)
+
                 rho_forces = rho_forces.reshape((3, self.natoms, self.natoms))
-                rho_forces_2 = np.einsum('ijk,k->ijk', rho_forces, uprimes)
 
-                forces += np.sum(rho_forces_2, axis=2).T
-                forces -= np.sum(rho_forces_2, axis=1).T
-                # forces += np.einsum('ijk,k->ji', rho_forces, uprimes)
-
-                # forces += np.sum(np.einsum('ijk,j->ijk', rho.calc_forces(y),
-                #                            uprimes), axis=1)
+                forces += np.einsum('ijk,k->ji', rho_forces, uprimes)
 
         # Angular terms (ffg)
         for j in range(len(self.ffgs)):
@@ -566,46 +545,12 @@ class Worker:
                     y_fk = f_pvecs[k]
                     y_g = g_pvecs[src.meam.ij_to_potl(j + 1, k + 1, self.ntypes)]
 
-                    # uprime_scales = np.take(uprimes, self.type_of_each_atom-1)
-                                            # self.ffg_indices[j][k].astype(int))
-
-                    # logging.info("WORKER: u' = {0}".format(uprime_scales))
-
                     ffg_forces = ffg.calc_forces(y_fj, y_fk, y_g)
-
-                    # logging.info("WORKER: ffg =\n{0}".format(ffg_forces[
-                    #                                  :self.natoms*self.natoms]))
 
                     ffg_forces = ffg_forces.reshape((3, self.natoms,
                                                      self.natoms))
 
                     forces += np.einsum('ijk,k->ji', ffg_forces, uprimes)
-
-
-                    # forces += np.einsum('ij,i->ij', ffg_forces, uprime_scales)
-
-                    # logging.info("WORKER:\n{0}".format(np.einsum('ij,'\
-                    #     'i->ij', ffg.calc_forces(y_fj, y_fk, y_g),uprime_scales)))
-                    # logging.info("WORKER: {0}".format(ffg_forces[:,:,1]))
-
-                    # ffg_forces = np.einsum('ij,i->ij', ffg_dirs,
-                    #                        ffg(y_fj, y_fk, y_g, 1))
-
-                    # ffg_forces = np.einsum('ij,i->ij', ffg_forces,
-                    #                        uprimes[ffg.indices_f[1]])
-
-                    # f0 = lambda a: np.bincount(ffg.indices_f[1], weights=a,
-                    #                            minlength=self.natoms)
-                    # f1 = lambda a: np.bincount(ffg.indices_b[1], weights=a,
-                    #                            minlength=self.natoms)
-
-                    # forces += np.apply_along_axis(f0, 0, ffg_forces)
-                    # forces -= np.apply_along_axis(f1, 0, ffg_forces)
-
-                    # forces += jit_add_at_2D(ffg.indices_f[1], ffg_forces,
-                    #                         self.natoms)
-                    # forces -= jit_add_at_2D(ffg.indices_b[1], ffg_forces,
-                    #                         self.natoms)
 
         return forces
 

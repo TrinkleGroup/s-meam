@@ -52,7 +52,7 @@ if bulk_flag:
                   **bulk_vac_rhombo, **bulk_periodic_rhombo, **extra}
 
 # allstructs = {'bulk_periodic_rhombo_mixed':bulk_periodic_rhombo['bulk_periodic_rhombo_mixed']}
-allstructs = {'aba':trimers['aba']}
+# allstructs = {'aba':trimers['aba']}
 # allstructs = {'8_atom':extra['8_atoms']}
 
 ################################################################################

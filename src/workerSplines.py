@@ -392,10 +392,10 @@ class ffgSpline:
         self.energy_struct_vec = np.zeros((natoms, nknots_cartesian))
 
         N = self.natoms
-        self.forces_struct_vec = lil_matrix((3*N*N, nknots_cartesian),
-                                            dtype=float)
+        # self.forces_struct_vec = lil_matrix((3*N*N, nknots_cartesian),
+        #                                     dtype=float)
+        self.forces_struct_vec = np.zeros((3*N*N, nknots_cartesian))
 
-    # @profile
     def calc_energy(self, y_fj, y_fk, y_g):
         fj = self.fj
         fk = self.fk
@@ -421,7 +421,6 @@ class ffgSpline:
         z_fk = np.array(z_fk)
         z_g = np.array(z_g)
 
-        # z_cart = np.product(cartesian_product(z_fj, z_fk, z_g), axis=1)
         z_cart = np.outer(np.outer(z_fj, z_fk), z_g).ravel()
 
         return self.energy_struct_vec @ z_cart
@@ -452,7 +451,6 @@ class ffgSpline:
         z_fk = np.array(z_fk)
         z_g = np.array(z_g)
 
-        # z_cart = np.product(cartesian_product(z_fj, z_fk, z_g), axis=1)
         z_cart = np.outer(np.outer(z_fj, z_fk), z_g).ravel()
 
 
@@ -464,12 +462,12 @@ class ffgSpline:
         abcd_fk = self.fk.get_abcd(rik, 0).ravel()
         abcd_g = self.g.get_abcd(cos, 0).ravel()
 
-        # cart = cartesian_product(abcd_fj, abcd_fk, abcd_g)
         cart = np.outer(np.outer(abcd_fj, abcd_fk), abcd_g).ravel()
 
         # self.energy_struct_vec[atom_id, :] += np.product(cart, axis=1)
         self.energy_struct_vec[atom_id, :] += cart
 
+    # @profile
     def add_to_forces_struct_vec(self, rij, rik, cos, dirs, i, j, k):
         """Adds all 6 directional information to the struct vector for the
         given triplet values
@@ -513,6 +511,7 @@ class ffgSpline:
             self.forces_struct_vec[N*N*a + N*i + i, :] += fk[:, a]
             self.forces_struct_vec[N*N*a + N*k + i, :] -= fk[:, a]
 
+    # @profile
     def get_abcd(self, rij, rik, cos_theta, deriv=[0,0,0]):
         """Computes the full parameter vector for the multiplication of ffg
         splines
