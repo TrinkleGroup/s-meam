@@ -395,8 +395,10 @@ class Worker:
                 energy += phi.calc_energy(y)
 
         # Embedding terms
-        energy += self.embedding_energy(self.compute_ni(rho_pvecs, f_pvecs,\
-                                                        g_pvecs), u_pvecs)
+        ni = self.compute_ni(rho_pvecs, f_pvecs, g_pvecs)
+        energy += self.embedding_energy(ni, u_pvecs)
+        # energy += self.embedding_energy(self.compute_ni(rho_pvecs, f_pvecs,\
+        #                                                 g_pvecs), u_pvecs)
 
         return energy
 
@@ -442,14 +444,8 @@ class Worker:
             u_energy: total embedding energy
         """
 
-        sorted_ni = [[] for i in range(len(self.us))]
-
-        # Add ni values to respective u splines
-        for i in range(self.natoms):
-            sorted_ni[self.type_of_each_atom[i] - 1].append(ni[i])
-
-        for u, ni in zip(self.us, sorted_ni):
-            u.add_to_energy_struct_vec(ni)
+        for i, u in enumerate(self.us):
+            u.add_to_energy_struct_vec(ni[self.type_of_each_atom - 1 == i])
 
         # Evaluate U, U', and compute zero-point energies
         u_energy = 0
@@ -462,6 +458,7 @@ class Worker:
 
         return u_energy
 
+    # @profile
     def evaluate_uprimes(self, ni, u_pvecs):
         """
         Computes U' values for every atom
@@ -474,26 +471,24 @@ class Worker:
             uprimes: per-atom U' values
         """
 
-        sorted_ni = [[] for i in range(len(self.us))]
-        ni_indices = [[] for i in range(len(self.us))]
+        tags = np.arange(self.natoms)
+        shifted_types = self.type_of_each_atom - 1
 
-        # Add ni values to respective u splines
-        for i, itype in enumerate(self.type_of_each_atom):
-            sorted_ni[itype-1].append(ni[i])
-            ni_indices[itype-1].append(i)
-
-        for u, ni, indices in zip(self.us, sorted_ni, ni_indices):
+        for i, u in enumerate(self.us):
             u.struct_vecs = np.zeros((self.natoms, 2*len(u.x)+4))
 
-            if indices:
-                u.add_to_deriv_struct_vec(ni, indices)
+            # get atom ids of type i
+            indices = tags[shifted_types == i]
+
+            # if non-empty, add to struct vec
+            if indices.shape[0] > 0:
+                u.add_to_deriv_struct_vec(ni[shifted_types == i], indices)
 
         # Evaluate U, U', and compute zero-point energies
         uprimes = np.zeros(self.natoms)
         for y, u in zip(u_pvecs, self.us):
             uprimes += u.calc_deriv(y)
 
-        # logging.info("WORKER: uprimes = {0}".format(uprimes))
         return uprimes
 
     # @profile
@@ -554,6 +549,7 @@ class Worker:
 
         return forces
 
+    # @profile
     def parse_parameters(self, parameters):
         """Separates the pre-ordered 1D vector of all spline parameters into
         groups.
@@ -580,10 +576,11 @@ class Worker:
         nphi = self.nphi
         ntypes = self.ntypes
 
-        split_indices = [nphi, nphi + ntypes, nphi + 2 * ntypes,
-                         nphi + 3 * ntypes]
-        phi_pvecs, rho_pvecs, u_pvecs, f_pvecs, g_pvecs = np.split(
-            params_split, split_indices)
+        phi_pvecs = params_split[:nphi]
+        rho_pvecs = params_split[nphi: nphi + ntypes]
+        u_pvecs = params_split[nphi + ntypes:nphi + 2*ntypes]
+        f_pvecs = params_split[nphi + 2*ntypes:nphi + 3*ntypes]
+        g_pvecs = params_split[nphi + 3*ntypes:]
 
         return phi_pvecs, rho_pvecs, u_pvecs, f_pvecs, g_pvecs
 

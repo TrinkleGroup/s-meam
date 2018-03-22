@@ -4,6 +4,9 @@ import logging
 from scipy.sparse import diags, lil_matrix
 
 # from src.numba_functions import jit_add_at_1D, jit_add_at_2D
+import src.numba_functions
+from src.numba_functions import onepass_min_max, mat_vec_mult
+# from src.fast import onepass_min_max, mat_vec_mult
 
 logger = logging.getLogger(__name__)
 
@@ -162,19 +165,25 @@ class WorkerSpline:
         """
 
         x = np.atleast_1d(x)
+
         if x.shape[0] < 1:
             n_eval = 2*len(self.x) + 4
             return np.zeros(n_eval).reshape((1, n_eval))
 
-        self.lhs_extrap_dist = max(self.extrap_dist, np.min(x) - self.x[0])
-        self.rhs_extrap_dist = max(self.extrap_dist, np.max(x) - self.x[-1])
+        # self.lhs_extrap_dist = max(self.extrap_dist, np.min(x) - self.x[0])
+        # self.rhs_extrap_dist = max(self.extrap_dist, np.max(x) - self.x[-1])
+
+        mn, mx = onepass_min_max(x)
+        self.lhs_extrap_dist = max(self.extrap_dist, mn - self.x[0])
+        self.rhs_extrap_dist = max(self.extrap_dist, mx - self.x[-1])
 
         # add ghost knots
-        knots = [self.x[0] - self.lhs_extrap_dist] + list(self.x) + [self.x[-1]\
-                 + self.rhs_extrap_dist]
+        knots = [self.x[0] - self.lhs_extrap_dist] + self.x.tolist() + \
+                [self.x[-1] + self.rhs_extrap_dist]
+
         knots = np.array(knots)
 
-        nknots = len(knots)
+        nknots = knots.shape[0]
 
         # Perform interval search and prepare prefactors
         all_k = np.digitize(x, knots, right=True) - 1
@@ -396,6 +405,7 @@ class ffgSpline:
         #                                     dtype=float)
         self.forces_struct_vec = np.zeros((3*N*N, nknots_cartesian))
 
+    # @profile
     def calc_energy(self, y_fj, y_fk, y_g):
         fj = self.fj
         fk = self.fk
@@ -423,8 +433,16 @@ class ffgSpline:
 
         z_cart = np.outer(np.outer(z_fj, z_fk), z_g).ravel()
 
-        return self.energy_struct_vec @ z_cart
+        # return self.energy_struct_vec @ z_cart
 
+        val = self.energy_struct_vec.data
+        row = self.energy_struct_vec.indptr
+        col = self.energy_struct_vec.indices
+        N = self.energy_struct_vec.shape[0]
+
+        return mat_vec_mult(val, row, col, z_cart, N)
+
+    # @profile
     def calc_forces(self, y_fj, y_fk, y_g):
 
         fj = self.fj
@@ -447,12 +465,11 @@ class ffgSpline:
                [g.y[-1] + g.y1[-1]*g.rhs_extrap_dist, g.y1[0]] +\
                g.y1.tolist() + [g.y1[-1]]
 
-        z_fj = np.array(z_fj)
-        z_fk = np.array(z_fk)
-        z_g = np.array(z_g)
+        # z_fj = np.array(z_fj)
+        # z_fk = np.array(z_fk)
+        # z_g = np.array(z_g)
 
         z_cart = np.outer(np.outer(z_fj, z_fk), z_g).ravel()
-
 
         return self.forces_struct_vec @ z_cart
 
