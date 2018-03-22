@@ -17,7 +17,7 @@ from tests.testStructs import dimers, trimers, bulk_vac_ortho, \
 
 # logging.disable(logging.CRITICAL)
 
-DECIMAL = 13
+DECIMAL = 12
 
 N = 1
 
@@ -52,14 +52,9 @@ if bulk_flag:
                   **bulk_vac_rhombo, **bulk_periodic_rhombo, **extra}
 
 # allstructs = {'bulk_periodic_rhombo_mixed':bulk_periodic_rhombo['bulk_periodic_rhombo_mixed']}
-# allstructs = {'ab':dimers['ab']}
+# allstructs = {'aba':trimers['aba']}
 # allstructs = {'8_atom':extra['8_atoms']}
 
-# import lammpsTools
-# lammpsTools.atoms_to_LAMMPS_file('data.poop_8atoms', allstructs['8_atom'])
-
-# allstructs = {'read':lammpsTools.atoms_from_file('data.poop_8atoms', ['H',
-#                                                                       'He'])}
 ################################################################################
 # Helper functions
 
@@ -90,8 +85,8 @@ def loader_forces(group_name, calculated, lammps):
     for name in calculated.keys():
         test_name = group_name + '_' + name + '_forces'
         np.set_printoptions(precision=16)
-        # logging.info("LAMMPS = {0}".format(lammps[name][0]))
-        # logging.info("WORKER = {0}".format(calculated[name]))
+        # logging.info("LAMMPS =\n{0}".format(lammps[name][0]))
+        # logging.info("WORKER =\n{0}".format(calculated[name]))
         load_tests.append((test_name, calculated[name], lammps[name][0]))
 
     return load_tests
@@ -116,11 +111,12 @@ def get_lammps_results(pots, structs):
         for name in structs.keys():
             atoms = structs[name]
 
-            lmp_p.compute_forces(atoms)
+            # lmp_p.compute_energy(atoms)
+            # lmp_p.compute_forces(atoms)
 
             results = lmp_p.get_lammps_results(atoms)
             lmp_energies[name][pnum] = results['energy'] / len(atoms)
-            lmp_forces[name].append(results['forces'] / len(atoms))
+            lmp_forces[name].append(results['forces'])# / len(atoms))
 
             # TODO: LAMMPS runtimes are inflated due to ASE internal read/write
             # TODO: need to create shell script to get actual runtimes
@@ -152,8 +148,8 @@ def runner_forces(pots, structs):
         atoms = structs[name]
 
         w = Worker(atoms, x_pvec, indices, pots[0].types)
-        w.compute_energies(y_pvec)
-        wrk_forces[name] = np.array(w.compute_forces(y_pvec)) / len(atoms)
+        # w.compute_energies(y_pvec)
+        wrk_forces[name] = np.array(w.compute_forces(y_pvec))# / len(atoms)
     logging.info(" ...... {0} second(s)".format(time.time() - start))
 
     return wrk_forces
