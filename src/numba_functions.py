@@ -41,17 +41,32 @@ def onepass_min_max(a):
 
     return min, max
 
-# @cc.export('mat_vec_mult', 'f8[:](f8[:], i4[:], i4[:], f8[:], i4)')
 @jit(nopython=True, cache=True)
-def mat_vec_mult(val, row, col, vec, N):
+def outer_prod(v1, v2):
+    N = v1.shape[0]
+    M = v2.shape[0]
 
-    results = np.zeros(N)
+    results = np.zeros(N*M)
 
     for i in range(N):
-        for j in range(row[i], row[i+1]):
-            results[i] += val[j]*vec[col[j]]
+        a = v1[i]
+
+        for j in range(M):
+            results[i*M + j] += a*v2[j]
 
     return results
+
+# @cc.export('mat_vec_mult', 'f8[:](f8[:], i4[:], i4[:], f8[:], i4)')
+# @jit(nopython=True, cache=True)
+# def mat_vec_mult(val, row, col, vec, N):
+#
+#     results = np.zeros(N)
+#
+#     for i in range(N):
+#         for j in range(row[i], row[i+1]):
+#             results[i] += val[j]*vec[col[j]]
+#
+#     return results
 
 # if __name__ == '__main__':
 #     cc.compile()

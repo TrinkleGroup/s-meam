@@ -51,7 +51,7 @@ if bulk_flag:
     allstructs = {**allstructs, **bulk_vac_ortho, **bulk_periodic_ortho,
                   **bulk_vac_rhombo, **bulk_periodic_rhombo, **extra}
 
-# allstructs = {'bulk_periodic_rhombo_mixed':bulk_periodic_rhombo['bulk_periodic_rhombo_mixed']}
+allstructs = {'bulk_periodic_rhombo_mixed':bulk_periodic_rhombo['bulk_periodic_rhombo_mixed']}
 # allstructs = {'aba':trimers['aba']}
 # allstructs = {'8_atom':extra['8_atoms']}
 
@@ -124,6 +124,7 @@ def get_lammps_results(pots, structs):
     return lmp_energies, lmp_forces
 
 
+@profile
 def runner_energy(pots, structs):
     x_pvec, y_pvec, indices = src.meam.splines_to_pvec(pots[0].splines)
 
@@ -138,7 +139,7 @@ def runner_energy(pots, structs):
 
     return wrk_energies
 
-
+@profile
 def runner_forces(pots, structs):
     x_pvec, y_pvec, indices = src.meam.splines_to_pvec(pots[0].splines)
 

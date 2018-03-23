@@ -290,6 +290,10 @@ class MEAM:
 
                             partialsum += fk_val * g_val
                             tripcounter += 1
+                            logging.info("MEAM: ffg_type, i, ffg val = {0}, {1}, "
+                                         "{2}".format(ij_to_potl(jtype, ktype,
+                                                                 self.ntypes),
+                                                      i, fj_val*partialsum))
 
                             # logging.info("MEAM: cos_theta = {0}".format(cos_theta))
                             # logging.info("MEAM: ffg = {0}".format(fj_val*partialsum))
@@ -550,6 +554,7 @@ class MEAM:
 
         return self.forces
 
+    @profile
     def get_lammps_results(self, struct):
 
         types = ['H', 'He']
@@ -816,7 +821,6 @@ def ij_to_potl(itype, jtype, ntypes):
     if (itype < 1) or (jtype < 1):
         raise ValueError("atom types must be positive and non-zero")
     elif ntypes != 2:
-        # remove the unit test in meamTests.py once you implement this
         raise NotImplementedError("currently, only binary systems are "
                                   "supported")
     else:

@@ -4,8 +4,7 @@ import logging
 from scipy.sparse import diags, lil_matrix
 
 # from src.numba_functions import jit_add_at_1D, jit_add_at_2D
-import src.numba_functions
-from src.numba_functions import onepass_min_max, mat_vec_mult
+from src.numba_functions import onepass_min_max, outer_prod
 # from src.fast import onepass_min_max, mat_vec_mult
 
 logger = logging.getLogger(__name__)
@@ -170,9 +169,6 @@ class WorkerSpline:
             n_eval = 2*len(self.x) + 4
             return np.zeros(n_eval).reshape((1, n_eval))
 
-        # self.lhs_extrap_dist = max(self.extrap_dist, np.min(x) - self.x[0])
-        # self.rhs_extrap_dist = max(self.extrap_dist, np.max(x) - self.x[-1])
-
         mn, mx = onepass_min_max(x)
         self.lhs_extrap_dist = max(self.extrap_dist, mn - self.x[0])
         self.rhs_extrap_dist = max(self.extrap_dist, mx - self.x[-1])
@@ -242,9 +238,8 @@ class WorkerSpline:
             [self.y[-1] + self.y1[-1]*self.rhs_extrap_dist, self.y1[0]] +\
             self.y1.tolist() + [self.y1[-1]]
 
-        z = z
-
         return self.energy_struct_vec @ z
+
 
     def calc_forces(self, y):
         self.y = y
@@ -254,19 +249,14 @@ class WorkerSpline:
             [self.y[-1] + self.y1[-1]*self.rhs_extrap_dist, self.y1[0]] +\
             self.y1.tolist() + [self.y1[-1]]
 
-        z = z
-
         return np.einsum('ijk,j->ik', self.forces_struct_vec, z)
 
     def add_to_forces_struct_vec(self, values, dirs, atom_id):
         dirs = np.array(dirs)
 
-        abcd = self.get_abcd(values, 1)
+        abcd = self.get_abcd(values, 1).ravel()
 
-        for a in range(3):
-            abcd_3d = np.einsum('ij,i->ij', abcd, dirs[:,a])
-
-            self.forces_struct_vec[atom_id, :, a] += np.sum(abcd_3d, axis=0)
+        self.forces_struct_vec[atom_id, :, :] +=np.einsum('i,j->ij', abcd, dirs)
 
     def add_to_energy_struct_vec(self, values):
         self.energy_struct_vec += np.sum(self.get_abcd(values, 0), axis=0)
@@ -302,8 +292,6 @@ class USpline(WorkerSpline):
             self.y.tolist() +\
             [self.y[-1] + self.y1[-1]*self.rhs_extrap_dist, self.y1[0]] +\
             self.y1.tolist() + [self.y1[-1]]
-
-        z = z
 
         return self.deriv_struct_vec @ z
 
@@ -345,13 +333,17 @@ class RhoSpline(WorkerSpline):
             [self.y[-1] + self.y1[-1]*self.rhs_extrap_dist, self.y1[0]] +\
             self.y1.tolist() + [self.y1[-1]]
 
-        z = z
-
         return self.forces_struct_vec @ z
-        # return np.einsum('ijkl,k->ijl', self.forces_struct_vec, z)
+
+        # val = self.forces_struct_vec.data
+        # row = self.forces_struct_vec.indptr
+        # col = self.forces_struct_vec.indices
+        # N = self.forces_struct_vec.shape[0]
+        #
+        # return mat_vec_mult(val, row, col, z, N)
 
     def add_to_energy_struct_vec(self, values, atom_id):
-        self.energy_struct_vec[atom_id, :] += np.sum(self.get_abcd(values,0),
+        self.energy_struct_vec[atom_id, :] += np.sum(self.get_abcd(values, 0),
                                                      axis=0)
 
     def add_to_forces_struct_vec(self, value, dir, i, j):
@@ -362,16 +354,6 @@ class RhoSpline(WorkerSpline):
 
         for a in range(3):
             self.forces_struct_vec[N*N*a + N*i+ j,:] += abcd_3d[:,a]
-
-    def add_many_to_forces_struct_vec(self, values, dirs):
-        """Assumes all values correspond to a single ij pair"""
-
-        # TODO: doesn't work; assumes only one rij for each neighbor
-        for i, (row, row_dirs) in enumerate(zip(values, dirs)):
-            # all abcd for neighbors of atom i
-            abcd_3d = np.einsum('ij,ik->jk', self.get_abcd(row, 1), row_dirs)
-
-            self.forces_struct_vec[i, :, :, :] += abcd_3d
 
 class ffgSpline:
     """Spline representation specifically used for building a spline
@@ -397,12 +379,10 @@ class ffgSpline:
         # Variables that will be set at some point
         nknots_cartesian = (len(fj.x)*2+4)*(len(fk.x)*2+4)*(len(g.x)*2+4)
 
-        # TODO: make a nice sparse matrix for energy_struct_vec too
-        self.energy_struct_vec = np.zeros((natoms, nknots_cartesian))
-
         N = self.natoms
-        # self.forces_struct_vec = lil_matrix((3*N*N, nknots_cartesian),
-        #                                     dtype=float)
+
+        # initialized as array for fast building; converted to sparse later
+        self.energy_struct_vec = np.zeros((natoms, nknots_cartesian))
         self.forces_struct_vec = np.zeros((3*N*N, nknots_cartesian))
 
     # @profile
@@ -431,16 +411,17 @@ class ffgSpline:
         z_fk = np.array(z_fk)
         z_g = np.array(z_g)
 
-        z_cart = np.outer(np.outer(z_fj, z_fk), z_g).ravel()
+        # z_cart = np.outer(np.outer(z_fj, z_fk), z_g).ravel()
+        z_cart = outer_prod(outer_prod(z_fj, z_fk), z_g)
 
-        # return self.energy_struct_vec @ z_cart
+        return self.energy_struct_vec @ z_cart
 
-        val = self.energy_struct_vec.data
-        row = self.energy_struct_vec.indptr
-        col = self.energy_struct_vec.indices
-        N = self.energy_struct_vec.shape[0]
+        # val = self.energy_struct_vec.data
+        # row = self.energy_struct_vec.indptr
+        # col = self.energy_struct_vec.indices
+        # N = self.energy_struct_vec.shape[0]
 
-        return mat_vec_mult(val, row, col, z_cart, N)
+        # return mat_vec_mult(val, row, col, z_cart, N)
 
     # @profile
     def calc_forces(self, y_fj, y_fk, y_g):
@@ -465,11 +446,12 @@ class ffgSpline:
                [g.y[-1] + g.y1[-1]*g.rhs_extrap_dist, g.y1[0]] +\
                g.y1.tolist() + [g.y1[-1]]
 
-        # z_fj = np.array(z_fj)
-        # z_fk = np.array(z_fk)
-        # z_g = np.array(z_g)
+        z_fj = np.array(z_fj)
+        z_fk = np.array(z_fk)
+        z_g = np.array(z_g)
 
-        z_cart = np.outer(np.outer(z_fj, z_fk), z_g).ravel()
+        # z_cart = np.outer(np.outer(z_fj, z_fk), z_g).ravel()
+        z_cart = outer_prod(outer_prod(z_fj, z_fk), z_g)
 
         return self.forces_struct_vec @ z_cart
 
@@ -479,9 +461,9 @@ class ffgSpline:
         abcd_fk = self.fk.get_abcd(rik, 0).ravel()
         abcd_g = self.g.get_abcd(cos, 0).ravel()
 
-        cart = np.outer(np.outer(abcd_fj, abcd_fk), abcd_g).ravel()
+        # cart = np.outer(np.outer(abcd_fj, abcd_fk), abcd_g).ravel()
+        cart = outer_prod(outer_prod(abcd_fj, abcd_fk), abcd_g).ravel()
 
-        # self.energy_struct_vec[atom_id, :] += np.product(cart, axis=1)
         self.energy_struct_vec[atom_id, :] += cart
 
     # @profile
@@ -503,9 +485,12 @@ class ffgSpline:
         fj_2, fk_2, g_2 = self.get_abcd(rij, rik, cos, [0, 1, 0])
         fj_3, fk_3, g_3 = self.get_abcd(rij, rik, cos, [0, 0, 1])
 
-        v1 = np.outer(np.outer(fj_1, fk_1), g_1).ravel() # fj' fk g
-        v2 = np.outer(np.outer(fj_2, fk_2), g_2).ravel() # fj fk' g
-        v3 = np.outer(np.outer(fj_3, fk_3), g_3).ravel() # fj fk g' -> PF
+        # v1 = np.outer(np.outer(fj_1, fk_1), g_1).ravel() # fj' fk g
+        # v2 = np.outer(np.outer(fj_2, fk_2), g_2).ravel() # fj fk' g
+        # v3 = np.outer(np.outer(fj_3, fk_3), g_3).ravel() # fj fk g' -> PF
+        v1 = outer_prod(outer_prod(fj_1, fk_1), g_1) # fj' fk g
+        v2 = outer_prod(outer_prod(fj_2, fk_2), g_2) # fj fk' g
+        v3 = outer_prod(outer_prod(fj_3, fk_3), g_3) # fj fk g' -> PF
 
         # all 6 terms to be added
         t0 = np.einsum('i,k->ik', v1, dirs[0])
@@ -657,8 +642,7 @@ def build_M(num_x, dx, bc_type):
     elif bc_rhs == 'fixed':
         botA = np.zeros(n + 2).reshape((1, n + 2))
         botA[0, -1] = 1 / dx
-        botB = np.zeros(n + 2).reshape(
-            (1, n + 2))  # botB[0,-2] = 6 botB[0,-1] = -6
+        botB = np.zeros(n + 2).reshape((1, n + 2))
     else:
         raise ValueError("Invalid boundary condition. Must be 'natural' "
                          "or 'fixed'")
@@ -678,25 +662,3 @@ def build_M(num_x, dx, bc_type):
 
     # M = A^(-1)B
     return np.dot(np.linalg.inv(A), B)
-
-
-def cartesian_product(*arrays):
-    """Function for calculating the Cartesian product of any number of input
-    arrays.
-
-    Args:
-        arrays (np.arr):
-            any number of numpy arrays
-
-    Note: this function comes from the stackoverflow user 'senderle' in the
-    thread https://stackoverflow.com/questions/11144513/numpy-cartesian-product
-    -of-x-and-y-array-points-into-single-array-of-2d-points/11146645#11146645
-    """
-
-    la = len(arrays)
-    dtype = np.result_type(*arrays)
-    arr = np.empty([len(a) for a in arrays] + [la], dtype=dtype)
-    for i, a in enumerate(np.ix_(*arrays)):
-        arr[..., i] = a
-
-    return arr.reshape(-1, la)

@@ -182,6 +182,7 @@ atoms4 = Atoms([1, 1, 1, 1],
                               [r0 / 2, np.sqrt(3) * r0 / 2, 0]])
 
 atoms4.set_pbc(True)
+atoms4.set_chemical_symbols(np.random.randint(1, 3, size=len(atoms4)))
 atoms4.center(vacuum=vac)
 
 extra = {'8_atoms': atoms8, '4_atoms':atoms4}

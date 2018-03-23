@@ -1,5 +1,6 @@
 import os
 import numpy as np
+import pickle
 import cProfile
 import time
 import datetime
@@ -7,24 +8,24 @@ import datetime
 import ase.build
 from pympler.classtracker import ClassTracker
 
-import meam
-from spline import Spline
-from meam import MEAM
-from worker import Worker
+import src.meam
+from src.spline import Spline
+from src.meam import MEAM
+from src.worker import Worker
 
 allow_overwrite = True
 
-output_msg = "6-ffg-no-cartesian-prod"
+output_msg = "1-forces-new-updates"
 
 date = datetime.datetime.now()
 
-mem_filename = "../data/profiling/" \
-           "{0}-{1}-{2}_profiling-mem_{3}.txt".format(date.year, date.month,
-                                                      date.day, output_msg)
+date_str = date.strftime("%Y-%m-%d")
 
-stats_filename = "../data/profiling/" \
-           "{0}-{1}-{2}_profiling-stats_{3}.dat".format(date.year, date.month,
-                                                      date.day, output_msg)
+mem_filename = "../data/profiling/" + date_str + "_profiling-mem_" + \
+               output_msg + ".txt"
+
+stats_filename = "../data/profiling/" + date_str + "_profiling-stats_" + \
+                 output_msg + ".dat"
 
 if not allow_overwrite:
     if (os.path.isfile(mem_filename)
@@ -95,11 +96,19 @@ print("done", flush=True)
 # Perform worker force evaluation
 print("Performing calculations ... ", end="", flush=True)
 
-x_pvec, y_pvec, indices = meam.splines_to_pvec(potential.splines)
-worker = Worker(atoms, x_pvec, indices, potential.types)
+x_pvec, y_pvec, indices = src.meam.splines_to_pvec(potential.splines)
 
-cProfile.run('_ = worker.compute_energies(y_pvec)', filename=stats_filename)
-# cProfile.run('_ = worker.compute_forces(y_pvec)', filename=stats_filename)
+file_name = '../data/workers/prof_worker.pkl'
+
+if os.path.isfile(file_name):
+    print("Loading worker from file ... ", end="", flush=True)
+    worker = pickle.load(open(file_name, 'rb'))
+else:
+    worker = Worker(atoms, x_pvec, indices, potential.types)
+    pickle.dump(worker, open(file_name, 'wb'))
+
+# cProfile.run("worker.compute_energies(y_pvec)", filename=stats_filename)
+cProfile.run("worker.compute_forces(y_pvec)", filename=stats_filename)
 
 print("done", flush=True)
 
