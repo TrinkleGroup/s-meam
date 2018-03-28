@@ -273,6 +273,13 @@ class USpline(WorkerSpline):
 
         self.atoms_embedded = 0
 
+    def reset(self):
+        self.atoms_embedded = 0
+        self.deriv_struct_vec[:] = 0
+        self.energy_struct_vec[:] = 0
+        # self.deriv_struct_vec = np.zeros(self.deriv_struct_vec.shape)
+        # self.energy_struct_vec = self.deriv_struct_vec.copy()
+
     def add_to_energy_struct_vec(self, values):
         values = np.atleast_1d(values)
 

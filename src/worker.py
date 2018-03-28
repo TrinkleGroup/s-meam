@@ -159,7 +159,7 @@ class Worker:
                 a = jpos - ipos
                 na = np.sqrt(a[0]**2 + a[1]**2 + a[2]**2)
 
-                fj_idx = src.meam.i_to_potl(jtype)
+                fj_idx = jtype - 1
 
                 j_idx += 1
                 for k, offsetk in zip(neighbors[j_idx:], offsets[j_idx:]):
@@ -177,7 +177,7 @@ class Worker:
 
                         cos_theta = np.dot(a, b) / na / nb
 
-                        fk_idx = src.meam.i_to_potl(ktype)
+                        fk_idx = ktype - 1
 
                         d0 = jvec
                         d1 = -cos_theta * jvec / rij
@@ -285,9 +285,6 @@ class Worker:
 
         # TODO: should __call__() take in just a single potential?
 
-        # Uprimes must be reset to avoid reusing old results
-        self.uprimes[:] = 0.
-
         phi_pvecs, rho_pvecs, u_pvecs, f_pvecs, g_pvecs = \
             self.parse_parameters(parameters)
 
@@ -356,6 +353,8 @@ class Worker:
             if len(u.energy_struct_vec) > 0:
                 u_energy -= u.compute_zero_potential(y)
                 u_energy += u.calc_energy(y)
+
+            u.reset()
 
         return u_energy
 

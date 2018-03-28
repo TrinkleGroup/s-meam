@@ -8,7 +8,7 @@ import src.meam
 
 from src.worker import Worker
 
-np.random.seed(42)
+np.random.seed(9001)
 
 import tests.testPotentials
 
@@ -22,7 +22,7 @@ DECIMAL = 12
 N = 1
 
 # Flags for what tests to run
-energy_flag = True * 0
+energy_flag = True * 1
 forces_flag = True * 1
 
 zero_pots_flag  = True * 0
@@ -51,10 +51,10 @@ if bulk_flag:
     allstructs = {**allstructs, **bulk_vac_ortho, **bulk_periodic_ortho,
                   **bulk_vac_rhombo, **bulk_periodic_rhombo, **extra}
 
-# allstructs = {'bulk_vac_ortho_type1':bulk_vac_ortho['bulk_vac_ortho_type1'],
+# allstructs = {'bulk_vac_ortho_type1':bulk_vac_ortho['bulk_vac_ortho_type1'],}
 #               'bulk_vac_ortho_type1_v2':bulk_vac_ortho['bulk_vac_ortho_type1']}
 # allstructs = {'aba':trimers['aba']}
-# allstructs = {'8_atom':extra['8_atoms']}
+allstructs = {'8_atom':extra['8_atoms']}
 full_start = time.time()
 
 ################################################################################
@@ -138,6 +138,8 @@ def runner_energy(pots, structs):
         w = Worker(atoms, x_pvec, indices, pots[0].types)
         # TODO: to optimize, preserve workers for each struct
         wrk_energies[name] = w.compute_energies(y_pvec) / len(atoms)
+        wrk_energies[name] = w.compute_energies(y_pvec) / len(atoms)
+        # wrk_energies[name] = w.compute_energies(y_pvec) / len(atoms)
 
     return wrk_energies
 
@@ -152,6 +154,7 @@ def runner_forces(pots, structs):
 
         w = Worker(atoms, x_pvec, indices, pots[0].types)
         # w.compute_energies(y_pvec)
+        wrk_forces[name] = np.array(w.compute_forces(y_pvec))# / len(atoms)
         wrk_forces[name] = np.array(w.compute_forces(y_pvec))# / len(atoms)
     logging.info(" ...... {0} second(s)".format(time.time() - start))
 
