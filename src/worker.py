@@ -21,7 +21,7 @@ class Worker:
     """
 
     # @profile
-    def __init__(self, atoms, knot_xcoords, x_indices, types):
+    def __init__(self, atoms, knot_xcoords, x_indices, types, name='unnamed'):
         """Organizes data structures and pre-computes structure information.
 
         Args:
@@ -60,6 +60,7 @@ class Worker:
         # Basic variable initialization
         self.atoms      = atoms
         self.types      = types
+        self.name       = name
 
         ntypes          = len(self.types)
         self.ntypes     = ntypes
@@ -74,14 +75,13 @@ class Worker:
 
         self.uprimes    = np.zeros(self.natoms)
 
-        self.phis, self.rhos, self.us, self.fs, self.gs = \
-            self.build_spline_lists(knot_xcoords, x_indices)
+        all_splines = self.build_spline_lists(knot_xcoords, x_indices)
 
-        self.phis = list(self.phis)
-        self.rhos = list(self.rhos)
-        self.us = list(self.us)
-        self.fs = list(self.fs)
-        self.gs = list(self.gs)
+        self.phis = list(all_splines[0])
+        self.rhos = list(all_splines[1])
+        self.us = list(all_splines[2])
+        self.fs = list(all_splines[3])
+        self.gs = list(all_splines[4])
 
         self.ffgs = self.build_ffg_list(self.fs, self.gs)
 

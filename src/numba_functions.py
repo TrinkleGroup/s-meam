@@ -1,8 +1,8 @@
 import numpy as np
 from numba import jit
-# from numba.pycc import CC
-#
-# cc = CC('fast')
+from numba.pycc import CC
+
+cc = CC('fast')
 #
 # @jit(nopython=True)
 # def jit_add_at_1D(indices, values, minlength):
@@ -56,17 +56,17 @@ def outer_prod(v1, v2):
 
     return results
 
-# @cc.export('mat_vec_mult', 'f8[:](f8[:], i4[:], i4[:], f8[:], i4)')
 # @jit(nopython=True, cache=True)
-# def mat_vec_mult(val, row, col, vec, N):
-#
-#     results = np.zeros(N)
-#
-#     for i in range(N):
-#         for j in range(row[i], row[i+1]):
-#             results[i] += val[j]*vec[col[j]]
-#
-#     return results
+@cc.export('mat_vec_mult', 'f8[:](f8[:], i4[:], i4[:], f8[:], i4)')
+def mat_vec_mult(val, row, col, vec, N):
 
-# if __name__ == '__main__':
-#     cc.compile()
+    results = np.zeros(N)
+
+    for i in range(N):
+        for j in range(row[i], row[i+1]):
+            results[i] += val[j]*vec[col[j]]
+
+    return results
+
+if __name__ == '__main__':
+    cc.compile()

@@ -554,7 +554,7 @@ class MEAM:
 
         return self.forces
 
-    @profile
+    # @profile
     def get_lammps_results(self, struct):
 
         types = ['H', 'He']
