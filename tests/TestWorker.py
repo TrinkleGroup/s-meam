@@ -22,7 +22,7 @@ DECIMAL = 12
 N = 1
 
 # Flags for what tests to run
-energy_flag = True * 1
+energy_flag = True * 0
 forces_flag = True * 1
 
 zero_pots_flag  = True * 0
@@ -51,9 +51,11 @@ if bulk_flag:
     allstructs = {**allstructs, **bulk_vac_ortho, **bulk_periodic_ortho,
                   **bulk_vac_rhombo, **bulk_periodic_rhombo, **extra}
 
-# allstructs = {'bulk_periodic_rhombo_mixed':bulk_periodic_rhombo['bulk_periodic_rhombo_mixed']}
+# allstructs = {'bulk_vac_ortho_type1':bulk_vac_ortho['bulk_vac_ortho_type1'],
+#               'bulk_vac_ortho_type1_v2':bulk_vac_ortho['bulk_vac_ortho_type1']}
 # allstructs = {'aba':trimers['aba']}
 # allstructs = {'8_atom':extra['8_atoms']}
+full_start = time.time()
 
 ################################################################################
 # Helper functions
@@ -124,6 +126,7 @@ def get_lammps_results(pots, structs):
     return lmp_energies, lmp_forces
 
 
+# @profile
 def runner_energy(pots, structs):
     x_pvec, y_pvec, indices = src.meam.splines_to_pvec(pots[0].splines)
 
@@ -138,7 +141,7 @@ def runner_energy(pots, structs):
 
     return wrk_energies
 
-
+# @profile
 def runner_forces(pots, structs):
     x_pvec, y_pvec, indices = src.meam.splines_to_pvec(pots[0].splines)
 
@@ -517,3 +520,5 @@ if rand_pots_flag:
                 np.testing.assert_almost_equal(max_diff, 0.0, decimal=DECIMAL)
 
 ################################################################################
+
+logging.info("Total runtime: {0}".format(time.time() - full_start))
