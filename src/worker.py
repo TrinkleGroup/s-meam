@@ -95,12 +95,12 @@ class Worker:
         nl_noboth = NeighborList(np.ones(self.natoms) * (self.cutoff / 2.),
                                  self_interaction=False, bothways=False,
                                  skin=0.0)
-        nl_noboth.build(atoms)
+        nl_noboth.update(atoms)
 
         # Allows double counting bonds; needed for embedding energy calculations
         nl = NeighborList(np.ones(self.natoms) * (self.cutoff / 2.),
                           self_interaction=False, bothways=True, skin=0.0)
-        nl.build(atoms)
+        nl.update(atoms)
 
         for i, atom in enumerate(self.atoms):
             # Record atom type info

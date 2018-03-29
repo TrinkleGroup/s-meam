@@ -196,8 +196,8 @@ class MEAM:
         nl_noboth = NeighborList(np.ones(len(atoms)) * (self.cutoff / 2),
                                  self_interaction=False, bothways=False,
                                  skin=0.0)
-        nl.build(atoms)
-        nl_noboth.build(atoms)
+        nl.update(atoms)
+        nl_noboth.update(atoms)
 
         total_pe = 0.0
         natoms = len(atoms)
@@ -290,10 +290,10 @@ class MEAM:
 
                             partialsum += fk_val * g_val
                             tripcounter += 1
-                            logging.info("MEAM: ffg_type, i, ffg val = {0}, {1}, "
-                                         "{2}".format(ij_to_potl(jtype, ktype,
-                                                                 self.ntypes),
-                                                      i, fj_val*partialsum))
+                            # logging.info("MEAM: ffg_type, i, ffg val = {0}, {1}, "
+                            #              "{2}".format(ij_to_potl(jtype, ktype,
+                            #                                      self.ntypes),
+                            #                           i, fj_val*partialsum))
 
                             # logging.info("MEAM: cos_theta = {0}".format(cos_theta))
                             # logging.info("MEAM: ffg = {0}".format(fj_val*partialsum))
@@ -327,6 +327,7 @@ class MEAM:
                 self.uprimes[i] = u(total_ni, 1)
             # end atom loop
 
+        logging.info("MEAM: eng = {0}".format(total_pe))
         return total_pe
 
     def compute_forces(self, atoms):
@@ -353,8 +354,8 @@ class MEAM:
         nl_noboth = NeighborList(np.ones(len(atoms)) * (self.cutoff / 2),
                                  self_interaction=False, bothways=False,
                                  skin=0.0)
-        nl.build(atoms)
-        nl_noboth.build(atoms)
+        nl.update(atoms)
+        nl_noboth.update(atoms)
 
         natoms = len(atoms)
 
@@ -568,14 +569,14 @@ class MEAM:
         self.write_to_file('test.meam.spline')
 
         calc = LAMMPS(no_data_file=True, parameters=params,
-                      keep_tmp_files=False, specorder=types,
+                      keep_tmp_files=True, specorder=types,
                       files=['test.meam.spline'])
 
         energy = calc.get_potential_energy(struct)
         forces = calc.get_forces(struct)
 
         calc.clean()
-        os.remove('test.meam.spline')
+        # os.remove('test.meam.spline')
 
         results = {'energy': energy, 'forces': forces}
 
@@ -635,7 +636,7 @@ class MEAM:
             for fxn in self.gs:
                 write_spline(fxn)
 
-    def plot(self, fname=None):
+    def plot(self, fname=''):
         """Generates plots of all splines"""
 
         splines = self.phis + self.rhos + self.us + self.fs + self.gs

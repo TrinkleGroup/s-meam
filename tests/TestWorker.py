@@ -8,7 +8,7 @@ import src.meam
 
 from src.worker import Worker
 
-np.random.seed(9001)
+#np.random.seed(237907459)
 
 import tests.testPotentials
 
@@ -53,8 +53,11 @@ if bulk_flag:
 
 # allstructs = {'bulk_vac_ortho_type1':bulk_vac_ortho['bulk_vac_ortho_type1'],}
 #               'bulk_vac_ortho_type1_v2':bulk_vac_ortho['bulk_vac_ortho_type1']}
-# allstructs = {'aba':trimers['aba']}
-allstructs = {'8_atom':extra['8_atoms']}
+# allstructs = {'aa':dimers['aa']}
+allstructs = {'4_atom':extra['4_atoms']}
+# import lammpsTools
+# lammpsTools.atoms_to_LAMMPS_file('../data/structs/data.4atoms',
+#                                  allstructs['4_atom'])
 full_start = time.time()
 
 ################################################################################
@@ -118,7 +121,10 @@ def get_lammps_results(pots, structs):
 
             results = lmp_p.get_lammps_results(atoms)
             lmp_energies[name][pnum] = results['energy'] / len(atoms)
-            lmp_forces[name].append(results['forces'])# / len(atoms))
+            # lmp_energies[name][pnum] = lmp_p.compute_energy(atoms) / len(atoms)
+            # print("ASE results = {:.16f}\n".format(results['energy']))
+            lmp_forces[name].append(results['forces'] / len(atoms))
+            # lmp_forces[name].append(lmp_p.compute_forces(atoms) / len(atoms))
 
             # TODO: LAMMPS runtimes are inflated due to ASE internal read/write
             # TODO: need to create shell script to get actual runtimes
@@ -138,8 +144,6 @@ def runner_energy(pots, structs):
         w = Worker(atoms, x_pvec, indices, pots[0].types)
         # TODO: to optimize, preserve workers for each struct
         wrk_energies[name] = w.compute_energies(y_pvec) / len(atoms)
-        wrk_energies[name] = w.compute_energies(y_pvec) / len(atoms)
-        # wrk_energies[name] = w.compute_energies(y_pvec) / len(atoms)
 
     return wrk_energies
 
@@ -153,9 +157,7 @@ def runner_forces(pots, structs):
         atoms = structs[name]
 
         w = Worker(atoms, x_pvec, indices, pots[0].types)
-        # w.compute_energies(y_pvec)
-        wrk_forces[name] = np.array(w.compute_forces(y_pvec))# / len(atoms)
-        wrk_forces[name] = np.array(w.compute_forces(y_pvec))# / len(atoms)
+        wrk_forces[name] = np.array(w.compute_forces(y_pvec) / len(atoms))
     logging.info(" ...... {0} second(s)".format(time.time() - start))
 
     return wrk_forces

@@ -145,6 +145,7 @@ def get_random_pots(new_n):
 
             p = MEAM(splines=splines, types=['H', 'He'])
             # p = MEAM.from_file("../data/pot_files/HHe.meam.spline")
+            # p = MEAM.from_file("../large_error_pot_phionly.meam")
 
             # import meam
             # x_pvec, y_pvec, indices = meam.splines_to_pvec(p.splines)
