@@ -9,12 +9,7 @@ Library for rapid evaluation of spline-based Modified Embedded Atom Method
 Trello project outline (private): https://trello.com/b/AvNqE7BZ/s-meam
 UML diagram (private): https://go.gliffy.com/go/html5/12455794
 
-Note: this module uses the ASE package for modeling atomic systems. Due to the
- way that that the default ASE's LAMMPS calculator works that causes a loss in
- accuracy, some of the test cases (particularly in tests/TestMeam.py) will
- appear to fail. To solve this problem, copy src/misc/lammpsrun.py into your ASE
- /ase/calculators/ folder, overwriting the original lammpsrun.py (you may want
- to back this up, just to be safe). It is worth mentioning that although the
- tests need this to work properly, the code itself does not rely on the ASE
- calculators at all, so failure to update lammpsrun.py will have no impact on
- the performance of the actual code, just the tests.
+Note, there are two known (by me) issues with the ASE LAMMPScalculator:
+   1) Using ASE v3.16.0, the calculator truncates thermo data at 10e-8
+   2) Using ASE v3.16.0, the Prism object has a default accuracy of 10 digits
+   on positions
