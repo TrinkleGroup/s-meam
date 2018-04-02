@@ -1,10 +1,25 @@
 import os
+# os.chdir('/home/jvita/scripts/s-meam/project/src')
 import sys
+sys.path.insert(0, '/home/jvita/scripts/s-meam/project')
 import time
 import numpy as np
+#import multiprocessing as mp
+
+#print(sys.executable)
+#print(sys.path)
+#print(os.getcwd())
+#print()
+
+print("WAIT - check the following before crying:")
+print("\t1) ASE lammpsrun.py has Prism(digits=16)")
+print("\t2) ASE lammpsrun.py using custom_printing")
+print("\t3) Comparing PER-ATOM values")
+print()
 
 seed = np.random.randint(0, high=(2**32 - 1))
-#seed = 1926413028
+#seed = int(sys.argv[1])
+#seed = 3710767572
 print("Seed value: {0}".format(seed))
 
 np.random.seed(seed)
@@ -18,23 +33,26 @@ from tests.testStructs import allstructs
 from tests.testPotentials import get_random_pots
 
 #test_name2 = 'bulk_periodic_rhombo_mixed'
-#test_name1 = 'bulk_vac_ortho_type1'
-#test_name2 = '8_atoms'
-#allstructs = {test_name2+'_v1': allstructs[test_name2],
-#             test_name2+'_v2': allstructs[test_name2],}
-#             test_name2+'_v3': allstructs[test_name2],
-#             test_name2+'_v4': allstructs[test_name2],
-#             test_name2+'_v5': allstructs[test_name2],}
-#               test_name+'_v6': allstructs[test_name],
+# test_name1 = 'bulk_vac_ortho_type1'
+# test_name2 = '8_atoms'
+# allstructs = {test_name2+'_v1': allstructs[test_name2],
+#               test_name2+'_v2': allstructs[test_name2],
+#               test_name2+'_v3': allstructs[test_name2],
+#               test_name2+'_v4': allstructs[test_name2],
+#               test_name2+'_v5': allstructs[test_name2],
+#               test_name2+'_v6': allstructs[test_name2],
 #               }
 
 NUM_THREADS = 7
+print("Requested {0} threads".format(NUM_THREADS))
+print()
 
 C_str = 'C'
 R_str = '*'
 P_str = '-'
 
 config = {
+    "globals": {"lazyErrors": False},
     "sites": [
         {"site": "Local_IPP",
          "auth": {
@@ -56,13 +74,14 @@ config = {
 
 ################################################################################
 
-#workers = ThreadPoolExecutor(max_workers=NUM_THREADS)
-#dfk = DataFlowKernel(executors=[workers])
+# workers = ThreadPoolExecutor(max_workers=NUM_THREADS)
+# dfk = DataFlowKernel(executors=[workers])
 
 dfk = DataFlowKernel(config=config)
 
 @App('python', dfk)
 def build_worker(atoms, atoms_name, x_pvec, indices, types):
+    print("Starting worker...")
     import os
     import pickle
 
@@ -77,23 +96,24 @@ def build_worker(atoms, atoms_name, x_pvec, indices, types):
         w = pickle.load(open(file_name, 'rb'))
     else:
         w = Worker(atoms, x_pvec, indices, types)
-        pickle.dump(w, open(file_name, 'wb'))
+        #pickle.dump(w, open(file_name, 'wb'))
 
+    print("Built worker ...")
     return w
 
 @App('python', dfk)
 def compute_energy(w, y_pvec_):
     eng = w.compute_energies(y_pvec_)
 
-    return eng / len(w.atoms)
+    return eng
 
 @App('python', dfk)
 def compute_forces(w, y_pvec_):
     forces = w.compute_forces(y_pvec_)
 
-    return forces / len(w.atoms)
+    return forces
 
-def get_status(all_jobs, dfk):
+def get_status(all_jobs):
 
     data_c = []
     for row in all_jobs:
@@ -103,20 +123,10 @@ def get_status(all_jobs, dfk):
             state = P_str
 
             if task.parent:
-                # print(task.parent._state)
-                # if task.parent.started:
                 task.update_parent(task.parent)
+
                 if task.done(): state = C_str
                 elif task.running(): state = R_str
-                # TODO: task.running() not working
-
-                # for v in running:
-                #     if task.parent.engine_uuid == v: state = R_str
-                # elif task.parent.engine_uuid in running: state = R_str
-                # elif task.parent._state == 'RUNNING': state = R_str
-            # task.running()
-            # if task.running(): state = R_str
-            # elif task.done(): state = C_str
 
             row_results.append(state)
         data_c.append(row_results)
@@ -160,6 +170,11 @@ def print_complete(all_calcs):
 potential = get_random_pots(1)['meams'][0]
 x_pvec, y_pvec, indices = src.meam.splines_to_pvec(potential.splines)
 
+# potential.write_to_file('test_bad_pot.meam')
+# atoms = allstructs[test_name1+'_v1']
+# import lammpsTools
+# lammpsTools.atoms_to_LAMMPS_file('bad_atoms', atoms)
+
 start = time.time()
 
 all_jobs = [[], [], []]
@@ -174,38 +189,39 @@ for worker in all_jobs[0]:
    all_jobs[1].append(compute_energy(worker, y_pvec))
    all_jobs[2].append(compute_forces(worker, y_pvec))
 
-if len(sys.argv) > 1: long_printing = sys.argv[1]
-else: long_printing = 'NULL'
+#if len(sys.argv) > 1: long_printing = sys.argv[1]
+#else: long_printing = 'NULL'
 
-if long_printing == '-l':
+#if long_printing == '-l':
+if '-l' in sys.argv:
     print()
     print(C_str + " := complete")
-    print(R_str + " := running")
+    print(R_str + " := running (not implemented)")
     print(P_str + " := in queue")
     print()
 
-
-    status =  get_status(all_jobs, dfk)
+    status =  get_status(all_jobs)
     print_table(status)
 
     executor = dfk.executors[list(dfk.executors.keys())[0]].executor
 
     completed = count_state(status, C_str)
-    #running = len(executor.outstanding)
+    # running = len(executor.outstanding)
 
-    #print("Jobs queued: {0}".format(running))
+    #print("Running over {0} processors".format(mp.cpu_count() - 1))
     print("Completed {:d}/{:d} jobs in {:.0f} seconds".format(completed,
         status.size, time.time() - start), flush=True, end='\r')
 
     while completed < status.size:
-        status =  get_status(all_jobs, dfk)
+        status =  get_status(all_jobs)
         reset_cursor(len(all_jobs[0]) + 5)
         print_table(status)
 
         completed = count_state(status, C_str)
-        #running = len(executor.outstanding)
+        # running = len(executor.outstanding)
 
         #print("Jobs queued: {0}".format(running))
+        #print("Running over {0} processors".format(mp.cpu_count() - 1))
         print("Completed {:d}/{:d} jobs in {:.0f} seconds".format(completed,
             status.size, time.time() - start), flush=True, end='\r')
 
@@ -219,31 +235,38 @@ else:
 
 results = [[job.result() for job in job_type] for job_type in all_jobs]
 
-py_energies = np.vstack([el for el in results[1]])
-py_forces = np.vstack([el for el in results[2]])
+# py_energies = np.vstack([el for el in results[1]])
+# py_forces = np.array([el for el in results[2]])
 
 lammps_results = [potential.get_lammps_results(allstructs[test_name])
         for test_name in allstructs.keys()]
 
-lammps_energies = []
-lammps_forces = []
+max_energy_err = []
+max_energy_err_m = []
+max_force_err = []
 
-for key,calculated in zip(allstructs.keys(), lammps_results):
+for key, py_e, py_f, lmps in zip(allstructs.keys(), results[1], results[2],
+                                 lammps_results):
     natoms = len(allstructs[key])
 
-    lammps_energies.append(calculated['energy'] / natoms)
-    lammps_forces.append(calculated['forces'] / natoms)
+    max_energy_err.append(np.max(np.abs(py_e - lmps['energy']) / natoms))
+    # max_energy_err_m.append(np.max(np.abs(py_e - potential.compute_energy(
+    #     allstructs[key])) / natoms))
+    max_force_err.append(np.max(np.max(np.abs(py_f - lmps['forces']))))
 
-lammps_energies = np.vstack(lammps_energies)
-lammps_forces = np.vstack(lammps_forces)
+# print()
+# print("Maximum error (compared to LAMMPS):")
+# print("\tEnergy: {0}".format(max_energy_err))
+# print("\tForces: {0}".format(max_force_err))
 
-#lammps_energies = np.vstack([v['energy'] for v in lammps_results])
-#lammps_forces = np.vstack([v['forces'] for v in lammps_results])
+logfile = "accuracy_results.dat"
 
-max_energy_err = np.max(np.max(np.abs(py_energies - lammps_energies)))
-max_force_err = np.max(np.max(np.abs(py_forces - lammps_forces)))
+with open(logfile, 'ab') as f:
+    arr = np.concatenate([max_energy_err, max_force_err, [seed]])
+    np.savetxt(f, np.atleast_2d(arr))
 
-print()
-print("Maximum error (compared to LAMMPS):")
-print("\tEnergy: {0}".format(max_energy_err))
-print("\tForces: {0}".format(max_force_err))
+# print(max_energy_err)
+# print(max_energy_err_m)
+
+print("{0}\n".format(max_energy_err))
+print("{0}\n".format(max_force_err))

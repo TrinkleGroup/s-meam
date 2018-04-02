@@ -20,6 +20,8 @@ class Worker:
         - the atomic structure never changes
     """
 
+    # TODO: in general, need more descriptive variable/function names
+
     # @profile
     def __init__(self, atoms, knot_xcoords, x_indices, types, name='unnamed'):
         """Organizes data structures and pre-computes structure information.
@@ -39,7 +41,7 @@ class Worker:
                     phi_Ti-Ti, phi_Ti-O, phi_O-O, rho_Ti, rho_O, U_Ti, U_O,
                     f_Ti, f_O, g_Ti-Ti, g_Ti-O, g_O-O
 
-                    where phi_Ti-Ti has 5 knots, phi_Ti-O has 9, rho_O has 13,
+                    where phi_Ti-Ti could have 5 knots, phi_Ti-O 9, rho_O 13,
                     etc.
 
                 This array will be broken apart into individual splines (
@@ -69,6 +71,7 @@ class Worker:
         f = lambda t: src.lammpsTools.symbol_to_type(t, self.types)
         self.type_of_each_atom = list(map(f, atoms.get_chemical_symbols()))
 
+        # TODO: rename self.nphi to be more clear
         # there are nphi phi functions and nphi g fxns
         nphi            = int((self.ntypes+1)*self.ntypes/2)
         self.nphi       = nphi
@@ -143,6 +146,7 @@ class Worker:
                 self.rhos[itype-1].add_to_forces_struct_vec(rij, -jvec, j, j)
 
             # Store distances, angle, and index info for embedding terms
+            # TODO: rename j_idx to be more clear
             j_idx = 0  # for tracking neighbor
             for j, offsetj in zip(neighbors, offsets):
 
@@ -260,7 +264,7 @@ class Worker:
         elif not self.gs:
             raise ValueError("g splines have not been set yet")
 
-        ffg_list = [[] for i in range(len(self.fs))]
+        ffg_list = [[] for _ in range(len(self.fs))]
         for j, fj in enumerate(fs):
             for k, fk in enumerate(fs):
                 g = gs[src.meam.ij_to_potl(j + 1, k + 1, self.ntypes)]

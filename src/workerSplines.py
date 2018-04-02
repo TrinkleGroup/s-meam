@@ -15,58 +15,37 @@ class WorkerSpline:
     the needs of a Worker object.
 
     Attributes:
-        x (np.arr):
-            x-coordinates of knot points
+        x (np.arr): x-coordinates of knot points
 
-        h (float):
-            knot spacing (assumes equally-spaced)
+        h (float): knot spacing (assumes equally-spaced)
 
-        y (np.arr):
-            y-coordinates of knot points only set by solve_for_derivs()
+        y (np.arr): y-coordinates of knot points only set by solve_for_derivs()
 
-        y1 (np.arr):
-            first derivatives at knot points only set by solve_for_derivs()
+        y1 (np.arr): first derivatives at knot points only set by
+            solve_for_derivs()
 
-        M (np.arr):
-            M = AB where A and B are the matrices from the system of
+        M (np.arr): M = AB where A and B are the matrices from the system of
             equations that comes from matching second derivatives at knot
             points (see build_M() for details)
 
-        cutoff (tuple-like):
-            upper and lower bounds of knots (x[0], x[-1])
+        cutoff (tuple-like): upper and lower bounds of knots (x[0], x[-1])
 
-        end_derivs (tuple-like):
-            first derivatives at endpoints
+        end_derivs (tuple-like): first derivatives at endpoints
 
-        bc_type (tuple):
-            2-element tuple corresponding to boundary conditions at LHS/RHS
+        bc_type (tuple): 2-element tuple corresponding to boundary conditions at LHS/RHS
             respectively. Options are 'natural' (zero second derivative) and
             'fixed' (fixed first derivative). If 'fixed' on one/both ends,
             self.end_derivatives cannot be None for that end
 
-        struct_vecs (list [list]):
-            list of structure vects, where struct_vec[i] is the structure
-            vector used to evaluate the function at the i-th derivative.
+        energy_struct_vec (np.arr): NxZ matrix where N is the number of atoms in
+            the system, Z is the number of knot points being used. The i-th
+            row represents the sum of the contributions to the i-th atom. The
+            first half of each row is the coefficients in front of the knot
+            value terms in the Cubic Hermitian Spline format; the second half of
+            each row is the coefficients in front of the knot derivative values.
 
-            each structure vector is a 2D list for evaluating the spline on
-            the structure each row corresponds to a single pair/triplet
-            evaluation. Converted to NumPy array for calculations
-
-        indices[_f,_b] (list [tuple-like]):
-            indices for matching values to atoms needed for force
-            calculations, which require per-atom grouping. Tuple needed to do
-            forwards/backwards directions. For U, this is just a single ID.
-            The _f or _b denotes forwards/backwards directions
-
-    Notes:
-        This object is distinct from a spline.Spline since it requires some
-        attributes and functionality that a spline.Spline doesn't have.
-
-        By default, splines are designed to extrapolate accurately to double
-        the effective range (half of the original range on each side)
-
-        It is assumed that the U potential will modify the extrapolation
-        parameters outside of the WorkerSpline based on calculated ni values
+        forces_struct_vec (np.arr): same as energy_struct_vec format,
+            but with a third dimension for xyz cartesian directions
     """
 
     def __init__(self, x, bc_type, natoms):
