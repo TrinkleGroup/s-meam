@@ -196,8 +196,8 @@ class MEAM:
         nl_noboth = NeighborList(np.ones(len(atoms)) * (self.cutoff / 2),
                                  self_interaction=False, bothways=False,
                                  skin=0.0)
-        nl.build(atoms)
-        nl_noboth.build(atoms)
+        nl.update(atoms)
+        nl_noboth.update(atoms)
 
         total_pe = 0.0
         natoms = len(atoms)
@@ -290,10 +290,10 @@ class MEAM:
 
                             partialsum += fk_val * g_val
                             tripcounter += 1
-                            logging.info("MEAM: ffg_type, i, ffg val = {0}, {1}, "
-                                         "{2}".format(ij_to_potl(jtype, ktype,
-                                                                 self.ntypes),
-                                                      i, fj_val*partialsum))
+                            # logging.info("MEAM: ffg_type, i, ffg val = {0}, {1}, "
+                            #              "{2}".format(ij_to_potl(jtype, ktype,
+                            #                                      self.ntypes),
+                            #                           i, fj_val*partialsum))
 
                             # logging.info("MEAM: cos_theta = {0}".format(cos_theta))
                             # logging.info("MEAM: ffg = {0}".format(fj_val*partialsum))
