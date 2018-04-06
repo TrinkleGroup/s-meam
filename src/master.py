@@ -4,7 +4,7 @@ import sys
 sys.path.insert(0, '/home/jvita/scripts/s-meam/project')
 import time
 import numpy as np
-#import multiprocessing as mp
+import multiprocessing as mp
 
 #print(sys.executable)
 #print(sys.path)
@@ -44,7 +44,7 @@ from tests.testPotentials import get_random_pots
 #               }
 
 NUM_THREADS = 7
-print("Requested {0} threads".format(NUM_THREADS))
+print("Requested {0}/{1} threads".format(NUM_THREADS, mp.cpu_count()))
 print()
 
 C_str = 'C'
@@ -52,7 +52,6 @@ R_str = '*'
 P_str = '-'
 
 config = {
-    "globals": {"lazyErrors": False},
     "sites": [
         {"site": "Local_IPP",
          "auth": {
@@ -77,11 +76,10 @@ config = {
 # workers = ThreadPoolExecutor(max_workers=NUM_THREADS)
 # dfk = DataFlowKernel(executors=[workers])
 
-dfk = DataFlowKernel(config=config)
+dfk = DataFlowKernel(config=config, lazy_fail=False)
 
 @App('python', dfk)
 def build_worker(atoms, atoms_name, x_pvec, indices, types):
-    print("Starting worker...")
     import os
     import pickle
 
@@ -95,10 +93,10 @@ def build_worker(atoms, atoms_name, x_pvec, indices, types):
     if allow_reload and os.path.isfile(file_name):
         w = pickle.load(open(file_name, 'rb'))
     else:
+        #cause_an_error = Worker(atoms)
         w = Worker(atoms, x_pvec, indices, types)
         #pickle.dump(w, open(file_name, 'wb'))
 
-    print("Built worker ...")
     return w
 
 @App('python', dfk)
@@ -124,6 +122,7 @@ def get_status(all_jobs):
 
             if task.parent:
                 task.update_parent(task.parent)
+                #state = task.parent._state
 
                 if task.done(): state = C_str
                 elif task.running(): state = R_str
@@ -210,11 +209,11 @@ if '-l' in sys.argv:
 
     #print("Running over {0} processors".format(mp.cpu_count() - 1))
     print("Completed {:d}/{:d} jobs in {:.0f} seconds".format(completed,
-        status.size, time.time() - start), flush=True, end='\r')
+        status.size, time.time() - start), flush=True)#, end='\r')
 
     while completed < status.size:
         status =  get_status(all_jobs)
-        reset_cursor(len(all_jobs[0]) + 5)
+        reset_cursor(len(all_jobs[0]) + 6)
         print_table(status)
 
         completed = count_state(status, C_str)
@@ -223,7 +222,7 @@ if '-l' in sys.argv:
         #print("Jobs queued: {0}".format(running))
         #print("Running over {0} processors".format(mp.cpu_count() - 1))
         print("Completed {:d}/{:d} jobs in {:.0f} seconds".format(completed,
-            status.size, time.time() - start), flush=True, end='\r')
+            status.size, time.time() - start), flush=True)#, end='\r')
 
         time.sleep(1)
 

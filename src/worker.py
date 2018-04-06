@@ -287,8 +287,6 @@ class Worker:
                 The first K in each group are the knot y-values
         """
 
-        # TODO: should __call__() take in just a single potential?
-
         phi_pvecs, rho_pvecs, u_pvecs, f_pvecs, g_pvecs = \
             self.parse_parameters(parameters)
 
