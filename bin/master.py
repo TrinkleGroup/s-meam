@@ -1,55 +1,58 @@
 import os
-# os.chdir('/home/jvita/scripts/s-meam/project/src')
 import sys
-sys.path.insert(0, '/home/jvita/scripts/s-meam/project')
+sys.path.insert(0, './')
+
 import time
 import numpy as np
-import multiprocessing as mp
-
-#print(sys.executable)
-#print(sys.path)
-#print(os.getcwd())
-#print()
-
-print("WAIT - check the following before crying:")
-print("\t1) ASE lammpsrun.py has Prism(digits=16)")
-print("\t2) ASE lammpsrun.py using custom_printing")
-print("\t3) Comparing PER-ATOM values")
-print()
 
 seed = np.random.randint(0, high=(2**32 - 1))
 #seed = int(sys.argv[1])
-#seed = 3710767572
-print("Seed value: {0}".format(seed))
-
+#seed = 42
 np.random.seed(seed)
+print("Seed value: {0}\n".format(seed))
 
-import parsl
-from parsl import *
 from prettytable import PrettyTable
+from pprint import pprint
 
-import src.meam
-from tests.testStructs import allstructs
-from tests.testPotentials import get_random_pots
+from parsl import *
+import multiprocessing as mp
 
-#test_name2 = 'bulk_periodic_rhombo_mixed'
-# test_name1 = 'bulk_vac_ortho_type1'
-# test_name2 = '8_atoms'
-# allstructs = {test_name2+'_v1': allstructs[test_name2],
-#               test_name2+'_v2': allstructs[test_name2],
-#               test_name2+'_v3': allstructs[test_name2],
-#               test_name2+'_v4': allstructs[test_name2],
-#               test_name2+'_v5': allstructs[test_name2],
-#               test_name2+'_v6': allstructs[test_name2],
-#               }
+################################################################################
 
-NUM_THREADS = 7
-print("Requested {0}/{1} threads".format(NUM_THREADS, mp.cpu_count()))
+def main():
+    # initialize structures and splines
+    structures = get_structure_dict()
+
+    print("Structures:")
+    pprint(list(structures.keys()))
+    print()
+
+    knot_positions,spline_start_indices,atom_types = get_potential_information()
+    num_splines = len(spline_start_indices)
+
+    # construct workers given spline information
+    worker_futures = dict_of_workers(
+            structures, knot_positions, spline_start_indices, atom_types
+            )
+
+    # evaluate energies/forces using a random vector of spline parameters
+    spline_parameters = np.random.random(
+            knot_positions.shape[0] + 2*num_splines)
+
+    energy_futures = dict_of_energy_tasks(worker_futures, spline_parameters)
+    forces_futures = dict_of_forces_tasks(worker_futures, spline_parameters)
+
+    eng_res = {key: job.result() for key, job in energy_futures.items()}
+    fcs_res = {key: job.result() for key, job in forces_futures.items()}
+
+    print("{0}".format(np.vstack(list(eng_res.values()))))
+    #print("{0}".format(np.vstack(list(fcs_res.values()))))
+
+################################################################################
+
+num_threads = mp.cpu_count() - 1
+print("Requesting {0}/{1} threads".format(num_threads, mp.cpu_count()))
 print()
-
-C_str = 'C'
-R_str = '*'
-P_str = '-'
 
 config = {
     "sites": [
@@ -58,23 +61,18 @@ config = {
              "channel": None,
          },
          "execution": {
-             "executor": "ipp",
+             "executor": 'ipp',
              "provider": "local", # Run locally
              "block": {  # Definition of a block
                  "minBlocks" : 1, # }
                  "maxBlocks" : 1, # }<---- Shape of the blocks
                  "initBlocks": 1, # }
-                 "taskBlocks": NUM_THREADS, # <----- No. of workers in a block
+                 "taskBlocks": num_threads, # <--- No. of workers in a block
                  "parallelism" : 1 # <-- Parallelism
              }
          }
         }]
 }
-
-################################################################################
-
-# workers = ThreadPoolExecutor(max_workers=NUM_THREADS)
-# dfk = DataFlowKernel(executors=[workers])
 
 dfk = DataFlowKernel(config=config, lazy_fail=False)
 
@@ -93,179 +91,78 @@ def build_worker(atoms, atoms_name, x_pvec, indices, types):
     if allow_reload and os.path.isfile(file_name):
         w = pickle.load(open(file_name, 'rb'))
     else:
-        #cause_an_error = Worker(atoms)
         w = Worker(atoms, x_pvec, indices, types)
         #pickle.dump(w, open(file_name, 'wb'))
 
     return w
 
 @App('python', dfk)
-def compute_energy(w, y_pvec_):
-    eng = w.compute_energies(y_pvec_)
-
-    return eng
+def compute_energy(w, parameter_vector):
+    return w.compute_energies(parameter_vector)
 
 @App('python', dfk)
-def compute_forces(w, y_pvec_):
-    forces = w.compute_forces(y_pvec_)
-
-    return forces
-
-def get_status(all_jobs):
-
-    data_c = []
-    for row in all_jobs:
-        row_results = []
-
-        for task in row:
-            state = P_str
-
-            if task.parent:
-                task.update_parent(task.parent)
-                #state = task.parent._state
-
-                if task.done(): state = C_str
-                elif task.running(): state = R_str
-
-            row_results.append(state)
-        data_c.append(row_results)
-
-    return np.array(data_c).T
-
-def print_table(data_c):
-    keys = list(allstructs.keys())
-
-    table = PrettyTable(['struct', 'built', 'energy', 'forces'])
-    for i in range(data_c.shape[0]):
-        table.add_row([keys[i]] + data_c[i, :].tolist())
-
-    for field_name in table.field_names:
-        table.align[field_name] = 'r'
-
-    print(table, end='\r\n')
-    print()
-
-def reset_cursor(n):
-
-    for i in range(n):
-        sys.stdout.write("\033[F")
-
-def count_state(status, state):
-    val, counts = np.unique(status, return_counts=True)
-
-    if state in val:
-        return int(counts[np.where(val == state)])
-    else:
-        return 0
-
-@App('python', dfk)
-def print_complete(all_calcs):
-    print(flush=True)
-    print("Total build time: {:.5f} (s)".format(time.time() - start),
-          flush=True)
+def compute_forces(w, parameter_vector):
+    return w.compute_forces(parameter_vector)
 
 ################################################################################
 
-potential = get_random_pots(1)['meams'][0]
-x_pvec, y_pvec, indices = src.meam.splines_to_pvec(potential.splines)
+def get_structure_dict():
+    from tests.testStructs import allstructs
 
-# potential.write_to_file('test_bad_pot.meam')
-# atoms = allstructs[test_name1+'_v1']
-# import lammpsTools
-# lammpsTools.atoms_to_LAMMPS_file('bad_atoms', atoms)
+#    test_name2 = 'bulk_periodic_rhombo_mixed'
+#    test_name2 = 'bulk_vac_ortho_type1'
+#    test_name2 = '8_atoms'
+#    allstructs = {test_name2+'_v1': allstructs[test_name2],}
+#                  test_name2+'_v2': allstructs[test_name2],
+#                  test_name2+'_v3': allstructs[test_name2],
+#                  test_name2+'_v4': allstructs[test_name2],
+#                  test_name2+'_v5': allstructs[test_name2],
+#                  test_name2+'_v6': allstructs[test_name2],
+#                  }
 
-start = time.time()
+    return allstructs
 
-all_jobs = [[], [], []]
+def get_potential_information():
+    import src.meam
+    from tests.testPotentials import get_random_pots
 
-print("\nAdding jobs to queue ...", flush=True)
-for name in allstructs.keys():
-    atoms = allstructs[name]
-    all_jobs[0].append(build_worker(atoms, name, x_pvec, indices,
-                                    potential.types))
+    potential = get_random_pots(1)['meams'][0]
+    x_pvec, _, indices = src.meam.splines_to_pvec(potential.splines)
 
-for worker in all_jobs[0]:
-   all_jobs[1].append(compute_energy(worker, y_pvec))
-   all_jobs[2].append(compute_forces(worker, y_pvec))
+    return x_pvec, indices, potential.types
 
-#if len(sys.argv) > 1: long_printing = sys.argv[1]
-#else: long_printing = 'NULL'
+def dict_of_workers(struct_dict, knot_positions, spline_delimiters, atom_types):
+    structure_futures = {}
+    for struct_name, struct in struct_dict.items():
 
-#if long_printing == '-l':
-if '-l' in sys.argv:
-    print()
-    print(C_str + " := complete")
-    print(R_str + " := running (not implemented)")
-    print(P_str + " := in queue")
-    print()
+        structure_futures[struct_name] = build_worker(
+                struct, struct_name, knot_positions, spline_delimiters,
+                atom_types
+                )
 
-    status =  get_status(all_jobs)
-    print_table(status)
+    return structure_futures
 
-    executor = dfk.executors[list(dfk.executors.keys())[0]].executor
+def dict_of_energy_tasks(structure_futures, y):
+    return {struct_name: compute_energy(structure_futures[struct_name], y)
+            for (struct_name, worker) in structure_futures.items()}
 
-    completed = count_state(status, C_str)
-    # running = len(executor.outstanding)
+def dict_of_forces_tasks(structure_futures, y):
+    return {struct_name: compute_forces(structure_futures[struct_name], y)
+            for (struct_name, worker) in structure_futures.items()}
 
-    #print("Running over {0} processors".format(mp.cpu_count() - 1))
-    print("Completed {:d}/{:d} jobs in {:.0f} seconds".format(completed,
-        status.size, time.time() - start), flush=True)#, end='\r')
+################################################################################
 
-    while completed < status.size:
-        status =  get_status(all_jobs)
-        reset_cursor(len(all_jobs[0]) + 6)
-        print_table(status)
-
-        completed = count_state(status, C_str)
-        # running = len(executor.outstanding)
-
-        #print("Jobs queued: {0}".format(running))
-        #print("Running over {0} processors".format(mp.cpu_count() - 1))
-        print("Completed {:d}/{:d} jobs in {:.0f} seconds".format(completed,
-            status.size, time.time() - start), flush=True)#, end='\r')
-
-        time.sleep(1)
+if __name__ == "__main__":
 
     print()
-else:
-    print("Beginning calculations ...", flush=True)
+    print("WAIT - check the following before crying:")
+    print("\t1) ASE lammpsrun.py has Prism(digits=16)")
+    print("\t2) ASE lammpsrun.py using custom_printing")
+    print("\t3) Comparing PER-ATOM values")
     print()
-    print("Structs:\n" + ''.join(["\t"+s_name+"\n" for s_name in allstructs.keys()]))
 
-results = [[job.result() for job in job_type] for job_type in all_jobs]
+    start = time.time()
+    main()
 
-# py_energies = np.vstack([el for el in results[1]])
-# py_forces = np.array([el for el in results[2]])
-
-lammps_results = [potential.get_lammps_results(allstructs[test_name])
-        for test_name in allstructs.keys()]
-
-max_energy_err = []
-max_energy_err_m = []
-max_force_err = []
-
-for key, py_e, py_f, lmps in zip(allstructs.keys(), results[1], results[2],
-                                 lammps_results):
-    natoms = len(allstructs[key])
-
-    max_energy_err.append(np.max(np.abs(py_e - lmps['energy']) / natoms))
-    # max_energy_err_m.append(np.max(np.abs(py_e - potential.compute_energy(
-    #     allstructs[key])) / natoms))
-    max_force_err.append(np.max(np.max(np.abs(py_f - lmps['forces']))))
-
-# print()
-# print("Maximum error (compared to LAMMPS):")
-# print("\tEnergy: {0}".format(max_energy_err))
-# print("\tForces: {0}".format(max_force_err))
-
-logfile = "accuracy_results.dat"
-
-with open(logfile, 'ab') as f:
-    arr = np.concatenate([max_energy_err, max_force_err, [seed]])
-    np.savetxt(f, np.atleast_2d(arr))
-
-# print(max_energy_err)
-# print(max_energy_err_m)
-
-print("{0}\n".format(max_energy_err))
-print("{0}\n".format(max_force_err))
+    print()
+    print("Total runtime: {0}".format(time.time() - start))
