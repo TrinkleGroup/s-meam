@@ -14,9 +14,11 @@ print("Seed value: {0}\n".format(seed))
 from prettytable import PrettyTable
 from pprint import pprint
 
+import parsl
 from parsl import *
 import multiprocessing as mp
 
+parsl.set_file_logger('parsl.log')
 ################################################################################
 
 def main():
@@ -109,16 +111,9 @@ def compute_forces(w, parameter_vector):
 def get_structure_dict():
     from tests.testStructs import allstructs
 
-#    test_name2 = 'bulk_periodic_rhombo_mixed'
-#    test_name2 = 'bulk_vac_ortho_type1'
-#    test_name2 = '8_atoms'
-#    allstructs = {test_name2+'_v1': allstructs[test_name2],}
-#                  test_name2+'_v2': allstructs[test_name2],
-#                  test_name2+'_v3': allstructs[test_name2],
-#                  test_name2+'_v4': allstructs[test_name2],
-#                  test_name2+'_v5': allstructs[test_name2],
-#                  test_name2+'_v6': allstructs[test_name2],
-#                  }
+    test_name = '8_atoms'                                                        
+    tmp = [allstructs[test_name]]*20
+    allstructs = {test_name+'_v{0}'.format(i+1):tmp[i] for i in range(len(tmp))} 
 
     return allstructs
 
