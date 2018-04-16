@@ -3,6 +3,7 @@ import logging
 from scipy.sparse import lil_matrix
 
 from ase.neighborlist import NeighborList
+from pympler import muppy, summary
 
 import src.lammpsTools
 import src.meam
@@ -198,6 +199,11 @@ class Worker:
                         self.ffgs[fj_idx][fk_idx].add_to_forces_struct_vec(
                             rij, rik, cos_theta, dirs, i, j, k)
 
+        #print()
+        #all_objects = muppy.get_objects()
+        #summ = summary.summarize(all_objects)
+        #summary.print_(summ)
+
         # convert arrays to avoid having to convert on call
         self.type_of_each_atom = np.array(self.type_of_each_atom)
 
@@ -274,7 +280,7 @@ class Worker:
         return ffg_list
 
     # @profile
-    def compute_energies(self, parameters):
+    def compute_energy(self, parameters):
         """Calculates energies for all potentials using information
         pre-computed during initialization.
 
@@ -286,11 +292,12 @@ class Worker:
                 of knot points, and the 2 additional are boundary conditions.
                 The first K in each group are the knot y-values
         """
+        self.n_pots = parameters.shape[0]
 
         phi_pvecs, rho_pvecs, u_pvecs, f_pvecs, g_pvecs = \
             self.parse_parameters(parameters)
 
-        energy = 0.
+        energy = np.zeros(self.n_pots)
 
         # Pair interactions
         for y, phi in zip(phi_pvecs, self.phis, ):
@@ -316,11 +323,13 @@ class Worker:
         Returns:
             ni: potential energy
         """
-        ni = np.zeros(self.natoms)
+        ni = np.zeros((self.n_pots, self.natoms))
 
         # Rho contribution
         for y, rho in zip(rho_pvecs, self.rhos):
-            ni += rho.calc_energy(y)
+            ni += rho.calc_energy(y).T
+            np.set_printoptions(precision=16)
+            # logging.info("WORKER: rho =\n{0}".format(rho.calc_energy(y)))
 
         # Three-body contribution
         for j, (y_fj,ffg_list) in enumerate(zip(f_pvecs, self.ffgs)):
@@ -346,15 +355,18 @@ class Worker:
         """
 
         for i, u in enumerate(self.us):
-            u.add_to_energy_struct_vec(ni[self.type_of_each_atom - 1 == i])
+            u.energy_struct_vec = np.zeros((self.n_pots, 2*u.x.shape[0]+4))
+            u.add_to_energy_struct_vec(ni[:, self.type_of_each_atom - 1 == i])
 
         # Evaluate U, U', and compute zero-point energies
-        u_energy = 0
+        u_energy = np.zeros(self.n_pots)
         for y, u in zip(u_pvecs, self.us):
 
             if len(u.energy_struct_vec) > 0:
-                u_energy -= u.compute_zero_potential(y)
+                u_energy -= u.compute_zero_potential(y).ravel()
                 u_energy += u.calc_energy(y)
+                # logging.info("WORKER: U = {0}".format(u.calc_energy(y)))
+                # logging.info("WORKER: zero_pot = {0}".format(u.compute_zero_potential(y)))
 
             u.reset()
 
@@ -403,6 +415,7 @@ class Worker:
             parameters (np.arr): the 1D array of concatenated parameter
                 vectors for all splines in the system
         """
+        self.n_pots = parameters.shape[0]
 
         phi_pvecs, rho_pvecs, u_pvecs, f_pvecs, g_pvecs = \
             self.parse_parameters(parameters)
@@ -449,18 +462,19 @@ class Worker:
 
     # @profile
     def parse_parameters(self, parameters):
-        """Separates the pre-ordered 1D vector of all spline parameters into
-        groups.
+        """Separates the pre-ordered array of vectors of all spline parameters
+        into groups.
 
         Args:
             parameters (np.arr):
-                1D array of knot points and boundary conditions for ALL
-                splines for ALL intervals
+                2D array of knot points and boundary conditions for ALL
+                splines for ALL intervals for ALL potentials
 
         Returns:
             *_pvecs (np.arr):
                 each return is a list of arrays of parameters. e.g.
-                phi_pvecs[0] is the parameters for the first phi spline
+                phi_pvecs[0] is the parameters for the first phi spline for
+                every potential
         """
 
         splines = self.phis + self.rhos + self.us + self.fs + self.gs
@@ -469,7 +483,7 @@ class Worker:
         x_indices = [s.index for s in splines]
         y_indices = [x_indices[i] + 2 * i for i in range(len(x_indices))]
 
-        params_split = np.split(parameters, y_indices[1:])
+        params_split = np.split(parameters, y_indices[1:], axis=1)
 
         nphi = self.nphi
         ntypes = self.ntypes
