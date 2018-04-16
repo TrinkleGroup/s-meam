@@ -41,18 +41,37 @@ def onepass_min_max(a):
 
     return min, max
 
-@jit(nopython=True, cache=True)
-def outer_prod(v1, v2):
-    N = v1.shape[0]
-    M = v2.shape[0]
+#@jit(nopython=True, cache=True)
+@jit(cache=True)
+def outer_prod(arr1, arr2):
+    n_pots = arr1.shape[0]
+
+    N = arr1.shape[1]
+    M = arr2.shape[1]
+
+    results = np.zeros((n_pots, N*M))
+
+    for p in range(n_pots):
+        for i in range(N):
+            a = arr1[p, i]
+
+            for j in range(M):
+                results[p, i*M + j] += a*arr2[p, j]
+
+    return results
+@jit(cache=True)
+def outer_prod_simple(arr1, arr2):
+    """Normal outer product; not for multiple potentials"""
+    N = arr1.shape[0]
+    M = arr2.shape[0]
 
     results = np.zeros(N*M)
 
     for i in range(N):
-        a = v1[i]
+        a = arr1[i]
 
         for j in range(M):
-            results[i*M + j] += a*v2[j]
+            results[i*M + j] += a*arr2[j]
 
     return results
 
