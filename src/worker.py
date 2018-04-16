@@ -396,11 +396,14 @@ class Worker:
             # get atom ids of type i
             indices = tags[shifted_types == i]
 
+            u.deriv_struct_vec = np.zeros(
+                (self.n_pots, self.natoms, 2*u.x.shape[0]+4))
+
             if indices.shape[0] > 0:
-                u.add_to_deriv_struct_vec(ni[shifted_types == i], indices)
+                u.add_to_deriv_struct_vec(ni[:, shifted_types == i], indices)
 
         # Evaluate U, U', and compute zero-point energies
-        uprimes = np.zeros(self.natoms)
+        uprimes = np.zeros((self.n_pots, self.natoms))
         for y, u in zip(u_pvecs, self.us):
             uprimes += u.calc_deriv(y)
 
@@ -420,7 +423,7 @@ class Worker:
         phi_pvecs, rho_pvecs, u_pvecs, f_pvecs, g_pvecs = \
             self.parse_parameters(parameters)
 
-        forces = np.zeros((len(self.atoms), 3))
+        forces = np.zeros((self.n_pots, len(self.atoms), 3))
 
         # Pair forces (phi)
         for phi_idx, (phi, y) in enumerate(zip(self.phis, phi_pvecs)):
@@ -437,9 +440,10 @@ class Worker:
             if rho.forces_struct_vec.shape[0] > 0:
                 rho_forces = rho.calc_forces(y)
 
-                rho_forces = rho_forces.reshape((3, self.natoms, self.natoms))
+                rho_forces = rho_forces.reshape(
+                    (self.n_pots, 3, self.natoms, self.natoms))
 
-                forces += np.einsum('ijk,k->ji', rho_forces, uprimes)
+                forces += np.einsum('pijk,pk->pji', rho_forces, uprimes)
 
         # Angular terms (ffg)
         for j, ffg_list in enumerate(self.ffgs):
@@ -453,10 +457,10 @@ class Worker:
 
                     ffg_forces = ffg.calc_forces(y_fj, y_fk, y_g)
 
-                    ffg_forces = ffg_forces.reshape((3, self.natoms,
-                                                     self.natoms))
+                    ffg_forces = ffg_forces.reshape(
+                        (self.n_pots, 3, self.natoms, self.natoms))
 
-                    forces += np.einsum('ijk,k->ji', ffg_forces, uprimes)
+                    forces += np.einsum('pijk,pk->pji', ffg_forces, uprimes)
 
         return forces
 

@@ -4,7 +4,7 @@ import logging
 from scipy.sparse import diags, lil_matrix
 
 # from src.numba_functions import jit_add_at_1D, jit_add_at_2D
-from src.numba_functions import onepass_min_max, outer_prod
+from src.numba_functions import onepass_min_max, outer_prod, outer_prod_simple
 # from src.fast import onepass_min_max, mat_vec_mult
 
 logger = logging.getLogger(__name__)
@@ -229,10 +229,7 @@ class WorkerSpline:
         z[:, 3+self.n_knots:3+2*self.n_knots] = self.y1
         z[:, 3+2*self.n_knots] = self.y1[:, -1]
 
-        # rzm: for U, have to dot each sv row with corresponding z row; einsum
-
         return (self.energy_struct_vec @ z.T)
-        # return np.einsum("ij,ij->i", self.energy_struct_vec, z.T)
 
     def calc_forces(self, y):
         self.y = y
@@ -245,7 +242,7 @@ class WorkerSpline:
         z[:, 3+self.n_knots:3+2*self.n_knots] = self.y1
         z[:, 3+2*self.n_knots] = self.y1[:, -1]
 
-        return np.einsum('ijk,j->ik', self.forces_struct_vec, np.concatenate(z))
+        return np.einsum('ijk,pj->pik', self.forces_struct_vec, z)
 
     def add_to_forces_struct_vec(self, values, dirs, atom_id):
         dirs = np.array(dirs)
@@ -273,16 +270,9 @@ class USpline(WorkerSpline):
         self.atoms_embedded = 0
         self.deriv_struct_vec[:] = 0
         self.energy_struct_vec[:] = 0
-        # self.deriv_struct_vec = np.zeros(self.deriv_struct_vec.shape)
-        # self.energy_struct_vec = self.deriv_struct_vec.copy()
 
     def calc_energy(self, y):
         self.y = y
-
-        # z = [self.y[:, 0] - self.y1[:, 0]*self.lhs_extrap_dist] +\
-        #     self.y.tolist() +\
-        #     [self.y[:, -1] + self.y1[:, -1]*self.rhs_extrap_dist,
-        #      self.y1[:, 0]] + self.y1.tolist() + [self.y1[:, -1]]
 
         z = np.zeros((self.y.shape[0], 2*self.y.shape[1]+4))
 
@@ -293,9 +283,6 @@ class USpline(WorkerSpline):
         z[:, 3+self.n_knots:3+2*self.n_knots] = self.y1
         z[:, 3+2*self.n_knots] = self.y1[:, -1]
 
-        # rzm: for U, have to dot each sv row with corresponding z row; einsum
-
-        # return (self.energy_struct_vec @ z.T)
         return np.einsum("ij,ij->i", self.energy_struct_vec, z)
 
     def add_to_energy_struct_vec(self, values):
@@ -313,10 +300,17 @@ class USpline(WorkerSpline):
 
             self.energy_struct_vec += np.sum(abcd, axis=1)
 
-    def add_to_deriv_struct_vec(self, all_ni, indices):
-        abcd = self.get_abcd(all_ni, 1)
+    def add_to_deriv_struct_vec(self, values, indices):
+        if values.shape[0] > 0:
 
-        self.deriv_struct_vec[indices, :] = abcd
+            values = np.atleast_1d(values)
+            org_shape = values.shape
+            flat_values = values.ravel()
+
+            abcd = self.get_abcd(flat_values, 1)
+            abcd = abcd.reshape(list(org_shape) + [abcd.shape[1]])
+
+            self.deriv_struct_vec[:, indices, :] = abcd
 
     def calc_deriv(self, y):
         self.y = y
@@ -329,7 +323,8 @@ class USpline(WorkerSpline):
         z[:, 3+self.n_knots:3+2*self.n_knots] = self.y1
         z[:, 3+2*self.n_knots] = self.y1[:, -1]
 
-        return self.deriv_struct_vec @ z
+        # return self.deriv_struct_vec @ z
+        return np.einsum('ijk,ik->ij', self.deriv_struct_vec, z)
 
     def compute_zero_potential(self, y):
         """Calculates the value of the potential as if every entry in the
@@ -379,7 +374,7 @@ class RhoSpline(WorkerSpline):
         z[:, 3+self.n_knots:3+2*self.n_knots] = self.y1
         z[:, 3+2*self.n_knots] = self.y1[:, -1]
 
-        return self.forces_struct_vec @ z
+        return (self.forces_struct_vec @ z.T).T
 
     def add_to_energy_struct_vec(self, values, atom_id):
         self.energy_struct_vec[atom_id, :] += np.sum(self.get_abcd(values, 0),
@@ -462,7 +457,6 @@ class ffgSpline:
         z_fk = np.atleast_2d(z_fk)
         z_g = np.atleast_2d(z_g)
 
-        # z_cart = np.outer(np.outer(z_fj, z_fk), z_g).ravel()
         z_cart = outer_prod(outer_prod(z_fj, z_fk), z_g)
 
         return (self.energy_struct_vec @ z_cart.T).T
@@ -478,29 +472,37 @@ class ffgSpline:
         fk.y = y_fk
         g.y = y_g
 
-        z_fj = [self.fj.y[:, 0] - self.fj.y1[:, 0]*fj.lhs_extrap_dist] +\
-            self.fj.y.tolist() +\
-            [self.fj.y[:, -1] + self.fj.y1[:, -1]*fj.rhs_extrap_dist,
-             self.fj.y1[:, 0]] + self.fj.y1.tolist() + [self.fj.y1[:, -1]]
+        z_fj = np.zeros((fj.y.shape[0], 2*fj.y.shape[1]+4))
+        z_fj[:, 0] = fj.y[:, 0] - fj.y1[:, 0]*fj.lhs_extrap_dist
+        z_fj[:, 1:1+fj.n_knots] = fj.y
+        z_fj[:, 1+fj.n_knots] = fj.y[:,-1] + fj.y1[:,-1]*fj.rhs_extrap_dist
+        z_fj[:, 2+fj.n_knots] = fj.y1[:, 0]
+        z_fj[:, 3+fj.n_knots:3+2*fj.n_knots] = fj.y1
+        z_fj[:, 3+2*fj.n_knots] = fj.y1[:, -1]
 
-        z_fk = [self.fk.y[:, 0] - self.fk.y1[:, 0]*fk.lhs_extrap_dist] +\
-            self.fk.y.tolist() +\
-            [self.fk.y[:, -1] + self.fk.y1[:, -1]*fk.rhs_extrap_dist,
-             self.fk.y1[:, 0]] + self.fk.y1.tolist() + [self.fk.y1[:, -1]]
+        z_fk = np.zeros((fk.y.shape[0], 2*fk.y.shape[1]+4))
+        z_fk[:, 0] = fk.y[:, 0] - fk.y1[:, 0]*fk.lhs_extrap_dist
+        z_fk[:, 1:1+fk.n_knots] = fk.y
+        z_fk[:, 1+fk.n_knots] = fk.y[:,-1] + fk.y1[:,-1]*fk.rhs_extrap_dist
+        z_fk[:, 2+fk.n_knots] = fk.y1[:, 0]
+        z_fk[:, 3+fk.n_knots:3+2*fk.n_knots] = fk.y1
+        z_fk[:, 3+2*fk.n_knots] = fk.y1[:, -1]
 
-        z_g = [self.g.y[:, 0] - self.g.y1[:, 0]*g.lhs_extrap_dist] +\
-            self.g.y.tolist() +\
-            [self.g.y[:, -1] + self.g.y1[:, -1]*g.rhs_extrap_dist,
-             self.g.y1[:, 0]] + self.g.y1.tolist() + [self.g.y1[:, -1]]
+        z_g = np.zeros((g.y.shape[0], 2*g.y.shape[1]+4))
+        z_g[:, 0] = g.y[:, 0] - g.y1[:, 0]*g.lhs_extrap_dist
+        z_g[:, 1:1+g.n_knots] = g.y
+        z_g[:, 1+g.n_knots] = g.y[:,-1] + g.y1[:,-1]*g.rhs_extrap_dist
+        z_g[:, 2+g.n_knots] = g.y1[:, 0]
+        z_g[:, 3+g.n_knots:3+2*g.n_knots] = g.y1
+        z_g[:, 3+2*g.n_knots] = g.y1[:, -1]
 
         z_fj = np.array(z_fj)
         z_fk = np.array(z_fk)
         z_g = np.array(z_g)
 
-        # z_cart = np.outer(np.outer(z_fj, z_fk), z_g).ravel()
         z_cart = outer_prod(outer_prod(z_fj, z_fk), z_g)
 
-        return self.forces_struct_vec @ z_cart
+        return (self.forces_struct_vec @ z_cart.T).T
 
     def add_to_energy_struct_vec(self, rij, rik, cos, atom_id):
         """Updates structure vectors with given values"""
@@ -508,8 +510,8 @@ class ffgSpline:
         abcd_fk = self.fk.get_abcd(rik, 0).ravel()
         abcd_g = self.g.get_abcd(cos, 0).ravel()
 
-        # cart = np.outer(np.outer(abcd_fj, abcd_fk), abcd_g).ravel()
-        cart = outer_prod(outer_prod(abcd_fj, abcd_fk), abcd_g).ravel()
+        cart = outer_prod_simple(
+            outer_prod_simple(abcd_fj, abcd_fk), abcd_g).ravel()
 
         self.energy_struct_vec[atom_id, :] += cart
 
@@ -532,12 +534,9 @@ class ffgSpline:
         fj_2, fk_2, g_2 = self.get_abcd(rij, rik, cos, [0, 1, 0])
         fj_3, fk_3, g_3 = self.get_abcd(rij, rik, cos, [0, 0, 1])
 
-        # v1 = np.outer(np.outer(fj_1, fk_1), g_1).ravel() # fj' fk g
-        # v2 = np.outer(np.outer(fj_2, fk_2), g_2).ravel() # fj fk' g
-        # v3 = np.outer(np.outer(fj_3, fk_3), g_3).ravel() # fj fk g' -> PF
-        v1 = outer_prod(outer_prod(fj_1, fk_1), g_1) # fj' fk g
-        v2 = outer_prod(outer_prod(fj_2, fk_2), g_2) # fj fk' g
-        v3 = outer_prod(outer_prod(fj_3, fk_3), g_3) # fj fk g' -> PF
+        v1 = outer_prod_simple(outer_prod_simple(fj_1, fk_1), g_1) # fj' fk g
+        v2 = outer_prod_simple(outer_prod_simple(fj_2, fk_2), g_2) # fj fk' g
+        v3 = outer_prod_simple(outer_prod_simple(fj_3, fk_3), g_3) # fj fk g' -> PF
 
         # all 6 terms to be added
         t0 = np.einsum('i,k->ik', v1, dirs[0])
