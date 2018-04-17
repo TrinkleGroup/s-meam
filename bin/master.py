@@ -7,7 +7,7 @@ import numpy as np
 
 seed = np.random.randint(0, high=(2**32 - 1))
 #seed = int(sys.argv[1])
-#seed = 42
+seed = 42
 np.random.seed(seed)
 print("Seed value: {0}\n".format(seed))
 
@@ -18,7 +18,8 @@ import parsl
 from parsl import *
 import multiprocessing as mp
 
-parsl.set_file_logger('parsl.log')
+#parsl.set_file_logger('parsl.log')
+
 ################################################################################
 
 def main():
@@ -41,18 +42,21 @@ def main():
     spline_parameters = np.random.random(
             knot_positions.shape[0] + 2*num_splines)
 
+    spline_parameters = np.atleast_2d(spline_parameters)
+
     energy_futures = dict_of_energy_tasks(worker_futures, spline_parameters)
     forces_futures = dict_of_forces_tasks(worker_futures, spline_parameters)
 
     eng_res = {key: job.result() for key, job in energy_futures.items()}
     fcs_res = {key: job.result() for key, job in forces_futures.items()}
 
-    print("{0}".format(np.vstack(list(eng_res.values()))))
+    #print("{0}".format(np.vstack(list(eng_res.values()))))
     #print("{0}".format(np.vstack(list(fcs_res.values()))))
 
 ################################################################################
 
 num_threads = mp.cpu_count() - 1
+num_threads = 4
 print("Requesting {0}/{1} threads".format(num_threads, mp.cpu_count()))
 print()
 
@@ -60,20 +64,23 @@ config = {
     "sites": [
         {"site": "Local_IPP",
          "auth": {
-             "channel": None,
+             "channel": 'local',
          },
          "execution": {
              "executor": 'ipp',
              "provider": "local", # Run locally
              "block": {  # Definition of a block
-                 "minBlocks" : 1, # }
+                 "minBlocks" : 0, # }
                  "maxBlocks" : 1, # }<---- Shape of the blocks
                  "initBlocks": 1, # }
                  "taskBlocks": num_threads, # <--- No. of workers in a block
                  "parallelism" : 1 # <-- Parallelism
              }
          }
-        }]
+        }],
+    "controller": {
+        "publicIp": '128.174.228.50'  # <--- SPECIFY PUBLIC IP HERE
+        }
 }
 
 dfk = DataFlowKernel(config=config, lazy_fail=False)
@@ -100,7 +107,7 @@ def build_worker(atoms, atoms_name, x_pvec, indices, types):
 
 @App('python', dfk)
 def compute_energy(w, parameter_vector):
-    return w.compute_energies(parameter_vector)
+    return w.compute_energy(parameter_vector)
 
 @App('python', dfk)
 def compute_forces(w, parameter_vector):
@@ -112,10 +119,14 @@ def get_structure_dict():
     from tests.testStructs import allstructs
 
     test_name = '8_atoms'                                                        
-    tmp = [allstructs[test_name]]*20
-    allstructs = {test_name+'_v{0}'.format(i+1):tmp[i] for i in range(len(tmp))} 
 
-    return allstructs
+    num_copies = int(sys.argv[1]) if (len(sys.argv) > 1) else 1
+    tmp = [allstructs[test_name]]*num_copies
+    dct = {test_name+'_v{0}'.format(i+1):tmp[i] for i in range(len(tmp))} 
+
+    dct = allstructs
+
+    return dct
 
 def get_potential_information():
     import src.meam

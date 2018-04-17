@@ -457,7 +457,12 @@ class ffgSpline:
         z_fk = np.atleast_2d(z_fk)
         z_g = np.atleast_2d(z_g)
 
-        z_cart = outer_prod(outer_prod(z_fj, z_fk), z_g)
+        # z_cart = outer_prod(outer_prod(z_fj, z_fk), z_g)
+
+        cart1 = np.einsum("ij,ik->ijk", z_fj, z_fk)
+        cart1 = cart1.reshape((cart1.shape[0], cart1.shape[1]*cart1.shape[2]))
+        cart2 = np.einsum("ij,ik->ijk", cart1, z_g)
+        z_cart = cart2.reshape((cart2.shape[0], cart2.shape[1]*cart2.shape[2]))
 
         return (self.energy_struct_vec @ z_cart.T).T
 
