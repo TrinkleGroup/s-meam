@@ -152,12 +152,12 @@ class WorkerSpline:
             return np.zeros(n_eval).reshape((1, n_eval))
 
         mn, mx = onepass_min_max(x)
-        self.lhs_extrap_dist = max(self.extrap_dist, mn - self.x[0])
-        self.rhs_extrap_dist = max(self.extrap_dist, mx - self.x[-1])
+        self.lhs_extrap_dist = max(self.extrap_dist, abs(mn - self.x[0]))
+        self.rhs_extrap_dist = max(self.extrap_dist, abs(mx - self.x[-1]))
 
         # add ghost knots
         knots = [self.x[0] - self.lhs_extrap_dist] + self.x.tolist() + \
-                [self.x[-1] + self.rhs_extrap_dist]
+                [self.x[-1] + self.rhs_extrap_dist + 0.01]
 
         knots = np.array(knots)
 

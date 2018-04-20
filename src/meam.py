@@ -309,11 +309,12 @@ class MEAM:
 
                     total_ni += fj_val * partialsum
                     total_ni += rho(r_ij)
+                    # logging.info("MEAM: rho(rij) = {0}".format(rho(r_ij)))
 
                     # logging.info("MEAM: fj_val = {0}".format(fj_val))
                 # end u loop
 
-                # logging.info("MEAM: u({0}) = {1}".format(total_ni, u(total_ni)))
+                # logging.info("MEAM: u({0}) = {1}".format(total_ni,u(total_ni)))
                 # logging.info("MEAM: ni = {0}".format(total_ni))
                 # logging.info("MEAM: zero_point = {0}".format(
                 #     self.zero_atom_energies[i_to_potl(itype)]))
@@ -327,7 +328,7 @@ class MEAM:
                 self.uprimes[i] = u(total_ni, 1)
             # end atom loop
 
-        logging.info("MEAM: eng = {0}".format(total_pe))
+        # logging.info("MEAM: eng = {0}".format(total_pe))
         return total_pe
 
     def compute_forces(self, atoms):
@@ -576,7 +577,6 @@ class MEAM:
         forces = calc.get_forces(struct)
 
         calc.clean()
-        # os.remove('test.meam.spline')
 
         results = {'energy': energy, 'forces': forces}
 

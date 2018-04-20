@@ -38,7 +38,6 @@ def onepass_min_max(a):
         if x < min: min = x
         if x > max: max = x
 
-
     return min, max
 
 #@jit(nopython=True, cache=True)
