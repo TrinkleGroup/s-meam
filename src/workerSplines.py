@@ -152,12 +152,12 @@ class WorkerSpline:
             return np.zeros(n_eval).reshape((1, n_eval))
 
         mn, mx = onepass_min_max(x)
-        self.lhs_extrap_dist = max(self.extrap_dist, mn - self.x[0])
-        self.rhs_extrap_dist = max(self.extrap_dist, mx - self.x[-1])
+        self.lhs_extrap_dist = max(self.extrap_dist, abs(mn - self.x[0]))
+        self.rhs_extrap_dist = max(self.extrap_dist, abs(mx - self.x[-1]))
 
         # add ghost knots
         knots = [self.x[0] - self.lhs_extrap_dist] + self.x.tolist() + \
-                [self.x[-1] + self.rhs_extrap_dist]
+                [self.x[-1] + self.rhs_extrap_dist + 0.01]
 
         knots = np.array(knots)
 
@@ -457,7 +457,12 @@ class ffgSpline:
         z_fk = np.atleast_2d(z_fk)
         z_g = np.atleast_2d(z_g)
 
-        z_cart = outer_prod(outer_prod(z_fj, z_fk), z_g)
+        # z_cart = outer_prod(outer_prod(z_fj, z_fk), z_g)
+
+        cart1 = np.einsum("ij,ik->ijk", z_fj, z_fk)
+        cart1 = cart1.reshape((cart1.shape[0], cart1.shape[1]*cart1.shape[2]))
+        cart2 = np.einsum("ij,ik->ijk", cart1, z_g)
+        z_cart = cart2.reshape((cart2.shape[0], cart2.shape[1]*cart2.shape[2]))
 
         return (self.energy_struct_vec @ z_cart.T).T
 

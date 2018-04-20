@@ -1,121 +1,84 @@
-import os
 import sys
 sys.path.insert(0, './')
 
+import os
+import psutil
 import time
 import numpy as np
+import multiprocessing as multi
+from itertools import repeat
+from pprint import pprint
+
+from src.worker import Worker
 
 seed = np.random.randint(0, high=(2**32 - 1))
 #seed = int(sys.argv[1])
 #seed = 42
+
 np.random.seed(seed)
 print("Seed value: {0}\n".format(seed))
 
-from prettytable import PrettyTable
-from pprint import pprint
+print("Memory info: {0}".format(psutil.virtual_memory()))
 
-import parsl
-from parsl import *
-import multiprocessing as mp
-
-parsl.set_file_logger('parsl.log')
 ################################################################################
 
 def main():
-    # initialize structures and splines
-    structures = get_structure_dict()
+
+    #num_procs = multi.cpu_count() - 1
+    num_procs = 4
+    print("Requesting {0}/{1} processors".format(num_procs, multi.cpu_count()))
+    print()
+
+    pool = multi.Pool(processes=num_procs)
+
+    struct_names, structs = get_structure_list()
 
     print("Structures:")
-    pprint(list(structures.keys()))
+    pprint(struct_names)
     print()
 
     knot_positions,spline_start_indices,atom_types = get_potential_information()
     num_splines = len(spline_start_indices)
 
-    # construct workers given spline information
-    worker_futures = dict_of_workers(
-            structures, knot_positions, spline_start_indices, atom_types
-            )
+    initialized_structures = pool.starmap(
+        Worker,
+        zip(structs, repeat(knot_positions), repeat(spline_start_indices),
+            repeat(atom_types)),
+        )
 
     # evaluate energies/forces using a random vector of spline parameters
     spline_parameters = np.random.random(
             knot_positions.shape[0] + 2*num_splines)
 
-    energy_futures = dict_of_energy_tasks(worker_futures, spline_parameters)
-    forces_futures = dict_of_forces_tasks(worker_futures, spline_parameters)
+    spline_parameters = np.atleast_2d(spline_parameters)
 
-    eng_res = {key: job.result() for key, job in energy_futures.items()}
-    fcs_res = {key: job.result() for key, job in forces_futures.items()}
+    calculated_energies = pool.starmap(
+            compute_energy,
+            zip(initialized_structures, repeat(spline_parameters))
+            )
 
-    print("{0}".format(np.vstack(list(eng_res.values()))))
-    #print("{0}".format(np.vstack(list(fcs_res.values()))))
+    calculated_forces = pool.starmap(
+            compute_forces,
+            zip(initialized_structures, repeat(spline_parameters))
+            )
 
-################################################################################
-
-num_threads = mp.cpu_count() - 1
-print("Requesting {0}/{1} threads".format(num_threads, mp.cpu_count()))
-print()
-
-config = {
-    "sites": [
-        {"site": "Local_IPP",
-         "auth": {
-             "channel": None,
-         },
-         "execution": {
-             "executor": 'ipp',
-             "provider": "local", # Run locally
-             "block": {  # Definition of a block
-                 "minBlocks" : 1, # }
-                 "maxBlocks" : 1, # }<---- Shape of the blocks
-                 "initBlocks": 1, # }
-                 "taskBlocks": num_threads, # <--- No. of workers in a block
-                 "parallelism" : 1 # <-- Parallelism
-             }
-         }
-        }]
-}
-
-dfk = DataFlowKernel(config=config, lazy_fail=False)
-
-@App('python', dfk)
-def build_worker(atoms, atoms_name, x_pvec, indices, types):
-    import os
-    import pickle
-
-    from src.worker import Worker
-
-    WORKER_SAVE_PATH = "/home/jvita/scripts/s-meam/project/data/workers/"
-    allow_reload = False
-
-    file_name = WORKER_SAVE_PATH + atoms_name + '.pkl'
-
-    if allow_reload and os.path.isfile(file_name):
-        w = pickle.load(open(file_name, 'rb'))
-    else:
-        w = Worker(atoms, x_pvec, indices, types)
-        #pickle.dump(w, open(file_name, 'wb'))
-
-    return w
-
-@App('python', dfk)
-def compute_energy(w, parameter_vector):
-    return w.compute_energies(parameter_vector)
-
-@App('python', dfk)
-def compute_forces(w, parameter_vector):
-    return w.compute_forces(parameter_vector)
+    print(calculated_energies)
+    #print(calculated_forces)
 
 ################################################################################
 
-def get_structure_dict():
+def get_structure_list():
     from tests.testStructs import allstructs
 
-    test_name = '8_atoms'                                                        
-    tmp = [allstructs[test_name]]*20
-    allstructs = {test_name+'_v{0}'.format(i+1):tmp[i] for i in range(len(tmp))} 
+    #test_name = '8_atoms'                                                        
 
-    return allstructs
+    #num_copies = int(sys.argv[1]) if (len(sys.argv) > 1) else 1
+    #tmp = [allstructs[test_name]]*num_copies
+    #dct = {test_name+'_v{0}'.format(i+1):tmp[i] for i in range(len(tmp))} 
+
+    dct = allstructs
+
+    return list(dct.keys()), list(dct.values())
 
 def get_potential_information():
     import src.meam
@@ -126,24 +89,11 @@ def get_potential_information():
 
     return x_pvec, indices, potential.types
 
-def dict_of_workers(struct_dict, knot_positions, spline_delimiters, atom_types):
-    structure_futures = {}
-    for struct_name, struct in struct_dict.items():
+def compute_energy(w, y):
+    return w.compute_energy(y)
 
-        structure_futures[struct_name] = build_worker(
-                struct, struct_name, knot_positions, spline_delimiters,
-                atom_types
-                )
-
-    return structure_futures
-
-def dict_of_energy_tasks(structure_futures, y):
-    return {struct_name: compute_energy(structure_futures[struct_name], y)
-            for (struct_name, worker) in structure_futures.items()}
-
-def dict_of_forces_tasks(structure_futures, y):
-    return {struct_name: compute_forces(structure_futures[struct_name], y)
-            for (struct_name, worker) in structure_futures.items()}
+def compute_forces(w, y):
+    return w.compute_forces(y)
 
 ################################################################################
 
