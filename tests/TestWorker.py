@@ -51,10 +51,10 @@ if bulk_flag:
     allstructs = {**allstructs, **bulk_vac_ortho, **bulk_periodic_ortho,
                   **bulk_vac_rhombo, **bulk_periodic_rhombo, **extra}
 
-# allstructs = {'bulk_vac_ortho_type1':bulk_vac_ortho['bulk_vac_ortho_type1'],}
+#allstructs = {'bulk_vac_ortho_type1':bulk_vac_ortho['bulk_vac_ortho_type1'],}
 #               'bulk_vac_ortho_type1_v2':bulk_vac_ortho['bulk_vac_ortho_type1']}
 # allstructs = {'aa':dimers['aa']}
-allstructs = {'4_atom':extra['4_atoms']}
+#allstructs = {'4_atom':extra['4_atoms']}
 # import lammpsTools
 # lammpsTools.atoms_to_LAMMPS_file('../data/structs/data.4atoms',
 #                                  allstructs['4_atom'])
@@ -143,7 +143,7 @@ def runner_energy(pots, structs):
         logging.info("COMPUTING: {0}".format(name))
         w = Worker(atoms, x_pvec, indices, pots[0].types)
         # TODO: to optimize, preserve workers for each struct
-        wrk_energies[name] = w.compute_energies(y_pvec) / len(atoms)
+        wrk_energies[name] = w.compute_energy(y_pvec) / len(atoms)
 
     return wrk_energies
 
