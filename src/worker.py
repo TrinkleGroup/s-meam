@@ -292,6 +292,7 @@ class Worker:
                 of knot points, and the 2 additional are boundary conditions.
                 The first K in each group are the knot y-values
         """
+        parameters = np.atleast_2d(parameters)
         self.n_pots = parameters.shape[0]
 
         phi_pvecs, rho_pvecs, u_pvecs, f_pvecs, g_pvecs = \
@@ -418,6 +419,7 @@ class Worker:
             parameters (np.arr): the 1D array of concatenated parameter
                 vectors for all splines in the system
         """
+        parameters = np.atleast_2d(parameters)
         self.n_pots = parameters.shape[0]
 
         phi_pvecs, rho_pvecs, u_pvecs, f_pvecs, g_pvecs = \

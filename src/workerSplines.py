@@ -157,7 +157,7 @@ class WorkerSpline:
 
         # add ghost knots
         knots = [self.x[0] - self.lhs_extrap_dist] + self.x.tolist() + \
-                [self.x[-1] + self.rhs_extrap_dist + 0.01]
+                [self.x[-1] + self.rhs_extrap_dist]
 
         knots = np.array(knots)
 
@@ -165,6 +165,7 @@ class WorkerSpline:
 
         # Perform interval search and prepare prefactors
         all_k = np.digitize(x, knots, right=True) - 1
+        all_k = np.clip(all_k, 0, len(knots) - 1)
 
         prefactors = knots[all_k + 1] - knots[all_k]
 
