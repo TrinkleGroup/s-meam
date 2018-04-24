@@ -6,6 +6,8 @@ seed = 42
 np.random.seed(seed)
 print("Seed value: {0}\n".format(seed))
 
+from pympler import muppy, summary
+
 import os
 import psutil
 import time
@@ -22,23 +24,19 @@ from src.worker import Worker
 ################################################################################
 
 def nodes_should_get_initialized_with_this_potential_info():
-    # initialize settings for interatomic potential
     tmp_tup = get_potential_information()
     knot_positions, spline_start_indices, atom_types = tmp_tup
 
     return knot_positions, spline_start_indices, atom_types
 
 def nodes_should_get_initialized_with_this_structure_info():
-    # get desired structure names (file paths)
-    all_names = get_structure_list()
-
-    return all_names
+    return get_structure_list()
 
 def nodes_should_get_PASSED_this_info():
-    # evaluate energies/forces using a random vector of spline parameters
-
-    
     return spline_parameters
+
+def evaluate_struct(i, evaluators, params, results):
+    results[i] = evaluators[i].compute_energy(params)
 
 ################################################################################
 
@@ -54,9 +52,9 @@ def get_structure_list():
     #dct = allstructs
 
     #return list(dct.keys())#, list(dct.values())
-    val = ["data/test_db/data.bulk_periodic_rhombo_type2"]*num_copies
-    val = ["data/seed_42/evaluator.aaa"]*num_copies
-    val = glob.glob("data/seed_42/evaluator.*")[:1]
+    val = ["data/fitting_databases/seed_42/evaluator.aaa"]*num_copies
+    val = ["data/fitting_databases/seed_42/evaluator.bulk_periodic_rhombo_type2"]*num_copies
+    val = glob.glob("data/fitting_databases/seed_42/evaluator.*")[:4]
 
     return val
 
@@ -94,33 +92,22 @@ if __name__ == "__main__":
 
     # load parameter vector info (should ALSO get passed in)
     parameter_array = np.random.random(knots.shape[0] + 2*num_splines)
-    parameter_array = np.atleast_2d(parameter_array)
+    parameter_array = np.vstack([parameter_array]*1000)
 
     # build evaluators
     workers = [pickle.load(open(path, 'rb')) for path in struct_names]
 
-    num_procs = 10
-    num_procs = multi.cpu_count()
+    num_avail_procs = multi.cpu_count()
 
-    if len(workers) > num_procs:
-        raise ValueError("num_workers should not exceed num_processors")
-
-    num_procs = len(workers)
-
-    print("Requesting {0}/{1} processors".format(num_procs, multi.cpu_count()))
-    print()
+    if len(workers) > num_avail_procs:
+        raise ValueError("num_workers should not exceed num_avail_processors")
 
     #spawner = multi.get_context('spawn')
 
     manager = multi.Manager()
 
     # create shared versions of necessary variables TODO: del old refs?
-    s_knots = multi.Array(ctypes.c_double, knots)
-    s_idxs = multi.Array(ctypes.c_double, knot_idxs)
-    s_parameters = multi.Array(ctypes.c_double, parameter_array.ravel())
-    s_names = manager.list(struct_names)
-    s_types = manager.list(types)
-
+    s_parameters = manager.list(parameter_array)
     s_workers = manager.list(workers)
 
     del knots
@@ -130,29 +117,24 @@ if __name__ == "__main__":
     del types
     del workers
 
-    def evaluate_structs(evaluator):
-        #evaluator, parameters = args
+    s_results = manager.list([None for i in range(len(s_workers))])
 
-        return evaluator.compute_energy(s_parameters)
+    num_procs = 4
 
-    # start processor pool and begin distributing work
-    pool = multi.Pool(num_procs)
-
-    #initialized_evaluators = pool.map(build_worker, s_names
-    #        args=(s_knots, s_idxs, s_parameters, s_names, s_types)
-    #        )
-
-    #parameter_array = np.random.random(np.array(s_knots).shape[0] + 2*num_splines)
-    #parameter_array = np.atleast_2d(parameter_array)
-    #print(parameter_array[0,:5])
-
-    #s_parameters = multi.Array(ctypes.c_double, parameter_array.ravel())
-    #del parameter_array
-
-    computed_energies = pool.map(evaluate_structs, s_workers)
-
-    print("Computed energies:\n{}".format(np.concatenate(computed_energies)))
+    print("Requesting {0}/{1} processors".format(num_procs, multi.cpu_count()))
     print()
+
+    pool = [multi.Process(target=evaluate_struct, args=(i, s_workers,
+    s_parameters, s_results))
+        for i in range(len(s_workers))]
+
+    for p in pool: p.start()
+
+    computed_energies = [p.join() for p in pool]
+
+    #np.set_printoptions(precision=10, suppress=True)
+    #print()
+    #print("Computed energies:\n{}".format(np.vstack(s_results)))
 
     print()
     print("Total runtime: {0}".format(time.time() - start))
