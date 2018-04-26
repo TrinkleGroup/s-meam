@@ -1,76 +1,166 @@
+import os
 import sys
 sys.path.insert(0, './')
 
 import numpy as np
+
+np.set_printoptions(precision=16, suppress=True)
+
+seed = np.random.randint(0, high=(2**32 - 1))
+#seed = int(sys.argv[1])
 seed = 42
 np.random.seed(seed)
 print("Seed value: {0}\n".format(seed))
 
-from pympler import muppy, summary
-
-import os
-import psutil
 import time
 import glob
-import ctypes
 import pickle
-import multiprocessing as multi
-from itertools import repeat
+from prettytable import PrettyTable
 from pprint import pprint
 
-import src.lammpsTools
-from src.worker import Worker
+import parsl
+from parsl import *
+import multiprocessing as mp
+
+import src.meam
+from src.meam import MEAM
+from src.optimization import force_matching
+
+#parsl.set_file_logger('parsl.log')
 
 ################################################################################
 
-def nodes_should_get_initialized_with_this_potential_info():
-    tmp_tup = get_potential_information()
-    knot_positions, spline_start_indices, atom_types = tmp_tup
+def main():
 
-    return knot_positions, spline_start_indices, atom_types
+    true_energies, true_forces = load_true_energies_and_forces()
+    energy_weights = np.ones(len(true_energies)).tolist()
 
-def nodes_should_get_initialized_with_this_structure_info():
-    return get_structure_list()
+    structure_names = get_structure_list()
 
-def nodes_should_get_PASSED_this_info():
-    return spline_parameters
+    sorted_true_energies = [true_energies[key] for key in structure_names]
+    sorted_true_forces = [true_forces[key] for key in structure_names]
 
-def evaluate_struct(i, evaluators, params, results):
-    results[i] = evaluators[i].compute_energy(params)
+    print("True energies")
+    print(np.vstack(sorted_true_energies))
+
+    workers = load_workers(structure_names)
+
+    pot = MEAM.from_file('data/fitting_databases/seed_42/seed_42.meam')
+    _, y_pvec, _ = src.meam.splines_to_pvec(pot.splines)
+
+    # eval_tasks = {key: compute_energy(w, y_pvec)
+    #         for key,w in workers.items()}
+    eng_tasks = [compute_energy(w, y_pvec) for w in workers]
+    fcs_tasks = [compute_forces(w, y_pvec) for w in workers]
+
+    eng_res = [job.result() for job in eng_tasks]
+    fcs_res = [job.result() for job in fcs_tasks]
+
+    eng_res = [energy[0] for energy in eng_res]
+    fcs_res = [forces[0] for forces in fcs_res]
+
+    print()
+    print("Computed energies")
+    print(np.vstack(eng_res))
+
+    cost_function_evaluation = force_matching(fcs_res, sorted_true_forces,
+            eng_res, sorted_true_energies, energy_weights)
+
+    print()
+    print("Cost function value:", cost_function_evaluation)
+
+################################################################################
+
+num_threads = mp.cpu_count() - 1
+num_threads = 1
+print("Requesting {0}/{1} threads".format(num_threads, mp.cpu_count()))
+print()
+
+config = {
+    "sites": [
+        {"site": "Local_IPP",
+         "auth": {
+             "channel": 'local',
+         },
+         "execution": {
+             "executor": 'ipp',
+             "provider": "local", # Run locally
+             "block": {  # Definition of a block
+                 "minBlocks" : 0, # }
+                 "maxBlocks" : 1, # }<---- Shape of the blocks
+                 "initBlocks": 1, # }
+                 "taskBlocks": num_threads, # <--- No. of workers in a block
+                 "parallelism" : 1 # <-- Parallelism
+             }
+         }
+        }],
+    "controller": {
+        "publicIp": '128.174.228.50'  # <--- SPECIFY PUBLIC IP HERE
+        }
+}
+
+dfk = DataFlowKernel(config=config, lazy_fail=False)
+
+@App('python', dfk)
+def compute_energy(w, parameter_vector):
+    import sys
+    return w.compute_energy(parameter_vector) / len(w.atoms)
+
+@App('python', dfk)
+def compute_forces(w, parameter_vector):
+    import sys
+    return w.compute_forces(parameter_vector) / len(w.atoms)
+
+@App('python', dfk)
+def do_force_matching(computed_forces, true_forces, computed_others=[],
+        true_others=[], weights=[]):
+
+    return force_matching(computed_forces, true_forces, computed_others,
+            true_others, weights,)
 
 ################################################################################
 
 def get_structure_list():
-    from tests.testStructs import allstructs
+    full_paths = glob.glob("data/fitting_databases/seed_42/evaluator.*")
+    file_names = [os.path.split(path)[-1] for path in full_paths]
 
-    #test_name = '8_atoms'                                                        
+    return [os.path.splitext(f_name)[-1][1:] for f_name in file_names]
 
-    num_copies = int(sys.argv[1]) if (len(sys.argv) > 1) else 1
-    #tmp = [allstructs[test_name]]*num_copies
-    #dct = {test_name+'_v{0}'.format(i+1):tmp[i] for i in range(len(tmp))} 
+def load_workers(all_names):
+    path = "data/fitting_databases/seed_42/evaluator."
 
-    #dct = allstructs
+    return [pickle.load(open(path + name, 'rb')) for name in all_names]
 
-    #return list(dct.keys())#, list(dct.values())
-    val = ["data/fitting_databases/seed_42/evaluator.aaa"]*num_copies
-    val = ["data/fitting_databases/seed_42/evaluator.bulk_periodic_rhombo_type2"]*num_copies
-    val = glob.glob("data/fitting_databases/seed_42/evaluator.*")[:4]
+def load_true_energies_and_forces():
+    path = "data/fitting_databases/seed_42/info."
 
-    return val
+    true_energies = {}
+    true_forces = {}
 
-def get_potential_information():
-    import src.meam
-    from tests.testPotentials import get_random_pots
+    for struct_name in glob.glob(path + '*'):
+        f_name = os.path.split(struct_name)[-1]
+        atoms_name = os.path.splitext(f_name)[-1][1:]
 
-    potential = get_random_pots(1)['meams'][0]
-    x_pvec, _, indices = src.meam.splines_to_pvec(potential.splines)
+        # with open(struct_name, 'rb') as f:
+        eng = np.genfromtxt(open(struct_name, 'rb'), max_rows=1)
+        fcs = np.genfromtxt(open(struct_name, 'rb'), skip_header=1)
 
-    return x_pvec, indices, potential.types
+        true_energies[atoms_name] = eng
+        true_forces[atoms_name] = fcs
+
+    return true_energies, true_forces
+
+def dict_of_energy_tasks(structure_futures, y):
+    return {struct_name: compute_energy(structure_futures[struct_name], y)
+            for (struct_name, worker) in structure_futures.items()}
+
+def dict_of_forces_tasks(structure_futures, y):
+    return {struct_name: compute_forces(structure_futures[struct_name], y)
+            for (struct_name, worker) in structure_futures.items()}
 
 ################################################################################
 
 if __name__ == "__main__":
-    start = time.time()
 
     print()
     print("WAIT - check the following before crying:")
@@ -79,62 +169,8 @@ if __name__ == "__main__":
     print("\t3) Comparing PER-ATOM values")
     print()
 
-    # load potential info (should be passed in)
-    knots, knot_idxs, types = nodes_should_get_initialized_with_this_potential_info()
-    num_splines = len(knot_idxs)
-
-    # load structure info (should also be passed in)
-    struct_names = nodes_should_get_initialized_with_this_structure_info()
-
-    print("Structures:")
-    pprint(struct_names)
-    print()
-
-    # load parameter vector info (should ALSO get passed in)
-    parameter_array = np.random.random(knots.shape[0] + 2*num_splines)
-    parameter_array = np.vstack([parameter_array]*1000)
-
-    # build evaluators
-    workers = [pickle.load(open(path, 'rb')) for path in struct_names]
-
-    num_avail_procs = multi.cpu_count()
-
-    if len(workers) > num_avail_procs:
-        raise ValueError("num_workers should not exceed num_avail_processors")
-
-    #spawner = multi.get_context('spawn')
-
-    manager = multi.Manager()
-
-    # create shared versions of necessary variables TODO: del old refs?
-    s_parameters = manager.list(parameter_array)
-    s_workers = manager.list(workers)
-
-    del knots
-    del knot_idxs
-    del parameter_array
-    del struct_names
-    del types
-    del workers
-
-    s_results = manager.list([None for i in range(len(s_workers))])
-
-    num_procs = 4
-
-    print("Requesting {0}/{1} processors".format(num_procs, multi.cpu_count()))
-    print()
-
-    pool = [multi.Process(target=evaluate_struct, args=(i, s_workers,
-    s_parameters, s_results))
-        for i in range(len(s_workers))]
-
-    for p in pool: p.start()
-
-    computed_energies = [p.join() for p in pool]
-
-    #np.set_printoptions(precision=10, suppress=True)
-    #print()
-    #print("Computed energies:\n{}".format(np.vstack(s_results)))
+    start = time.time()
+    main()
 
     print()
     print("Total runtime: {0}".format(time.time() - start))

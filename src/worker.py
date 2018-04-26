@@ -296,6 +296,7 @@ class Worker:
         """
         parameters = np.array(parameters)
         parameters = np.atleast_2d(parameters)
+        # print(parameters)
 
         self.n_pots = parameters.shape[0]
 

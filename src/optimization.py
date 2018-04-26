@@ -55,10 +55,19 @@ def build_ga_toolbox(pvec_len):
 
     # TODO: suggested is to use array.array b/c faster copying
 
+    import src.meam
+    from src.meam import MEAM
+
+    pot = MEAM.from_file('data/fitting_databases/seed_42/seed_42.meam')
+    _, y_pvec, _ = src.meam.splines_to_pvec(pot.splines)
+
+    def ret_pvec():
+        return y_pvec
+
     toolbox = base.Toolbox()
-    toolbox.register("attr_float", np.random.random)
+    toolbox.register("attr_float", ret_pvec)
     toolbox.register("individual", tools.initRepeat,
-            creator.Individual, toolbox.attr_float, n=pvec_len)
+            creator.Individual, toolbox.attr_float, n=1)
 
     toolbox.register("population", tools.initRepeat, list, toolbox.individual)
 
@@ -75,11 +84,12 @@ def serial_ga_with_workers():
 
     sorted_true_energies = [true_energies[key] for key in structure_names]
     sorted_true_forces = [true_forces[key] for key in structure_names]
+    print(sorted_true_energies)
 
     workers = load_workers(structure_names)
 
     PVEC_LEN = workers[0].len_param_vec
-    POP_SIZE = 10
+    POP_SIZE = 1
 
     toolbox = build_ga_toolbox(PVEC_LEN)
 
@@ -92,18 +102,22 @@ def serial_ga_with_workers():
         forces = []
 
         for w in workers:
-            energies.append(w.compute_energy(individual))
-            forces.append(w.compute_forces(individual))
+            eng = w.compute_energy(individual) / len(w.atoms)
+            fcs = w.compute_forces(individual) / len(w.atoms)
+            print(eng)
 
-        computed_energies = [results[0] for results in computed_energies]
-        computed_forces = [results[0] for results in computed_forces]
+            energies.append(eng)
+            forces.append(fcs)
+
+        energies = [results[0] for results in energies]
+        forces = [results[0] for results in forces]
 
         return force_matching(
                 forces, sorted_true_forces, energies, sorted_true_energies,
                 energy_weights)
 
     for indiv in pop:
-        indiv.fitness.values = evaluate(indiv)
+        indiv.fitness.values = (evaluate(indiv),)
 
     print("Evaluation of population:\n{}".format([ind.fitness for ind in pop]))
 

@@ -18,7 +18,7 @@ from src.worker import Worker
 ################################################################################
 """Assumes exactly 1 structure per processor"""
 
-def main():
+def main(procs_per_struct, pop_size):
     comm = MPI.COMM_WORLD
     rank = comm.Get_rank()
 
@@ -30,7 +30,14 @@ def main():
         num_splines = len(spline_start_indices)
 
         # get desired structure names
-        all_struct_file_names = get_structure_list()[:comm.size-1]
+        all_struct_file_names = get_structure_list()[:3]
+
+        necessary_num_slaves = procs_per_struct*len(all_struct_file_names) + 1
+
+        if comm.size < necessary_num_slaves:
+            raise NumberOfProcessorsError(
+                "MPI_COMM_WORLD size = {}, but {} processors are needed".format(
+                    comm.size, necessary_num_slaves))
 
         atom_names = []
 
@@ -43,10 +50,7 @@ def main():
         print("Harry has created", len(all_struct_file_names), "tasks", flush=True)
         print(flush=True)
 
-        if len(all_struct_file_names) > comm.size-1:
-            raise ValueError("number of structures != number of workers")
-
-        for slave_num in range(1, comm.size):
+        for slave_num in range(1, necessary_num_slaves):
             comm.send(
                 all_struct_file_names[slave_num-1],
                 dest=slave_num,
@@ -85,11 +89,13 @@ def main():
 
     val = None
 
+    # evaluate with given spline parameters
     if rank > 0:
         val = compute_energy(w, y) / len(w.atoms)
 
     all_eng = comm.gather(val, root=0)
 
+    # check results and print
     if rank == 0:
         all_eng = {atom_names[i]:all_eng[i+1] for i in range(len(atom_names))}
 
@@ -98,7 +104,6 @@ def main():
 
         for i,name in enumerate(info_file_names):
             with open(name, 'r') as info_file:
-                natoms = int(info_file.readline())
                 eng = float(info_file.readline())
 
                 fname = os.path.split(name)[-1]
@@ -108,7 +113,7 @@ def main():
         table = PrettyTable()
         table.field_names = ["name", "expected", "actual"]
         table.float_format = ".12"
-        
+
         for field_name in table.field_names:
                 table.align[field_name] = 'r'
 
@@ -123,12 +128,6 @@ def main():
 
         print()
         print(table)
-
-def init_slave(comm):
-    return w
-
-def eval_slave():
-    return compute_energy(w, y)
 
 ################################################################################
 
@@ -161,7 +160,26 @@ def compute_energy(w, y):
 def compute_forces(w, y):
     return w.compute_forces(y)
 
+class NumberOfProcessorsError(Exception):
+
+    def __init__(self, message):
+        self.name = "NumberOfProcessorsError"
+        self.message = message
+
+    def __str__(self):
+        return self.message
+
 ################################################################################
 
 if __name__ == "__main__":
-    main()
+    processors_per_struct = 1
+    population_size = 1
+
+    main(processors_per_struct, population_size)
+
+    #try:
+    #    main(processors_per_struct, population_size)
+    #except NumberOfProcessorsError as e:
+    #    print("HELLOOO")
+    #    print("Caught", e.name, ":", e.message)
+    #    MPI.COMM_WORLD.Abort(0)
