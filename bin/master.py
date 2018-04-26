@@ -6,8 +6,6 @@ import numpy as np
 
 np.set_printoptions(precision=16, suppress=True)
 
-seed = np.random.randint(0, high=(2**32 - 1))
-#seed = int(sys.argv[1])
 seed = 42
 np.random.seed(seed)
 print("Seed value: {0}\n".format(seed))
@@ -15,10 +13,7 @@ print("Seed value: {0}\n".format(seed))
 import time
 import glob
 import pickle
-from prettytable import PrettyTable
-from pprint import pprint
 
-import parsl
 from parsl import *
 import multiprocessing as mp
 
@@ -48,8 +43,6 @@ def main():
     pot = MEAM.from_file('data/fitting_databases/seed_42/seed_42.meam')
     _, y_pvec, _ = src.meam.splines_to_pvec(pot.splines)
 
-    # eval_tasks = {key: compute_energy(w, y_pvec)
-    #         for key,w in workers.items()}
     eng_tasks = [compute_energy(w, y_pvec) for w in workers]
     fcs_tasks = [compute_forces(w, y_pvec) for w in workers]
 
@@ -71,8 +64,8 @@ def main():
 
 ################################################################################
 
-num_threads = mp.cpu_count() - 1
-num_threads = 1
+num_threads = 7
+
 print("Requesting {0}/{1} threads".format(num_threads, mp.cpu_count()))
 print()
 
@@ -103,20 +96,11 @@ dfk = DataFlowKernel(config=config, lazy_fail=False)
 
 @App('python', dfk)
 def compute_energy(w, parameter_vector):
-    import sys
     return w.compute_energy(parameter_vector) / len(w.atoms)
 
 @App('python', dfk)
 def compute_forces(w, parameter_vector):
-    import sys
     return w.compute_forces(parameter_vector) / len(w.atoms)
-
-@App('python', dfk)
-def do_force_matching(computed_forces, true_forces, computed_others=[],
-        true_others=[], weights=[]):
-
-    return force_matching(computed_forces, true_forces, computed_others,
-            true_others, weights,)
 
 ################################################################################
 
@@ -141,7 +125,6 @@ def load_true_energies_and_forces():
         f_name = os.path.split(struct_name)[-1]
         atoms_name = os.path.splitext(f_name)[-1][1:]
 
-        # with open(struct_name, 'rb') as f:
         eng = np.genfromtxt(open(struct_name, 'rb'), max_rows=1)
         fcs = np.genfromtxt(open(struct_name, 'rb'), skip_header=1)
 
@@ -149,14 +132,6 @@ def load_true_energies_and_forces():
         true_forces[atoms_name] = fcs
 
     return true_energies, true_forces
-
-def dict_of_energy_tasks(structure_futures, y):
-    return {struct_name: compute_energy(structure_futures[struct_name], y)
-            for (struct_name, worker) in structure_futures.items()}
-
-def dict_of_forces_tasks(structure_futures, y):
-    return {struct_name: compute_forces(structure_futures[struct_name], y)
-            for (struct_name, worker) in structure_futures.items()}
 
 ################################################################################
 
