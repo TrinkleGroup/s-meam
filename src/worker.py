@@ -69,6 +69,8 @@ class Worker:
         self.ntypes     = ntypes
         self.natoms     = len(atoms)
 
+        self.len_param_vec = len(knot_xcoords) + 2*len(x_indices)
+
         f = lambda t: src.lammpsTools.symbol_to_type(t, self.types)
         self.type_of_each_atom = list(map(f, atoms.get_chemical_symbols()))
 
@@ -292,7 +294,9 @@ class Worker:
                 of knot points, and the 2 additional are boundary conditions.
                 The first K in each group are the knot y-values
         """
+        parameters = np.array(parameters)
         parameters = np.atleast_2d(parameters)
+
         self.n_pots = parameters.shape[0]
 
         phi_pvecs, rho_pvecs, u_pvecs, f_pvecs, g_pvecs = \
