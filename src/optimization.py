@@ -7,6 +7,7 @@ import pickle
 import glob
 import array
 import numpy as np
+np.set_printoptions(precision=16, suppress=True)
 
 from deap import base, creator, tools, algorithms
 
@@ -61,6 +62,9 @@ def build_ga_toolbox(pvec_len):
     pot = MEAM.from_file('data/fitting_databases/seed_42/seed_42.meam')
     _, y_pvec, _ = src.meam.splines_to_pvec(pot.splines)
 
+    noise = np.random.normal(0, 1, y_pvec.shape)
+    y_pvec += noise
+
     def ret_pvec():
         return y_pvec
 
@@ -71,12 +75,15 @@ def build_ga_toolbox(pvec_len):
 
     toolbox.register("population", tools.initRepeat, list, toolbox.individual)
 
+    toolbox.register("mutate", tools.mutGaussian, mu=0, sigma=1, indpb=0.2)
+    toolbox.register("mate", tools.cxBlend, alpha=0.5)
+    toolbox.register("select", tools.selBest)
+
     return toolbox
 
 def serial_ga_with_workers():
     """A serial genetic algorithm using actual Worker objects"""
 
-    print("Loading workers and true values")
     true_energies, true_forces = load_true_energies_and_forces()
     energy_weights = np.ones(len(true_energies)).tolist()
 
@@ -84,17 +91,13 @@ def serial_ga_with_workers():
 
     sorted_true_energies = [true_energies[key] for key in structure_names]
     sorted_true_forces = [true_forces[key] for key in structure_names]
-    print(sorted_true_energies)
 
     workers = load_workers(structure_names)
 
     PVEC_LEN = workers[0].len_param_vec
-    POP_SIZE = 1
+    POP_SIZE = 100
 
     toolbox = build_ga_toolbox(PVEC_LEN)
-
-    print("Building a population of size", POP_SIZE)
-    pop = toolbox.population(n=POP_SIZE)
 
     def evaluate(individual):
         """Note: an 'individual' is just a set of parameters"""
@@ -104,7 +107,6 @@ def serial_ga_with_workers():
         for w in workers:
             eng = w.compute_energy(individual) / len(w.atoms)
             fcs = w.compute_forces(individual) / len(w.atoms)
-            print(eng)
 
             energies.append(eng)
             forces.append(fcs)
@@ -114,12 +116,24 @@ def serial_ga_with_workers():
 
         return force_matching(
                 forces, sorted_true_forces, energies, sorted_true_energies,
-                energy_weights)
+                energy_weights),
 
-    for indiv in pop:
-        indiv.fitness.values = (evaluate(indiv),)
+    toolbox.register("evaluate", evaluate)
 
-    print("Evaluation of population:\n{}".format([ind.fitness for ind in pop]))
+    pop = toolbox.population(n=POP_SIZE)
+
+    # record statistics
+    stats = tools.Statistics(key=lambda ind: ind.fitness.values)
+
+    stats.register("avg", np.mean)
+    stats.register("std", np.std)
+    stats.register("min", np.min)
+    stats.register("max", np.max)
+
+    pop, logbook = algorithms.eaSimple(pop, toolbox, cxpb=0.5, mutpb=0.2,
+            ngen=50, stats=stats, verbose=True,)
+
+    # print(logbook)
 
 def genetic_algorithm_example():
     """A simple genetic algorithm using the DEAP library"""

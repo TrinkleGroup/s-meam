@@ -170,7 +170,6 @@ class MEAM:
 
         except IOError:
             print("Potential file does not exist")
-            sys.exit()
 
     def compute_energy(self, atoms):
 

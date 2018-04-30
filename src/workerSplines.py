@@ -1,5 +1,6 @@
 import numpy as np
 import logging
+import h5py
 
 from scipy.sparse import diags, lil_matrix
 
@@ -48,7 +49,7 @@ class WorkerSpline:
             but with a third dimension for xyz cartesian directions
     """
 
-    def __init__(self, x, bc_type, natoms):
+    def __init__(self, x=None, bc_type=None, natoms=0, M=None):
 
         # Check bad knot coordinates
         if not np.all(x[1:] > x[:-1], axis=0):
@@ -64,18 +65,19 @@ class WorkerSpline:
 
         # Variables that can be set at beginning
         self.x = np.array(x, dtype=float)
-        self.h = x[1] - x[0]
+        # self.h = x[1] - x[0]
 
         self.n_knots = len(x)
 
         self.bc_type = bc_type
 
-        self.cutoff = (x[0], x[-1])
-        self.M = build_M(len(x), self.h, self.bc_type)
+        if M is None:
+            self.M = build_M(len(x), x[1] - x[0], bc_type)
 
         self.natoms = natoms
 
-        self.extrap_dist = (self.cutoff[1] - self.cutoff[0]) / 2.
+        cutoff = (x[0], x[-1])
+        self.extrap_dist = (cutoff[1] - cutoff[0]) / 2.
 
         self.lhs_extrap_dist = self.extrap_dist
         self.rhs_extrap_dist = self.extrap_dist
@@ -87,9 +89,47 @@ class WorkerSpline:
         # Variables that will be set on evaluation
         self._y = None
         self.y1 = None
-        self.eval_y = [0]*(2*len(x) + 4)
         self.end_derivs = None
-        self.len_x = len(self.x)
+
+    @classmethod
+    def from_hdf5(cls, fname):
+        with h5py.File(fname, 'r') as f:
+            x = f['x']
+            bc_type = f['bc_type']
+            bc_type = ['fixed' if el==1 else 'natural' for el in bc_type]
+            M = f['M']
+            natoms = f['natoms'][0]
+
+            print(x)
+            print(bc_type)
+            print(natoms)
+            print(M)
+            ws = cls(x, bc_type, natoms, M)
+
+            ws.extrap_dist = f['extrap_dist']
+            ws.lhs_extrap_dist = f['lhs_extrap_dist']
+            ws.rhs_extrap_dist = f['rhs_extrap_dist']
+            ws.energy_struct_vec = f['energy_struct_vec']
+            ws.forces_struct_vec = f['forces_struct_vec']
+
+        ws.n_knots = len(self.x)
+
+        return ws
+
+    def to_hdf5(self, fname):
+        """Stores all necessary information in HDF5 format"""
+
+        with h5py.File(fname, 'w') as f:
+            f.create_dataset("M", data = self.M)
+            f.create_dataset("x", data = self.x)
+            f.create_dataset("extrap_dist", data = self.extrap_dist)
+            f.create_dataset("lhs_extrap_dist", data = self.lhs_extrap_dist)
+            f.create_dataset("rhs_extrap_dist", data = self.rhs_extrap_dist)
+            f.create_dataset("energy_struct_vec", data = self.energy_struct_vec)
+            f.create_dataset("forces_struct_vec", data = self.forces_struct_vec)
+            f.create_dataset("natoms", data = self.natoms)
+            f.create_dataset("bc_type", data=[1 if el=='fixed' else 0 for el in
+                    self.bc_type])
 
     @property
     def y(self):
@@ -100,7 +140,8 @@ class WorkerSpline:
 
     @y.setter
     def y(self, y):
-        # TODO: self.end_derivs don't need to be stored
+        # TODO: get rid of this setter; or just make a y1 setter?
+        # NOTE: end derivs come into play only during y1 evalution
         self._y = y[:, :-2]; self.end_derivs = y[:, -2:]
         self.y1 = (self.M @ y.T).T
 
@@ -635,15 +676,11 @@ def build_M(num_x, dx, bc_type):
         h''_11 = 6t - 2
 
     Args:
-        num_x (int):
-            the total number of knots
+        num_x (int): the total number of knots
 
-        dx (float):
-            knot spacing (assuming uniform spacing)
+        dx (float): knot spacing (assuming uniform spacing)
 
-        bc_type (tuple):
-            the type of boundary conditions to be applied to the spline.
-            'natural' or 'fixed'
+        bc_type (tuple): tuple of 'natural' or 'fixed'
 
     Returns:
         M (np.arr):

@@ -61,25 +61,23 @@ class Worker:
         """
 
         # Basic variable initialization
-        self.atoms      = atoms
-        self.types      = types
-        self.name       = name
+        # self.atoms      = atoms
+        # self.types      = types
+        # self.name       = name
 
-        ntypes          = len(self.types)
+        ntypes          = len(types)
         self.ntypes     = ntypes
         self.natoms     = len(atoms)
 
         self.len_param_vec = len(knot_xcoords) + 2*len(x_indices)
 
-        f = lambda t: src.lammpsTools.symbol_to_type(t, self.types)
+        f = lambda t: src.lammpsTools.symbol_to_type(t, types)
         self.type_of_each_atom = list(map(f, atoms.get_chemical_symbols()))
 
         # TODO: rename self.nphi to be more clear
         # there are nphi phi functions and nphi g fxns
         nphi            = int((self.ntypes+1)*self.ntypes/2)
         self.nphi       = nphi
-
-        self.uprimes    = np.zeros(self.natoms)
 
         all_splines = self.build_spline_lists(knot_xcoords, x_indices)
 
@@ -108,7 +106,7 @@ class Worker:
                           self_interaction=False, bothways=True, skin=0.0)
         nl.update(atoms)
 
-        for i, atom in enumerate(self.atoms):
+        for i, atom in enumerate(atoms):
             # Record atom type info
             itype = self.type_of_each_atom[i]
             ipos = atom.position
@@ -430,7 +428,7 @@ class Worker:
         phi_pvecs, rho_pvecs, u_pvecs, f_pvecs, g_pvecs = \
             self.parse_parameters(parameters)
 
-        forces = np.zeros((self.n_pots, len(self.atoms), 3))
+        forces = np.zeros((self.n_pots, self.natoms, 3))
 
         # Pair forces (phi)
         for phi_idx, (phi, y) in enumerate(zip(self.phis, phi_pvecs)):
