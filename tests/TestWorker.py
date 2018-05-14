@@ -1,3 +1,4 @@
+import os
 import numpy as np
 import logging
 import time
@@ -25,8 +26,8 @@ N = 1
 energy_flag = True * 1
 forces_flag = True * 1
 
-zero_pots_flag  = True * 0
-const_pots_flag = True * 0
+zero_pots_flag  = True * 1
+const_pots_flag = True * 1
 rand_pots_flag  = True * 1
 
 meam_flag       = True * 1
@@ -523,6 +524,30 @@ if rand_pots_flag:
             def test_random_potential_norhophi_forces(name, a, b):
                 max_diff = np.max(np.abs(a - b))
                 np.testing.assert_almost_equal(max_diff, 0.0, decimal=DECIMAL)
+
+def test_hdf5():
+    import h5py
+
+    p = tests.testPotentials.get_random_pots(1)['meams'][0]
+    x_pvec, y_pvec, indices = src.meam.splines_to_pvec(p.splines)
+    y_pvec = np.atleast_2d(y_pvec)
+
+    atoms = allstructs['8_atoms']
+
+    w1 = Worker(atoms, x_pvec, indices, ['H', 'He'])
+
+    hdf5_file = h5py.File("test.hdf5", 'w')
+
+    w1.add_to_hdf5(hdf5_file, 'worker')
+    w2 = Worker.from_hdf5(hdf5_file, 'worker')
+
+    np.testing.assert_almost_equal(w1.compute_energy(y_pvec),
+            w2.compute_energy(y_pvec), decimal=DECIMAL)
+
+    np.testing.assert_almost_equal(w1.compute_forces(y_pvec),
+            w2.compute_forces(y_pvec), decimal=DECIMAL)
+
+    os.remove("test.hdf5")
 
 ################################################################################
 

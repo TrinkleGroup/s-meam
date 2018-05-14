@@ -24,7 +24,7 @@ class Worker:
     # TODO: in general, need more descriptive variable/function names
 
     # @profile
-    def __init__(self, atoms, knot_xcoords, x_indices, types, name='unnamed'):
+    def __init__(self, atoms, knot_xcoords, x_indices, types, load_file=False):
         """Organizes data structures and pre-computes structure information.
 
         Args:
@@ -58,12 +58,16 @@ class Worker:
                 set of atomic types described by the potential. note: this
                 cannot be inferred from 'atoms' since the structure may not
                 have every atom type in it.
+
+            load_file (bool): True if loading from HDF5
         """
 
         # Basic variable initialization
         # self.atoms      = atoms
         # self.types      = types
         # self.name       = name
+
+        if load_file: return
 
         ntypes          = len(types)
         self.ntypes     = ntypes
@@ -91,18 +95,18 @@ class Worker:
 
         # Compute full potential cutoff distance (based only on radial fxns)
         radial_fxns = self.phis + self.rhos + self.fs
-        self.cutoff = np.max([max(s.x) for s in radial_fxns])
+        cutoff = np.max([max(s.x) for s in radial_fxns])
 
         # Build neighbor lists
 
         # No double counting of bonds; needed for pair interactions
-        nl_noboth = NeighborList(np.ones(self.natoms) * (self.cutoff / 2.),
+        nl_noboth = NeighborList(np.ones(self.natoms) * (cutoff / 2.),
                                  self_interaction=False, bothways=False,
                                  skin=0.0)
         nl_noboth.update(atoms)
 
         # Allows double counting bonds; needed for embedding energy calculations
-        nl = NeighborList(np.ones(self.natoms) * (self.cutoff / 2.),
+        nl = NeighborList(np.ones(self.natoms) * (cutoff / 2.),
                           self_interaction=False, bothways=True, skin=0.0)
         nl.update(atoms)
 
@@ -216,6 +220,78 @@ class Worker:
                 ffg.energy_struct_vec =lil_matrix(ffg.energy_struct_vec).tocsr()
                 ffg.forces_struct_vec =lil_matrix(ffg.forces_struct_vec).tocsr()
 
+    @classmethod
+    def from_hdf5(cls, hdf5_file, name):
+        worker_data = hdf5_file[name]
+
+        w = Worker(None, None, None, None, load_file=True)
+
+        w.natoms = worker_data.attrs['natoms']
+        w.ntypes = worker_data.attrs['ntypes']
+        w.nphi = worker_data.attrs['nphi']
+        w.len_param_vec = worker_data.attrs['len_param_vec']
+
+        w.type_of_each_atom = np.array(worker_data['type_of_each_atom'])
+
+        w.phis = [WorkerSpline.from_hdf5(worker_data["phis"], str(i)) for i in
+                range(w.nphi)]
+
+        w.rhos = [RhoSpline.from_hdf5(worker_data["rhos"], str(i)) for i in
+                range(w.ntypes)]
+
+        w.us = [USpline.from_hdf5(worker_data["us"], str(i)) for i in
+                range(w.ntypes)]
+
+        w.fs = [WorkerSpline.from_hdf5(worker_data["fs"], str(i)) for i in
+                range(w.ntypes)]
+
+        w.gs = [WorkerSpline.from_hdf5(worker_data["gs"], str(i)) for i in
+                range(w.nphi)]
+
+        w.ffgs = [[ffgSpline.from_hdf5(worker_data["ffgs"][str(i)],
+                str(j)) for j in range(w.ntypes)] for i in range(w.ntypes)]
+
+        return w
+
+    def add_to_hdf5(self, hdf5_file, name):
+        """Adds a worker to an existing HDF5 file
+
+        Args:
+            hdf5_file (h5py.File): file to write to
+            name (str): name of worker
+        """
+
+        new_group = hdf5_file.create_group(name)
+
+        new_group.attrs['natoms'] = self.natoms
+        new_group.attrs['ntypes'] = self.ntypes
+        new_group.attrs['nphi'] = self.nphi
+        new_group.attrs['len_param_vec'] = self.len_param_vec
+
+        new_group.create_dataset("type_of_each_atom",
+                data=self.type_of_each_atom)
+
+        phis_group = new_group.create_group("phis")
+        for i,sp in enumerate(self.phis): sp.add_to_hdf5(phis_group, str(i))
+
+        rhos_group = new_group.create_group("rhos")
+        for i,sp in enumerate(self.rhos): sp.add_to_hdf5(rhos_group, str(i))
+
+        us_group = new_group.create_group("us")
+        for i,sp in enumerate(self.us): sp.add_to_hdf5(us_group, str(i))
+
+        fs_group = new_group.create_group("fs")
+        for i,sp in enumerate(self.fs): sp.add_to_hdf5(fs_group, str(i))
+
+        gs_group = new_group.create_group("gs")
+        for i,sp in enumerate(self.gs): sp.add_to_hdf5(gs_group, str(i))
+
+        ffgs_group = new_group.create_group("ffgs")
+        for i,ffg_list in enumerate(self.ffgs):
+            mini_group = ffgs_group.create_group(str(i))
+            for j,sp in enumerate(ffg_list):
+                sp.add_to_hdf5(mini_group, str(j))
+
     def build_spline_lists(self, knot_xcoords, x_indices):
         """
         Builds lists of phi, rho, u, f, and g WorkerSpline objects
@@ -236,7 +312,7 @@ class Worker:
         splines = []
 
         for i, knots in enumerate(knots_split):
-            if (i < self.nphi):
+            if (i < self.nphi) or (i >= self.nphi + 2*self.ntypes):
                 s = WorkerSpline(knots, bc_type, self.natoms)
             elif (self.nphi + self.ntypes <= i < self.nphi + 2 *self.ntypes):
                 s = USpline(knots, bc_type, self.natoms)

@@ -100,8 +100,8 @@ class MEAM:
         x_pvec = np.array(x_pvec)
         y_pvec = np.array(y_pvec)
 
-        x_indices = np.array(x_indices)
-        y_indices = [x_indices[i - 1] - 2 * i for i in
+        x_indices = np.array(x_indices)[1:]
+        y_indices = [x_indices[i - 1] + 2 * i for i in
                      range(1, len(x_indices) + 1)]
 
         split_x = np.split(x_pvec, x_indices)
@@ -111,9 +111,9 @@ class MEAM:
         splines = [None] * nsplines
 
         for i in range(len(split_x)):
-            x, bc = np.split(split_x[i], [-2])
+            y, bc = np.split(split_y[i], [-2])
 
-            splines[i] = Spline(x, split_y[i], end_derivs=bc)
+            splines[i] = Spline(split_x[i], y, end_derivs=bc)
 
         return cls(splines, types)
 

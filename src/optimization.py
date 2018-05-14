@@ -7,8 +7,11 @@ import pickle
 import glob
 import array
 import numpy as np
+np.random.seed(42)
 np.set_printoptions(precision=16, suppress=True)
 
+import h5py
+from parsl import *
 from deap import base, creator, tools, algorithms
 
 from src.worker import Worker
@@ -16,6 +19,25 @@ from src.worker import Worker
 os.chdir("/home/jvita/scripts/s-meam/project/")
 
 ################################################################################
+
+def load_workers_from_database(hdf5_file, weights):
+    workers = {}
+
+    for i,name in enumerate(hdf5_file.keys()):
+        if weights[i] > 0:
+            workers[name] = Worker.from_hdf5(hdf5_file, name)
+
+    return workers
+
+def get_hdf5_testing_database(load=False):
+    """Builds or loads a new HDF5 database of workers.
+
+    Args:
+        load (bool): True if database already exists; default is False
+    """
+
+    return h5py.File("data/fitting_databases/seed_42/workers.hdf5-copy", 'a',
+            driver='core')
 
 def get_structure_list():
     full_paths = glob.glob("data/fitting_databases/seed_42/evaluator.*")
@@ -28,99 +50,260 @@ def load_workers(all_names):
 
     return [pickle.load(open(path + name, 'rb')) for name in all_names]
 
-def load_true_energies_and_forces():
+def load_true_energies_and_forces_dicts(worker_names):
+    # TODO: true values should be attributes of the HDF5 db? unless u want text
     path = "data/fitting_databases/seed_42/info."
 
-    true_energies = {}
     true_forces = {}
+    true_energies = {}
+    # properties = []
 
-    for struct_name in glob.glob(path + '*'):
-        f_name = os.path.split(struct_name)[-1]
-        atoms_name = os.path.splitext(f_name)[-1][1:]
+    # for struct_name in glob.glob(path + '*'):
+    for struct_name in worker_names:
+        # f_name = os.path.split(struct_name)[-1]
+        # atoms_name = os.path.splitext(f_name)[-1][1:]
 
-        # with open(struct_name, 'rb') as f:
-        eng = np.genfromtxt(open(struct_name, 'rb'), max_rows=1)
-        fcs = np.genfromtxt(open(struct_name, 'rb'), skip_header=1)
+        fcs = np.genfromtxt(open(path+struct_name, 'rb'), skip_header=1)
+        eng = np.genfromtxt(open(path+struct_name, 'rb'), max_rows=1)
 
-        true_energies[atoms_name] = eng
-        true_forces[atoms_name] = fcs
+        true_forces[struct_name] = fcs
+        true_energies[struct_name] = eng
+        # properties.append(fcs)
+        # properties.append(eng)
 
-    return true_energies, true_forces
+    return true_forces, true_energies
+    # return properties
 
 def build_ga_toolbox(pvec_len):
 
     creator.create("CostFunctionMinimizer", base.Fitness, weights=(-1.,))
-    creator.create("Individual",
-            np.ndarray, fitness=creator.CostFunctionMinimizer)
-            # array.array, typecode='l', fitness=creator.CostFunctionMinimizer)
+    creator.create("Individual", array.array, typecode='d',
+            fitness=creator.CostFunctionMinimizer)
 
-    # TODO: suggested is to use array.array b/c faster copying
+    # TODO: figure out how to initialize individuals throughout parameter space
 
+    # for testing purposes, all individuals will be a perturbed version of the
+    # true parameter set
     import src.meam
     from src.meam import MEAM
 
     pot = MEAM.from_file('data/fitting_databases/seed_42/seed_42.meam')
-    _, y_pvec, _ = src.meam.splines_to_pvec(pot.splines)
+    _, y_pvec, indices = src.meam.splines_to_pvec(pot.splines)
 
-    noise = np.random.normal(0, 1, y_pvec.shape)
-    y_pvec += noise
+    indices.append(len(indices))
+    ranges = [(-0.5, 0.5), (-1, 4), (-1, 1), (-9, 3), (-30, 15), (-0.5, 1),
+            (-0.2, 0.4), (-2, 3), (-7.5, 12), (-7, 2), (-1, 0.2), (-1, 1)]
 
-    def ret_pvec():
-        return y_pvec
+    def ret_pvec(arr_fxn, rng):
+        return arr_fxn(rng(len(y_pvec)))
+    # def ret_pvec(arr_fxn, rng):
+        # return arr_fxn(y_pvec + np.ones(y_pvec.shape)*1*rng())
 
     toolbox = base.Toolbox()
-    toolbox.register("attr_float", ret_pvec)
-    toolbox.register("individual", tools.initRepeat,
-            creator.Individual, toolbox.attr_float, n=1)
+    toolbox.register("parameter_set", ret_pvec, creator.Individual,
+            np.random.random)
 
-    toolbox.register("population", tools.initRepeat, list, toolbox.individual)
+    toolbox.register("population", tools.initRepeat, list, toolbox.parameter_set,)
 
-    toolbox.register("mutate", tools.mutGaussian, mu=0, sigma=1, indpb=0.2)
-    toolbox.register("mate", tools.cxBlend, alpha=0.5)
-    toolbox.register("select", tools.selBest)
+    toolbox.register("mutate", tools.mutGaussian, mu=0, sigma=0.1, indpb=0.2)
+    toolbox.register("mate", tools.cxTwoPoint)
+    # toolbox.register("select", tools.selBest)
+
+    def evaluate_pop(population, workers, weights, true_f, true_e):
+        """Computes the energies and forces of the entire population at once.
+        Note that forces and energies are ordered to match the workers list."""
+
+        pop_params = np.vstack(population)
+
+        for i in range(len(ranges)):
+            a, b = ranges[i]
+            i_lo, i_hi = indices[i], indices[i+1]
+
+            pop_params[:, i_lo:i_hi] = pop_params[:, i_lo:i_hi]*(b-a) + a
+
+        all_S = np.zeros(len(population)) # error function
+
+        for name in workers.keys():
+            w = workers[name]
+
+            fcs_err = w.compute_forces(pop_params) / w.natoms - true_f[name]
+            eng_err = w.compute_energy(pop_params) / w.natoms - true_e[name]
+
+            fcs_err = np.linalg.norm(fcs_err, axis=(1,2))
+
+            all_S += fcs_err*fcs_err
+            all_S += eng_err*eng_err
+
+        return all_S
+
+    toolbox.register("evaluate_pop", evaluate_pop)
 
     return toolbox
 
 def serial_ga_with_workers():
-    """A serial genetic algorithm using actual Worker objects"""
+    """A serial genetic algorithm using actual Worker objects; intended for
+    educational purposes before moving on to parallel version."""
 
-    true_energies, true_forces = load_true_energies_and_forces()
-    energy_weights = np.ones(len(true_energies)).tolist()
+    # initialize testing and fitting (workers) databases
+    testing_database = get_hdf5_testing_database(load=False)
+    testing_db_size = len(testing_database)
 
-    structure_names = get_structure_list()
+    initial_weights = np.ones(testing_db_size) # chooses F = T
 
-    sorted_true_energies = [true_energies[key] for key in structure_names]
-    sorted_true_forces = [true_forces[key] for key in structure_names]
+    workers = load_workers_from_database(testing_database, initial_weights)
 
-    workers = load_workers(structure_names)
+    true_value_dicts  = load_true_energies_and_forces_dicts(list(
+        workers.keys()))
+    true_forces, true_energies = true_value_dicts
 
-    PVEC_LEN = workers[0].len_param_vec
-    POP_SIZE = 100
+    PVEC_LEN = workers[list(workers.keys())[0]].len_param_vec
+    POP_SIZE = 500
+    NUM_GENS = 50
+    CXPB = 0.5
+    MUTPB = 0.1
 
+    # initialize toolbox with necessary functions for performing the GA 
     toolbox = build_ga_toolbox(PVEC_LEN)
 
-    def evaluate(individual):
-        """Note: an 'individual' is just a set of parameters"""
-        energies = []
-        forces = []
-
-        for w in workers:
-            eng = w.compute_energy(individual) / len(w.atoms)
-            fcs = w.compute_forces(individual) / len(w.atoms)
-
-            energies.append(eng)
-            forces.append(fcs)
-
-        energies = [results[0] for results in energies]
-        forces = [results[0] for results in forces]
-
-        return force_matching(
-                forces, sorted_true_forces, energies, sorted_true_energies,
-                energy_weights),
-
-    toolbox.register("evaluate", evaluate)
-
     pop = toolbox.population(n=POP_SIZE)
+
+    # record statistics
+    stats = tools.Statistics(key=lambda ind: ind.fitness.values)
+
+    stats.register("avg", np.mean)
+    stats.register("std", np.std)
+    stats.register("min", np.min)
+    stats.register("max", np.max)
+
+    fitnesses = toolbox.evaluate_pop(
+            pop, workers, initial_weights, true_forces, true_energies)
+    # print(fitnesses)
+
+    for ind,val in zip(pop, fitnesses):
+        ind.fitness.values = val,
+
+    # print("{:10}{:10}{:10}{:10}".format("max", "min", "avg", "std"))
+
+    logbook = tools.Logbook()
+    logbook.header = "min", "max", "avg", "std"
+
+    record = stats.compile(pop)
+    # print(record)
+
+    logbook.record(**record)
+    print(logbook.stream)
+
+    # run GA
+    i = 0
+    while (i < NUM_GENS) and (len(pop) > 1):
+        survivors = tools.selBest(pop, len(pop)//2)
+        breeders = list(map(toolbox.clone, survivors))
+
+        # mate
+        for child1, child2 in zip(breeders[::2], breeders[1::2]):
+            if CXPB > np.random.random():
+                toolbox.mate(child1, child2)
+                del child1.fitness.values
+                del child2.fitness.values
+
+        # evaluate fitnesses for new generation
+        invalid_ind = [ind for ind in breeders if not ind.fitness.valid]
+
+        fitnesses = toolbox.evaluate_pop(
+                breeders, workers, initial_weights, true_forces, true_energies)
+
+        # print(fitnesses)
+
+        for ind,val in zip(invalid_ind, fitnesses):
+            ind.fitness.values = val,
+
+        pop = survivors + breeders
+
+        for ind in pop:
+            if MUTPB > np.random.random():
+                toolbox.mutate(ind)
+
+        record = stats.compile(pop)
+        # print(record)
+        logbook.record(**record)
+        print(logbook.stream)
+
+        i += 1
+
+    best = tools.selBest(pop, 1)[0]
+
+    compare_to_true(best, 'data/plots/ga_res')
+
+def compare_to_true(new_pvec, fname=''):
+    import src.meam
+    from src.meam import MEAM
+
+    pot = MEAM.from_file('data/fitting_databases/seed_42/seed_42.meam')
+    x_pvec, y_pvec, indices = src.meam.splines_to_pvec(pot.splines)
+
+    new_pot = MEAM.from_pvec(x_pvec, new_pvec, indices, ['H', 'He'])
+
+    splines1 = pot.splines
+    splines2 = new_pot.splines
+
+    import matplotlib.pyplot as plt
+
+    for i,(s1,s2) in enumerate(zip(splines1, splines2)):
+
+        low,high = s1.cutoff
+        low -= abs(0.2*low)
+        high += abs(0.2*high)
+
+        x = np.linspace(low,high,1000)
+        y1 = list(map(lambda e: s1(e) if s1.in_range(e) else s1.extrap(e), x))
+        y2 = list(map(lambda e: s2(e) if s2.in_range(e) else s2.extrap(e), x))
+
+        yi = list(map(lambda e: s1(e), s1.x))
+
+        plt.figure()
+        plt.plot(s1.x, yi, 'o')
+        plt.plot(x, y1, 'b', label='true')
+        plt.plot(x, y2, 'r', label='new')
+        plt.legend()
+
+        plt.savefig(fname + str(i+1) + ".png")
+
+def parsl_ga_example():
+    """A simple genetic algorithm using the DEAP library"""
+
+    from deap import base, creator, tools, algorithms
+
+    # define base classes for the fitness evaluator and the individual class
+    creator.create("FitnessMin", base.Fitness, weights=(-1., 1.))
+    creator.create("Individual", np.ndarray, fitness=creator.FitnessMin)
+
+    SIZE = 10
+
+    # register a function 'individual' that constructs an individual
+    toolbox = base.Toolbox()
+    toolbox.register("attr_float", np.random.random)
+    toolbox.register("individual",
+            tools.initRepeat, creator.Individual, toolbox.attr_float, n=SIZE)
+
+    # register a function to build populations of individuals
+    toolbox.register("population", tools.initRepeat, list, toolbox.individual)
+
+    pop = toolbox.population(n=100)
+
+    # evaluate individuals
+    def evaluate(individual):
+        l = np.array(individual)
+
+        a = par_sum(l).result()
+        b = par_len(l).result()
+
+        return a, 1./b
+
+    # add the above tools to the toolbox; condenses the algorithm into the box
+    toolbox.register("evaluate", evaluate)
+    toolbox.register("mutate", tools.mutGaussian, mu=0, sigma=1, indpb=0.2)
+    toolbox.register("mate", tools.cxBlend, alpha=0.5)
+    toolbox.register("select", tools.selBest)
 
     # record statistics
     stats = tools.Statistics(key=lambda ind: ind.fitness.values)
@@ -133,7 +316,40 @@ def serial_ga_with_workers():
     pop, logbook = algorithms.eaSimple(pop, toolbox, cxpb=0.5, mutpb=0.2,
             ngen=50, stats=stats, verbose=True,)
 
-    # print(logbook)
+num_threads = 4
+
+config = {
+    "sites": [
+        {"site": "Local_IPP",
+         "auth": {
+             "channel": 'local',
+         },
+         "execution": {
+             "executor": 'ipp',
+             "provider": "local", # Run locally
+             "block": {  # Definition of a block
+                 "minBlocks" : 0, # }
+                 "maxBlocks" : 1, # }<---- Shape of the blocks
+                 "initBlocks": 1, # }
+                 "taskBlocks": num_threads, # <--- No. of workers in a block
+                 "parallelism" : 1 # <-- Parallelism
+             }
+         }
+        }],
+    "controller": {
+        "publicIp": '128.174.228.50'  # <--- SPECIFY PUBLIC IP HERE
+        }
+}
+
+dfk = DataFlowKernel(config=config, lazy_fail=False)
+
+@App('python', dfk)
+def par_sum(nums):
+    return sum(nums)
+
+@App('python', dfk)
+def par_len(nums):
+    return len(nums)
 
 def genetic_algorithm_example():
     """A simple genetic algorithm using the DEAP library"""
@@ -158,7 +374,7 @@ def genetic_algorithm_example():
     # register a function to build populations of individuals
     toolbox.register("population", tools.initRepeat, list, toolbox.individual)
 
-    pop = toolbox.population(n=5)
+    pop = toolbox.population(n=100)
     print("A population of 5 individuals:\n{}".format(pop))
 
     # evaluate individuals
@@ -256,7 +472,43 @@ def force_matching(computed_forces, true_forces, computed_others=[],
 
     return Zf + Zc
 
-################################################################################
+def error_function(computed, true):
+    """The UN-weighted squared error between the computed and true values for each
+    struct. S(theta, F) from the original paper.
+
+    Args:
+        computed (list): all computed properties (forces, energies, etc.)
+        true (list): the true values of the properties
+
+    Returns:
+        val (float): the weighted squared error of all fitting properties
+
+    Note:
+        Energies (computed and true) are expected to already have their
+        reference structure value subtrated off, if one is being used
+    """
+
+    return sum([np.sum((np.array(a)-np.array(b))**2)
+                for (a,b) in zip(computed, true)])
+
+def likelihood_function(S_mle, S_theta):
+    """Computes the value of the likelihood function. L(F, theta) from the
+    original paper
+
+    Args:
+        S_mle (float): the value of the error function using theta_MLE
+        S_theta (float): the value of the error function using a new theta
+
+    Returns:
+        val (float): the value of the likelihood function
+    """
+
+    return np.exp(-S_theta / S_mle)
+
+def objective_function():
+    """TODO: the objective function of the fitting database"""
 
 if __name__ == "__main__":
     serial_ga_with_workers()
+    # genetic_algorithm_example()
+    # parsl_ga_example()

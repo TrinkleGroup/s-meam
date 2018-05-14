@@ -2,14 +2,13 @@ import numpy as np
 import logging
 import h5py
 
-from scipy.sparse import diags, lil_matrix
+from scipy.sparse import diags, lil_matrix, csr_matrix
 
 # from src.numba_functions import jit_add_at_1D, jit_add_at_2D
 from src.numba_functions import onepass_min_max, outer_prod, outer_prod_simple
 # from src.fast import onepass_min_max, mat_vec_mult
 
 logger = logging.getLogger(__name__)
-
 
 class WorkerSpline:
     """A representation of a cubic spline specifically tailored to meet
@@ -73,6 +72,8 @@ class WorkerSpline:
 
         if M is None:
             self.M = build_M(len(x), x[1] - x[0], bc_type)
+        else:
+            self.M = M
 
         self.natoms = natoms
 
@@ -85,6 +86,7 @@ class WorkerSpline:
         # Variables that will be set at some point
         self.energy_struct_vec = np.zeros(2*len(x)+4)
         self.forces_struct_vec = np.zeros((natoms, 2*len(x)+4, 3))
+        self.index = 0
 
         # Variables that will be set on evaluation
         self._y = None
@@ -92,44 +94,76 @@ class WorkerSpline:
         self.end_derivs = None
 
     @classmethod
-    def from_hdf5(cls, fname):
-        with h5py.File(fname, 'r') as f:
-            x = f['x']
-            bc_type = f['bc_type']
-            bc_type = ['fixed' if el==1 else 'natural' for el in bc_type]
-            M = f['M']
-            natoms = f['natoms'][0]
+    def from_hdf5(cls, hdf5_file, name, load_sv=True):
+        """Builds a new spline from an HDF5 file.
 
-            print(x)
-            print(bc_type)
-            print(natoms)
-            print(M)
-            ws = cls(x, bc_type, natoms, M)
+        Args:
+            hdf5_file (h5py.File): file to load from
+            name (str): name of spline to load
+            load_sv (bool): False if struct vec shouldn't be loaded (ffgSpline)
 
-            ws.extrap_dist = f['extrap_dist']
-            ws.lhs_extrap_dist = f['lhs_extrap_dist']
-            ws.rhs_extrap_dist = f['rhs_extrap_dist']
-            ws.energy_struct_vec = f['energy_struct_vec']
-            ws.forces_struct_vec = f['forces_struct_vec']
+        Notes:
+            this does NOT convert Dataset types into Numpy arrays, meaning the
+            file must remain open in order to use the worker
+        """
 
-        ws.n_knots = len(self.x)
+        spline_data = hdf5_file[name]
+
+        x = spline_data['x']
+        bc_type = spline_data.attrs['bc_type']
+        bc_type = ['fixed' if el==1 else 'natural' for el in bc_type]
+        M = spline_data['M']
+        natoms = spline_data.attrs['natoms']
+
+        ws = cls(x, bc_type, natoms, M)
+
+        ws.extrap_dist = spline_data.attrs['extrap_dist']
+        ws.lhs_extrap_dist = spline_data.attrs['lhs_extrap_dist']
+        ws.rhs_extrap_dist = spline_data.attrs['rhs_extrap_dist']
+        # print(spline_data.attrs['index'])
+        ws.index = spline_data.attrs['index']
+
+        if load_sv:
+            ws.energy_struct_vec = spline_data['energy_struct_vec']
+            ws.forces_struct_vec = spline_data['forces_struct_vec']
+
+        ws.n_knots = len(x)
 
         return ws
 
-    def to_hdf5(self, fname):
-        """Stores all necessary information in HDF5 format"""
+    def add_to_hdf5(self, hdf5_file, name, save_sv=True):
+        """Adds spline to HDF5 file
 
-        with h5py.File(fname, 'w') as f:
-            f.create_dataset("M", data = self.M)
-            f.create_dataset("x", data = self.x)
-            f.create_dataset("extrap_dist", data = self.extrap_dist)
-            f.create_dataset("lhs_extrap_dist", data = self.lhs_extrap_dist)
-            f.create_dataset("rhs_extrap_dist", data = self.rhs_extrap_dist)
-            f.create_dataset("energy_struct_vec", data = self.energy_struct_vec)
-            f.create_dataset("forces_struct_vec", data = self.forces_struct_vec)
-            f.create_dataset("natoms", data = self.natoms)
-            f.create_dataset("bc_type", data=[1 if el=='fixed' else 0 for el in
-                    self.bc_type])
+        Args:
+            hdf5_file (h5py.File): file object to be added to
+            name (str): desired group name
+            save_sv (bool): False if no need to save struct vecs (for ffgSpline)
+        """
+
+        new_group = hdf5_file.create_group(name)
+
+        new_group.attrs["extrap_dist"] = self.extrap_dist
+        new_group.attrs["lhs_extrap_dist"] = self.lhs_extrap_dist
+        new_group.attrs["rhs_extrap_dist"] = self.rhs_extrap_dist
+        new_group.attrs["natoms"] = self.natoms
+        # print(self.index)
+        new_group.attrs["index"] = self.index
+        new_group.attrs["bc_type"] = [1 if el=='fixed' else 0
+                for el in self.bc_type]
+
+        new_group.create_dataset("M", data = self.M)
+        new_group.create_dataset("x", data = self.x)
+
+        if save_sv:
+            e_s = self.energy_struct_vec.shape
+            f_s = self.forces_struct_vec.shape
+
+            new_group.create_dataset("energy_struct_vec",
+                    data=self.energy_struct_vec)
+            new_group.create_dataset("forces_struct_vec",
+                    data=self.forces_struct_vec)
+        # new_group.create_dataset("forces_struct_vec", data =
+        #         self.forces_struct_vec.reshape(f_s[0]*f_s[2], f_s[1]))
 
     @property
     def y(self):
@@ -299,14 +333,54 @@ class WorkerSpline:
 
 class USpline(WorkerSpline):
 
-    def __init__(self, x, bc_type, natoms):
-        super(USpline, self).__init__(x, bc_type, natoms)
+    def __init__(self, x, bc_type, natoms, M=None):
+        super(USpline, self).__init__(x, bc_type, natoms, M)
 
         self.deriv_struct_vec = np.zeros((natoms, 2*len(self.x)+4))
 
         self.zero_abcd = self.get_abcd([0])
 
         self.atoms_embedded = 0
+
+    def add_to_hdf5(self, hdf5_file, name):
+        super().add_to_hdf5(hdf5_file, name)
+
+        uspline_group = hdf5_file[name]
+
+        uspline_group.create_dataset('deriv_struct_vec',
+                data=self.deriv_struct_vec)
+
+        uspline_group.create_dataset('zero_abcd', data=self.zero_abcd)
+        uspline_group.attrs['atoms_embedded'] = self.atoms_embedded
+
+    @classmethod
+    def from_hdf5(cls, hdf5_file, name):
+
+        spline_data = hdf5_file[name]
+
+        x = spline_data['x']
+        bc_type = spline_data.attrs['bc_type']
+        bc_type = ['fixed' if el==1 else 'natural' for el in bc_type]
+        M = spline_data['M']
+        natoms = spline_data.attrs['natoms']
+
+        us = cls(x, bc_type, natoms, M)
+
+        us.extrap_dist = spline_data.attrs['extrap_dist']
+        us.lhs_extrap_dist = spline_data.attrs['lhs_extrap_dist']
+        us.rhs_extrap_dist = spline_data.attrs['rhs_extrap_dist']
+        us.index = spline_data.attrs['index']
+
+        us.energy_struct_vec = spline_data['energy_struct_vec']
+        us.deriv_struct_vec = spline_data['deriv_struct_vec']
+        us.forces_struct_vec = spline_data['forces_struct_vec']
+
+        us.zero_abcd = spline_data['zero_abcd']
+        us.atoms_embedded = spline_data.attrs['atoms_embedded']
+
+        us.n_knots = len(x)
+
+        return us
 
     def reset(self):
         self.atoms_embedded = 0
@@ -397,13 +471,59 @@ class USpline(WorkerSpline):
 
 class RhoSpline(WorkerSpline):
 
-    def __init__(self, x, bc_type, natoms):
-        super(RhoSpline, self).__init__(x, bc_type, natoms)
+    def __init__(self, x, bc_type, natoms, M=None):
+        super(RhoSpline, self).__init__(x, bc_type, natoms, M)
 
         self.energy_struct_vec = np.zeros((self.natoms, 2*len(x)+4))
 
         N = self.natoms
         self.forces_struct_vec = lil_matrix((3*N*N, 2*len(x)+4), dtype=float)
+
+    def add_to_hdf5(self, hdf5_file, name):
+        super().add_to_hdf5(hdf5_file, name, save_sv=False)
+
+        spline_group = hdf5_file[name]
+
+        spline_group.create_dataset("energy_struct_vec",
+                data=self.energy_struct_vec)
+
+        f_sv = self.forces_struct_vec
+        spline_group.create_dataset('f_sv.data', data=f_sv.data)
+        spline_group.create_dataset('f_sv.indices', data=f_sv.indices)
+        spline_group.create_dataset('f_sv.indptr', data=f_sv.indptr)
+        spline_group.create_dataset('f_sv.shape', data=f_sv.shape)
+
+    @classmethod
+    def from_hdf5(cls, hdf5_file, name):
+
+        spline_data = hdf5_file[name]
+
+        x = spline_data['x']
+        bc_type = spline_data.attrs['bc_type']
+        bc_type = ['fixed' if el==1 else 'natural' for el in bc_type]
+        M = spline_data['M']
+        natoms = spline_data.attrs['natoms']
+
+        rho = cls(x, bc_type, natoms, M)
+
+        rho.extrap_dist = spline_data.attrs['extrap_dist']
+        rho.lhs_extrap_dist = spline_data.attrs['lhs_extrap_dist']
+        rho.rhs_extrap_dist = spline_data.attrs['rhs_extrap_dist']
+        rho.index = spline_data.attrs['index']
+
+        rho.energy_struct_vec = spline_data['energy_struct_vec']
+
+        f_sv_data = spline_data['f_sv.data']
+        f_sv_indices = spline_data['f_sv.indices']
+        f_sv_indptr = spline_data['f_sv.indptr']
+        f_sv_shape = spline_data['f_sv.shape']
+
+        rho.forces_struct_vec = csr_matrix(
+                (f_sv_data, f_sv_indices, f_sv_indptr), shape=f_sv_shape)
+
+        rho.n_knots = len(x)
+
+        return rho
 
     def calc_forces(self, y):
         self.y = y
@@ -460,6 +580,62 @@ class ffgSpline:
         # initialized as array for fast building; converted to sparse later
         self.energy_struct_vec = np.zeros((natoms, nknots_cartesian))
         self.forces_struct_vec = np.zeros((3*N*N, nknots_cartesian))
+
+    def add_to_hdf5(self, hdf5_file, name):
+        new_group = hdf5_file.create_group(name)
+
+        new_group.attrs['natoms'] = self.natoms
+
+        # assumes scipy sparse CSR
+        new_group.create_dataset('e_sv.data', data=self.energy_struct_vec.data)
+        new_group.create_dataset('e_sv.indices',
+                data=self.energy_struct_vec.indices)
+        new_group.create_dataset('e_sv.indptr',
+                data=self.energy_struct_vec.indptr)
+        new_group.create_dataset('e_sv.shape',
+                data=self.energy_struct_vec.shape)
+
+        new_group.create_dataset('f_sv.data', data=self.forces_struct_vec.data)
+        new_group.create_dataset('f_sv.indices',
+                data=self.forces_struct_vec.indices)
+        new_group.create_dataset('f_sv.indptr',
+                data=self.forces_struct_vec.indptr)
+        new_group.create_dataset('f_sv.shape',
+                data=self.forces_struct_vec.shape)
+
+        self.fj.add_to_hdf5(new_group, 'fj', save_sv=False)
+        self.fk.add_to_hdf5(new_group, 'fk', save_sv=False)
+        self.g.add_to_hdf5(new_group, 'g', save_sv=False)
+
+    @classmethod
+    def from_hdf5(cls, hdf5_file, name):
+        ffg_data = hdf5_file[name]
+
+        natoms = ffg_data.attrs['natoms']
+
+        fj = WorkerSpline.from_hdf5(ffg_data, 'fj', load_sv=False)
+        fk = WorkerSpline.from_hdf5(ffg_data, 'fk', load_sv=False)
+        g = WorkerSpline.from_hdf5(ffg_data, 'g', load_sv=False)
+
+        ffg = cls(fj, fk, g, natoms)
+
+        e_sv_data = ffg_data['e_sv.data']
+        e_sv_indices = ffg_data['e_sv.indices']
+        e_sv_indptr = ffg_data['e_sv.indptr']
+        e_sv_shape = ffg_data['e_sv.shape']
+
+        ffg.energy_struct_vec = csr_matrix(
+                (e_sv_data, e_sv_indices, e_sv_indptr), shape=e_sv_shape)
+
+        f_sv_data = ffg_data['f_sv.data']
+        f_sv_indices = ffg_data['f_sv.indices']
+        f_sv_indptr = ffg_data['f_sv.indptr']
+        f_sv_shape = ffg_data['f_sv.shape']
+
+        ffg.forces_struct_vec= csr_matrix(
+                (f_sv_data, f_sv_indices, f_sv_indptr), shape=f_sv_shape)
+
+        return ffg
 
     # @profile
     def calc_energy(self, y_fj, y_fk, y_g):
