@@ -109,23 +109,23 @@ class WorkerSpline:
 
         spline_data = hdf5_file[name]
 
-        x = spline_data['x']
-        bc_type = spline_data.attrs['bc_type']
+        x = np.array(spline_data['x'])
+        bc_type = tuple(spline_data.attrs['bc_type'])
         bc_type = ['fixed' if el==1 else 'natural' for el in bc_type]
-        M = spline_data['M']
-        natoms = spline_data.attrs['natoms']
+        M = np.array(spline_data['M'])
+        natoms = int(spline_data.attrs['natoms'])
 
         ws = cls(x, bc_type, natoms, M)
 
-        ws.extrap_dist = spline_data.attrs['extrap_dist']
-        ws.lhs_extrap_dist = spline_data.attrs['lhs_extrap_dist']
-        ws.rhs_extrap_dist = spline_data.attrs['rhs_extrap_dist']
+        ws.extrap_dist = float(spline_data.attrs['extrap_dist'])
+        ws.lhs_extrap_dist = float(spline_data.attrs['lhs_extrap_dist'])
+        ws.rhs_extrap_dist = float(spline_data.attrs['rhs_extrap_dist'])
         # print(spline_data.attrs['index'])
-        ws.index = spline_data.attrs['index']
+        ws.index = int(spline_data.attrs['index'])
 
         if load_sv:
-            ws.energy_struct_vec = spline_data['energy_struct_vec']
-            ws.forces_struct_vec = spline_data['forces_struct_vec']
+            ws.energy_struct_vec = np.array(spline_data['energy_struct_vec'])
+            ws.forces_struct_vec = np.array(spline_data['forces_struct_vec'])
 
         ws.n_knots = len(x)
 
@@ -358,25 +358,25 @@ class USpline(WorkerSpline):
 
         spline_data = hdf5_file[name]
 
-        x = spline_data['x']
+        x = np.array(spline_data['x'])
         bc_type = spline_data.attrs['bc_type']
         bc_type = ['fixed' if el==1 else 'natural' for el in bc_type]
-        M = spline_data['M']
-        natoms = spline_data.attrs['natoms']
+        M = np.array(spline_data['M'])
+        natoms = int(spline_data.attrs['natoms'])
 
         us = cls(x, bc_type, natoms, M)
 
-        us.extrap_dist = spline_data.attrs['extrap_dist']
-        us.lhs_extrap_dist = spline_data.attrs['lhs_extrap_dist']
-        us.rhs_extrap_dist = spline_data.attrs['rhs_extrap_dist']
-        us.index = spline_data.attrs['index']
+        us.extrap_dist = np.array(spline_data.attrs['extrap_dist'])
+        us.lhs_extrap_dist = np.array(spline_data.attrs['lhs_extrap_dist'])
+        us.rhs_extrap_dist = np.array(spline_data.attrs['rhs_extrap_dist'])
+        us.index = int(spline_data.attrs['index'])
 
-        us.energy_struct_vec = spline_data['energy_struct_vec']
-        us.deriv_struct_vec = spline_data['deriv_struct_vec']
-        us.forces_struct_vec = spline_data['forces_struct_vec']
+        us.energy_struct_vec = np.array(spline_data['energy_struct_vec'])
+        us.deriv_struct_vec = np.array(spline_data['deriv_struct_vec'])
+        us.forces_struct_vec = np.array(spline_data['forces_struct_vec'])
 
-        us.zero_abcd = spline_data['zero_abcd']
-        us.atoms_embedded = spline_data.attrs['atoms_embedded']
+        us.zero_abcd = np.array(spline_data['zero_abcd'])
+        us.atoms_embedded = np.array(spline_data.attrs['atoms_embedded'])
 
         us.n_knots = len(x)
 
@@ -498,25 +498,25 @@ class RhoSpline(WorkerSpline):
 
         spline_data = hdf5_file[name]
 
-        x = spline_data['x']
+        x = np.array(spline_data['x'])
         bc_type = spline_data.attrs['bc_type']
         bc_type = ['fixed' if el==1 else 'natural' for el in bc_type]
-        M = spline_data['M']
-        natoms = spline_data.attrs['natoms']
+        M = np.array(spline_data['M'])
+        natoms = np.array(spline_data.attrs['natoms'])
 
         rho = cls(x, bc_type, natoms, M)
 
-        rho.extrap_dist = spline_data.attrs['extrap_dist']
-        rho.lhs_extrap_dist = spline_data.attrs['lhs_extrap_dist']
-        rho.rhs_extrap_dist = spline_data.attrs['rhs_extrap_dist']
-        rho.index = spline_data.attrs['index']
+        rho.extrap_dist = np.array(spline_data.attrs['extrap_dist'])
+        rho.lhs_extrap_dist = np.array(spline_data.attrs['lhs_extrap_dist'])
+        rho.rhs_extrap_dist = np.array(spline_data.attrs['rhs_extrap_dist'])
+        rho.index = int(spline_data.attrs['index'])
 
-        rho.energy_struct_vec = spline_data['energy_struct_vec']
+        rho.energy_struct_vec = np.array(spline_data['energy_struct_vec'])
 
-        f_sv_data = spline_data['f_sv.data']
-        f_sv_indices = spline_data['f_sv.indices']
-        f_sv_indptr = spline_data['f_sv.indptr']
-        f_sv_shape = spline_data['f_sv.shape']
+        f_sv_data = np.array(spline_data['f_sv.data'])
+        f_sv_indices = np.array(spline_data['f_sv.indices'])
+        f_sv_indptr = np.array(spline_data['f_sv.indptr'])
+        f_sv_shape = np.array(spline_data['f_sv.shape'])
 
         rho.forces_struct_vec = csr_matrix(
                 (f_sv_data, f_sv_indices, f_sv_indptr), shape=f_sv_shape)
@@ -611,7 +611,7 @@ class ffgSpline:
     def from_hdf5(cls, hdf5_file, name):
         ffg_data = hdf5_file[name]
 
-        natoms = ffg_data.attrs['natoms']
+        natoms = int(ffg_data.attrs['natoms'])
 
         fj = WorkerSpline.from_hdf5(ffg_data, 'fj', load_sv=False)
         fk = WorkerSpline.from_hdf5(ffg_data, 'fk', load_sv=False)

@@ -226,10 +226,10 @@ class Worker:
 
         w = Worker(None, None, None, None, load_file=True)
 
-        w.natoms = worker_data.attrs['natoms']
-        w.ntypes = worker_data.attrs['ntypes']
-        w.nphi = worker_data.attrs['nphi']
-        w.len_param_vec = worker_data.attrs['len_param_vec']
+        w.natoms = int(worker_data.attrs['natoms'])
+        w.ntypes = int(worker_data.attrs['ntypes'])
+        w.nphi = int(worker_data.attrs['nphi'])
+        w.len_param_vec = int(worker_data.attrs['len_param_vec'])
 
         w.type_of_each_atom = np.array(worker_data['type_of_each_atom'])
 

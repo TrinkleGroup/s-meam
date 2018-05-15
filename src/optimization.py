@@ -23,8 +23,8 @@ os.chdir("/home/jvita/scripts/s-meam/project/")
 def load_workers_from_database(hdf5_file, weights):
     workers = {}
 
-    for i,name in enumerate(hdf5_file.keys()):
-        if weights[i] > 0:
+    for name in hdf5_file.keys():
+        if weights[name] > 0:
             workers[name] = Worker.from_hdf5(hdf5_file, name)
 
     return workers
@@ -105,8 +105,9 @@ def build_ga_toolbox(pvec_len):
 
     toolbox.register("population", tools.initRepeat, list, toolbox.parameter_set,)
 
-    toolbox.register("mutate", tools.mutGaussian, mu=0, sigma=0.1, indpb=0.2)
-    toolbox.register("mate", tools.cxTwoPoint)
+    toolbox.register("mutate", tools.mutGaussian, mu=0, sigma=1, indpb=0.1)
+    toolbox.register("mate", tools.cxBlend, alpha=0.5)
+    # toolbox.register("mate", tools.cxTwoPoint)
     # toolbox.register("select", tools.selBest)
 
     def evaluate_pop(population, workers, weights, true_f, true_e):
@@ -131,8 +132,8 @@ def build_ga_toolbox(pvec_len):
 
             fcs_err = np.linalg.norm(fcs_err, axis=(1,2))
 
-            all_S += fcs_err*fcs_err
-            all_S += eng_err*eng_err
+            all_S += fcs_err*fcs_err*weights[name]
+            all_S += eng_err*eng_err*weights[name]
 
         return all_S
 
@@ -149,6 +150,7 @@ def serial_ga_with_workers():
     testing_db_size = len(testing_database)
 
     initial_weights = np.ones(testing_db_size) # chooses F = T
+    initial_weights = {key:1 for key in testing_database.keys()}
 
     workers = load_workers_from_database(testing_database, initial_weights)
 
@@ -157,10 +159,15 @@ def serial_ga_with_workers():
     true_forces, true_energies = true_value_dicts
 
     PVEC_LEN = workers[list(workers.keys())[0]].len_param_vec
-    POP_SIZE = 500
-    NUM_GENS = 50
-    CXPB = 0.5
-    MUTPB = 0.1
+    POP_SIZE = 300
+    NUM_GENS = 200
+    CXPB = 1.0
+    MUTPB = 0.5
+
+    print("POP_SIZE:", POP_SIZE)
+    print("NUM_GENS:", NUM_GENS)
+    print("CXPB:", CXPB)
+    print("MUTPB:", MUTPB)
 
     # initialize toolbox with necessary functions for performing the GA 
     toolbox = build_ga_toolbox(PVEC_LEN)
@@ -188,7 +195,6 @@ def serial_ga_with_workers():
     logbook.header = "min", "max", "avg", "std"
 
     record = stats.compile(pop)
-    # print(record)
 
     logbook.record(**record)
     print(logbook.stream)
@@ -197,42 +203,85 @@ def serial_ga_with_workers():
     i = 0
     while (i < NUM_GENS) and (len(pop) > 1):
         survivors = tools.selBest(pop, len(pop)//2)
+        # best = list(map(toolbox.clone, survivors[:10]))
+        # survivors = [ind for ind in pop if ind.fitness.values[0] < 5000.]
+        # print(len(survivors))
+        # best = survivors[0]
         breeders = list(map(toolbox.clone, survivors))
 
         # mate
-        for child1, child2 in zip(breeders[::2], breeders[1::2]):
-            if CXPB > np.random.random():
-                toolbox.mate(child1, child2)
-                del child1.fitness.values
-                del child2.fitness.values
+        # for child1, child2 in zip(breeders[::2], breeders[1::2]):
+        #     if CXPB > np.random.random():
+        #         toolbox.mate(child1, child2)
+        #         del child1.fitness.values
+        #         del child2.fitness.values
+
+        j = 0
+        while j < (POP_SIZE - len(breeders)):
+            mom, dad = tools.selTournament(breeders, 2, 5, 'fitness')
+
+            if CXPB >= np.random.random():
+                kid, _ = toolbox.mate(toolbox.clone(mom), toolbox.clone(dad))
+                del kid.fitness.values
+
+                survivors.append(kid)
+                j += 1
 
         # evaluate fitnesses for new generation
-        invalid_ind = [ind for ind in breeders if not ind.fitness.valid]
+        # invalid_ind = [ind for ind in breeders if not ind.fitness.valid]
+        # invalid_ind = [ind for ind in survivors if not ind.fitness.valid]
 
-        fitnesses = toolbox.evaluate_pop(
-                breeders, workers, initial_weights, true_forces, true_energies)
+        # fitnesses = toolbox.evaluate_pop(invalid_ind,
+        #         workers, initial_weights, true_forces, true_energies)
+        # 
+        # for ind,val in zip(invalid_ind, fitnesses):
+        #     ind.fitness.values = val,
+        # 
+        # pop = survivors + breeders
 
-        # print(fitnesses)
-
-        for ind,val in zip(invalid_ind, fitnesses):
-            ind.fitness.values = val,
-
-        pop = survivors + breeders
-
-        for ind in pop:
-            if MUTPB > np.random.random():
+        survivors = tools.selBest(survivors, len(survivors))
+        # mutate, preserving top 10
+        for ind in survivors[10:]:
+            if MUTPB >= np.random.random():
                 toolbox.mutate(ind)
 
+        fitnesses = toolbox.evaluate_pop(survivors,
+                workers, initial_weights, true_forces, true_energies)
+
+        for ind,val in zip(survivors, fitnesses):
+            ind.fitness.values = val,
+
+        pop = survivors
+
         record = stats.compile(pop)
-        # print(record)
         logbook.record(**record)
         print(logbook.stream)
 
         i += 1
 
-    best = tools.selBest(pop, 1)[0]
+    top10 = tools.selBest(pop, 10)
+    print([ind.fitness.values[0] for ind in top10])
 
-    compare_to_true(best, 'data/plots/ga_res')
+    compare_to_true(top10[0], 'data/plots/ga_res-pre_cg')
+
+    # best_guess = np.atleast_2d(top10[0])
+    # better_guess = cg(best_guess, toolbox.evaluate_pop, workers,
+    #     initial_weights, true_forces, true_energies)
+    # 
+    # better_fitness = toolbox.evaluate_pop(better_guess, workers,
+    #         initial_weights, true_forces, true_energies,)
+    # 
+    # print("Final fitness:", better_fitness[0])
+    # 
+    # compare_to_true(better_guess, 'data/plots/ga_res')
+
+def cg(guess, fxn, *args):
+    from scipy.optimize import fmin_cg
+
+    org_shape = guess.shape
+    f2 = lambda x: fxn(x.reshape(org_shape), *args)
+    f3 = lambda x: print(f2(x))
+    return fmin_cg(f2, guess, callback=f3)
 
 def compare_to_true(new_pvec, fname=''):
     import src.meam
@@ -434,6 +483,20 @@ def genetic_algorithm_example():
             ngen=50, stats=stats, verbose=False,)
 
     print(logbook)
+
+# def mcmc(start):
+#     STEP_SIZE = 0.01
+#     MAX_STEPS = 10000
+#
+#     prev = start.copy()
+#
+#     i = 0
+#     while i < MAX_STEPS:
+#         rand_index = int(np.random.randint(len(guess), size=1))
+#
+#         attempt = prev[i] += STEP_SIZE
+#
+#         i += 1
 
 def force_matching(computed_forces, true_forces, computed_others=[],
         true_others=[], weights=[]):
