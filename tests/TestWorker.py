@@ -26,8 +26,8 @@ N = 1
 energy_flag = True * 1
 forces_flag = True * 1
 
-zero_pots_flag  = True * 1
-const_pots_flag = True * 1
+zero_pots_flag  = True * 0
+const_pots_flag = True * 0
 rand_pots_flag  = True * 1
 
 meam_flag       = True * 1
@@ -52,10 +52,10 @@ if bulk_flag:
     allstructs = {**allstructs, **bulk_vac_ortho, **bulk_periodic_ortho,
                   **bulk_vac_rhombo, **bulk_periodic_rhombo, **extra}
 
-#allstructs = {'bulk_vac_ortho_type1':bulk_vac_ortho['bulk_vac_ortho_type1'],}
+# allstructs = {'bulk_vac_ortho_type1':bulk_vac_ortho['bulk_vac_ortho_type1'],}
 #               'bulk_vac_ortho_type1_v2':bulk_vac_ortho['bulk_vac_ortho_type1']}
 # allstructs = {'aa':dimers['aa']}
-#allstructs = {'4_atom':extra['4_atoms']}
+# allstructs = {'4_atom':extra['4_atoms']}
 # import lammpsTools
 # lammpsTools.atoms_to_LAMMPS_file('../data/structs/data.4atoms',
 #                                  allstructs['4_atom'])
@@ -527,6 +527,7 @@ if rand_pots_flag:
 
 def test_hdf5():
     import h5py
+    from tests.testStructs import allstructs
 
     p = tests.testPotentials.get_random_pots(1)['meams'][0]
     x_pvec, y_pvec, indices = src.meam.splines_to_pvec(p.splines)

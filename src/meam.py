@@ -558,7 +558,7 @@ class MEAM:
     # @profile
     def get_lammps_results(self, struct):
 
-        types = ['H', 'He']
+        types = self.types
 
         params = {'units': 'metal', 'boundary': 'p p p', 'mass': ['1 1.008',
                                                                   '2 4.0026'],
@@ -569,7 +569,7 @@ class MEAM:
         self.write_to_file('test.meam.spline')
 
         calc = LAMMPS(no_data_file=True, parameters=params,
-                      keep_tmp_files=True, specorder=types,
+                      keep_tmp_files=False, specorder=types,
                       files=['test.meam.spline'])
 
         energy = calc.get_potential_energy(struct)

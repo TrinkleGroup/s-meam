@@ -20,9 +20,10 @@ MASTER = 0 # rank of master node
 
 # MPI tags
 TOOLBOX_INIT = 1
+FITNESSES = 2
 
 # GA settings
-POP_SIZE = 2
+POP_SIZE = 200
 NUM_GENS = 100
 CXPB = 1.0
 MUTPB = 0.5
@@ -46,20 +47,31 @@ def main():
         true_value_dicts  = load_true_energies_and_forces_dicts(list(
             workers.keys()))
         true_forces, true_energies = true_value_dicts
+
+        # group structures to be passed to sub-processes
+        tup = group_for_mpi_scatter(workers, database_weights, true_forces,
+                true_energies, size)
+
+        workers = tup[0]
+        database_weights = tup[1]
+        true_forces = tup[2]
+        true_energies = tup[3]
     else:
         workers = None
         database_weights = None
         true_forces = None
         true_energies = None
 
-    workers = comm.bcast(workers, root=0)
-    database_weights = comm.bcast(database_weights, root=0)
-    true_forces = comm.bcast(true_forces, root=0)
-    true_energies = comm.bcast(true_energies, root=0)
+    workers = comm.scatter(workers, root=0)
+    database_weights = comm.scatter(database_weights, root=0)
+    true_forces = comm.scatter(true_forces, root=0)
+    true_energies = comm.scatter(true_energies, root=0)
 
-    # initialize toolbox with necessary functions for performing the GA 
-    PVEC_LEN = workers[list(workers.keys())[0]].len_param_vec
-    toolbox = build_ga_toolbox(PVEC_LEN)
+    print("rank", rank, "has", len(workers), "structures", flush=True)
+
+    # have every process build the toolbox
+    pvec_len = workers[list(workers.keys())[0]].len_param_vec
+    toolbox = build_ga_toolbox(pvec_len)
 
     # set up statistics recorder
     stats = tools.Statistics(key=lambda ind: ind.fitness.values)
@@ -70,25 +82,72 @@ def main():
     stats.register("max", np.max)
 
     logbook = tools.Logbook()
-    logbook.header = "min", "max", "avg", "std"
+    logbook.header = "gen", "min", "max", "avg", "std"
 
-    # for slave_num in range(1, NUM_WORKERS):
-    #     comm.send([toolbox, stats, logbook], dest=slave_num,
-    #             tag=TOOLBOX_INIT)
-    # else:
-    #     toolbox = stats = logbook = None
-
-    # all workers should now have the tools necessary to run the GA
-    # comm.bcast([toolbox, stats, logbook], root=0)
-
+    # compute initial fitnesses
     if rank == MASTER:
         pop = toolbox.population(n=POP_SIZE)
     else:
         pop = None
 
-    pop = comm.scatter(pop, root=0)
+    pop = comm.bcast(pop, root=0)
 
-    print("rank", rank, "has", len(pop), "individuals")
+    fitnesses = toolbox.evaluate_pop(
+            pop, workers, database_weights, true_forces, true_energies)
+
+    all_fitnesses = comm.gather(fitnesses, root=0)
+
+    if rank == MASTER:
+        for ind,fit in zip(pop, np.sum(all_fitnesses, axis=0)):
+            ind.fitness.values = fit,
+
+        record = stats.compile(pop)
+        logbook.record(gen=0, **record)
+        print(logbook.stream, flush=True)
+
+    i = 0
+    while (i < NUM_GENS):
+        if rank == MASTER:
+            survivors = tools.selBest(pop, len(pop)//2)
+            breeders = list(map(toolbox.clone, survivors))
+
+            j = 0
+            while j < (POP_SIZE - len(breeders)):
+                mom, dad = tools.selTournament(breeders, 2, 5, 'fitness')
+
+                if CXPB >= np.random.random():
+                    kid, _ = toolbox.mate(toolbox.clone(mom), toolbox.clone(dad))
+                    del kid.fitness.values
+
+                    survivors.append(kid)
+                    j += 1
+
+            survivors = tools.selBest(survivors, len(survivors))
+
+            for ind in survivors[10:]:
+                if MUTPB >= np.random.random():
+                    toolbox.mutate(ind)
+        else:
+            survivors = None
+
+        survivors = comm.bcast(survivors, root=0)
+
+        fitnesses = toolbox.evaluate_pop(survivors,
+                workers, database_weights, true_forces, true_energies)
+
+        all_fitnesses = comm.gather(fitnesses, root=0)
+
+        if rank == MASTER:
+            for ind,fit in zip(survivors, np.sum(all_fitnesses, axis=0)):
+                ind.fitness.values = fit,
+
+            pop = survivors
+
+            record = stats.compile(pop)
+            logbook.record(gen=i+1, **record)
+            print(logbook.stream, flush=True)
+
+        i += 1
 
 ################################################################################
 
@@ -197,6 +256,34 @@ def build_ga_toolbox(pvec_len):
     toolbox.register("evaluate_pop", evaluate_pop)
 
     return toolbox
+
+def group_for_mpi_scatter(workers,database_weights, true_forces, true_energies,
+        size):
+    grouped_keys = np.array_split(list(workers.keys()), size)
+
+    grouped_workers = []
+    grouped_weights = []
+    grouped_forces = []
+    grouped_energies = []
+
+    for group in grouped_keys:
+        tmp = {}
+        tmp2 = {}
+        tmp3 = {}
+        tmp4 = {}
+
+        for name in group:
+            tmp[name] = workers[name]
+            tmp2[name] = database_weights[name]
+            tmp3[name] = true_forces[name]
+            tmp4[name] = true_energies[name]
+
+        grouped_workers.append(tmp)
+        grouped_weights.append(tmp2)
+        grouped_forces.append(tmp3)
+        grouped_energies.append(tmp4)
+
+    return grouped_workers, grouped_weights, grouped_forces, grouped_energies
 
 ################################################################################
 

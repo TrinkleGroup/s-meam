@@ -240,7 +240,7 @@ class WorkerSpline:
 
         # Perform interval search and prepare prefactors
         all_k = np.digitize(x, knots, right=True) - 1
-        all_k = np.clip(all_k, 0, len(knots) - 1)
+        all_k = np.clip(all_k, 0, len(knots) - 2)
 
         prefactors = knots[all_k + 1] - knots[all_k]
 

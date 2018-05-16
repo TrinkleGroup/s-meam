@@ -276,12 +276,23 @@ def serial_ga_with_workers():
     # compare_to_true(better_guess, 'data/plots/ga_res')
 
 def cg(guess, fxn, *args):
-    from scipy.optimize import fmin_cg
+    pass
 
-    org_shape = guess.shape
-    f2 = lambda x: fxn(x.reshape(org_shape), *args)
-    f3 = lambda x: print(f2(x))
-    return fmin_cg(f2, guess, callback=f3)
+def gradient(x, toolbox, h):
+    """Computes the gradient on the fitness surface at point x in parameter
+    space via the second order centered difference method
+
+    Args:
+        x (np.arr): a 1D vector of parameters
+        toolbox (DEAP.toolbox): for evaluating the fitness
+        h (float): step size for doing centered difference
+    Returns:
+        grad (np.arr): the gradient at point x
+    """
+
+    N = len(x)
+
+    population = np.tile(x, (3,N)).reshape((3,N,N))
 
 def compare_to_true(new_pvec, fname=''):
     import src.meam
