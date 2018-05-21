@@ -1,5 +1,6 @@
 import unittest
 import numpy as np
+import matplotlib.pyplot as plt
 
 import workerSplines
 
@@ -25,9 +26,10 @@ class WorkerSplineTests(unittest.TestCase):
 
         ws.y = self.y
 
-        np.testing.assert_allclose(ws.y, self.y[:-2], atol=EPS, rtol=0)
-        np.testing.assert_allclose(ws.end_derivs, self.y[-2:], atol=EPS, rtol=0)
-        np.testing.assert_allclose(ws.y1, np.array([-2, -1, 0, 1, 2]))
+        np.testing.assert_allclose(ws.y[0], self.y[0,:-2], atol=EPS, rtol=0)
+        np.testing.assert_allclose(ws.end_derivs[0], self.y[0,-2:], atol=EPS,
+                                   rtol=0)
+        np.testing.assert_allclose(ws.y1[0], np.array([-2, -1, 0, 1, 2]))
 
     def test_full_eval_extrap_double_range(self):
         d0, dN = self.y[0, -2:]
@@ -41,14 +43,10 @@ class WorkerSplineTests(unittest.TestCase):
         test_x = np.linspace(self.x[0] - spline_range/2., self.x[-1] +
                              spline_range/2., 10)
 
-        ws.add_to_energy_struct_vec(test_x)
-
-        results = ws.calc_energy(self.y)
-
-        for i in range(len(test_x)):
-            self.assertAlmostEqual(results[i], cs(test_x[i]), DIGITS)
-            # np.testing.assert_allclose(results[i], cs(test_x[i]), rtol=0,
-            #                            atol=EPS)
+        for x in test_x:
+            ws.add_to_energy_struct_vec(x)
+            self.assertAlmostEqual(ws.calc_energy(self.y)[0], cs(x))
+            ws.energy_struct_vec[:] = 0
 
     def test_single_rhs_extrap(self):
         d0, dN = self.y[0,-2:]
@@ -72,10 +70,10 @@ class WorkerSplineTests(unittest.TestCase):
 
         test_x = [2, 3]
 
-        ws.add_to_energy_struct_vec(test_x)
-
-        self.assertAlmostEqual(ws.calc_energy(self.y)[1], cs(test_x[1]))
-        self.assertAlmostEqual(ws.calc_energy(self.y)[0], cs(test_x[0]))
+        for x in test_x:
+            ws.add_to_energy_struct_vec(x)
+            self.assertAlmostEqual(ws.calc_energy(self.y)[0], cs(x))
+            ws.energy_struct_vec[:] = 0
 
     def test_rhs_extrap(self):
         d0, dN = self.y[0,-2:]
@@ -85,16 +83,11 @@ class WorkerSplineTests(unittest.TestCase):
                     end_derivs=(d0, dN))
 
         test_x = np.linspace(self.x[-1], self.x[-1] + 2, 100)
-        # test_x = np.array([1.5])
 
-        ws.add_to_energy_struct_vec(test_x)
-
-        results = ws.calc_energy(self.y)
-
-        for i in range(len(test_x)):
-            # self.assertAlmostEqual(results[i], cs(test_x[i]), DIGITS)
-            np.testing.assert_allclose(results[i], cs(test_x[i]), atol=0,
-                                       rtol=EPS)
+        for x in test_x:
+            ws.add_to_energy_struct_vec(x)
+            self.assertAlmostEqual(ws.calc_energy(self.y)[0], cs(x))
+            ws.energy_struct_vec[:] = 0
 
     def test_single_lhs_extrap(self):
         d0, dN = self.y[0,-2:]
@@ -118,10 +111,10 @@ class WorkerSplineTests(unittest.TestCase):
 
         test_x = [-2, -3]
 
-        ws.add_to_energy_struct_vec(test_x)
-
-        self.assertAlmostEqual(ws.calc_energy(self.y)[1], cs(test_x[1]))
-        self.assertAlmostEqual(ws.calc_energy(self.y)[0], cs(test_x[0]))
+        for x in test_x:
+            ws.add_to_energy_struct_vec(x)
+            self.assertAlmostEqual(ws.calc_energy(self.y)[0], cs(x))
+            ws.energy_struct_vec[:] = 0
 
     def test_lhs_extrap_one_in_one_out(self):
         d0, dN = self.y[0,-2:]
@@ -132,10 +125,10 @@ class WorkerSplineTests(unittest.TestCase):
 
         test_x = [-1.5, -0.25]
 
-        ws.add_to_energy_struct_vec(test_x)
-
-        self.assertAlmostEqual(ws.calc_energy(self.y)[1], cs(test_x[1]))
-        self.assertAlmostEqual(ws.calc_energy(self.y)[0], cs(test_x[0]))
+        for x in test_x:
+            ws.add_to_energy_struct_vec(x)
+            self.assertAlmostEqual(ws.calc_energy(self.y)[0], cs(x))
+            ws.energy_struct_vec[:] = 0
 
     def test_lhs_extrap(self):
         d0, dN = self.y[0,-2:]
@@ -146,12 +139,10 @@ class WorkerSplineTests(unittest.TestCase):
 
         test_x = np.linspace(self.x[0] - 2, self.x[0], 1000)
 
-        ws.add_to_energy_struct_vec(test_x)
-
-        results = ws.calc_energy(self.y)
-
-        for i in range(len(test_x)):
-            self.assertAlmostEqual(results[i], cs(test_x[i]))
+        for x in test_x:
+            ws.add_to_energy_struct_vec(x)
+            self.assertAlmostEqual(ws.calc_energy(self.y)[0], cs(x))
+            ws.energy_struct_vec[:] = 0
 
     def test_inner_intervals(self):
         d0, dN = self.y[0,-2:]
@@ -161,12 +152,10 @@ class WorkerSplineTests(unittest.TestCase):
 
         test_x = np.linspace(self.x[1], self.x[-2], 1000)
 
-        ws.add_to_energy_struct_vec(test_x)
-
-        results = ws.calc_energy(self.y)
-
-        for i in range(len(test_x)):
-            self.assertAlmostEqual(results[i], cs(test_x[i]))
+        for x in test_x:
+            ws.add_to_energy_struct_vec(x)
+            self.assertAlmostEqual(ws.calc_energy(self.y)[0], cs(x))
+            ws.energy_struct_vec[:] = 0
 
     def test_leftmost_interval(self):
         d0, dN = self.y[0,-2:]
@@ -176,27 +165,23 @@ class WorkerSplineTests(unittest.TestCase):
 
         test_x = np.linspace(self.x[0], self.x[1], 100)
 
-        ws.add_to_energy_struct_vec(test_x)
-
-        results = ws.calc_energy(self.y)
-
-        for i in range(len(test_x)):
-            self.assertAlmostEqual(results[i], cs(test_x[i]))
+        for x in test_x:
+            ws.add_to_energy_struct_vec(x)
+            self.assertAlmostEqual(ws.calc_energy(self.y)[0], cs(x))
+            ws.energy_struct_vec[:] = 0
 
     def test_rightmost_interval(self):
-        d0, dN = self.y[-2:]
+        d0, dN = self.y[0, -2:]
 
         ws = WorkerSpline(self.x, ('fixed', 'fixed'))
-        cs = Spline(self.x, self.y[:-2], bc_type=((1, d0), (1, dN)))
+        cs = Spline(self.x, self.y[0,:-2], bc_type=((1, d0), (1, dN)))
 
         test_x = np.linspace(self.x[-2], self.x[-1] - 0.01, 100)
 
-        ws.add_to_energy_struct_vec(test_x)
-
-        results = ws.calc_energy(self.y)
-
-        for i in range(len(test_x)):
-            self.assertAlmostEqual(results[i], cs(test_x[i]))
+        for x in test_x:
+            ws.add_to_energy_struct_vec(x)
+            self.assertAlmostEqual(ws.calc_energy(self.y)[0], cs(x))
+            ws.energy_struct_vec[:] = 0
 
     def test_constructor_bad_x(self):
         x = self.x.copy()
@@ -367,30 +352,16 @@ class WorkerSplineTests(unittest.TestCase):
         self.assertRaises(ValueError, workerSplines.build_M, len(self.x),
                           self.dx, bc_type=('natural', 'bad'))
 
-    def test_zero_point_energy(self):
-        # Should evaluate to # of evaluations (e.g. 4 fake atoms = result of 4)
-        x = np.arange(10)
-
-        y = np.arange(1, 13)
-        d0 = dN = 1
-        y[-2] = d0
-        y[-2] = dN
-
-        ws = WorkerSpline(x, ('fixed', 'fixed'))
-
-        ws.add_to_energy_struct_vec(np.ones(3))
-
-        self.assertEqual(np.sum(ws.compute_zero_potential(y)), 3)
-
 class USplineTests(unittest.TestCase):
 
     def setUp(self):
         self.x = np.arange(10)
-        self.y = np.arange(12)
+        self.y = np.arange(1, 13)
 
         d0 = dN = 1
         self.y[-2] = d0
         self.y[-1] = dN
+        self.y = np.atleast_2d(self.y)
 
         self.s = USpline(self.x, ('fixed', 'fixed'), 5)
         self.s.y = self.y
@@ -399,6 +370,11 @@ class USplineTests(unittest.TestCase):
         self.s.atoms_embedded = 100
         self.s.deriv_struct_vec[:] = 0
         self.s.energy_struct_vec[:] = 0
+
+    def test_zero_point_energy(self):
+        # Should evaluate to # of evaluations (e.g. 4 fake atoms = result of 4)
+        self.s.atoms_embedded = 3
+        self.assertEqual(np.sum(self.s.compute_zero_potential(self.y)), 3)
 
 class RhoSplineTests(unittest.TestCase):
 
@@ -409,6 +385,7 @@ class RhoSplineTests(unittest.TestCase):
         d0 = dN = 1
         self.y[-2] = d0
         self.y[-1] = dN
+        self.y = np.atleast_2d(self.y)
 
         self.s = RhoSpline(self.x, ('fixed', 'fixed'), 5)
         self.s.y = self.y
@@ -421,23 +398,10 @@ class RhoSplineTests(unittest.TestCase):
         np.testing.assert_allclose(np.sum(results), 0.)
 
     def test_compute_ones(self):
-        # self.s.update_struct_vec_dict(1., 0)
-        # self.s.update_struct_vec_dict(1., 0)
-
-        # self.s.update_struct_vec_dict(1., 1)
-        # self.s.update_struct_vec_dict(1., 1)
-        # self.s.update_struct_vec_dict(1., 1)
-        #
-        # self.s.add_to_energy_struct_vec(1., [0, 1])
-        # self.s.add_to_energy_struct_vec(1., [0, 1])
-        # self.s.add_to_energy_struct_vec(1., [1, 0])
-        # self.s.add_to_energy_struct_vec(1., [1, 0])
-        # self.s.add_to_energy_struct_vec(1., [1, 0])
 
         self.s.add_to_energy_struct_vec(np.ones(5),
                                  [[0,1], [0,1], [1,0], [1,0], [1,0]])
 
-        results = self.s.compute_for_all(self.y)
+        results = self.s.calc_energy(self.y)
 
-        np.testing.assert_allclose(np.sum(results[0]), 2.)
-        np.testing.assert_allclose(np.sum(results[1]), 3.)
+        np.testing.assert_allclose(np.sum(results[0]), 5.)
