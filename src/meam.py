@@ -140,6 +140,7 @@ class MEAM:
             # Based on how fxns in MEAM are defined
             nsplines = ntypes * (ntypes + 4)
 
+            nphi = int((ntypes+1)*ntypes/2)
             # Build all splines; separate into different types later
             splines = []
             for i in range(nsplines):
@@ -157,12 +158,13 @@ class MEAM:
                     xcoords.append(x)
                     ycoords.append(y)
 
+                bc_type = ((1, d0), (1, dN))
+
                 # TODO: think this is wrong; TiO.meam.splines is an anomaly
                 # if (i < nphi+ntypes) or ((i >= nphi+2*ntypes) and (
                 #         i<nphi+3*ntypes)):
-                #     bc_type = ((), (1,0))
+                #     bc_type = ((2,0), (2,0))
 
-                bc_type = ((1, d0), (1, dN))
                 splines.append(Spline(xcoords, ycoords, bc_type=bc_type,
                                       end_derivs=(d0, dN)))
 
@@ -246,6 +248,8 @@ class MEAM:
 
                     phi = self.phis[ij_to_potl(itype, jtype, self.ntypes)]
 
+                    phi_idx = ij_to_potl(itype, jtype, self.ntypes)
+                    # logging.info("MEAM: phi_idx = {}".format(phi_idx))
                     # logging.info("MEAM: phi({0}) = {1}".format(r_ij, phi(r_ij)))
                     total_phi += phi(r_ij)
                 # end phi loop
@@ -878,12 +882,10 @@ def splines_to_pvec(splines):
     for s in splines:
         x_pvec = np.append(x_pvec, s.x)
 
-        der = []
         for i in range(len(s.x)):
             y_pvec = np.append(y_pvec, s(s.x[i]))
-            der.append(s(s.x[i], 1))
 
-        bc = [der[0], der[-1]]
+        bc = [s.d0, s.dN]
 
         y_pvec = np.append(y_pvec, bc)
 

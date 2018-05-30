@@ -3,12 +3,15 @@
 Authors: Josh Vita (UIUC), Dallas Trinkle (UIUC)"""
 
 import os
+import time
 import pickle
 import glob
 import array
 import numpy as np
 np.random.seed(42)
 np.set_printoptions(precision=16, suppress=True)
+
+from scipy.optimize import fmin_cg, fmin_powell
 
 import h5py
 from parsl import *
@@ -36,23 +39,18 @@ def get_hdf5_testing_database(load=False):
         load (bool): True if database already exists; default is False
     """
 
-    return h5py.File("data/fitting_databases/seed_42/workers.hdf5-copy", 'a',
+    return h5py.File("data/fitting_databases/lj/workers.hdf5-copy", 'a',
             driver='core')
 
 def get_structure_list():
-    full_paths = glob.glob("data/fitting_databases/seed_42/evaluator.*")
+    full_paths = glob.glob("data/fitting_databases/lj/evaluator.*")
     file_names = [os.path.split(path)[-1] for path in full_paths]
 
     return [os.path.splitext(f_name)[-1][1:] for f_name in file_names]
 
-def load_workers(all_names):
-    path = "data/fitting_databases/seed_42/evaluator."
-
-    return [pickle.load(open(path + name, 'rb')) for name in all_names]
-
 def load_true_energies_and_forces_dicts(worker_names):
     # TODO: true values should be attributes of the HDF5 db? unless u want text
-    path = "data/fitting_databases/seed_42/info."
+    path = "data/fitting_databases/lj/info."
 
     true_forces = {}
     true_energies = {}
@@ -74,6 +72,37 @@ def load_true_energies_and_forces_dicts(worker_names):
     return true_forces, true_energies
     # return properties
 
+def build_pso_toolbox(pvec_len):
+
+    creator.create("CostFunctionMinimizer", base.Fitness, weights=(-1.,))
+    # creator.create("Individual", array.array, typecode='d',
+    #         fitness=creator.CostFunctionMinimizer, velocity=array.array,
+    #         best_pos=array.array, best_val=float)
+    creator.create("Individual", np.ndarray, typecode='d',
+            fitness=creator.CostFunctionMinimizer, velocity=0,
+            best_pos=0, best_val=0)
+
+    def ret_pvec(arr_fxn, rng):
+        return arr_fxn(rng(pvec_len))
+
+    toolbox = base.Toolbox()
+    toolbox.register("parameter_set", ret_pvec, creator.Individual,
+            np.random.random)
+
+    toolbox.register("population", tools.initRepeat, list, toolbox.parameter_set,)
+
+    w = c1 = c2 = 1.
+
+    def move(ind, glob_best):
+        v_new = w*ind.velocity + c1*(ind.best_pos - ind)*np.random.random() +\
+            c2*(glob_best - ind)*np.random.random()
+
+        ind += v_new
+
+    toolbox.register("move_particle", move)
+
+    return toolbox
+
 def build_ga_toolbox(pvec_len):
 
     creator.create("CostFunctionMinimizer", base.Fitness, weights=(-1.,))
@@ -82,20 +111,8 @@ def build_ga_toolbox(pvec_len):
 
     # TODO: figure out how to initialize individuals throughout parameter space
 
-    # for testing purposes, all individuals will be a perturbed version of the
-    # true parameter set
-    import src.meam
-    from src.meam import MEAM
-
-    pot = MEAM.from_file('data/fitting_databases/seed_42/seed_42.meam')
-    _, y_pvec, indices = src.meam.splines_to_pvec(pot.splines)
-
-    indices.append(len(indices))
-    ranges = [(-0.5, 0.5), (-1, 4), (-1, 1), (-9, 3), (-30, 15), (-0.5, 1),
-            (-0.2, 0.4), (-2, 3), (-7.5, 12), (-7, 2), (-1, 0.2), (-1, 1)]
-
     def ret_pvec(arr_fxn, rng):
-        return arr_fxn(rng(len(y_pvec)))
+        return arr_fxn(rng(pvec_len))
     # def ret_pvec(arr_fxn, rng):
         # return arr_fxn(y_pvec + np.ones(y_pvec.shape)*1*rng())
 
@@ -109,35 +126,6 @@ def build_ga_toolbox(pvec_len):
     toolbox.register("mate", tools.cxBlend, alpha=0.5)
     # toolbox.register("mate", tools.cxTwoPoint)
     # toolbox.register("select", tools.selBest)
-
-    def evaluate_pop(population, workers, weights, true_f, true_e):
-        """Computes the energies and forces of the entire population at once.
-        Note that forces and energies are ordered to match the workers list."""
-
-        pop_params = np.vstack(population)
-
-        for i in range(len(ranges)):
-            a, b = ranges[i]
-            i_lo, i_hi = indices[i], indices[i+1]
-
-            pop_params[:, i_lo:i_hi] = pop_params[:, i_lo:i_hi]*(b-a) + a
-
-        all_S = np.zeros(len(population)) # error function
-
-        for name in workers.keys():
-            w = workers[name]
-
-            fcs_err = w.compute_forces(pop_params) / w.natoms - true_f[name]
-            eng_err = w.compute_energy(pop_params) / w.natoms - true_e[name]
-
-            fcs_err = np.linalg.norm(fcs_err, axis=(1,2))
-
-            all_S += fcs_err*fcs_err*weights[name]
-            all_S += eng_err*eng_err*weights[name]
-
-        return all_S
-
-    toolbox.register("evaluate_pop", evaluate_pop)
 
     return toolbox
 
@@ -154,13 +142,15 @@ def serial_ga_with_workers():
 
     workers = load_workers_from_database(testing_database, initial_weights)
 
+    testing_database.close()
+
     true_value_dicts  = load_true_energies_and_forces_dicts(list(
         workers.keys()))
     true_forces, true_energies = true_value_dicts
 
     PVEC_LEN = workers[list(workers.keys())[0]].len_param_vec
-    POP_SIZE = 300
-    NUM_GENS = 200
+    POP_SIZE = 20
+    NUM_GENS = 100
     CXPB = 1.0
     MUTPB = 0.5
 
@@ -172,6 +162,85 @@ def serial_ga_with_workers():
     # initialize toolbox with necessary functions for performing the GA 
     toolbox = build_ga_toolbox(PVEC_LEN)
 
+    # for testing purposes, all individuals will be a perturbed version of the
+    # true parameter set
+    import src.meam
+    from src.meam import MEAM
+
+    pot = MEAM.from_file('data/fitting_databases/lj/lj.meam')
+    _, y_pvec, indices = src.meam.splines_to_pvec(pot.splines)
+
+    indices.append(len(indices))
+
+
+    ranges = [(-0.5, 0.5), (-1, 4), (-1, 1), (-9, 3), (-30, 15), (-0.5, 1),
+            (-0.2, 0.4), (-2, 3), (-7.5, 12), (-7, 2), (-1, 0.2), (-1, 1)]
+
+    def evaluate_pop(population):
+        """Computes the energies and forces of the entire population at once.
+        Note that forces and energies are ordered to match the workers list."""
+
+        if len(population) > 1: pop_params = np.vstack(population)
+        else: pop_params = np.array(population)
+
+        for i in range(len(ranges)-1):
+            a, b = ranges[i]
+            i_lo, i_hi = indices[i], indices[i+1]
+
+            pop_params[:, i_lo:i_hi] = pop_params[:, i_lo:i_hi]*(b-a) + a
+
+        all_S = np.zeros(len(population)) # error function
+
+        for name in workers.keys():
+            w = workers[name]
+
+            fcs_err = w.compute_forces(pop_params) / w.natoms - true_forces[name]
+            eng_err = w.compute_energy(pop_params) / w.natoms - true_energies[name]
+
+            fcs_err = np.linalg.norm(fcs_err, axis=(1,2))
+
+            all_S += fcs_err*fcs_err*initial_weights[name]
+            all_S += eng_err*eng_err*initial_weights[name]
+
+        return all_S
+
+    def gradient(x, h):
+        """Computes the gradient on the fitness surface at point x in parameter
+        space via the second order centered difference method
+
+        Args:
+            x (np.arr): a 1D vector of parameters
+            h (float): step size for doing centered difference
+            toolbox (DEAP.toolbox): for evaluating the fitness
+            workers (dict): Worker objects indexed by structure name
+            weights (dict): weights [0,1] for each structure
+            forces (dict): force matrices for each structure
+            energies (dict): energy values for each structure
+        Returns:
+            grad (np.arr): the gradient at point x
+        """
+
+        N = x.shape[-1]
+
+        population = np.tile(x, (3,N)).reshape((3,N,N))
+
+        diag1, diag2 = np.diag_indices_from(population[0,:,:])
+
+        population[0, diag1, diag2] -= h
+        population[2, diag1, diag2] += h
+
+        population = population.reshape((3*N,N))
+
+        fitnesses = evaluate_pop(population, workers, weights, forces, energies)
+
+        fitnesses = fitnesses.reshape((3,N)).T
+        fitnesses[:,1] *= -2
+
+        return np.sum(fitnesses, axis=1) / h / h
+
+    toolbox.register("evaluate_pop", evaluate_pop)
+    toolbox.register("gradient", gradient)
+
     pop = toolbox.population(n=POP_SIZE)
 
     # record statistics
@@ -182,91 +251,95 @@ def serial_ga_with_workers():
     stats.register("min", np.min)
     stats.register("max", np.max)
 
-    fitnesses = toolbox.evaluate_pop(
-            pop, workers, initial_weights, true_forces, true_energies)
-    # print(fitnesses)
+    fitnesses = toolbox.evaluate_pop(pop)
 
     for ind,val in zip(pop, fitnesses):
         ind.fitness.values = val,
 
-    # print("{:10}{:10}{:10}{:10}".format("max", "min", "avg", "std"))
-
     logbook = tools.Logbook()
-    logbook.header = "min", "max", "avg", "std"
+    logbook.header = "gen", "min", "max", "avg", "std"
 
     record = stats.compile(pop)
 
-    logbook.record(**record)
+    logbook.record(gen=0, **record)
     print(logbook.stream)
 
-    # run GA
-    i = 0
-    while (i < NUM_GENS) and (len(pop) > 1):
-        survivors = tools.selBest(pop, len(pop)//2)
-        # best = list(map(toolbox.clone, survivors[:10]))
-        # survivors = [ind for ind in pop if ind.fitness.values[0] < 5000.]
-        # print(len(survivors))
-        # best = survivors[0]
-        breeders = list(map(toolbox.clone, survivors))
+    run_new_ga = False
+    if run_new_ga:
+        # run GA
+        i = 0
+        while (i < NUM_GENS) and (len(pop) > 1):
+            survivors = tools.selBest(pop, len(pop)//2)
+            breeders = list(map(toolbox.clone, survivors))
 
-        # mate
-        # for child1, child2 in zip(breeders[::2], breeders[1::2]):
-        #     if CXPB > np.random.random():
-        #         toolbox.mate(child1, child2)
-        #         del child1.fitness.values
-        #         del child2.fitness.values
+            # mate
+            j = 0
+            while j < (POP_SIZE - len(breeders)):
+                mom, dad = tools.selTournament(breeders, 2, 5, 'fitness')
 
-        j = 0
-        while j < (POP_SIZE - len(breeders)):
-            mom, dad = tools.selTournament(breeders, 2, 5, 'fitness')
+                if CXPB >= np.random.random():
+                    kid, _ = toolbox.mate(toolbox.clone(mom), toolbox.clone(dad))
+                    del kid.fitness.values
 
-            if CXPB >= np.random.random():
-                kid, _ = toolbox.mate(toolbox.clone(mom), toolbox.clone(dad))
-                del kid.fitness.values
+                    survivors.append(kid)
+                    j += 1
 
-                survivors.append(kid)
-                j += 1
+            survivors = tools.selBest(survivors, len(survivors))
 
-        # evaluate fitnesses for new generation
-        # invalid_ind = [ind for ind in breeders if not ind.fitness.valid]
-        # invalid_ind = [ind for ind in survivors if not ind.fitness.valid]
+            # mutate, preserving top 10
+            for ind in survivors[10:]:
+                if MUTPB >= np.random.random():
+                    toolbox.mutate(ind)
 
-        # fitnesses = toolbox.evaluate_pop(invalid_ind,
-        #         workers, initial_weights, true_forces, true_energies)
-        # 
-        # for ind,val in zip(invalid_ind, fitnesses):
-        #     ind.fitness.values = val,
-        # 
-        # pop = survivors + breeders
+            fitnesses = toolbox.evaluate_pop(survivors)
 
-        survivors = tools.selBest(survivors, len(survivors))
-        # mutate, preserving top 10
-        for ind in survivors[10:]:
-            if MUTPB >= np.random.random():
-                toolbox.mutate(ind)
+            for ind,val in zip(survivors, fitnesses):
+                ind.fitness.values = val,
 
-        fitnesses = toolbox.evaluate_pop(survivors,
-                workers, initial_weights, true_forces, true_energies)
+            pop = survivors
 
-        for ind,val in zip(survivors, fitnesses):
-            ind.fitness.values = val,
+            record = stats.compile(pop)
+            logbook.record(gen=i+1, **record)
+            print(logbook.stream)
 
-        pop = survivors
+            i += 1
 
-        record = stats.compile(pop)
-        logbook.record(**record)
-        print(logbook.stream)
+        top10 = tools.selBest(pop, 10)
+        print([ind.fitness.values[0] for ind in top10])
 
-        i += 1
+        compare_to_true(top10[0], 'data/plots/ga_res-pre_cg')
 
-    top10 = tools.selBest(pop, 10)
-    print([ind.fitness.values[0] for ind in top10])
+        best_guess = top10[0]
+    else:
+        import src.meam
+        from src.meam import MEAM
 
-    compare_to_true(top10[0], 'data/plots/ga_res-pre_cg')
+        pot = MEAM.from_file('data/fitting_databases/lj/lj.meam')
+        _, y_pvec, indices = src.meam.splines_to_pvec(pot.splines)
 
-    # best_guess = np.atleast_2d(top10[0])
-    # better_guess = cg(best_guess, toolbox.evaluate_pop, workers,
-    #     initial_weights, true_forces, true_energies)
+        best_guess = y_pvec + np.random.normal(size=len(y_pvec), scale=1e-7)
+
+        start = time.time()
+        print("starting powell minimization")
+        f = lambda x: toolbox.evaluate_pop(np.atleast_2d(x))
+        cb = lambda x: print(f(x))
+        old_fit = f(best_guess)
+        print("old_fit:", old_fit)
+        better_guess = fmin_powell(f, best_guess, maxiter=2000, callback=cb)
+        print("improved fitness by", old_fit - f(better_guess))
+        print("local minimization time:", time.time() - start)
+       # best_guess = np.genfromtxt("data/ga_results/2018-05-17_300-300-1.0-0.5_ga.dat",
+                # max_rows=1)
+
+    # f = lambda pp: toolbox.evaluate_pop(pp, initial_weights)
+    # f2 = lambda point: toolbox.gradient(point, )
+    # print("Performing some steepest descent stuff")
+
+    # steepest(best_guess, f, toolbox.gradient, h=1e-5, maxsteps=2000)
+    # print("Monte Carlo")
+    # better_guess = monte_carlo(best_guess, f, h=1e-3, T=0.01, maxsteps=2000)
+    # better_guess = cg(best_guess, toolbox.evaluate_pop, toolbox.gradient, 1e-4,
+    #         workers, initial_weights, true_forces, true_energies)
     # 
     # better_fitness = toolbox.evaluate_pop(better_guess, workers,
     #         initial_weights, true_forces, true_energies,)
@@ -275,30 +348,202 @@ def serial_ga_with_workers():
     # 
     # compare_to_true(better_guess, 'data/plots/ga_res')
 
-def cg(guess, fxn, *args):
-    pass
+def pso():
+    print("Particle swarm optimization ... ")
 
-def gradient(x, toolbox, h):
-    """Computes the gradient on the fitness surface at point x in parameter
-    space via the second order centered difference method
+    # initialize testing and fitting (workers) databases
+    testing_database = get_hdf5_testing_database(load=False)
+    testing_db_size = len(testing_database)
+
+    initial_weights = np.ones(testing_db_size) # chooses F = T
+    initial_weights = {key:1 for key in testing_database.keys()}
+
+    workers = load_workers_from_database(testing_database, initial_weights)
+
+    testing_database.close()
+
+    true_value_dicts  = load_true_energies_and_forces_dicts(list(
+        workers.keys()))
+    true_forces, true_energies = true_value_dicts
+
+    PVEC_LEN = workers[list(workers.keys())[0]].len_param_vec
+    POP_SIZE = 300
+    NUM_STEPS = 1000
+
+    print("POP_SIZE:", POP_SIZE)
+    print("NUM_STEPS:", NUM_STEPS)
+
+    toolbox = build_pso_toolbox(PVEC_LEN)
+
+    import src.meam
+    from src.meam import MEAM
+
+    pot = MEAM.from_file('data/fitting_databases/lj/lj.meam')
+    _, y_pvec, indices = src.meam.splines_to_pvec(pot.splines)
+
+    indices.append(len(indices))
+
+    ranges = [(-0.5, 0.5), (-1, 4), (-1, 1), (-9, 3), (-30, 15), (-0.5, 1),
+            (-0.2, 0.4), (-2, 3), (-7.5, 12), (-7, 2), (-1, 0.2), (-1, 1)]
+
+    def evaluate_pop(population, weights):
+        """Computes the energies and forces of the entire population at once.
+        Note that forces and energies are ordered to match the workers list."""
+
+        if len(population) > 1: pop_params = np.vstack(population)
+        else: pop_params = np.array(population)
+
+        for i in range(len(ranges)):
+            a, b = ranges[i]
+            i_lo, i_hi = indices[i], indices[i+1]
+
+            pop_params[:, i_lo:i_hi] = pop_params[:, i_lo:i_hi]*(b-a) + a
+
+        all_S = np.zeros(len(population)) # error function
+
+        for name in workers.keys():
+            w = workers[name]
+
+            fcs_err = w.compute_forces(pop_params) / w.natoms - true_forces[name]
+            eng_err = w.compute_energy(pop_params) / w.natoms - true_energies[name]
+
+            fcs_err = np.linalg.norm(fcs_err, axis=(1,2))
+
+            all_S += fcs_err*fcs_err*weights[name]
+            all_S += eng_err*eng_err*weights[name]
+
+        return all_S
+
+    toolbox.register("evaluate_pop", evaluate_pop)
+
+    # record statistics
+    stats = tools.Statistics(key=lambda ind: ind.fitness.values)
+
+    stats.register("avg", np.mean)
+    stats.register("std", np.std)
+    stats.register("min", np.min)
+    stats.register("max", np.max)
+
+    logbook = tools.Logbook()
+    logbook.header = "gen", "min", "max", "avg", "std"
+
+    pop = toolbox.population(n=POP_SIZE)
+    fitnesses = toolbox.evaluate_pop(pop, initial_weights)
+
+    glob_best_idx = np.argmin(fitnesses)
+    glob_best_pos = np.array(pop[glob_best_idx])
+    glob_best_val = fitnesses[glob_best_idx]
+
+    for ind,f in zip(pop, fitnesses):
+        ind.fitness.values = f,
+        ind.best_pos = np.array(ind)
+        ind.best_val = f
+
+        vel_params = np.random.random(PVEC_LEN)
+
+        for i in range(len(ranges)):
+            a, b = ranges[i]
+            i_lo, i_hi = indices[i], indices[i+1]
+
+            vel_params[i_lo:i_hi] = vel_params[i_lo:i_hi]*(b-a) + a
+
+        ind.velocity = vel_params
+
+    i = 0
+    while i < NUM_STEPS:
+        for ind in pop:
+            toolbox.move_particle(ind, glob_best_pos)
+
+        fitnesses = toolbox.evaluate_pop(pop, initial_weights)
+
+        record = stats.compile(pop)
+
+        logbook.record(gen=i+1, **record)
+        print(logbook.stream)
+
+        for ind,f in zip(pop, fitnesses):
+            ind.fitness.values = f,
+
+            if f < ind.best_val:
+                ind.best_pos = np.array(ind)
+                ind.best_val = f
+
+            if f < glob_best_val:
+                glob_best_pos = np.array(ind)
+                glob_best_val = f
+
+        i += 1
+
+def monte_carlo(start, fxn, h=1e-3, T=1, maxsteps=10000, error_thresh=1e-7):
+    """Performs a monte carlo simulation starting from x using a maximum of
+    nsteps steps. Acceptance calculated using the typical Metropolis: rng <
+    exp(-dU/T) where U is the cost function value
 
     Args:
-        x (np.arr): a 1D vector of parameters
-        toolbox (DEAP.toolbox): for evaluating the fitness
-        h (float): step size for doing centered difference
+        start (np.arr): 1D starting parameter vector
+        fxn (callable): the function to compute values of
+        h (float): standard deviation of normal distribution for step sizes
+        T (float): "temperature" for computing acceptance probabilities
+        maxsteps (int): maximum allowed number of steps
+        error_thresh (float): the maximum error, under which the cost is 'good'
+
     Returns:
-        grad (np.arr): the gradient at point x
+        new_x (np.arr): final parameter vector
     """
 
-    N = len(x)
+    N = len(start)
 
-    population = np.tile(x, (3,N)).reshape((3,N,N))
+    old_x = np.array(start)
+    old_U = fxn([old_x])
+
+    stopping_criterion_met = False
+    i = 0
+    while (i < maxsteps) and not stopping_criterion_met:
+
+        mutation_index = np.random.randint(N)
+
+        new_x = old_x.copy()
+        new_x[mutation_index] += np.random.normal(scale=h)
+
+        new_U = fxn([new_x])
+        dU = new_U - old_U
+
+        if np.random.random() < np.exp(-min(dU,0.) / T):
+            old_x = new_x
+            old_U = new_U
+
+            if new_U < error_thresh: stopping_criterion_met = True
+
+        if i % 10 == 0: print(new_U)
+
+        i += 1
+
+    return new_x
+
+def steepest(guess, fxn, grad, h, maxsteps):
+    x = np.array(guess)
+
+    i = 0
+    while i < maxsteps:
+        print(i, fxn([x]), flush=True)
+
+        direction = grad([x])
+
+        x = x + direction*h
+
+def cg(guess, fxn, grad, h, workers, weights, forces, energies):
+
+    f1 = lambda x: fxn(np.atleast_2d(x), workers, weights, forces, energies)
+    f2 = lambda x: grad(np.atleast_2d(x), h, workers, weights, forces, energies)
+
+    cb = lambda x: print("Fitness:", f1(x), flush=True)
+    return fmin_cg(f1, guess, fprime=f2, callback=cb)
 
 def compare_to_true(new_pvec, fname=''):
     import src.meam
     from src.meam import MEAM
 
-    pot = MEAM.from_file('data/fitting_databases/seed_42/seed_42.meam')
+    pot = MEAM.from_file('data/fitting_databases/lj/lj.meam')
     x_pvec, y_pvec, indices = src.meam.splines_to_pvec(pot.splines)
 
     new_pot = MEAM.from_pvec(x_pvec, new_pvec, indices, ['H', 'He'])
@@ -583,6 +828,7 @@ def objective_function():
     """TODO: the objective function of the fitting database"""
 
 if __name__ == "__main__":
+    # pso()
     serial_ga_with_workers()
     # genetic_algorithm_example()
     # parsl_ga_example()

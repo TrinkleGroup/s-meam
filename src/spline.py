@@ -9,10 +9,12 @@ class Spline(CubicSpline):
 
     def __init__(self,x,y,bc_type='natural', end_derivs=(0,0)):
 
-        super(Spline,self).__init__(x,y,bc_type=bc_type)#,bc_type=((1,d0),(1,dN)))
+        # super(Spline,self).__init__(x,y,bc_type=bc_type)#,bc_type=((1,d0),(1,dN)))
+        self.d0, self.dN = end_derivs
+
+        super(Spline,self).__init__(x, y, bc_type=((1, self.d0),(1, self.dN)))
         self.cutoff = (x[0],x[len(x)-1])
 
-        self.d0, self.dN = end_derivs
         self.h = x[1]-x[0]
 
     def __eq__(self, other):
@@ -57,24 +59,24 @@ class Spline(CubicSpline):
         if saveName: plt.savefig(saveName)
         else: plt.show()
 
-    def __call__(self,x,i=None):
-        """Evaluates the spline at the given point, linearly extrapolating if
-        outside of the spline cutoff. If 'i' is specified, evaluates the ith
-        derivative instead.
-        """
-
-        if i:
-            if x < self.cutoff[0]:
-                return super(Spline,self).__call__(self.x[0],i)
-            elif x > self.cutoff[1]:
-                return super(Spline,self).__call__(self.x[-1],i)
-            else:
-                return super(Spline,self).__call__(x,i)
-
-        if self.in_range(x):
-            return super(Spline,self).__call__(x)
-        else:
-            return self.extrap(x)
+    # def __call__(self,x,i=None):
+    #     """Evaluates the spline at the given point, linearly extrapolating if
+    #     outside of the spline cutoff. If 'i' is specified, evaluates the ith
+    #     derivative instead.
+    #     """
+    # 
+    #     if i:
+    #         if x < self.cutoff[0]:
+    #             return super(Spline,self).__call__(self.x[0],i)
+    #         elif x > self.cutoff[1]:
+    #             return super(Spline,self).__call__(self.x[-1],i)
+    #         else:
+    #             return super(Spline,self).__call__(x,i)
+    # 
+    #     if self.in_range(x):
+    #         return super(Spline,self).__call__(x)
+    #     else:
+    #         return self.extrap(x)
             #return super(Spline,self).__call__(x,extrapolate=True)
 
     # TODO: add a to_matrix() function for matrix form?

@@ -40,7 +40,7 @@ norhophi_flag   = True * 0
 
 dimers_flag     = True * 1
 trimers_flag    = True * 1
-bulk_flag       = True * 1
+bulk_flag       = True * 0
 
 allstructs = {}
 

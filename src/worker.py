@@ -134,6 +134,8 @@ class Worker:
                 # Add distance/index/direction information to necessary lists
                 phi_idx = src.meam.ij_to_potl(itype, jtype, self.ntypes)
 
+                # logging.info("WORKER: phi_idx = {}".format(phi_idx))
+                # logging.info("WORKER: rij = {}".format(rij))
                 # phi
                 self.phis[phi_idx].add_to_energy_struct_vec(rij)
 
@@ -383,6 +385,7 @@ class Worker:
         for y, phi in zip(phi_pvecs, self.phis, ):
             if phi.energy_struct_vec.shape[0] > 0:
                 energy += phi.calc_energy(y)
+                # logging.info("WORKER: phi  = {}".format(phi.calc_energy(y)))
 
         # Embedding terms
         energy += self.embedding_energy(self.compute_ni(rho_pvecs, f_pvecs,\
@@ -408,7 +411,6 @@ class Worker:
         # Rho contribution
         for y, rho in zip(rho_pvecs, self.rhos):
             ni += rho.calc_energy(y).T
-            np.set_printoptions(precision=16)
             # logging.info("WORKER: rho =\n{0}".format(rho.calc_energy(y)))
 
         # Three-body contribution
@@ -434,6 +436,10 @@ class Worker:
             u_energy: total embedding energy
         """
 
+        # rescale into [0,1]
+        # TODO: this is a workaround; ALL of USpline needs to consider [0,1]
+        # ni = (ni - np.min(ni)) / (np.max(ni) - np.min(ni))
+
         for i, u in enumerate(self.us):
             u.energy_struct_vec = np.zeros((self.n_pots, 2*u.x.shape[0]+4))
             u.add_to_energy_struct_vec(ni[:, self.type_of_each_atom - 1 == i])
@@ -443,6 +449,10 @@ class Worker:
         for y, u in zip(u_pvecs, self.us):
 
             if len(u.energy_struct_vec) > 0:
+                # print("compute_zero_energy:", u.compute_zero_potential(y).ravel(), flush=True)
+                # print("calc_energy:", u.calc_energy(y).ravel(), flush=True)
+                # print("{} -- {}".format(y.shape[0], u.lhs_extrap_dist))
+                # print("{} -- {}".format(y.shape[0], u.rhs_extrap_dist))
                 u_energy -= u.compute_zero_potential(y).ravel()
                 u_energy += u.calc_energy(y)
                 # logging.info("WORKER: U = {0}".format(u.calc_energy(y)))
@@ -513,6 +523,9 @@ class Worker:
                 forces += phi.calc_forces(y)
 
         ni = self.compute_ni(rho_pvecs, f_pvecs, g_pvecs)
+
+        # ni = (ni - np.min(ni)) / (np.max(ni) - np.min(ni))
+
         uprimes = self.evaluate_uprimes(ni, u_pvecs)
 
         # Electron density embedding (rho)

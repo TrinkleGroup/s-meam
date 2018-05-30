@@ -127,6 +127,9 @@ class WorkerSpline:
             ws.energy_struct_vec = np.array(spline_data['energy_struct_vec'])
             ws.forces_struct_vec = np.array(spline_data['forces_struct_vec'])
 
+            # ws.energy_struct_vec = lil_matrix(ws.energy_struct_vec).tocsr()
+            # ws.forces_struct_vec = lil_matrix(ws.forces_struct_vec).tocsr()
+
         ws.n_knots = len(x)
 
         return ws
@@ -239,7 +242,8 @@ class WorkerSpline:
         nknots = knots.shape[0]
 
         # Perform interval search and prepare prefactors
-        all_k = np.digitize(x, knots, right=True) - 1
+        # all_k = np.digitize(x, knots, right=True) - 1
+        all_k = np.digitize(x, knots) - 1
         all_k = np.clip(all_k, 0, len(knots) - 2)
 
         prefactors = knots[all_k + 1] - knots[all_k]
@@ -432,6 +436,7 @@ class USpline(WorkerSpline):
         self.y = y
 
         z = np.zeros((self.y.shape[0], 2*self.y.shape[1]+4))
+
         z[:, 0] = self.y[:, 0] - self.y1[:, 0]*self.lhs_extrap_dist
         z[:, 1:1+self.n_knots] = self.y
         z[:, 1+self.n_knots] = self.y[:,-1] + self.y1[:,-1]*self.rhs_extrap_dist
