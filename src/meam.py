@@ -158,7 +158,8 @@ class MEAM:
                     xcoords.append(x)
                     ycoords.append(y)
 
-                bc_type = ((1, d0), (1, dN))
+                # bc_type = ((1, d0), (1, dN))
+                bc_type = ('natural', 'natural')
 
                 # TODO: think this is wrong; TiO.meam.splines is an anomaly
                 # if (i < nphi+ntypes) or ((i >= nphi+2*ntypes) and (
@@ -934,7 +935,8 @@ def splines_from_pvec(x_pvec, y_pvec, x_indices):
         y_knots = y_split[i]
 
         splines.append(Spline(
-            x_knots, y_knots, bc_type=((1, bc[0]), (1, bc[1])), end_derivs=bc))
+            x_knots, y_knots, bc_type=('natural', 'natural'), end_derivs=bc))
+            # x_knots, y_knots, bc_type=((1, bc[0]), (1, bc[1])), end_derivs=bc))
 
     return splines
 

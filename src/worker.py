@@ -309,6 +309,7 @@ class Worker:
         knots_split = np.split(knot_xcoords, x_indices[1:])
 
         # TODO: could specify bc outside of Worker and pass in
+        # bc_type = ('natural', 'natural')
         bc_type = ('fixed', 'fixed')
 
         splines = []
@@ -436,9 +437,8 @@ class Worker:
             u_energy: total embedding energy
         """
 
-        # rescale into [0,1]
-        # TODO: this is a workaround; ALL of USpline needs to consider [0,1]
-        # ni = (ni - np.min(ni)) / (np.max(ni) - np.min(ni))
+        # TODO: extrap ranges need to be independent of each other
+        # TODO: OR -- rescale so that things fit into [0,1]
 
         for i, u in enumerate(self.us):
             u.energy_struct_vec = np.zeros((self.n_pots, 2*u.x.shape[0]+4))

@@ -1,69 +1,77 @@
 import os
+os.chdir("/home/jvita/scripts/s-meam/project/")
+
+import numpy as np
+import random
+np.set_printoptions(precision=16, linewidth=np.inf, suppress=True)
+np.random.seed(42)
+random.seed(42)
+
 import pickle
 import glob
 import array
+import h5py
+import time
 import datetime
-import numpy as np
-np.random.seed(42)
-np.set_printoptions(precision=16, linewidth=np.inf, suppress=True)
-import random
-random.seed(42)
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
-
 from scipy.optimize import fmin_powell
+from scipy.interpolate import CubicSpline
+from mpi4py import MPI
 
-import h5py
-from parsl import *
 from deap import base, creator, tools, algorithms
 
-from src.worker import Worker
 import src.meam
+from src.worker import Worker
 from src.meam import MEAM
 from src.spline import Spline
 
-os.chdir("/home/jvita/scripts/s-meam/project/")
-
-from mpi4py import MPI
 
 ################################################################################
 """MPI settings"""
 
-MASTER_RANK = 0 # rank of master node
+MASTER_RANK = 0
 
 ################################################################################
 """MEAM potential settings"""
 
-# ACTIVE_SPLINES = [1, 0, 0, 0, 0] # [phi, rho, u, f, g]
 # ACTIVE_SPLINES = [1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-ACTIVE_SPLINES = [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+# ACTIVE_SPLINES = [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
 
 ################################################################################
 """GA settings"""
 
 POP_SIZE = 13
-NUM_GENS = 11
+NUM_GENS = 7
 CXPB = 1.0
 MUTPB = 0.5
 
-DO_POWELL = True
+RUN_NEW_GA = True
+DO_POWELL = False # ALWAYS does initial/final powell; True means pow every step
+
+NUM_POWELL_STEPS = 5
+
+CHECKPOINT_FREQUENCY = 10
 
 ################################################################################ 
 """I/O settings"""
 
-load_path = "data/fitting_databases/lj/"
-save_path = "data/ga_results/"
-settings_str = "{}-{}-{}-{}".format(POP_SIZE, NUM_GENS, CXPB, MUTPB)
+CHECK_BEFORE_OVERWRITE = True
 
-DB_FILE_NAME = load_path + 'structures.hdf5'
-POP_FILE_NAME = save_path + settings_str + "/pop.dat"
-FIT_FILE_NAME = save_path + settings_str + "/fit.dat"
-MC_FILE_NAME = save_path + settings_str + "/mc.dat"
-LOG_FILE_NAME = save_path + settings_str + "/ga.log"
+LOAD_PATH = "data/fitting_databases/lj/"
+SAVE_PATH = "data/ga_results/"
+SETTINGS_STR = "{}-{}-{}-{}".format(POP_SIZE, NUM_GENS, CXPB, MUTPB)
+
+DB_FILE_NAME = LOAD_PATH + 'structures.hdf5'
+DB_INFO_FILE_NAME = LOAD_PATH + '/info'
+POP_FILE_NAME = SAVE_PATH + SETTINGS_STR + "/pop.dat"
+LOG_FILE_NAME = SAVE_PATH + SETTINGS_STR + "/ga.log"
+TRACE_FILE_NAME = SAVE_PATH + SETTINGS_STR + "/trace.dat"
 
 ################################################################################ 
 
 def main():
+    # Record MPI settings
     comm = MPI.COMM_WORLD
     rank = comm.Get_rank()
     mpi_size = comm.Get_size()
@@ -71,13 +79,12 @@ def main():
     is_master_node = (rank == MASTER_RANK)
 
     if is_master_node:
+
+        # Initialize database and variables to prepare for GA
         print_settings()
 
         print("MASTER: Preparing save directory/files ... ", flush=True)
         prepare_save_directory()
-
-        # popfile = open(POP_FILE_NAME, 'wb')
-        # fitfile = open(FIT_FILE_NAME, 'wb')
 
         stats, logbook = build_stats_and_log()
 
@@ -92,7 +99,7 @@ def main():
         type_indices, spline_indices = find_spline_type_deliminating_indices(ex_struct)
         pvec_len = ex_struct.len_param_vec
 
-        print("MASTER: Sending structures to slaves ... ", flush=True)
+        print("MASTER: Preparing to send structures to slaves ... ", flush=True)
         grouped_tup = group_for_mpi_scatter(structures, weights, true_forces,
                 true_energies, mpi_size)
 
@@ -107,6 +114,7 @@ def main():
         true_forces = None
         true_energies = None
 
+    # Send all necessary information to slaves
     spline_indices = comm.bcast(spline_indices, root=0)
 
     structures = comm.scatter(structures, root=0)
@@ -117,7 +125,7 @@ def main():
     print("SLAVE: Rank", rank, "received", len(structures), 'structures',
             flush=True)
 
-    # have every process build the toolbox
+    # Have every process build the toolbox
     pvec_len = structures[list(structures.keys())[0]].len_param_vec
     toolbox, creator = build_ga_toolbox(pvec_len, spline_indices)
 
@@ -126,7 +134,7 @@ def main():
 
     toolbox.register("evaluate_population", eval_fxn)
 
-    # compute initial fitnesses
+    # Compute initial fitnesses
     if is_master_node:
         pop = toolbox.population(n=POP_SIZE)
     else:
@@ -137,31 +145,28 @@ def main():
     fitnesses = toolbox.evaluate_population(pop)
     all_fitnesses = comm.gather(fitnesses, root=0)
 
+    # Have master gather fitnesses and update individuals
     if is_master_node:
-        trace = np.zeros((NUM_GENS+1, pvec_len))
-
         all_fitnesses = np.sum(all_fitnesses, axis=0)
 
         for ind,fit in zip(pop, all_fitnesses):
             ind.fitness.values = fit,
 
-        best = np.array(tools.selBest(pop, 1)[0])
-        trace[0,:] = np.array(best)
+        # Sort population; best on top
+        pop = tools.selBest(pop, len(pop))
 
         print_statistics(pop, 0, stats, logbook)
 
-    run_new_ga = True
+        checkpoint(pop, logbook, pop[0], 0)
+        ga_start = time.time()
 
-    if run_new_ga:
+    # Begin GA
+    if RUN_NEW_GA:
         i = 0
         while (i < NUM_GENS):
             if is_master_node:
 
-                # sort population; best on top
-                pop = tools.selBest(pop, len(pop))
-                pop2 = list(map(toolbox.clone, pop))
-
-                # preserve top 2, cross others with top 2
+                # Preserve top 2, cross others with top 2
                 for j in range(2, len(pop)):
                     mom = pop[np.random.randint(2)]
                     dad = pop[j]
@@ -169,143 +174,117 @@ def main():
                     kid, _ = toolbox.mate(toolbox.clone(mom), toolbox.clone(dad))
                     pop[j] = kid
 
-                # mutate randomly everyone except top 2
+                # Mutate randomly everyone except top 2
                 for ind in pop[2:]:
                     if MUTPB >= np.random.random():
                         toolbox.mutate(ind)
             else:
                 pop = None
 
+            # Send out updated population
             pop = comm.bcast(pop, root=0)
 
+            # Run local minimization on best individual if desired
             if DO_POWELL and (i % 10 == 0):
-                # pop = tools.selBest(pop, len(pop))
                 guess = pop[0]
 
                 if is_master_node:
-
                     print("MASTER: performing powell minimization on best individual", flush=True)
-                #     print("MASTER: Fitness before Powell (but after breeding/mutating) =",
-                #             guess.fitness.values, flush=True)
 
-                was_run_prev = True
+                # time-saver for testing purposes; TODO: delete later
+                was_run_prev = False
 
                 if not was_run_prev:
                     improved = run_powell_on_best(guess, toolbox,
-                            is_master_node, comm)
+                            is_master_node, comm, NUM_POWELL_STEPS)
 
                 if is_master_node:
                     if not was_run_prev:
-                        np.savetxt("after_powell_temp.dat", improved)
+                        np.savetxt("after_powell_temp-crystal-first.dat", improved)
                     else:
                         improved = np.genfromtxt("after_powell_temp.dat")
 
-                    # improved = scale_into_range(improved, spline_indices)
-                    # optimized_fitness = toolbox.evaluate_population([improved])
-
-                    # optimized_fitness = np.sum(optimized_fitness, axis=0)
-
                     prev_pop = list(pop)
                     pop[0] = creator.Individual(improved)
-                    # pop[0].fitness.values = optimized_fitness,
-                    # print("MASTER: Fitness after Powell =", optimized_fitness)
 
             pop = comm.bcast(pop, root=0)
 
+            # Compute fitnesses with mated/mutated/optimized population
             fitnesses = toolbox.evaluate_population(pop)
             all_fitnesses = comm.gather(fitnesses, root=0)
 
+            # Update individuals with new fitnesses
             if is_master_node:
                 all_fitnesses = np.sum(all_fitnesses, axis=0)
 
                 for ind,fit in zip(pop, all_fitnesses):
                     ind.fitness.values = fit,
 
+                # Sort
+                pop = tools.selBest(pop, len(pop))
+
+            # Print statistics to screen and checkpoint
             if is_master_node:
                 print_statistics(pop, i+1, stats, logbook)
 
-                best = np.array(tools.selBest(pop, 1)[0])
-                trace[i,:] = np.array(best)
-
-                if (i % 10 == 0):
-                    np.savetxt(open('best' + str(i), 'wb'), best)
-                    pickle.dump(logbook, open(LOG_FILE_NAME, 'wb'))
+                if (i % CHECKPOINT_FREQUENCY == 0):
+                    best = np.array(tools.selBest(pop, 1)[0])
+                    checkpoint(pop, logbook, best, i)
 
             i += 1
 
-    if is_master_node:
-        if run_new_ga:
-            best_guess = tools.selBest(pop, 1)[0]
-        else:
-            best_fits = np.genfromtxt(FIT_FILE_NAME, skip_header=4)
-            best_fit_idx = np.argmin(best_fits[-1,:])
-
-            best_guess = np.genfromtxt(POP_FILE_NAME, skip_header=4)
-            best_guess = np.split(best_guess, NUM_GENS)[-1]
-            best_guess = best_guess[best_fit_idx]
-            best_fitness = toolbox.evaluate_population([best_guess])
+        best_guess = pop[0]
     else:
-        best_guess = None
+        pop = np.genfromtxt(POP_FILE_NAME)
+        best_guess = creator.Individual(pop[0])
 
+    # Perform a final local optimization on the final results of the GA
     best_guess = comm.bcast(best_guess, root=0)
 
     best_fitness = toolbox.evaluate_population([best_guess])
-
     best_fitness = comm.gather(best_fitness, root=0)
 
     if is_master_node:
+        ga_runtime = time.time() - ga_start
+        print("MASTER: GA runtime = {:.2f} (s)".format(ga_runtime), flush=True)
+        print("MASTER: Average time per step = {:.2f}"
+                " (s)".format(ga_runtime/NUM_GENS), flush=True)
+
         best_fitness = np.sum(best_fitness, axis=0)
 
-        print("MASTER: performing powell minimization on final result",
+        print("MASTER: Fitness before final Powell = ", best_fitness[0],
                 flush=True)
 
+        pow_start = time.time()
+
     improved = run_powell_on_best(best_guess, toolbox,
-            is_master_node, comm, 15)
+            is_master_node, comm)
 
     if is_master_node:
-        # improved = scale_into_range(improved, spline_indices)
-        optimized_fitness = toolbox.evaluate_population([improved])
+        print("MASTER: Powell runtime = {:.2f} (s)".format(time.time() - pow_start))
 
-        optimized_fitness = np.sum(optimized_fitness, axis=0)
+        np.savetxt("after_powell_temp-crystal-final.dat", improved)
 
-        pop[0] = creator.Individual(improved)
-        pop[0].fitness.values = optimized_fitness,
+    optimized_fitness = toolbox.evaluate_population([improved])
+    optimized_fitness = comm.gather(optimized_fitness, root=0)
+
+    if is_master_node:
+        optimized_fitness = np.sum(optimized_fitness, axis=0)[0]
+
+        improved = creator.Individual(improved)
+        improved.fitness.values = optimized_fitness,
         print("MASTER: Fitness after Powell =", optimized_fitness)
 
+    # Save final results
     if is_master_node:
-        trace[-1,:] = np.array(improved)
-        plot_the_best_individual(trace)
+        improved_arr = np.array(improved)
 
-        # popfile.close()
-        # fitfile.close()
+        np.savetxt(SAVE_PATH + SETTINGS_STR + 'final_potential.dat', improved_arr)
+        np.savetxt(open(TRACE_FILE_NAME, 'ab'), [improved_arr])
+
+        plot_best_individual()
 
 ################################################################################ 
-
-def get_hdf5_testing_database(load=False):
-    """Loads HDF5 database of workers using the h5py 'core' driver (in memory)
-
-    Args:
-        load (bool): True if database already exists; default is False
-    """
-
-    return h5py.File("data/fitting_databases/lj/structures.hdf5", 'a',)
-
-def load_true_energies_and_forces_dicts(worker_names):
-    """Loads true forces and energies from formatted text files"""
-    path = "data/fitting_databases/lj/info/info."
-
-    true_forces = {}
-    true_energies = {}
-
-    for struct_name in worker_names:
-
-        fcs = np.genfromtxt(open(path+struct_name, 'rb'), skip_header=1)
-        eng = np.genfromtxt(open(path+struct_name, 'rb'), max_rows=1)
-
-        true_forces[struct_name] = fcs
-        true_energies[struct_name] = eng
-
-    return true_forces, true_energies
 
 def build_ga_toolbox(pvec_len, index_ranges):
     """Initializes GA toolbox with desired functions"""
@@ -315,49 +294,45 @@ def build_ga_toolbox(pvec_len, index_ranges):
             fitness=creator.CostFunctionMinimizer)
 
     def ret_pvec(arr_fxn, rng):
-        # ind = np.random.normal(size=(pvec_len,), scale=0.1)
-        ind = np.zeros(pvec_len)
+        # hard-coded version for pair-pots only
+        ind = np.zeros(36)
 
-        ranges = [(-0.5, 0.5), (-1, 4), (-1, 1), (-9, 3), (-30, 15), (-0.5, 1),
-                (-0.2, 0.4), (-2, 3), (-7.5, 12), (-7, 2), (-1, 0.2), (-1, 1)]
+        ranges = [(-0.5, 0.5), (-1, 4), (-1, 1)]
 
-        indices = index_ranges + [pvec_len]
+        ind[:10] += np.linspace(0.2*(-0.5), 0.8*(0.5), 10)[::-1]
+        ind[:10] += np.random.normal(size=(10,), scale=0.1)
 
-        mask = np.zeros(ind.shape)
+        ind[12:22] += np.linspace(0.2*(-1), 0.8*(4), 10)[::-1]
+        ind[12:22] += np.random.normal(size=(10,), scale=(5)*0.1)
 
-        for i,is_active in enumerate(ACTIVE_SPLINES):
-            if is_active == 1:
-                a, b = ranges[i]
-                start, stop = indices[i], indices[i+1]
+        ind[24:34] += np.linspace(0.2*(-1), 0.8, 10)[::-1]
+        ind[24:34] += np.random.normal(size=(10,), scale=(2)*0.1)
 
-                ind[start:stop] += np.linspace(0.2*a, 0.8*b, stop-start)[::-1]
-                ind[start:stop] += np.random.normal(size=(stop-start,),
-                        scale=(b-a)*0.1)
-
-                mask[start:stop] = 1
-
-        return arr_fxn(np.multiply(ind, mask))
+        return arr_fxn(ind)
 
     toolbox = base.Toolbox()
-    toolbox.register("parameter_set", ret_pvec, creator.Individual,
-            np.random.normal)
-
+    toolbox.register("parameter_set", ret_pvec, creator.Individual, np.random.normal)
     toolbox.register("population", tools.initRepeat, list, toolbox.parameter_set,)
-
-    def my_mut(ind):
-        tmp = tools.mutGaussian(ind, mu=0, sigma=1e-1, indpb=0.1)
-        # tmp[0][36:] = 0
-
-        return tmp
-
     toolbox.register("mutate", tools.mutGaussian, mu=0, sigma=1, indpb=0.1)
-    # toolbox.register("mutate", my_mut)
     toolbox.register("mate", tools.cxBlend, alpha=0.5)
 
     return toolbox, creator
 
 def group_for_mpi_scatter(structs, database_weights, true_forces, true_energies,
         size):
+    """Splits database information into groups to be scattered to nodes.
+
+    Args:
+        structs (dict): dictionary of Worker objects (key=name)
+        database_weights (dict): dictionary of weights (key=name)
+        true_forces (dict): dictionary of 'true' forces (key=name)
+        true_energies (dict): dictionary of 'true' energies (key=name)
+        size (int): number of MPI nodes available
+
+    Returns:
+        lists of grouped dictionaries of all input arguments
+    """
+
     grouped_keys = np.array_split(list(structs.keys()), size)
 
     grouped_structs = []
@@ -384,61 +359,12 @@ def group_for_mpi_scatter(structs, database_weights, true_forces, true_energies,
 
     return grouped_structs, grouped_weights, grouped_forces, grouped_energies
 
-def compare_to_true(new_pvec, fname=''):
-    ranges = [(-5., 5.), (-5., 5.), (-5., 5.), (0, 0), (0, 0), (0, 0), (0, 0),
-            (0, 0), (0, 0), (0, 0), (0, 0), (0, 0)]
+def plot_best_individual():
+    """Builds an animated plot of the trace of the GA. The final frame should be
+    the final results after local optimization
+    """
 
-    # ranges = [(-0.5, 0.5), (-1, 4), (-1, 1), (-9, 3), (-30, 15), (-0.5, 1),
-            # (-0.2, 0.4), (-2, 3), (-7.5, 12), (-7, 2), (-1, 0.2), (-1, 1)]
-
-    # new_pvec = np.concatenate([new_pvec, np.zeros(144 - 36)])
-
-    import src.meam
-    from src.meam import MEAM
-
-    pot = MEAM.from_file('data/fitting_databases/lj/lj.meam')
-    x_pvec, y_pvec, indices = src.meam.splines_to_pvec(pot.splines)
-
-    for i in range(len(ranges)-1):
-        a, b = ranges[i]
-        i_lo, i_hi = indices[i], indices[i+1]
-
-        new_pvec[i_lo:i_hi] = new_pvec[i_lo:i_hi]*(b-a) + a
-
-    print(new_pvec.shape)
-    print(x_pvec.shape)
-    new_pot = MEAM.from_pvec(x_pvec, new_pvec, indices, ['H', 'He'])
-
-    splines1 = pot.splines
-    splines2 = new_pot.splines
-
-    import matplotlib.pyplot as plt
-
-    for i,(s1,s2) in enumerate(zip(splines1, splines2)):
-
-        low,high = s1.cutoff
-        low -= abs(0.1*low)
-        high += abs(0.1*high)
-
-        x = np.linspace(low,high,1000)
-        # y1 = list(map(lambda e: s1(e) if s1.in_range(e) else s1.extrap(e), x))
-        # y2 = list(map(lambda e: s2(e) if s2.in_range(e) else s2.extrap(e), x))
-        y1 = list(map(lambda e: s1(e), x))
-        y2 = list(map(lambda e: s2(e), x))
-
-        yi = list(map(lambda e: s1(e), s1.x))
-
-        plt.figure()
-        plt.plot(s1.x, yi, 'o')
-        plt.plot(x, y1, 'b', label='true')
-        plt.plot(x, y2, 'r', label='new')
-        plt.legend()
-
-        plt.savefig(fname + str(i+1) + ".png")
-        plt.close()
-
-def plot_the_best_individual(trace):
-    from scipy.interpolate import CubicSpline
+    trace = np.genfromtxt(TRACE_FILE_NAME)
 
     # currently only plots the 1st pair potential
     fig, ax = plt.subplots()
@@ -467,24 +393,45 @@ def plot_the_best_individual(trace):
     ani.save('trace_of_best.gif', writer='imagemagick')
 
 def prepare_save_directory():
-    if not os.path.isdir(save_path + settings_str):
-        os.mkdir(save_path + settings_str)
+    """Creates directories to store results"""
+
+    print()
+    print("Save location:", SAVE_PATH + SETTINGS_STR)
+    if os.path.isdir(SAVE_PATH + SETTINGS_STR) and CHECK_BEFORE_OVERWRITE:
+        print()
+        print("/" + "*"*30 + " WARNING " + "*"*30 + "/")
+        print("A folder already exists for these settings.\nPress Enter"
+                " to ovewrite old data, or Ctrl-C to quit")
+        input("/" + "*"*30 + " WARNING " + "*"*30 + "/")
+    else:
+        os.mkdir(SAVE_PATH + SETTINGS_STR)
+
+    print()
 
 def print_settings():
+    """Prints settings to screen"""
+
     print("POP_SIZE:", POP_SIZE, flush=True)
     print("NUM_GENS:", NUM_GENS, flush=True)
     print("CXPB:", CXPB, flush=True)
     print("MUTPB:", MUTPB, flush=True)
+    print("NUM_POWELL_STEPS:", NUM_POWELL_STEPS, flush=True)
+    print("CHECKPOINT_FREQUENCY:", CHECKPOINT_FREQUENCY, flush=True)
+    print()
 
 def load_structures_on_master():
+    """Builds Worker objects from the HDF5 database of stored values. Note that
+    database weights are determined HERE.
+    """
+
     database = h5py.File(DB_FILE_NAME, 'a',)
     weights = {key:1 for key in database.keys()}
 
     structures = {}
 
     for name in database.keys():
-        # if weights[name] > 0:
-        if name == 'diamond_ab':
+        if weights[name] > 0:
+        # if 'dimer' in name:
             structures[name] = Worker.from_hdf5(database, name)
 
     database.close()
@@ -493,14 +440,15 @@ def load_structures_on_master():
 
 def load_true_values(all_names):
     """Loads the 'true' values according to the database provided"""
+
     true_forces = {}
     true_energies = {}
 
     for name in all_names:
 
-        fcs = np.genfromtxt(open(load_path + 'info/info.' + name, 'rb'),
+        fcs = np.genfromtxt(open(LOAD_PATH + 'info/info.' + name, 'rb'),
                 skip_header=1)
-        eng = np.genfromtxt(open(load_path + 'info/info.' + name, 'rb'),
+        eng = np.genfromtxt(open(LOAD_PATH + 'info/info.' + name, 'rb'),
                 max_rows=1)
 
         true_forces[name] = fcs
@@ -510,7 +458,9 @@ def load_true_values(all_names):
 
 def find_spline_type_deliminating_indices(worker):
     """Finds the indices in the parameter vector that correspond to start/end
-    (inclusive/exclusive respectively) for each spline group
+    (inclusive/exclusive respectively) for each spline group. For example,
+    phi_range[0] is the index of the first know of the phi splines, while
+    phi_range[1] is the next knot that is NOT part of the phi splines
 
     Args:
         worker (WorkerSpline): example worker that holds all spline objects
@@ -534,19 +484,24 @@ def build_evaluation_function(structures, weights, true_forces, true_energies,
         spline_indices):
     """Builds the function to evaluate populations. Wrapped here for readability
     of main code."""
+
     def fxn(population):
-        # TODO: verify this isn't messing up like with the np version
+        # Convert list of Individuals into a numpy array
+        full = np.vstack(population)
 
-        scaled = np.array(population)
+        # hard-coded for phi splines only TODO: remove this later
+        full = np.hstack([full, np.zeros((full.shape[0], 108))])
 
-        fitnesses = np.zeros(scaled.shape[0])
+        fitnesses = np.zeros(full.shape[0])
 
+        # Compute error for each worker on MPI node
         for name in structures.keys():
             w = structures[name]
 
-            fcs_err = w.compute_forces(scaled)/w.natoms - true_forces[name]
-            eng_err = w.compute_energy(scaled)/w.natoms - true_energies[name]
+            fcs_err = w.compute_forces(full) - true_forces[name]
+            eng_err = w.compute_energy(full) - true_energies[name]
 
+            # Scale force errors
             fcs_err = np.linalg.norm(fcs_err, axis=(1,2)) / np.sqrt(10)
 
             fitnesses += fcs_err*fcs_err*weights[name]
@@ -557,6 +512,8 @@ def build_evaluation_function(structures, weights, true_forces, true_energies,
     return fxn
 
 def build_stats_and_log():
+    """Initialize DEAP Statistics and Logbook objects"""
+
     stats = tools.Statistics(key=lambda ind: ind.fitness.values[0])
 
     stats.register("avg", np.mean)
@@ -570,21 +527,32 @@ def build_stats_and_log():
     return stats, logbook
 
 def print_statistics(pop, gen_num, stats, logbook):
+    """Use Statistics and Logbook objects to output results to screen"""
 
     record = stats.compile(pop)
     logbook.record(gen=gen_num, size=len(pop), **record)
-
-    pickle.dump(logbook, open(LOG_FILE_NAME, 'wb'))
-
     print(logbook.stream, flush=True)
 
-def run_powell_on_best(guess, toolbox, is_master_node, comm, num_steps=2):
+def run_powell_on_best(guess, toolbox, is_master_node, comm, num_steps=None):
+    """Wrapper for scipy.optimize.fmin_powell function"""
+
     def cb(x):
-        val = toolbox.evaluate_population([x])
-        print("MASTER: Rank", comm.Get_rank(), "powell step: ", val, flush=True)
-        # pass
+        """Callback function called at end of every Powell step"""
+
+        # val = toolbox.evaluate_population([x])
+        # val = comm.gather(val, root=0)
+        # 
+        # if is_master_node:
+        #     val = np.sum(val, axis=0)
+        #     print("MASTER: powell step:", val[0], flush=True)
 
     def parallel_wrapper(x, stop):
+        """Wrapper to allow parallelization of fmin_powell. Explanation and code
+        provided by Stackoverflow user 'francis'.
+
+        Link: https://stackoverflow.com/questions/37159923/parallelize-a-function-call-with-mpi4py?utm_medium=organic&utm_source=google_rich_qa&utm_campaign=google_rich_qa
+        """
+
         stop[0] = comm.bcast(stop[0], root=0)
         x = comm.bcast(x, root=0)
 
@@ -595,14 +563,15 @@ def run_powell_on_best(guess, toolbox, is_master_node, comm, num_steps=2):
             all_costs = comm.gather(cost, root=0)
 
             if is_master_node:
-                value = np.sum(all_costs)
+                value = np.sum(all_costs, axis=0)
 
         return value
 
     if is_master_node:
         stop = [0]
         locally_optimized_pot = fmin_powell(parallel_wrapper, guess,
-                args=(stop,), maxiter=num_steps, callback=cb, disp=0)
+                args=(stop,), maxiter=num_steps, callback=cb, disp=0,
+                ftol=1e-6, xtol=1e-6)
         stop = [1]
         parallel_wrapper(guess, stop)
 
@@ -621,6 +590,7 @@ def run_powell_on_best(guess, toolbox, is_master_node, comm, num_steps=2):
     return improved
 
 def scale_into_range(original, index_ranges):
+    # TODO: do you actually need this?
 
     new = original.copy()
 
@@ -647,6 +617,13 @@ def scale_into_range(original, index_ranges):
             mask[start:stop] = 1
 
     return np.multiply(new, mask)
+
+def checkpoint(population, logbook, trace_update, i):
+    """Saves information to files for later use"""
+
+    np.savetxt(POP_FILE_NAME + str(i), population)
+    pickle.dump(logbook, open(LOG_FILE_NAME, 'wb'))
+    np.savetxt(open(TRACE_FILE_NAME, 'ab'), [trace_update])
 
 ################################################################################
 
