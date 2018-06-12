@@ -32,9 +32,18 @@ class Spline(CubicSpline):
         """Performs linear extrapolation past the endpoints of the spline"""
 
         if x < self.cutoff[0]:
-            return self(self.x[0]) - self.d0*(self.x[0]-x)
+            val = self(self.x[0]) - self.d0*(self.x[0]-x)
         elif x > self.cutoff[1]:
-            return self(self.x[-1]) + self.dN*(x-self.x[-1])
+            val = self(self.x[-1]) + self.dN*(x-self.x[-1])
+
+        # print("SPLINE: extrapolating value of", x, "returning", val)
+        return val
+
+    def __call__(self, x, i):
+        if self.in_range(x):
+            return super(Spline, self).__call__(x)
+        else:
+            return self.extrap(x)
 
     def plot(self,xr=None,yr=None,xl=None,yl=None,saveName=None):
         """Plots the spline"""
@@ -59,25 +68,24 @@ class Spline(CubicSpline):
         if saveName: plt.savefig(saveName)
         else: plt.show()
 
-    # def __call__(self,x,i=None):
-    #     """Evaluates the spline at the given point, linearly extrapolating if
-    #     outside of the spline cutoff. If 'i' is specified, evaluates the ith
-    #     derivative instead.
-    #     """
-    # 
-    #     if i:
-    #         if x < self.cutoff[0]:
-    #             return super(Spline,self).__call__(self.x[0],i)
-    #         elif x > self.cutoff[1]:
-    #             return super(Spline,self).__call__(self.x[-1],i)
-    #         else:
-    #             return super(Spline,self).__call__(x,i)
-    # 
-    #     if self.in_range(x):
-    #         return super(Spline,self).__call__(x)
-    #     else:
-    #         return self.extrap(x)
-            #return super(Spline,self).__call__(x,extrapolate=True)
+    def __call__(self,x,i=None):
+        """Evaluates the spline at the given point, linearly extrapolating if
+        outside of the spline cutoff. If 'i' is specified, evaluates the ith
+        derivative instead.
+        """
+
+        if i:
+            if x < self.cutoff[0]:
+                return super(Spline,self).__call__(self.x[0],i)
+            elif x > self.cutoff[1]:
+                return super(Spline,self).__call__(self.x[-1],i)
+            else:
+                return super(Spline,self).__call__(x,i)
+
+        if self.in_range(x):
+            return super(Spline,self).__call__(x)
+        else:
+            return self.extrap(x)
 
     # TODO: add a to_matrix() function for matrix form?
 

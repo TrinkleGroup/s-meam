@@ -1,4 +1,5 @@
 import numpy as np
+np.set_printoptions(precision=16)
 import logging
 from scipy.sparse import lil_matrix
 
@@ -440,23 +441,30 @@ class Worker:
         # TODO: extrap ranges need to be independent of each other
         # TODO: OR -- rescale so that things fit into [0,1]
 
-        for i, u in enumerate(self.us):
-            u.energy_struct_vec = np.zeros((self.n_pots, 2*u.x.shape[0]+4))
-            u.add_to_energy_struct_vec(ni[:, self.type_of_each_atom - 1 == i])
+        u_energy = np.zeros(self.n_pots)
 
         # Evaluate U, U', and compute zero-point energies
-        u_energy = np.zeros(self.n_pots)
-        for y, u in zip(u_pvecs, self.us):
+        for i,(y,u) in enumerate(zip(u_pvecs, self.us)):
+            u.energy_struct_vec = np.zeros((self.n_pots, 2*u.x.shape[0]+4))
 
-            if len(u.energy_struct_vec) > 0:
+            ni_sublist = ni[:, self.type_of_each_atom - 1 == i]
+
+            num_embedded = ni_sublist.shape[1]
+
+            if num_embedded > 0:
+                u_energy -= u.compute_zero_potential(y, num_embedded).ravel()
+
+                u.add_to_energy_struct_vec(ni_sublist)
+
                 # print("compute_zero_energy:", u.compute_zero_potential(y).ravel(), flush=True)
                 # print("calc_energy:", u.calc_energy(y).ravel(), flush=True)
                 # print("{} -- {}".format(y.shape[0], u.lhs_extrap_dist))
                 # print("{} -- {}".format(y.shape[0], u.rhs_extrap_dist))
-                u_energy -= u.compute_zero_potential(y).ravel()
+                # u_energy -= u.compute_zero_potential(y).ravel()
                 u_energy += u.calc_energy(y)
                 # logging.info("WORKER: U = {0}".format(u.calc_energy(y)))
-                # logging.info("WORKER: zero_pot = {0}".format(u.compute_zero_potential(y)))
+                # logging.info("WORKER: zero_pot = {0}".format(
+                #     u.compute_zero_potential(y, num_embedded)))
 
             u.reset()
 

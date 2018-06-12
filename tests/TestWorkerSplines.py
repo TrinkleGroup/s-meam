@@ -100,6 +100,7 @@ class WorkerSplineTests(unittest.TestCase):
 
         ws.add_to_energy_struct_vec(test_x)
 
+        # spline is x^2, but extrapolation should be linear outside range
         self.assertAlmostEqual(ws.calc_energy(self.y)[0], cs(test_x))
 
     def test_two_lhs_extrap(self):
@@ -122,6 +123,8 @@ class WorkerSplineTests(unittest.TestCase):
         ws = WorkerSpline(self.x, ('fixed', 'fixed'))
         cs = Spline(self.x, self.y[0,:-2], bc_type=((1, d0), (1, dN)),
                     end_derivs=(d0, dN))
+
+        # cs.plot()
 
         test_x = [-1.5, -0.25]
 
@@ -148,7 +151,8 @@ class WorkerSplineTests(unittest.TestCase):
         d0, dN = self.y[0,-2:]
 
         ws = WorkerSpline(self.x, ('fixed', 'fixed'))
-        cs = Spline(self.x, self.y[0,:-2], bc_type=((1, d0), (1, dN)))
+        cs = Spline(self.x, self.y[0,:-2], bc_type=((1, d0), (1, dN)),
+                    end_derivs=(d0,dN))
 
         test_x = np.linspace(self.x[1], self.x[-2], 1000)
 
@@ -161,7 +165,8 @@ class WorkerSplineTests(unittest.TestCase):
         d0, dN = self.y[0,-2:]
 
         ws = WorkerSpline(self.x, ('fixed', 'fixed'))
-        cs = Spline(self.x, self.y[0,:-2], bc_type=((1, d0), (1, dN)))
+        cs = Spline(self.x, self.y[0,:-2], bc_type=((1, d0), (1, dN)),
+                    end_derivs=(d0,dN))
 
         test_x = np.linspace(self.x[0], self.x[1], 100)
 
@@ -174,7 +179,8 @@ class WorkerSplineTests(unittest.TestCase):
         d0, dN = self.y[0, -2:]
 
         ws = WorkerSpline(self.x, ('fixed', 'fixed'))
-        cs = Spline(self.x, self.y[0,:-2], bc_type=((1, d0), (1, dN)))
+        cs = Spline(self.x, self.y[0,:-2], bc_type=((1, d0), (1, dN)),
+                    end_derivs=(d0,dN))
 
         test_x = np.linspace(self.x[-2], self.x[-1] - 0.01, 100)
 

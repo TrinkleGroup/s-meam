@@ -158,8 +158,8 @@ class MEAM:
                     xcoords.append(x)
                     ycoords.append(y)
 
-                # bc_type = ((1, d0), (1, dN))
-                bc_type = ('natural', 'natural')
+                bc_type = ((1, d0), (1, dN))
+                # bc_type = ('natural', 'natural')
 
                 # TODO: think this is wrong; TiO.meam.splines is an anomaly
                 # if (i < nphi+ntypes) or ((i >= nphi+2*ntypes) and (
@@ -313,7 +313,7 @@ class MEAM:
 
                     total_ni += fj_val * partialsum
                     total_ni += rho(r_ij)
-                    # logging.info("MEAM: rho(rij) = {0}".format(rho(r_ij)))
+                    # logging.info("MEAM: rho({}) = {}".format(r_ij, rho(r_ij)))
 
                     # logging.info("MEAM: fj_val = {0}".format(fj_val))
                 # end u loop
@@ -574,7 +574,7 @@ class MEAM:
         self.write_to_file('test.meam.spline')
 
         calc = LAMMPS(no_data_file=True, parameters=params,
-                      keep_tmp_files=False, specorder=types,
+                      keep_tmp_files=True, specorder=types,
                       files=['test.meam.spline'])
 
         energy = calc.get_potential_energy(struct)

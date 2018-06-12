@@ -230,8 +230,10 @@ class WorkerSpline:
             return np.zeros(n_eval).reshape((1, n_eval))
 
         mn, mx = onepass_min_max(x)
-        self.lhs_extrap_dist = max(self.extrap_dist, abs(mn - self.x[0]))
-        self.rhs_extrap_dist = max(self.extrap_dist, abs(mx - self.x[-1]))
+        # self.lhs_extrap_dist = max(self.extrap_dist, abs(mn - self.x[0]))
+        # self.rhs_extrap_dist = max(self.extrap_dist, abs(mx - self.x[-1]))
+        self.lhs_extrap_dist = max(self.extrap_dist, self.x[0] - mn)
+        self.rhs_extrap_dist = max(self.extrap_dist, mx - self.x[-1])
 
         # add ghost knots
         knots = [self.x[0] - self.lhs_extrap_dist] + self.x.tolist() + \
@@ -342,6 +344,15 @@ class USpline(WorkerSpline):
 
         self.deriv_struct_vec = np.zeros((natoms, 2*len(self.x)+4))
 
+
+        # distance for extrapolating to 0; saved separately to avoid overwrite
+        self.zero_extrap_dist = self.extrap_dist
+
+        if self.x[0] > 0:
+            self.zero_extrap_dist = self.x[0]
+        elif self.x[-1] < 0:
+            self.zero_extrap_dist = abs(self.x[-1])
+
         self.zero_abcd = self.get_abcd([0])
 
         self.atoms_embedded = 0
@@ -447,13 +458,13 @@ class USpline(WorkerSpline):
         # return self.deriv_struct_vec @ z
         return np.einsum('ijk,ik->ij', self.deriv_struct_vec, z)
 
-    def compute_zero_potential(self, y):
+    def compute_zero_potential(self, y, n):
         """Calculates the value of the potential as if every entry in the
         structure vector was a zero.
 
         Args:
-            y (np.arr):
-                array of parameter vectors
+            y (np.arr): array of parameter vectors
+            n (int): number of embedded atoms
 
         Returns:
             the value evaluated by the spline using num_zeros zeros"""
@@ -464,14 +475,29 @@ class USpline(WorkerSpline):
 
         z = np.zeros((y.shape[0], 2*y.shape[1]+4))
 
-        z[:, 0] = y[:, 0] - y1[:, 0]*self.lhs_extrap_dist
+        z[:, 0] = y[:, 0] - y1[:, 0]*self.zero_extrap_dist
         z[:, 1:1+self.n_knots] = y
-        z[:, 1+self.n_knots] = 0
-        z[:, 2+self.n_knots] = 0
+        z[:, 1+self.n_knots] = y[:,-1] + y1[:,-1]*self.zero_extrap_dist
+        # z[:, 1+self.n_knots] = 0
+        # z[:, 2+self.n_knots] = 0
+        z[:, 2+self.n_knots] = y1[:, 0]
         z[:, 3+self.n_knots:3+2*self.n_knots] = y1
         z[:, 3+2*self.n_knots] = y1[:, -1]
 
-        return (self.zero_abcd @ z.T).T*self.atoms_embedded
+        return (self.zero_abcd @ z.T).T*n
+        #
+        # self.y = y
+        #
+        # z = np.zeros((self.y.shape[0], 2*self.y.shape[1]+4))
+        #
+        # z[:, 0] = self.y[:, 0] - self.y1[:, 0]*self.lhs_extrap_dist
+        # z[:, 1:1+self.n_knots] = self.y
+        # z[:, 1+self.n_knots] = self.y[:,-1] + self.y1[:,-1]*self.rhs_extrap_dist
+        # z[:, 2+self.n_knots] = self.y1[:, 0]
+        # z[:, 3+self.n_knots:3+2*self.n_knots] = self.y1
+        # z[:, 3+2*self.n_knots] = self.y1[:, -1]
+        #
+        # return np.einsum("ij,ij->i", self.energy_struct_vec, z)
 
 
 class RhoSpline(WorkerSpline):
