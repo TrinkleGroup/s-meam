@@ -41,8 +41,8 @@ MASTER_RANK = 0
 ################################################################################
 """GA settings"""
 
-POP_SIZE = 13
-NUM_GENS = 7
+POP_SIZE = 50
+NUM_GENS = 2000
 CXPB = 1.0
 MUTPB = 0.5
 
@@ -58,7 +58,7 @@ CHECKPOINT_FREQUENCY = 10
 
 CHECK_BEFORE_OVERWRITE = True
 
-LOAD_PATH = "data/fitting_databases/lj/"
+LOAD_PATH = "data/fitting_databases/pinchao-rhophi/"
 SAVE_PATH = "data/ga_results/"
 SETTINGS_STR = "{}-{}-{}-{}".format(POP_SIZE, NUM_GENS, CXPB, MUTPB)
 
@@ -88,39 +88,60 @@ def main():
 
         stats, logbook = build_stats_and_log()
 
-        print("MASTER: Loading structures ...", flush=True)
-        structures, weights = load_structures_on_master()
+        # print("MASTER: Loading structures ...", flush=True)
+        # structures, weights = load_structures_on_master()
+        print("MASTER: assigning structures to processors ... ", flush=True)
+        struct_names = np.array_split(np.array(get_all_struct_names()), mpi_size)
 
-        print("MASTER: Loading energy/forces database ... ", flush=True)
-        true_forces, true_energies = load_true_values(structures.keys())
+        # print("MASTER: Loading energy/forces database ... ", flush=True)
+        # true_forces, true_energies = load_true_values(structures.keys())
 
-        print("MASTER: Determining potential information ...", flush=True)
-        ex_struct = structures[list(structures.keys())[0]]
-        type_indices, spline_indices = find_spline_type_deliminating_indices(ex_struct)
-        pvec_len = ex_struct.len_param_vec
+        # print("MASTER: Determining potential information ...", flush=True)
+        # ex_struct = structures[list(structures.keys())[0]]
+        # type_indices, spline_indices = find_spline_type_deliminating_indices(ex_struct)
+        # pvec_len = ex_struct.len_param_vec
 
         print("MASTER: Preparing to send structures to slaves ... ", flush=True)
-        grouped_tup = group_for_mpi_scatter(structures, weights, true_forces,
-                true_energies, mpi_size)
+        # grouped_tup = group_for_mpi_scatter(structures, weights, true_forces,
+        # grouped_tup = group_for_mpi_scatter(glob.glob(LOAD_PATH +
+            # 'structures/*'), weights, true_forces, true_energies, mpi_size)
 
-        structures = grouped_tup[0]
-        weights = grouped_tup[1]
-        true_forces = grouped_tup[2]
-        true_energies = grouped_tup[3]
+        # structures = grouped_tup[0]
+        # struct_names = grouped_tup[0]
+        # weights = grouped_tup[1]
+        # true_forces = grouped_tup[2]
+        # true_energies = grouped_tup[3]
     else:
         spline_indices = None
-        structures = None
-        weights = None
-        true_forces = None
-        true_energies = None
+        # structures = None
+        struct_names = None
+        # weights = None
+        # true_forces = None
+        # true_energies = None
 
     # Send all necessary information to slaves
-    spline_indices = comm.bcast(spline_indices, root=0)
+    # spline_indices = comm.bcast(spline_indices, root=0)
 
-    structures = comm.scatter(structures, root=0)
-    weights = comm.scatter(weights, root=0)
-    true_forces = comm.scatter(true_forces, root=0)
-    true_energies = comm.scatter(true_energies, root=0)
+    # structures = comm.scatter(structures, root=0)
+    # print(glob.glob(LOAD_PATH + 'structures/*')[:5])
+    # struct_names = comm.scatter(np.split(np.array(glob.glob(LOAD_PATH +
+        # 'structures/*')), mpi_size), root=0)
+    # struct_names = comm.scatter(np.split(np.array([1,2,3,4,5]), mpi_size), root=0)
+
+    # struct_names = comm.bcast(struct_names, root=0)
+    struct_names = comm.scatter(struct_names, root=0)
+    # print(struct_names)
+    structures = load_locally(struct_names)
+    weights = load_weights(structures.keys())
+    true_forces, true_energies = load_true_values(structures.keys())
+
+    print("MASTER: Determining potential information ...", flush=True)
+    ex_struct = structures[list(structures.keys())[0]]
+    type_indices, spline_indices = find_spline_type_deliminating_indices(ex_struct)
+    pvec_len = ex_struct.len_param_vec
+    # weights = comm.scatter(weights, root=0)
+    # true_forces = comm.scatter(true_forces, root=0)
+    # true_energies = comm.scatter(true_energies, root=0)
 
     print("SLAVE: Rank", rank, "received", len(structures), 'structures',
             flush=True)
@@ -295,7 +316,7 @@ def build_ga_toolbox(pvec_len, index_ranges):
 
     def ret_pvec(arr_fxn, rng):
         # hard-coded version for pair-pots only
-        ind = np.zeros(36)
+        ind = np.zeros(37)
 
         ranges = [(-0.5, 0.5), (-1, 4), (-1, 1)]
 
@@ -333,7 +354,7 @@ def group_for_mpi_scatter(structs, database_weights, true_forces, true_energies,
         lists of grouped dictionaries of all input arguments
     """
 
-    grouped_keys = np.array_split(list(structs.keys()), size)
+    grouped_keys = np.array_split(list(database_weights.keys()), size)
 
     grouped_structs = []
     grouped_weights = []
@@ -341,13 +362,15 @@ def group_for_mpi_scatter(structs, database_weights, true_forces, true_energies,
     grouped_energies = []
 
     for group in grouped_keys:
-        tmp = {}
+        # tmp = {}
+        tmp = []
         tmp2 = {}
         tmp3 = {}
         tmp4 = {}
 
         for name in group:
-            tmp[name] = structs[name]
+            # tmp[name] = structs[name]
+            tmp.append(name)
             tmp2[name] = database_weights[name]
             tmp3[name] = true_forces[name]
             tmp4[name] = true_energies[name]
@@ -424,17 +447,25 @@ def load_structures_on_master():
     database weights are determined HERE.
     """
 
-    database = h5py.File(DB_FILE_NAME, 'a',)
-    weights = {key:1 for key in database.keys()}
+    # database = h5py.File(DB_FILE_NAME, 'a',)
+    # weights = {key:1 for key in database.keys()}
 
     structures = {}
+    weights = {}
 
-    for name in database.keys():
-        if weights[name] > 0:
+    # for name in database.keys():
+    for name in glob.glob(LOAD_PATH + 'structures/*')[:5]:
+        if 'dimer' in name:
+            short_name = os.path.split(name)[-1]
+            short_name = os.path.splitext(short_name)[0]
+            weights[short_name] = 1
+
+            if weights[short_name] > 0:
+                structures[short_name] = pickle.load(open(name, 'rb'))
         # if 'dimer' in name:
-            structures[name] = Worker.from_hdf5(database, name)
+            # structures[name] = Worker.from_hdf5(database, name)
 
-    database.close()
+    # database.close()
 
     return structures, weights
 
@@ -490,7 +521,7 @@ def build_evaluation_function(structures, weights, true_forces, true_energies,
         full = np.vstack(population)
 
         # hard-coded for phi splines only TODO: remove this later
-        full = np.hstack([full, np.zeros((full.shape[0], 108))])
+        full = np.hstack([full, np.zeros((full.shape[0], 79))])
 
         fitnesses = np.zeros(full.shape[0])
 
@@ -539,12 +570,12 @@ def run_powell_on_best(guess, toolbox, is_master_node, comm, num_steps=None):
     def cb(x):
         """Callback function called at end of every Powell step"""
 
-        # val = toolbox.evaluate_population([x])
-        # val = comm.gather(val, root=0)
-        # 
-        # if is_master_node:
-        #     val = np.sum(val, axis=0)
-        #     print("MASTER: powell step:", val[0], flush=True)
+        val = toolbox.evaluate_population([x])
+        val = comm.gather(val, root=0)
+
+        if is_master_node:
+            val = np.sum(val, axis=0)
+            print("MASTER: powell step:", val[0], flush=True)
 
     def parallel_wrapper(x, stop):
         """Wrapper to allow parallelization of fmin_powell. Explanation and code
@@ -624,6 +655,27 @@ def checkpoint(population, logbook, trace_update, i):
     np.savetxt(POP_FILE_NAME + str(i), population)
     pickle.dump(logbook, open(LOG_FILE_NAME, 'wb'))
     np.savetxt(open(TRACE_FILE_NAME, 'ab'), [trace_update])
+
+def load_locally(long_names):
+    structures = {}
+
+    for name in long_names:
+        short_name = os.path.split(name)[-1]
+        # short_name = os.path.splitext(short_name)[0]
+        structures[short_name] = pickle.load(open(LOAD_PATH + 'structures/' +
+            name + '.pkl', 'rb'))
+
+    return structures
+
+def get_all_struct_names():
+    path_list = glob.glob(LOAD_PATH + 'structures/*')
+    short_names = [os.path.split(name)[-1] for name in path_list]
+    no_ext = [os.path.splitext(name)[0] for name in short_names]
+
+    return no_ext
+
+def load_weights(names):
+    return {key:1 for key in names}
 
 ################################################################################
 
