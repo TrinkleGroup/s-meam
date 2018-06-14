@@ -42,7 +42,7 @@ MASTER_RANK = 0
 """GA settings"""
 
 POP_SIZE = 50
-NUM_GENS = 2000
+NUM_GENS = 1000
 CXPB = 1.0
 MUTPB = 0.5
 
@@ -60,13 +60,14 @@ CHECK_BEFORE_OVERWRITE = True
 
 LOAD_PATH = "data/fitting_databases/pinchao-rhophi/"
 SAVE_PATH = "data/ga_results/"
+SAVE_DIRECTORY = LOAD_PATH + "pinchao-rhophi"
 SETTINGS_STR = "{}-{}-{}-{}".format(POP_SIZE, NUM_GENS, CXPB, MUTPB)
 
 DB_FILE_NAME = LOAD_PATH + 'structures.hdf5'
 DB_INFO_FILE_NAME = LOAD_PATH + '/info'
-POP_FILE_NAME = SAVE_PATH + SETTINGS_STR + "/pop.dat"
-LOG_FILE_NAME = SAVE_PATH + SETTINGS_STR + "/ga.log"
-TRACE_FILE_NAME = SAVE_PATH + SETTINGS_STR + "/trace.dat"
+POP_FILE_NAME = SAVE_DIRECTORY + "/pop.dat"
+LOG_FILE_NAME = SAVE_DIRECTORY + "/ga.log"
+TRACE_FILE_NAME = SAVE_DIRECTORY + "/trace.dat"
 
 ################################################################################ 
 
@@ -130,7 +131,7 @@ def main():
 
     # struct_names = comm.bcast(struct_names, root=0)
     struct_names = comm.scatter(struct_names, root=0)
-    # print(struct_names)
+    print(struct_names)
     structures = load_locally(struct_names)
     weights = load_weights(structures.keys())
     true_forces, true_energies = load_true_values(structures.keys())
@@ -316,18 +317,31 @@ def build_ga_toolbox(pvec_len, index_ranges):
 
     def ret_pvec(arr_fxn, rng):
         # hard-coded version for pair-pots only
-        ind = np.zeros(37)
+        ind = np.zeros(70)
 
-        ranges = [(-0.5, 0.5), (-1, 4), (-1, 1)]
+        ranges = [(-0.5, 0.5), (-1, 4), (-1, 1), (-9, 3), (-30, 15), (-0.5, 1),
+                (-0.2, 0.4)]
 
-        ind[:10] += np.linspace(0.2*(-0.5), 0.8*(0.5), 10)[::-1]
-        ind[:10] += np.random.normal(size=(10,), scale=0.1)
+        ind[:13] += np.linspace(0.2*(-0.5), 0.8*(0.5), 13)[::-1]
+        ind[:13] += np.random.normal(size=(13,), scale=0.1)
 
-        ind[12:22] += np.linspace(0.2*(-1), 0.8*(4), 10)[::-1]
-        ind[12:22] += np.random.normal(size=(10,), scale=(5)*0.1)
+        ind[15:20] += np.linspace(0.2*(-1), 0.8*(4), 5)[::-1]
+        ind[15:20] += np.random.normal(size=(5,), scale=(5)*0.1)
 
-        ind[24:34] += np.linspace(0.2*(-1), 0.8, 10)[::-1]
-        ind[24:34] += np.random.normal(size=(10,), scale=(2)*0.1)
+        ind[22:35] += np.linspace(0.2*(-1), 0.8, 13)[::-1]
+        ind[22:35] += np.random.normal(size=(13,), scale=(2)*0.1)
+
+        ind[37:48] += np.linspace(0.2*(-9), 0.8*(3), 11)[::-1]
+        ind[37:48] += np.random.normal(size=(11,), scale=(5)*0.1)
+
+        ind[50:55] += np.linspace(0.2*(-30), 0.8*(15), 5)[::-1]
+        ind[50:55] += np.random.normal(size=(5,), scale=(2)*0.1)
+
+        ind[57:61] += np.linspace(0.2*(-0.5), 0.8*(1), 4)[::-1]
+        ind[57:61] += np.random.normal(size=(4,), scale=(5)*0.1)
+
+        ind[63:68] += np.linspace(0.2*(-0.2), 0.8*(0.4), 5)[::-1]
+        ind[63:68] += np.random.normal(size=(5,), scale=(2)*0.1)
 
         return arr_fxn(ind)
 
@@ -419,15 +433,15 @@ def prepare_save_directory():
     """Creates directories to store results"""
 
     print()
-    print("Save location:", SAVE_PATH + SETTINGS_STR)
-    if os.path.isdir(SAVE_PATH + SETTINGS_STR) and CHECK_BEFORE_OVERWRITE:
+    print("Save location:", SAVE_DIRECTORY)
+    if os.path.isdir(SAVE_DIRECTORY) and CHECK_BEFORE_OVERWRITE:
         print()
         print("/" + "*"*30 + " WARNING " + "*"*30 + "/")
         print("A folder already exists for these settings.\nPress Enter"
                 " to ovewrite old data, or Ctrl-C to quit")
         input("/" + "*"*30 + " WARNING " + "*"*30 + "/")
     else:
-        os.mkdir(SAVE_PATH + SETTINGS_STR)
+        os.mkdir(SAVE_DIRECTORY)
 
     print()
 
@@ -521,7 +535,7 @@ def build_evaluation_function(structures, weights, true_forces, true_energies,
         full = np.vstack(population)
 
         # hard-coded for phi splines only TODO: remove this later
-        full = np.hstack([full, np.zeros((full.shape[0], 79))])
+        full = np.hstack([full, np.zeros((full.shape[0], 46))])
 
         fitnesses = np.zeros(full.shape[0])
 
