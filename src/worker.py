@@ -603,4 +603,13 @@ class Worker:
         return phi_pvecs, rho_pvecs, u_pvecs, f_pvecs, g_pvecs
 
 if __name__ == "__main__":
-    pass
+    import src.meam
+    from tests.testPotentials import get_random_pots
+    from tests.testStructs import allstructs
+
+    pot = get_random_pots(1)['meams'][0]
+    x_pvec, y_pvec, indices = src.meam.splines_to_pvec(pot.splines)
+
+    atoms = allstructs['bulk_vac_ortho_mixed']
+
+    worker = Worker(atoms, x_pvec, indices, pot.types)

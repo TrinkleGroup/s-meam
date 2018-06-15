@@ -58,9 +58,9 @@ CHECKPOINT_FREQUENCY = 10
 
 CHECK_BEFORE_OVERWRITE = True
 
-LOAD_PATH = "data/fitting_databases/pinchao-rhophi/"
+LOAD_PATH = "data/fitting_databases/pinchao-phionly/"
 SAVE_PATH = "data/ga_results/"
-SAVE_DIRECTORY = LOAD_PATH + "pinchao-rhophi"
+SAVE_DIRECTORY = SAVE_PATH + "pinchao-phionly-real"
 SETTINGS_STR = "{}-{}-{}-{}".format(POP_SIZE, NUM_GENS, CXPB, MUTPB)
 
 DB_FILE_NAME = LOAD_PATH + 'structures.hdf5'
@@ -91,7 +91,7 @@ def main():
 
         # print("MASTER: Loading structures ...", flush=True)
         # structures, weights = load_structures_on_master()
-        print("MASTER: assigning structures to processors ... ", flush=True)
+        print("MASTER: Assigning structures to processors ... ", flush=True)
         struct_names = np.array_split(np.array(get_all_struct_names()), mpi_size)
 
         # print("MASTER: Loading energy/forces database ... ", flush=True)
