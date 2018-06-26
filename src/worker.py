@@ -295,6 +295,7 @@ class Worker:
             for j,sp in enumerate(ffg_list):
                 sp.add_to_hdf5(mini_group, str(j))
 
+    # @profile
     def build_spline_lists(self, knot_xcoords, x_indices):
         """
         Builds lists of phi, rho, u, f, and g WorkerSpline objects
@@ -441,7 +442,10 @@ class Worker:
         # TODO: extrap ranges need to be independent of each other
         # TODO: OR -- rescale so that things fit into [0,1]
 
+        # print("WORKER: ni values: {}".format(ni), flush=True)
+
         u_energy = np.zeros(self.n_pots)
+        print(ni)
 
         # Evaluate U, U', and compute zero-point energies
         for i,(y,u) in enumerate(zip(u_pvecs, self.us)):
