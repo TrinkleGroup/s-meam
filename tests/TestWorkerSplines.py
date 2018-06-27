@@ -291,6 +291,22 @@ class WorkerSplineTests(unittest.TestCase):
 
         self.assertEqual(ws.calc_energy(y), 10.)
 
+    def test_build_M_natural_natural_ghost(self):
+        import src.workerSplines2
+
+        d0 = dN = 0
+        x = np.array([-1, -0.5, 0, 0.5, 1])
+        dx = x[1] - x[0]
+
+        y = np.array([0.05138434, 0.01790244, -0.26065088, -0.19016379,
+                      -0.76379542, d0, dN])
+
+        M = src.workerSplines2.build_M(len(x), dx, bc_type=('natural','natural'))
+        true = np.array([0.13719161, 0.13719161, -0.47527463, -0.10830441,
+                         -0.33990513, -1.55094231, -1.55094231])
+
+        np.testing.assert_allclose(true, M @ y, atol=1e-7, rtol=0)
+
     def test_build_M_natural_natural(self):
         d0 = dN = 0
         x = np.array([-1, -0.5, 0, 0.5, 1])
@@ -301,8 +317,8 @@ class WorkerSplineTests(unittest.TestCase):
 
         M = workerSplines.build_M(len(x), dx, bc_type=('natural', 'natural'))
 
-        true = np.array([0.13719161, -0.47527463, -0.10830441, -0.33990513,
-                         -1.55094231])
+        true = np.array([0.13719161, -0.47527463, -0.10830441,
+                         -0.33990513, -1.55094231])
 
         np.testing.assert_allclose(true, M @ y, atol=1e-7, rtol=0)
 
@@ -380,7 +396,7 @@ class USplineTests(unittest.TestCase):
     def test_zero_point_energy(self):
         # Should evaluate to # of evaluations (e.g. 4 fake atoms = result of 4)
         self.s.atoms_embedded = 3
-        self.assertEqual(np.sum(self.s.compute_zero_potential(self.y)), 3)
+        self.assertEqual(np.sum(self.s.compute_zero_potential(self.y, 3)), 3)
 
 class RhoSplineTests(unittest.TestCase):
 
