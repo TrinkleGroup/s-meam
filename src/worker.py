@@ -8,7 +8,9 @@ from pympler import muppy, summary
 
 import src.lammpsTools
 import src.meam
-from src.workerSplines import WorkerSpline, RhoSpline, ffgSpline, USpline
+# from src.workerSplines import WorkerSpline, RhoSpline, ffgSpline, USpline
+from src.workerSplines import USpline
+from src.workerSplines2 import WorkerSpline, RhoSpline, ffgSpline
 
 logger = logging.getLogger(__name__)
 
@@ -96,7 +98,7 @@ class Worker:
 
         # Compute full potential cutoff distance (based only on radial fxns)
         radial_fxns = self.phis + self.rhos + self.fs
-        cutoff = np.max([max(s.x) for s in radial_fxns])
+        cutoff = np.max([max(s.knots) for s in radial_fxns])
 
         # Build neighbor lists
 
@@ -206,22 +208,20 @@ class Worker:
                         self.ffgs[fj_idx][fk_idx].add_to_forces_struct_vec(
                             rij, rik, cos_theta, dirs, i, j, k)
 
-        #print()
-        #all_objects = muppy.get_objects()
-        #summ = summary.summarize(all_objects)
-        #summary.print_(summ)
-
         # convert arrays to avoid having to convert on call
         self.type_of_each_atom = np.array(self.type_of_each_atom)
 
         for rho in self.rhos:
-            rho.forces_struct_vec = rho.forces_struct_vec.tocsr()
+            rho.structure_vectors['forces'] = rho.structure_vectors['forces'].tocsr()
 
         for ffg_list in self.ffgs:
             for ffg in ffg_list:
 
-                ffg.energy_struct_vec =lil_matrix(ffg.energy_struct_vec).tocsr()
-                ffg.forces_struct_vec =lil_matrix(ffg.forces_struct_vec).tocsr()
+                ffg.structure_vectors['energy'] =\
+                    lil_matrix(ffg.structure_vectors['energy']).tocsr()
+
+                ffg.structure_vectors['forces'] =\
+                    lil_matrix(ffg.structure_vectors['forces']).tocsr()
 
     @classmethod
     def from_hdf5(cls, hdf5_file, name):
@@ -317,10 +317,12 @@ class Worker:
         splines = []
 
         for i, knots in enumerate(knots_split):
-            if (i < self.nphi) or (i >= self.nphi + 2*self.ntypes):
+            if (i < self.nphi):
                 s = WorkerSpline(knots, bc_type, self.natoms)
             elif (self.nphi + self.ntypes <= i < self.nphi + 2 *self.ntypes):
                 s = USpline(knots, bc_type, self.natoms)
+            elif (i >= self.nphi + 2*self.ntypes):
+                s = WorkerSpline(knots, bc_type, self.natoms)
             else:
                 s = RhoSpline(knots, bc_type, self.natoms)
 
@@ -386,8 +388,8 @@ class Worker:
 
         # Pair interactions
         for y, phi in zip(phi_pvecs, self.phis, ):
-            if phi.energy_struct_vec.shape[0] > 0:
-                energy += phi.calc_energy(y)
+            # if phi.energy_struct_vec.shape[0] > 0:
+            energy += phi.calc_energy(y)
                 # logging.info("WORKER: phi  = {}".format(phi.calc_energy(y)))
 
         # Embedding terms
@@ -445,11 +447,11 @@ class Worker:
         # print("WORKER: ni values: {}".format(ni), flush=True)
 
         u_energy = np.zeros(self.n_pots)
-        print(ni)
+        # print(ni)
 
         # Evaluate U, U', and compute zero-point energies
         for i,(y,u) in enumerate(zip(u_pvecs, self.us)):
-            u.energy_struct_vec = np.zeros((self.n_pots, 2*u.x.shape[0]+4))
+            u.energy_struct_vec = np.zeros((self.n_pots, 2*u.knots.shape[0]+4))
 
             ni_sublist = ni[:, self.type_of_each_atom - 1 == i]
 
@@ -493,13 +495,13 @@ class Worker:
         shifted_types = self.type_of_each_atom - 1
 
         for i, u in enumerate(self.us):
-            u.struct_vecs = np.zeros((self.natoms, 2*len(u.x)+4))
+            u.struct_vecs = np.zeros((self.natoms, 2*len(u.knots)+4))
 
             # get atom ids of type i
             indices = tags[shifted_types == i]
 
             u.deriv_struct_vec = np.zeros(
-                (self.n_pots, self.natoms, 2*u.x.shape[0]+4))
+                (self.n_pots, self.natoms, 2*u.knots.shape[0]+4))
 
             if indices.shape[0] > 0:
                 u.add_to_deriv_struct_vec(ni[:, shifted_types == i], indices)
@@ -531,8 +533,8 @@ class Worker:
         # Pair forces (phi)
         for phi_idx, (phi, y) in enumerate(zip(self.phis, phi_pvecs)):
 
-            if len(phi.forces_struct_vec) > 0:
-                forces += phi.calc_forces(y)
+            # if len(phi.forces_struct_vec) > 0:
+            forces += phi.calc_forces(y)
 
         ni = self.compute_ni(rho_pvecs, f_pvecs, g_pvecs)
 
@@ -543,30 +545,30 @@ class Worker:
         # Electron density embedding (rho)
         for rho_idx, (rho, y) in enumerate(zip(self.rhos, rho_pvecs)):
 
-            if rho.forces_struct_vec.shape[0] > 0:
-                rho_forces = rho.calc_forces(y)
+            # if rho.forces_struct_vec.shape[0] > 0:
+            rho_forces = rho.calc_forces(y)
 
-                rho_forces = rho_forces.reshape(
-                    (self.n_pots, 3, self.natoms, self.natoms))
+            rho_forces = rho_forces.reshape(
+                (self.n_pots, 3, self.natoms, self.natoms))
 
-                forces += np.einsum('pijk,pk->pji', rho_forces, uprimes)
+            forces += np.einsum('pijk,pk->pji', rho_forces, uprimes)
 
         # Angular terms (ffg)
         for j, ffg_list in enumerate(self.ffgs):
             for k, ffg in enumerate(ffg_list):
 
-                if ffg.forces_struct_vec[0].shape[0] > 0:
+                # if ffg.forces_struct_vec[0].shape[0] > 0:
 
-                    y_fj = f_pvecs[j]
-                    y_fk = f_pvecs[k]
-                    y_g = g_pvecs[src.meam.ij_to_potl(j+1, k+1, self.ntypes)]
+                y_fj = f_pvecs[j]
+                y_fk = f_pvecs[k]
+                y_g = g_pvecs[src.meam.ij_to_potl(j+1, k+1, self.ntypes)]
 
-                    ffg_forces = ffg.calc_forces(y_fj, y_fk, y_g)
+                ffg_forces = ffg.calc_forces(y_fj, y_fk, y_g)
 
-                    ffg_forces = ffg_forces.reshape(
-                        (self.n_pots, 3, self.natoms, self.natoms))
+                ffg_forces = ffg_forces.reshape(
+                    (self.n_pots, 3, self.natoms, self.natoms))
 
-                    forces += np.einsum('pijk,pk->pji', ffg_forces, uprimes)
+                forces += np.einsum('pijk,pk->pji', ffg_forces, uprimes)
 
         return forces
 

@@ -48,10 +48,10 @@ class WorkerSpline:
             but with a third dimension for xyz cartesian directions
     """
 
-    def __init__(self, x=None, bc_type=None, natoms=0, M=None):
+    def __init__(self, knots=None, bc_type=None, natoms=0, M=None):
 
         # Check bad knot coordinates
-        if not np.all(x[1:] > x[:-1], axis=0):
+        if not np.all(knots[1:] > knots[:-1], axis=0):
             raise ValueError("x must be strictly increasing")
 
         # Check bad boundary conditions
@@ -63,29 +63,29 @@ class WorkerSpline:
                              "'fixed'")
 
         # Variables that can be set at beginning
-        self.x = np.array(x, dtype=float)
+        self.knots = np.array(knots, dtype=float)
         # self.h = x[1] - x[0]
 
-        self.n_knots = len(x)
+        self.n_knots = len(knots)
 
         self.bc_type = bc_type
 
         if M is None:
-            self.M = build_M(len(x), x[1] - x[0], bc_type)
+            self.M = build_M(len(knots), knots[1] - knots[0], bc_type)
         else:
             self.M = M
 
         self.natoms = natoms
 
-        cutoff = (x[0], x[-1])
+        cutoff = (knots[0], knots[-1])
         self.extrap_dist = (cutoff[1] - cutoff[0]) / 2.
 
         self.lhs_extrap_dist = self.extrap_dist
         self.rhs_extrap_dist = self.extrap_dist
 
         # Variables that will be set at some point
-        self.energy_struct_vec = np.zeros(2*len(x)+4)
-        self.forces_struct_vec = np.zeros((natoms, 2*len(x)+4, 3))
+        self.energy_struct_vec = np.zeros(2 * len(knots) + 4)
+        self.forces_struct_vec = np.zeros((natoms, 2 * len(knots) + 4, 3))
         self.index = 0
 
         # Variables that will be set on evaluation
@@ -155,7 +155,7 @@ class WorkerSpline:
                 for el in self.bc_type]
 
         new_group.create_dataset("M", data = self.M)
-        new_group.create_dataset("x", data = self.x)
+        new_group.create_dataset("x", data = self.knots)
 
         if save_sv:
             e_s = self.energy_struct_vec.shape
@@ -226,18 +226,18 @@ class WorkerSpline:
         x = np.atleast_1d(x)
 
         if x.shape[0] < 1:
-            n_eval = 2*len(self.x) + 4
+            n_eval = 2*len(self.knots) + 4
             return np.zeros(n_eval).reshape((1, n_eval))
 
         mn, mx = onepass_min_max(x)
-        # self.lhs_extrap_dist = max(self.extrap_dist, abs(mn - self.x[0]))
-        # self.rhs_extrap_dist = max(self.extrap_dist, abs(mx - self.x[-1]))
-        self.lhs_extrap_dist = max(self.extrap_dist, self.x[0] - mn)
-        self.rhs_extrap_dist = max(self.extrap_dist, mx - self.x[-1])
+        # self.lhs_extrap_dist = max(self.extrap_dist, abs(mn - self.knots[0]))
+        # self.rhs_extrap_dist = max(self.extrap_dist, abs(mx - self.knots[-1]))
+        self.lhs_extrap_dist = max(self.extrap_dist, self.knots[0] - mn)
+        self.rhs_extrap_dist = max(self.extrap_dist, mx - self.knots[-1])
 
         # add ghost knots
-        knots = [self.x[0] - self.lhs_extrap_dist] + self.x.tolist() + \
-                [self.x[-1] + self.rhs_extrap_dist]
+        knots = [self.knots[0] - self.lhs_extrap_dist] + self.knots.tolist() + \
+                [self.knots[-1] + self.rhs_extrap_dist]
 
         knots = np.array(knots)
 
@@ -335,24 +335,23 @@ class WorkerSpline:
 
     def add_to_energy_struct_vec(self, values):
         self.energy_struct_vec += np.sum(self.get_abcd(values, 0), axis=0)
-        print(self.energy_struct_vec)
 
 
 class USpline(WorkerSpline):
 
-    def __init__(self, x, bc_type, natoms, M=None):
-        super(USpline, self).__init__(x, bc_type, natoms, M)
+    def __init__(self, knots, bc_type, natoms, M=None):
+        super(USpline, self).__init__(knots, bc_type, natoms, M)
 
-        self.deriv_struct_vec = np.zeros((natoms, 2*len(self.x)+4))
+        self.deriv_struct_vec = np.zeros((natoms, 2*len(self.knots)+4))
 
 
         # distance for extrapolating to 0; saved separately to avoid overwrite
         self.zero_extrap_dist = self.extrap_dist
 
-        if self.x[0] > 0:
-            self.zero_extrap_dist = self.x[0]
-        elif self.x[-1] < 0:
-            self.zero_extrap_dist = abs(self.x[-1])
+        if self.knots[0] > 0:
+            self.zero_extrap_dist = self.knots[0]
+        elif self.knots[-1] < 0:
+            self.zero_extrap_dist = abs(self.knots[-1])
 
         self.zero_abcd = self.get_abcd([0])
 
@@ -503,13 +502,13 @@ class USpline(WorkerSpline):
 
 class RhoSpline(WorkerSpline):
 
-    def __init__(self, x, bc_type, natoms, M=None):
-        super(RhoSpline, self).__init__(x, bc_type, natoms, M)
+    def __init__(self, knots, bc_type, natoms, M=None):
+        super(RhoSpline, self).__init__(knots, bc_type, natoms, M)
 
-        self.energy_struct_vec = np.zeros((self.natoms, 2*len(x)+4))
+        self.energy_struct_vec = np.zeros((self.natoms, 2 * len(knots) + 4))
 
         N = self.natoms
-        self.forces_struct_vec = lil_matrix((3*N*N, 2*len(x)+4), dtype=float)
+        self.forces_struct_vec = lil_matrix((3 * N * N, 2 * len(knots) + 4), dtype=float)
 
     def add_to_hdf5(self, hdf5_file, name):
         super().add_to_hdf5(hdf5_file, name, save_sv=False)
@@ -575,7 +574,7 @@ class RhoSpline(WorkerSpline):
                                                      axis=0)
 
     def add_to_forces_struct_vec(self, value, dir, i, j):
-        """Single add for neighbor"""
+        """Single add used because need to speciy two atom tags"""
         abcd_3d = np.einsum('i,j->ij', self.get_abcd(value, 1).ravel(), dir)
 
         N = self.natoms
@@ -605,7 +604,7 @@ class ffgSpline:
         self.natoms = natoms
 
         # Variables that will be set at some point
-        nknots_cartesian = (len(fj.x)*2+4)*(len(fk.x)*2+4)*(len(g.x)*2+4)
+        nknots_cartesian = (len(fj.knots)*2+4)*(len(fk.knots)*2+4)*(len(g.knots)*2+4)
 
         N = self.natoms
 
@@ -669,7 +668,6 @@ class ffgSpline:
 
         return ffg
 
-    # @profile
     def calc_energy(self, y_fj, y_fk, y_g):
         fj = self.fj
         fk = self.fk
@@ -770,7 +768,6 @@ class ffgSpline:
 
         self.energy_struct_vec[atom_id, :] += cart
 
-    # @profile
     def add_to_forces_struct_vec(self, rij, rik, cos, dirs, i, j, k):
         """Adds all 6 directional information to the struct vector for the
         given triplet values
@@ -814,7 +811,6 @@ class ffgSpline:
             self.forces_struct_vec[N*N*a + N*i + i, :] += fk[:, a]
             self.forces_struct_vec[N*N*a + N*k + i, :] -= fk[:, a]
 
-    # @profile
     def get_abcd(self, rij, rik, cos_theta, deriv=[0,0,0]):
         """Computes the full parameter vector for the multiplication of ffg
         splines
@@ -845,7 +841,6 @@ class ffgSpline:
         g_abcd = self.g.get_abcd(add_cos_theta, g_deriv)
 
         return fj_abcd.squeeze(), fk_abcd.squeeze(), g_abcd.squeeze()
-
 
 def build_M(num_x, dx, bc_type):
     """Builds the A and B matrices that are needed to find the function
