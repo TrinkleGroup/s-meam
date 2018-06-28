@@ -15,6 +15,10 @@ class WorkerSpline:
     """
 
     def __init__(self, knots, bc_type=None, natoms=0, M=None):
+
+        if not np.all(knots[1:] > knots[:-1], axis=0):
+            raise ValueError("knots must be strictly increasing")
+
         self.knots = np.array(knots, dtype=float)
         self.n_knots = len(knots)
         self.bc_type = bc_type
@@ -23,11 +27,12 @@ class WorkerSpline:
         """
         Extrapolation is done by building a spline between the end-point
         knot and a 'ghost' knot that is separated by a distance of
-        extrap_dist. This distance is updated later if extrapolation must be
-        done at an even greater range
+        extrap_dist. The ASSUMPTION is that all extrapolation points are 
+        added at the same time, that way the maximum extrapolation distance 
+        can be computed. A default value of half the potential range is assumed.
         """
 
-        self.extrap_dist = (x[-1] - x[0]) / 2.
+        self.extrap_dist = (knots[-1] - knots[0]) / 2.
         self.lhs_extrap_dist = self.extrap_dist
         self.rhs_extrap_dist = self.extrap_dist
 
@@ -40,8 +45,8 @@ class WorkerSpline:
         M: the matrix corresponding to the system of equations for y'
         alpha: the set of coefficients corresponding to knot y-values
         beta: the set of coefficients corresponding to knot y'-values
-        gamma: the matrix product of beta*M (doesn't need to be stored)
-        structure vector: the summation of alpha+gamma
+        gamma: the result of M being row-scaled by beta
+        structure vector: the summation of alpha + gamma
         
         Note that the extrapolation structure vectors are NOT of the same 
         form as the rest; they rely on the results of previous y' 
@@ -56,91 +61,146 @@ class WorkerSpline:
         else:
             self.M = M
 
-        self.alphas = {}
-        self.alphas['energy'] = np.zeros(self.n_knots + 2)
-        self.alphas['forces'] = np.zeros(natoms, self.n_knots + 2, 3)
-
-        self.betas = {}
-        self.betas['energy'] = np.zeros(self.n_knots + 2)
-        self.betas['forces'] = np.zeros(natoms, self.n_knots + 2, 3)
-
         self.structure_vectors = {}
         self.structure_vectors['energy'] = np.zeros(self.n_knots + 2)
-        self.structure_vectors['forces'] = np.zeros(natoms, self.n_knots + 2, 3)
+        self.structure_vectors['forces'] = np.zeros((natoms, self.n_knots+2, 3))
 
-        self.extrap_struct_vecs = {}
+    def get_abcd(self, x, deriv=0):
+        """Calculates the spline coefficients for a set of points x
 
-        self.extrap_struct_vecs['energy'] = {}
-        self.extrap_struct_vecs['energy']['lhs'] = np.zeros(4)
-        self.extrap_struct_vecs['energy']['lhs'] = np.zeros(4)
+        Args:
+            x (np.arr): list of points to be evaluated
+            deriv (int): optionally compute the 1st derivative instead
 
-        self.extrap_struct_vecs['forces'] = {}
-        self.extrap_struct_vecs['forces']['lhs'] = np.zeros(natoms, 4, 3)
-        self.extrap_struct_vecs['forces']['rhs'] = np.zeros(natoms, 4, 3)
+        Returns:
+            alpha: vector of coefficients to be added to alpha
+            beta: vector of coefficients to be added to betas
+            lhs_extrap: vector of coefficients to be added to lhs_extrap vector
+            rhs_extrap: vector of coefficients to be added to rhs_extrap vector
+        """
+        x = np.atleast_1d(x)
 
-    # def get_abcd(self, x, deriv=0):
-    #     """Calculates the spline coefficients for a given evaluation point, x
-    #
-    #     Args:
-    #         x (float): point to be evaluated
-    #         deriv (int): optionally compute the 1st derivative at point x
-    #
-    #     Returns:
-    #         alpha: vector of coefficients to be added to alpha
-    #         beta: vector of coefficients to be added to betas
-    #         lhs_extrap: vector of coefficients to be added to lhs_extrap vector
-    #         rhs_extrap: vector of coefficients to be added to rhs_extrap vector
-    #     """
-    #
-    #     self.lhs_extrap_dist = max(self.extrap_dist, self.x[0] - x)
-    #     self.rhs_extrap_dist = max(self.extrap_dist, x - self.x[-1])
-    #
-    #     # add ghost knots
-    #     knots = [self.knots[0] - self.lhs_extrap_dist] + self.knots.tolist() + \
-    #             [self.knots[-1] + self.rhs_extrap_dist]
-    #
-    #     knots = np.array(knots)
-    #
-    #     # indicates the splines that the points fall into
-    #     k = np.digitize(x, knots) - 1
-    #     k = np.clip(k, 0, len(knots) - 2)
-    #
-    #     prefactor = knots[k + 1] - knots[k]
-    #
-    #     t = (x - knots[k]) / prefactor
-    #     t2 = t*t
-    #     t3 = t2*t
-    #
-    #     if deriv == 0:
-    #         scaling = 1
-    #
-    #         A = 2*t3 - 3*t2 + 1
-    #         B = t3 - 2*t2 + t
-    #         C = -2*t3 + 3*t2
-    #         D = t3 - t2
-    #
-    #     elif deriv == 1:
-    #         scaling =  1 / (prefactor * deriv)
-    #
-    #         A = 6*t2 - 6*t
-    #         B = 3*t2 - 4*t + 1
-    #         C = -6*t2 + 6*t
-    #         D = 3*t2 - 2*t
-    #
-    #     else:
-    #         raise ValueError("Only allowed derivative values are 0 and 1")
-    #
-    #     B *= prefactor
-    #     D *= prefactor
-    #
-    #     alpha = np.zeros(self.n_knots + 2)
-    #     betas = np.zeros(self.n_knots)
-    #     lhs_extrap = np.zeros(4)
-    #     rhs_extrap = np.zeros(4)
-    #
-    #     if k == 0:
-    #         lhs_extrap = np.array([A, B, C, D])
-    #         elif k =
+        mn, mx = onepass_min_max(x)
+
+        lhs_extrap_dist = max(self.extrap_dist, self.knots[0] - mn)
+        rhs_extrap_dist = max(self.extrap_dist, mx - self.knots[-1])
+
+        # add ghost knots
+        knots = [self.knots[0] - lhs_extrap_dist] + self.knots.tolist() + \
+                [self.knots[-1] + rhs_extrap_dist]
+
+        knots = np.array(knots)
+
+        # indicates the splines that the points fall into
+        spline_bins = np.digitize(x, knots, right=True) - 1
+        spline_bins = np.clip(spline_bins, 0, len(knots) - 2)
+
+        if (np.min(spline_bins) < 0) or (np.max(spline_bins) >  self.n_knots+2):
+            raise ValueError("Bad extrapolation; a point lies outside of the "
+                             "computed extrapolation range")
+
+        prefactor = knots[spline_bins + 1] - knots[spline_bins]
+
+        t = (x - knots[spline_bins]) / prefactor
+        t2 = t*t
+        t3 = t2*t
+
+        # shifts the extrapolation bin indices to the correct values
+        # k = np.clip(spline_bins, 0, len(knots) - 2) - 1
+
+        if deriv == 0:
+            scaling = np.ones(len(x))
+
+            A = 2*t3 - 3*t2 + 1
+            B = t3 - 2*t2 + t
+            C = -2*t3 + 3*t2
+            D = t3 - t2
+
+        elif deriv == 1:
+            scaling =  1 / (prefactor * deriv)
+
+            A = 6*t2 - 6*t
+            B = 3*t2 - 4*t + 1
+            C = -6*t2 + 6*t
+            D = 3*t2 - 2*t
+
+        else:
+            raise ValueError("Only allowed derivative values are 0 and 1")
+
+        B *= prefactor
+        D *= prefactor
+
+        A *= scaling
+        B *= scaling
+        C *= scaling
+        D *= scaling
+
+        alpha = np.zeros(self.n_knots)
+        beta = np.zeros(self.n_knots)
+
+        # values being extrapolated need to be indexed differently
+        lhs_extrap_mask = spline_bins == 0
+        rhs_extrap_mask = spline_bins == self.n_knots
+
+        alpha[0] += np.sum(A[lhs_extrap_mask])
+        alpha[0] += np.sum(C[lhs_extrap_mask])
+
+        alpha[-1] += np.sum(A[rhs_extrap_mask])
+        alpha[-1] += np.sum(C[rhs_extrap_mask])
+
+        beta[0] += np.sum(A[lhs_extrap_mask])*(-lhs_extrap_dist)
+        beta[0] += np.sum(B[lhs_extrap_mask])
+        beta[0] += np.sum(D[lhs_extrap_mask])
+
+        beta[-1] += np.sum(B[rhs_extrap_mask])
+        beta[-1] += np.sum(C[rhs_extrap_mask])*rhs_extrap_dist
+        beta[-1] += np.sum(D[rhs_extrap_mask])
+
+        # now add internal knots
+        internal_mask = np.logical_not(lhs_extrap_mask + rhs_extrap_mask)
+
+        shifted_indices = spline_bins[internal_mask] - 1
+
+        #
+        np.add.at(alpha, shifted_indices, A[internal_mask])
+        np.add.at(alpha, shifted_indices + 1, C[internal_mask])
+
+        np.add.at(beta, shifted_indices, B[internal_mask])
+        np.add.at(beta, shifted_indices + 1, D[internal_mask])
+
+        big_alpha = np.concatenate([alpha, [0,0]])
+        # big_alpha = np.vstack([big_alpha, np.zeros((self.n_knots-1,
+        #                                             self.n_knots+2))])
+
+        gamma = self.M * beta[:, np.newaxis]
+
+        return big_alpha + np.sum(gamma, axis=0)
+        # return np.vstack([big_alpha, gamma])
+
+    def add_to_energy_struct_vec(self, values):
+        self.structure_vectors['energy'] += self.get_abcd(values)
+
+    def calc_energy(self, y):
+        """Evaluates the energy structure vector for a given y. A second list of
+        parameters is created by appending the 'ghost knot' positions to y
+
+        Args:
+            y (np.arr): a list of N knot y-coords, plus 2 boundary conditions
+
+        Returns:
+            energy (float): the energy of the system
+        """
+
+        return self.structure_vectors['energy'] @ y.T#.ravel()
+        # return np.sum(self.structure_vectors['energy'], axis=0) @ y.ravel()
+        # return np.sum(self.structure_vectors['energy'] @ y.ravel())
+
+        # yp = self.M @ y.ravel()
+        #
+        # lhs_ghost = self.knots[0] - yp[0]*self.lhs_extrap_dist
+        # rhs_ghost = self.knots[-1] + yp[-1]*self.rhs_extrap_dist
+        #
+        # z = [lhs_ghost] + self.knots.tolist() + [rhs_ghost]
 
 def build_M(num_x, dx, bc_type):
     """Builds the A and B matrices that are needed to find the function
@@ -214,36 +274,32 @@ def build_M(num_x, dx, bc_type):
     bc_lhs = bc_lhs.lower()
     bc_rhs = bc_rhs.lower()
 
-    A = np.zeros((n + 4, n + 4))
-    B = np.zeros((n + 4, n + 4))
+    A = np.zeros((n + 2, n + 2))
+    B = np.zeros((n + 2, n + 4))
 
     # match 2nd deriv for internal knots
     fillA = diags(np.array([2, 8, 2]), [0, 1, 2], (n, n + 2))
     fillB = diags([-6, 0, 6], [0, 1, 2], (n, n + 2))
-    A[2:n+2, 1:n+3] = fillA.toarray()
-    B[2:n+2, :n+2] = fillB.toarray()
-
-    # add remaining equations
-    A[0,0] = 1/dx; A[0,1] = -1/dx # lhs ghost deriv matching lhs knot deriv
-    A[-1,-1] = 1/dx; A[-1,-2] = -1/dx # rhs ghost deriv matching rhs knot deriv
+    A[1:n+1, :n+2] = fillA.toarray()
+    B[1:n+1, :n+2] = fillB.toarray()
 
     # equation accounting for lhs bc
     if bc_lhs == 'natural':
-        A[1,1] = -4; A[1,2] = -2
-        B[1,0] = 6; B[1,1] = -6; B[1,-2] = 1
+        A[0,0] = -4; A[0,1] = -2
+        B[0,0] = 6; B[0,1] = -6; B[0,-2] = 1
     elif bc_lhs == 'fixed':
-        A[1,1] = 1/dx;
-        B[1,-2] = 1
+        A[0,0] = 1/dx;
+        B[0,-2] = 1
     else:
         raise ValueError("Invalid boundary condition. Must be 'natural' or 'fixed'")
 
     # equation accounting for rhs bc
     if bc_rhs == 'natural':
-        A[-2,-3] = 2; A[-2,-2] = 4
-        B[-2,-4] = -6; B[-2,-3] = 6; B[-2,-1] = 1
+        A[-1,-2] = 2; A[-1,-1] = 4
+        B[-1,-4] = -6; B[-1,-3] = 6; B[-1,-1] = 1
     elif bc_rhs == 'fixed':
-        A[1,-2] = 1/dx
-        B[1,-1] = 1
+        A[-1,-1] = 1/dx
+        B[-1,-1] = 1
     else:
         raise ValueError("Invalid boundary condition. Must be 'natural' or 'fixed'")
 

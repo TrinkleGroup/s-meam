@@ -335,6 +335,7 @@ class WorkerSpline:
 
     def add_to_energy_struct_vec(self, values):
         self.energy_struct_vec += np.sum(self.get_abcd(values, 0), axis=0)
+        print(self.energy_struct_vec)
 
 
 class USpline(WorkerSpline):
