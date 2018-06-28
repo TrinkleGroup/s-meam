@@ -422,11 +422,14 @@ class USpline(WorkerSpline):
         if num_new_atoms > 0:
             self.atoms_embedded += num_new_atoms
 
+            print()
+            print("ni shape =", values.shape)
             values = np.atleast_1d(values)
             org_shape = values.shape
             flat_values = values.ravel()
 
             abcd = self.get_abcd(flat_values, 0)
+            print("abcd shape =", abcd.shape)
             abcd = abcd.reshape(list(org_shape) + [abcd.shape[1]])
 
             self.energy_struct_vec += np.sum(abcd, axis=1)

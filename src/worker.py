@@ -9,8 +9,8 @@ from pympler import muppy, summary
 import src.lammpsTools
 import src.meam
 # from src.workerSplines import WorkerSpline, RhoSpline, ffgSpline, USpline
-from src.workerSplines import USpline
-from src.workerSplines2 import WorkerSpline, RhoSpline, ffgSpline
+# from src.workerSplines import USpline
+from src.workerSplines2 import WorkerSpline, RhoSpline, ffgSpline, USpline
 
 logger = logging.getLogger(__name__)
 
@@ -451,7 +451,8 @@ class Worker:
 
         # Evaluate U, U', and compute zero-point energies
         for i,(y,u) in enumerate(zip(u_pvecs, self.us)):
-            u.energy_struct_vec = np.zeros((self.n_pots, 2*u.knots.shape[0]+4))
+            # u.energy_struct_vec = np.zeros((self.n_pots, 2*u.knots.shape[0]+4))
+            u.structure_vectors['energy'] = np.zeros((self.n_pots, u.knots.shape[0]+2))
 
             ni_sublist = ni[:, self.type_of_each_atom - 1 == i]
 
@@ -495,13 +496,15 @@ class Worker:
         shifted_types = self.type_of_each_atom - 1
 
         for i, u in enumerate(self.us):
-            u.struct_vecs = np.zeros((self.natoms, 2*len(u.knots)+4))
+            # u.struct_vecs = np.zeros((self.natoms, 2*len(u.knots)+4))
 
             # get atom ids of type i
             indices = tags[shifted_types == i]
 
-            u.deriv_struct_vec = np.zeros(
-                (self.n_pots, self.natoms, 2*u.knots.shape[0]+4))
+            # u.deriv_struct_vec = np.zeros(
+            #     (self.n_pots, self.natoms, 2*u.knots.shape[0]+4))
+            u.structure_vectors['deriv'] = np.zeros(
+                (self.n_pots, self.natoms, u.knots.shape[0]+2))
 
             if indices.shape[0] > 0:
                 u.add_to_deriv_struct_vec(ni[:, shifted_types == i], indices)
