@@ -8,8 +8,7 @@ from pympler import muppy, summary
 
 import src.lammpsTools
 import src.meam
-# from src.workerSplines import WorkerSpline, RhoSpline, ffgSpline, USpline
-from src.workerSplines2 import WorkerSpline, RhoSpline, ffgSpline, USpline
+from src.workerSplines import WorkerSpline, RhoSpline, ffgSpline, USpline
 
 from src.numba_functions import outer_prod_simple
 
