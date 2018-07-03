@@ -10,6 +10,8 @@ import src.lammpsTools
 import src.meam
 from src.workerSplines import WorkerSpline, RhoSpline, ffgSpline, USpline
 
+from src.numba_functions import outer_prod_simple
+
 logger = logging.getLogger(__name__)
 
 
@@ -63,18 +65,15 @@ class Worker:
             load_file (bool): True if loading from HDF5
         """
 
-        # Basic variable initialization
-        # self.atoms      = atoms
-        # self.types      = types
-        # self.name       = name
-
         if load_file: return
 
         ntypes          = len(types)
         self.ntypes     = ntypes
         self.natoms     = len(atoms)
+        self.pvec_indices = x_indices
 
         self.len_param_vec = len(knot_xcoords) + 2*len(x_indices)
+        # self.gradient_mask = build_gradient_mask(self.len_param_vec)
 
         f = lambda t: src.lammpsTools.symbol_to_type(t, types)
         self.type_of_each_atom = list(map(f, atoms.get_chemical_symbols()))
@@ -96,7 +95,7 @@ class Worker:
 
         # Compute full potential cutoff distance (based only on radial fxns)
         radial_fxns = self.phis + self.rhos + self.fs
-        cutoff = np.max([max(s.x) for s in radial_fxns])
+        cutoff = np.max([max(s.knots) for s in radial_fxns])
 
         # Build neighbor lists
 
@@ -135,8 +134,6 @@ class Worker:
                 # Add distance/index/direction information to necessary lists
                 phi_idx = src.meam.ij_to_potl(itype, jtype, self.ntypes)
 
-                # logging.info("WORKER: phi_idx = {}".format(phi_idx))
-                # logging.info("WORKER: rij = {}".format(rij))
                 # phi
                 self.phis[phi_idx].add_to_energy_struct_vec(rij)
 
@@ -206,22 +203,24 @@ class Worker:
                         self.ffgs[fj_idx][fk_idx].add_to_forces_struct_vec(
                             rij, rik, cos_theta, dirs, i, j, k)
 
-        #print()
-        #all_objects = muppy.get_objects()
-        #summ = summary.summarize(all_objects)
-        #summary.print_(summ)
-
         # convert arrays to avoid having to convert on call
         self.type_of_each_atom = np.array(self.type_of_each_atom)
 
         for rho in self.rhos:
-            rho.forces_struct_vec = rho.forces_struct_vec.tocsr()
+            # rho.energy_struct_vec = lil_matrix(rho.energy_struct_vec).tocsr()
+            rho.structure_vectors['forces'] = rho.structure_vectors['forces'].tocsr()
 
         for ffg_list in self.ffgs:
             for ffg in ffg_list:
 
-                ffg.energy_struct_vec =lil_matrix(ffg.energy_struct_vec).tocsr()
-                ffg.forces_struct_vec =lil_matrix(ffg.forces_struct_vec).tocsr()
+                # ffg.energy_struct_vec =lil_matrix(ffg.energy_struct_vec).tocsr()
+                # ffg.forces_struct_vec =lil_matrix(ffg.forces_struct_vec).tocsr()
+
+                ffg.structure_vectors['energy'] =\
+                    lil_matrix(ffg.structure_vectors['energy']).tocsr()
+
+                ffg.structure_vectors['forces'] =\
+                    lil_matrix(ffg.structure_vectors['forces']).tocsr()
 
     @classmethod
     def from_hdf5(cls, hdf5_file, name):
@@ -317,10 +316,12 @@ class Worker:
         splines = []
 
         for i, knots in enumerate(knots_split):
-            if (i < self.nphi) or (i >= self.nphi + 2*self.ntypes):
+            if (i < self.nphi):
                 s = WorkerSpline(knots, bc_type, self.natoms)
             elif (self.nphi + self.ntypes <= i < self.nphi + 2 *self.ntypes):
                 s = USpline(knots, bc_type, self.natoms)
+            elif (i >= self.nphi + 2*self.ntypes):
+                s = WorkerSpline(knots, bc_type, self.natoms)
             else:
                 s = RhoSpline(knots, bc_type, self.natoms)
 
@@ -386,8 +387,8 @@ class Worker:
 
         # Pair interactions
         for y, phi in zip(phi_pvecs, self.phis, ):
-            if phi.energy_struct_vec.shape[0] > 0:
-                energy += phi.calc_energy(y)
+            # if phi.energy_struct_vec.shape[0] > 0:
+            energy += phi.calc_energy(y)
                 # logging.info("WORKER: phi  = {}".format(phi.calc_energy(y)))
 
         # Embedding terms
@@ -414,7 +415,6 @@ class Worker:
         # Rho contribution
         for y, rho in zip(rho_pvecs, self.rhos):
             ni += rho.calc_energy(y).T
-            # logging.info("WORKER: rho =\n{0}".format(rho.calc_energy(y)))
 
         # Three-body contribution
         for j, (y_fj,ffg_list) in enumerate(zip(f_pvecs, self.ffgs)):
@@ -445,30 +445,19 @@ class Worker:
         # print("WORKER: ni values: {}".format(ni), flush=True)
 
         u_energy = np.zeros(self.n_pots)
-        print(ni)
+        # print(ni)
 
         # Evaluate U, U', and compute zero-point energies
         for i,(y,u) in enumerate(zip(u_pvecs, self.us)):
-            u.energy_struct_vec = np.zeros((self.n_pots, 2*u.x.shape[0]+4))
+            u.structure_vectors['energy'] = np.zeros((self.n_pots, u.knots.shape[0]+2))
 
             ni_sublist = ni[:, self.type_of_each_atom - 1 == i]
 
             num_embedded = ni_sublist.shape[1]
 
             if num_embedded > 0:
-                u_energy -= u.compute_zero_potential(y, num_embedded).ravel()
-
                 u.add_to_energy_struct_vec(ni_sublist)
-
-                # print("compute_zero_energy:", u.compute_zero_potential(y).ravel(), flush=True)
-                # print("calc_energy:", u.calc_energy(y).ravel(), flush=True)
-                # print("{} -- {}".format(y.shape[0], u.lhs_extrap_dist))
-                # print("{} -- {}".format(y.shape[0], u.rhs_extrap_dist))
-                # u_energy -= u.compute_zero_potential(y).ravel()
                 u_energy += u.calc_energy(y)
-                # logging.info("WORKER: U = {0}".format(u.calc_energy(y)))
-                # logging.info("WORKER: zero_pot = {0}".format(
-                #     u.compute_zero_potential(y, num_embedded)))
 
             u.reset()
 
@@ -493,13 +482,12 @@ class Worker:
         shifted_types = self.type_of_each_atom - 1
 
         for i, u in enumerate(self.us):
-            u.struct_vecs = np.zeros((self.natoms, 2*len(u.x)+4))
 
             # get atom ids of type i
             indices = tags[shifted_types == i]
 
-            u.deriv_struct_vec = np.zeros(
-                (self.n_pots, self.natoms, 2*u.x.shape[0]+4))
+            u.structure_vectors['deriv'] = np.zeros(
+                (self.n_pots, self.natoms, u.knots.shape[0]+2))
 
             if indices.shape[0] > 0:
                 u.add_to_deriv_struct_vec(ni[:, shifted_types == i], indices)
@@ -531,42 +519,35 @@ class Worker:
         # Pair forces (phi)
         for phi_idx, (phi, y) in enumerate(zip(self.phis, phi_pvecs)):
 
-            if len(phi.forces_struct_vec) > 0:
-                forces += phi.calc_forces(y)
+            forces += phi.calc_forces(y)
 
         ni = self.compute_ni(rho_pvecs, f_pvecs, g_pvecs)
-
-        # ni = (ni - np.min(ni)) / (np.max(ni) - np.min(ni))
-
         uprimes = self.evaluate_uprimes(ni, u_pvecs)
 
         # Electron density embedding (rho)
         for rho_idx, (rho, y) in enumerate(zip(self.rhos, rho_pvecs)):
 
-            if rho.forces_struct_vec.shape[0] > 0:
-                rho_forces = rho.calc_forces(y)
+            rho_forces = rho.calc_forces(y)
 
-                rho_forces = rho_forces.reshape(
-                    (self.n_pots, 3, self.natoms, self.natoms))
+            rho_forces = rho_forces.reshape(
+                (self.n_pots, 3, self.natoms, self.natoms))
 
-                forces += np.einsum('pijk,pk->pji', rho_forces, uprimes)
+            forces += np.einsum('pijk,pk->pji', rho_forces, uprimes)
 
         # Angular terms (ffg)
         for j, ffg_list in enumerate(self.ffgs):
             for k, ffg in enumerate(ffg_list):
 
-                if ffg.forces_struct_vec[0].shape[0] > 0:
+                y_fj = f_pvecs[j]
+                y_fk = f_pvecs[k]
+                y_g = g_pvecs[src.meam.ij_to_potl(j+1, k+1, self.ntypes)]
 
-                    y_fj = f_pvecs[j]
-                    y_fk = f_pvecs[k]
-                    y_g = g_pvecs[src.meam.ij_to_potl(j+1, k+1, self.ntypes)]
+                ffg_forces = ffg.calc_forces(y_fj, y_fk, y_g)
 
-                    ffg_forces = ffg.calc_forces(y_fj, y_fk, y_g)
+                ffg_forces = ffg_forces.reshape(
+                    (self.n_pots, 3, self.natoms, self.natoms))
 
-                    ffg_forces = ffg_forces.reshape(
-                        (self.n_pots, 3, self.natoms, self.natoms))
-
-                    forces += np.einsum('pijk,pk->pji', ffg_forces, uprimes)
+                forces += np.einsum('pijk,pk->pji', ffg_forces, uprimes)
 
         return forces
 
@@ -606,7 +587,128 @@ class Worker:
 
         return phi_pvecs, rho_pvecs, u_pvecs, f_pvecs, g_pvecs
 
-if __name__ == "__main__":
+    def energy_gradient_wrt_pvec(self, pvec):
+        parameters = np.atleast_2d(pvec)
+
+        gradient = np.zeros(self.len_param_vec)
+
+        phi_pvecs, rho_pvecs, u_pvecs, f_pvecs, g_pvecs = \
+            self.parse_parameters(np.atleast_2d(parameters))
+
+        self.n_pots = parameters.shape[0]
+
+        grad_index = 0
+        # gradients of phi are just their structure vectors
+        for y, phi in zip(phi_pvecs, self.phis):
+            gradient[grad_index:grad_index + y.shape[1]] += \
+                phi.structure_vectors['energy']
+
+            grad_index += y.shape[1]
+
+        # chain rule on U functions means dU/dn values are needed
+        ni = self.compute_ni(rho_pvecs, f_pvecs, g_pvecs)
+        uprimes = self.evaluate_uprimes(ni, u_pvecs)
+
+        for y, rho in zip(rho_pvecs, self.rhos):
+
+            partial_ni = rho.structure_vectors['energy']
+
+            gradient[grad_index:grad_index + y.shape[1]] += \
+                (uprimes @ partial_ni).ravel()
+
+            grad_index += y.shape[1]
+
+        for i,(y,u) in enumerate(zip(u_pvecs, self.us)):
+            u.structure_vectors['energy'] = np.zeros((self.n_pots, u.knots.shape[0]+2))
+
+            ni_sublist = ni[:, self.type_of_each_atom - 1 == i]
+
+            num_embedded = ni_sublist.shape[1]
+
+            if num_embedded > 0:
+                u.add_to_energy_struct_vec(ni_sublist)
+
+                gradient[grad_index:grad_index + y.shape[1]] += \
+                    u.structure_vectors['energy'].ravel()
+
+            grad_index += y.shape[1]
+
+            u.reset()
+
+        basis_vec = np.zeros(self.len_param_vec)
+        basis_vec[0] = 1
+
+        for i in range(grad_index, self.len_param_vec):
+            partial_ni = np.zeros(self.natoms)
+
+            if i > 0:
+                basis_vec[i-1] = 0
+                basis_vec[i] = 1
+
+            # Three-body contribution
+            for j, (y_fj,ffg_list) in enumerate(zip(f_pvecs, self.ffgs)):
+                for k, (y_fk,ffg) in enumerate(zip(f_pvecs, ffg_list)):
+
+                    y_g = g_pvecs[src.meam.ij_to_potl(j + 1, k + 1, self.ntypes)]
+
+                    # v1 = outer_prod_simple(outer_prod_simple(basis_vec, y_fk), y_g)
+                    # v2 = outer_prod_simple(outer_prod_simple(y_fj, basis_vec), y_g)
+                    # v3 = outer_prod_simple(outer_prod_simple(y_fj, y_fk), basis_vec)
+
+                    y_fj = y_fj.ravel()
+                    y_fk = y_fk.ravel()
+                    y_g = y_g.ravel()
+
+                    v1 = my_outer_prod(np.ones(y_fj.shape[0]), y_fk, y_g)
+                    v2 = my_outer_prod(y_fj, np.ones(y_fk.shape[0]), y_g)
+                    v3 = my_outer_prod(y_fj, y_fk, np.ones(y_g.shape[0]))
+
+                    cart_y = v1 + v2 + v3
+
+                    partial_ni += ffg.structure_vectors['energy'] @ cart_y
+
+            gradient[grad_index] += np.sum(np.multiply(uprimes, partial_ni))
+            grad_index += 1
+
+        return gradient
+
+def my_outer_prod(y1, y2, y3):
+    cart1 = np.einsum("i,j->ij", y1, y2)
+    cart1 = cart1.reshape((cart1.shape[0]*cart1.shape[1]))
+
+    cart2 = np.einsum("i,j->ij", cart1, y3)
+    return cart2.reshape((cart2.shape[0]*cart2.shape[1]))
+
+def build_gradient_mask(N):
+    """Builds a 0-1 mask M where the i-th row of M will pick out the non-zero
+    elements that would come from taking the i-th partial derivative of the
+    cross products of three length N vectors (as is necessary for the 3-body
+    portion of the MEAM potential.
+
+    Args:
+        N (int): the length of the parameter vector
+
+    Returns:
+        M (np.arr): the "gradient mask"
+    """
+
+    basis_vectors = np.eye(N)
+    ones = np.ones(N)
+
+    mask_list = lil_matrix((N, N*N*N), dtype=np.float64)
+
+    for i in range(N):
+        print(i, flush=True)
+        v1 = outer_prod_simple(outer_prod_simple(basis_vectors[i,:], ones), ones)
+        v2 = outer_prod_simple(outer_prod_simple(ones, basis_vectors[i,:]), ones)
+        v3 = outer_prod_simple(outer_prod_simple(ones, ones), basis_vectors[i,:])
+
+        mask_list[i,:] = v1 + v2 + v3
+
+    return mask_list.tocsr()
+
+# @profile
+def main():
     import src.meam
     from tests.testPotentials import get_random_pots
     from tests.testStructs import allstructs
@@ -614,6 +716,13 @@ if __name__ == "__main__":
     pot = get_random_pots(1)['meams'][0]
     x_pvec, y_pvec, indices = src.meam.splines_to_pvec(pot.splines)
 
-    atoms = allstructs['bulk_vac_ortho_mixed']
+    # atoms = allstructs['bulk_vac_ortho_mixed']
+    atoms = allstructs['8_atoms']
 
     worker = Worker(atoms, x_pvec, indices, pot.types)
+    # worker.compute_energy(y_pvec)
+    # worker.compute_forces(y_pvec)
+    print(worker.energy_gradient_wrt_pvec(y_pvec))
+
+if __name__ == "__main__":
+    main()

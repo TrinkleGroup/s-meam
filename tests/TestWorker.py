@@ -2,6 +2,7 @@ import os
 import numpy as np
 import logging
 import time
+import unittest
 
 from nose_parameterized import parameterized
 
@@ -38,9 +39,9 @@ rho_flag        = True * 0
 norho_flag      = True * 0
 norhophi_flag   = True * 0
 
-dimers_flag     = True * 0
-trimers_flag    = True * 0
-bulk_flag       = True * 1
+dimers_flag     = True * 1
+trimers_flag    = True * 1
+bulk_flag       = True * 0
 
 allstructs = {}
 
@@ -52,7 +53,7 @@ if bulk_flag:
     allstructs = {**allstructs, **bulk_vac_ortho, **bulk_periodic_ortho,
                   **bulk_vac_rhombo, **bulk_periodic_rhombo, **extra}
 
-allstructs = {'bulk_vac_ortho_type1':bulk_vac_ortho['bulk_vac_ortho_type1'],}
+# allstructs = {'bulk_vac_ortho_type1':bulk_vac_ortho['bulk_vac_ortho_type1'],}
 #               'bulk_vac_ortho_type1_v2':bulk_vac_ortho['bulk_vac_ortho_type1']}
 # allstructs = {'aa':dimers['aa']}
 # allstructs = {'4_atom':extra['4_atoms']}
@@ -549,6 +550,23 @@ def test_hdf5():
             w2.compute_forces(y_pvec), decimal=DECIMAL)
 
     os.remove("test.hdf5")
+
+# class GradientTests(unittest.TestCase):
+#
+#     def setUp(self):
+#
+#         p = tests.testPotentials.get_random_pots(1)['meams'][0]
+#         x_pvec, y_pvec, indices = src.meam.splines_to_pvec(p.splines)
+#         self.y_pvec = np.atleast_2d(y_pvec)
+#
+#         atoms = allstructs['8_atoms']
+#
+#         logging.info("Making worker ...")
+#         self.w = Worker(atoms, x_pvec, indices, ['H', 'He'])
+#
+#     def test_energy_grad(self):
+#         print(self.w.compute_forces(self.y_pvec))
+#         # print(self.w.energy_gradient_wrt_pvec(self.y_pvec))
 
 ################################################################################
 
