@@ -580,116 +580,6 @@ class USpline(WorkerSpline):
         self.zero_abcd = self.get_abcd([0])
         self.atoms_embedded = 0
 
-    # def get_abcd(self, x, deriv=0):
-    #     """Calculates the coefficients needed for spline interpolation.
-    #
-    #     Args:
-    #         x (ndarray):
-    #             point at which to evaluate spline
-    #
-    #         deriv (int):
-    #             order of derivative to evaluate default is zero, meaning
-    #             evaluate original function
-    #
-    #     Returns:
-    #         vec (np.arr):
-    #             vector of length len(knots)*2 this formatting is used since for
-    #             evaluation, vec will be dotted with a vector consisting of first
-    #             the y-values at the knots, then the y1-values at the knots
-    #
-    #     In general, the polynomial p(x) can be interpolated as
-    #
-    #         p(x) = A*p_k + B*m_k + C*p_k+1 + D*m_k+1
-    #
-    #     where k is the interval that x falls into, p_k and p_k+1 are the
-    #     y-coordinates of the k and k+1 knots, m_k and m_k+1 are the derivatives
-    #     of p(x) at the knots, and the coefficients are defined as:
-    #
-    #         A = h_00(t)
-    #         B = h_10(t)(x_k+1 - x_k)
-    #         C = h_01(t)
-    #         D = h_11(t)(x_k+1 - x_k)
-    #
-    #     and functions h_ij are defined as:
-    #
-    #         h_00 = (1+2t)(1-t)^2
-    #         h_10 = t (1-t)^2
-    #         h_01 = t^2 ( 3-2t)
-    #         h_11 = t^2 (t-1)
-    #
-    #         with t = (x-x_k)/(x_k+1 - x_k)
-    #     """
-    #
-    #     x = np.atleast_1d(x)
-    #
-    #     if x.shape[0] < 1:
-    #         n_eval = 2*len(self.knots) + 4
-    #         return np.zeros(n_eval).reshape((1, n_eval))
-    #
-    #     mn, mx = onepass_min_max(x)
-    #     # self.lhs_extrap_dist = max(self.extrap_dist, abs(mn - self.knots[0]))
-    #     # self.rhs_extrap_dist = max(self.extrap_dist, abs(mx - self.knots[-1]))
-    #     self.lhs_extrap_dist = max(self.extrap_dist, self.knots[0] - mn)
-    #     self.rhs_extrap_dist = max(self.extrap_dist, mx - self.knots[-1])
-    #
-    #     # add ghost knots
-    #     knots = [self.knots[0] - self.lhs_extrap_dist] + self.knots.tolist() + \
-    #             [self.knots[-1] + self.rhs_extrap_dist]
-    #
-    #     knots = np.array(knots)
-    #
-    #     nknots = knots.shape[0]
-    #
-    #     # Perform interval search and prepare prefactors
-    #     # all_k = np.digitize(x, knots, right=True) - 1
-    #     all_k = np.digitize(x, knots) - 1
-    #     all_k = np.clip(all_k, 0, len(knots) - 2)
-    #
-    #     prefactors = knots[all_k + 1] - knots[all_k]
-    #
-    #     all_t = (x - knots[all_k]) / prefactors
-    #
-    #     t = all_t
-    #     t2 = all_t*all_t
-    #     t3 = t2*all_t
-    #
-    #     if deriv == 0:
-    #         scaling = np.ones(len(prefactors))
-    #
-    #         all_A = 2*t3 - 3*t2 + 1
-    #         all_B = t3 - 2*t2 + t
-    #         all_C = -2*t3 + 3*t2
-    #         all_D = t3 - t2
-    #
-    #     elif deriv == 1:
-    #         scaling =  1 / (prefactors * deriv)
-    #
-    #         all_A = 6*t2 - 6*t
-    #         all_B = 3*t2 - 4*t + 1
-    #         all_C = -6*t2 + 6*t
-    #         all_D = 3*t2 - 2*t
-    #
-    #     else:
-    #         raise ValueError("Only allowed derivative values are 0 and 1")
-    #
-    #     all_B *= prefactors
-    #     all_D *= prefactors
-    #
-    #     vec = np.zeros((len(x), 2*(nknots)))
-    #
-    #     tmp_indices = np.arange(len(vec))
-    #
-    #     vec[tmp_indices, all_k] += all_A
-    #     vec[tmp_indices, all_k + nknots] += all_B
-    #     vec[tmp_indices, all_k + 1] += all_C
-    #     vec[tmp_indices, all_k + 1 + nknots] += all_D
-    #
-    #     scaling = scaling.reshape((len(scaling), 1))
-    #
-    #     vec *= scaling
-    #
-    #     return vec
-
     @classmethod
     def from_hdf5(cls, hdf5_file, name):
 
@@ -749,6 +639,7 @@ class USpline(WorkerSpline):
             abcd = abcd.reshape(list(org_shape) + [abcd.shape[1]])
 
             self.structure_vectors['energy'] += np.sum(abcd, axis=1)
+            self.structure_vectors['energy'] -= self.zero_abcd * num_new_atoms
 
     def add_to_deriv_struct_vec(self, values, indices):
         if values.shape[0] > 0:
