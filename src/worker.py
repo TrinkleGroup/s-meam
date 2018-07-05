@@ -73,7 +73,6 @@ class Worker:
         self.pvec_indices = x_indices
 
         self.len_param_vec = len(knot_xcoords) + 2*len(x_indices)
-        # self.gradient_mask = build_gradient_mask(self.len_param_vec)
 
         f = lambda t: src.lammpsTools.symbol_to_type(t, types)
         self.type_of_each_atom = list(map(f, atoms.get_chemical_symbols()))
@@ -635,40 +634,71 @@ class Worker:
 
             u.reset()
 
-        basis_vec = np.zeros(self.len_param_vec)
-        basis_vec[0] = 1
+        tmp_index = grad_index
+        ffg_indices = [grad_index]
 
-        for i in range(grad_index, self.len_param_vec):
-            partial_ni = np.zeros(self.natoms)
+        for y_fj in f_pvecs:
+            ffg_indices.append(tmp_index + y_fj.shape[1])
+            tmp_index += y_fj.shape[1]
 
-            if i > 0:
-                basis_vec[i-1] = 0
-                basis_vec[i] = 1
+        for y_g in g_pvecs:
+            ffg_indices.append(tmp_index + y_g.shape[1])
+            tmp_index += y_g.shape[1]
 
-            # Three-body contribution
-            for j, (y_fj,ffg_list) in enumerate(zip(f_pvecs, self.ffgs)):
-                for k, (y_fk,ffg) in enumerate(zip(f_pvecs, ffg_list)):
+        for j, (y_fj, ffg_list) in enumerate(zip(f_pvecs, self.ffgs)):
+            n_fj = y_fj.shape[1]
+            y_fj = y_fj.ravel()
 
-                    y_g = g_pvecs[src.meam.ij_to_potl(j + 1, k + 1, self.ntypes)]
+            for k, (y_fk, ffg) in enumerate(zip(f_pvecs, ffg_list)):
+                g_idx = src.meam.ij_to_potl(j+1, k+1, self.ntypes)
 
-                    # v1 = outer_prod_simple(outer_prod_simple(basis_vec, y_fk), y_g)
-                    # v2 = outer_prod_simple(outer_prod_simple(y_fj, basis_vec), y_g)
-                    # v3 = outer_prod_simple(outer_prod_simple(y_fj, y_fk), basis_vec)
+                y_g = g_pvecs[g_idx]
 
-                    y_fj = y_fj.ravel()
-                    y_fk = y_fk.ravel()
-                    y_g = y_g.ravel()
+                n_fk = y_fk.shape[1]
+                n_g = y_g.shape[1]
 
-                    v1 = my_outer_prod(np.ones(y_fj.shape[0]), y_fk, y_g)
-                    v2 = my_outer_prod(y_fj, np.ones(y_fk.shape[0]), y_g)
-                    v3 = my_outer_prod(y_fj, y_fk, np.ones(y_g.shape[0]))
+                y_fk = y_fk.ravel()
+                y_g = y_g.ravel()
 
-                    cart_y = v1 + v2 + v3
+                cart_y = my_outer_prod(y_fj, y_fk, y_g)
 
-                    partial_ni += ffg.structure_vectors['energy'] @ cart_y
+                # every ffgSpline affects grad(f_j), grad(f_k), and grad(g)
 
-            gradient[grad_index] += np.sum(np.multiply(uprimes, partial_ni))
-            grad_index += 1
+                # grad(f_j) contribution
+                scaled_sv = np.einsum('ij,j->ij',
+                    ffg.structure_vectors['energy'].toarray(), cart_y)
+
+                scaled_sv = np.einsum('i,ij->ij', uprimes.ravel(), scaled_sv)
+
+                fj_contrib = np.split(scaled_sv, n_fj, axis=1)
+
+                for l in range(n_fj):
+                    block = fj_contrib[l] / y_fj[l]
+
+                    gradient[ffg_indices[j] + l] += np.sum(block)
+
+
+                # grad(f_k) contribution
+
+                fk_contrib = np.split(scaled_sv, n_fj*n_fk, axis=1)
+                fk_contrib = np.array(fk_contrib)
+
+                for l in range(n_fk):
+                    sample_indices = np.arange(l, n_fj*n_fk, n_fk)
+
+                    block = fk_contrib[sample_indices, :, :]
+
+                    gradient[ffg_indices[k] + l] += np.sum(block / y_fk[l])
+
+                # grad(g) contribution
+
+                g_contrib = np.split(scaled_sv, n_fj*n_fk, axis=1)
+                g_contrib = np.array(g_contrib)
+
+                for l in range(n_g):
+                    block = g_contrib[:, :, l]
+
+                    gradient[ffg_indices[self.ntypes + g_idx] + l] += np.sum(block / y_g[l])
 
         return gradient
 
@@ -679,50 +709,72 @@ def my_outer_prod(y1, y2, y3):
     cart2 = np.einsum("i,j->ij", cart1, y3)
     return cart2.reshape((cart2.shape[0]*cart2.shape[1]))
 
-def build_gradient_mask(N):
-    """Builds a 0-1 mask M where the i-th row of M will pick out the non-zero
-    elements that would come from taking the i-th partial derivative of the
-    cross products of three length N vectors (as is necessary for the 3-body
-    portion of the MEAM potential.
-
-    Args:
-        N (int): the length of the parameter vector
-
-    Returns:
-        M (np.arr): the "gradient mask"
-    """
-
-    basis_vectors = np.eye(N)
-    ones = np.ones(N)
-
-    mask_list = lil_matrix((N, N*N*N), dtype=np.float64)
-
-    for i in range(N):
-        print(i, flush=True)
-        v1 = outer_prod_simple(outer_prod_simple(basis_vectors[i,:], ones), ones)
-        v2 = outer_prod_simple(outer_prod_simple(ones, basis_vectors[i,:]), ones)
-        v3 = outer_prod_simple(outer_prod_simple(ones, ones), basis_vectors[i,:])
-
-        mask_list[i,:] = v1 + v2 + v3
-
-    return mask_list.tocsr()
-
-# @profile
 def main():
+    np.random.seed(42)
     import src.meam
     from tests.testPotentials import get_random_pots
-    from tests.testStructs import allstructs
+    from tests.testStructs import allstructs, dimers
 
     pot = get_random_pots(1)['meams'][0]
     x_pvec, y_pvec, indices = src.meam.splines_to_pvec(pot.splines)
 
-    # atoms = allstructs['bulk_vac_ortho_mixed']
-    atoms = allstructs['8_atoms']
+    atoms = allstructs['aaa']
 
     worker = Worker(atoms, x_pvec, indices, pot.types)
-    # worker.compute_energy(y_pvec)
-    # worker.compute_forces(y_pvec)
-    print(worker.energy_gradient_wrt_pvec(y_pvec))
+
+    h = 1e-8
+    N = y_pvec.ravel().shape[0]
+
+    cd_points = np.array([y_pvec] * N*2)
+    # cd_points = np.array([y_pvec] * N)
+
+    for l in range(N):
+        # cd_points[l, l] += h
+        cd_points[2*l, l] += h
+        cd_points[2*l+1, l] -= h
+
+    cd_evaluated = worker.compute_energy(np.array(cd_points))
+    fx = worker.compute_energy(np.atleast_2d(y_pvec))
+
+    fd_gradient = np.zeros(N)
+
+    for l in range(N):
+        # fd_gradient[l] = (cd_evaluated[l] - fx) / h
+        fd_gradient[l] = (cd_evaluated[2*l] - cd_evaluated[2*l+1]) / h / 2
+
+    splines = worker.phis + worker.rhos + worker.us + worker.fs + worker.gs
+
+    x_indices = [s.index for s in splines]
+    y_indices = [x_indices[i] + 2 * i for i in range(len(x_indices))]
+
+    grad = worker.energy_gradient_wrt_pvec(y_pvec)
+
+    from pprint import pprint
+
+    split = np.array_split(grad, y_indices)[1:]
+    split2 = np.array_split(fd_gradient, y_indices)[1:]
+
+    np.set_printoptions(linewidth=np.infty)
+
+    print("Direct method")
+    for l in split:
+        print(l)
+
+    print()
+    print("Finite differences")
+    for l in split2:
+        print(l)
+
+    print()
+    print("Difference")
+    diff = np.abs(grad - fd_gradient)
+    split3 = np.array_split(diff, y_indices)[1:]
+
+    for l in split3:
+        print(l)
+
+    print()
+    print("Max difference:", np.max(np.abs(grad - fd_gradient)))
 
 if __name__ == "__main__":
     main()

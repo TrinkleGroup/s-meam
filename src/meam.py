@@ -895,7 +895,6 @@ def splines_to_pvec(splines):
 
     return x_pvec, y_pvec, x_indices
 
-
 def splines_from_pvec(x_pvec, y_pvec, x_indices):
     """Builds splines out of the given knot coordinates and boundary
     conditions.

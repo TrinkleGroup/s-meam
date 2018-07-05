@@ -551,22 +551,41 @@ def test_hdf5():
 
     os.remove("test.hdf5")
 
-# class GradientTests(unittest.TestCase):
-#
-#     def setUp(self):
-#
-#         p = tests.testPotentials.get_random_pots(1)['meams'][0]
-#         x_pvec, y_pvec, indices = src.meam.splines_to_pvec(p.splines)
-#         self.y_pvec = np.atleast_2d(y_pvec)
-#
-#         atoms = allstructs['8_atoms']
-#
-#         logging.info("Making worker ...")
-#         self.w = Worker(atoms, x_pvec, indices, ['H', 'He'])
-#
-#     def test_energy_grad(self):
-#         print(self.w.compute_forces(self.y_pvec))
-#         # print(self.w.energy_gradient_wrt_pvec(self.y_pvec))
+class GradientTests(unittest.TestCase):
+
+    def setUp(self):
+        from tests.testStructs import allstructs
+
+        p = tests.testPotentials.get_random_pots(1)['meams'][0]
+        x_pvec, y_pvec, indices = src.meam.splines_to_pvec(p.splines)
+        self.y_pvec = np.atleast_2d(y_pvec)
+
+        atoms = allstructs['8_atoms']
+
+        logging.info("Making worker ...")
+        self.w = Worker(atoms, x_pvec, indices, ['H', 'He'])
+
+        h = 1e-8
+        N = y_pvec.ravel().shape[0]
+
+        cd_points = np.array([y_pvec] * N)
+
+        for l in range(N):
+            cd_points[l, l] += h
+
+        cd_evaluated = self.w.compute_energy(np.array(cd_points))
+        fx = self.w.compute_energy(np.atleast_2d(y_pvec))
+
+        self.gradient = np.zeros(N)
+
+        for l in range(N):
+            self.gradient[l] = (cd_evaluated[l] - fx) / h
+
+    def test_energy_grad(self):
+        # print(self.w.compute_forces(self.y_pvec))
+        # print(np.abs(self.w.energy_gradient_wrt_pvec(self.y_pvec) - self.gradient))
+        print(self.w.energy_gradient_wrt_pvec(self.y_pvec))
+        print(self.gradient)
 
 ################################################################################
 
