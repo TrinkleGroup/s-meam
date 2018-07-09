@@ -53,9 +53,9 @@ if bulk_flag:
     allstructs = {**allstructs, **bulk_vac_ortho, **bulk_periodic_ortho,
                   **bulk_vac_rhombo, **bulk_periodic_rhombo, **extra}
 
-# allstructs = {'bulk_vac_ortho_type1':bulk_vac_ortho['bulk_vac_ortho_type1'],}
+allstructs = {'bulk_vac_ortho_type1':bulk_vac_ortho['bulk_vac_ortho_type1'],}
 #               'bulk_vac_ortho_type1_v2':bulk_vac_ortho['bulk_vac_ortho_type1']}
-# allstructs = {'aa':dimers['aa']}
+# allstructs = {'ab':dimers['ab']}
 # allstructs = {'4_atom':extra['4_atoms']}
 # import lammpsTools
 # lammpsTools.atoms_to_LAMMPS_file('../data/structs/data.4atoms',
@@ -582,10 +582,9 @@ class GradientTests(unittest.TestCase):
             self.gradient[l] = (cd_evaluated[l] - fx) / h
 
     def test_energy_grad(self):
-        # print(self.w.compute_forces(self.y_pvec))
-        # print(np.abs(self.w.energy_gradient_wrt_pvec(self.y_pvec) - self.gradient))
         print(self.w.energy_gradient_wrt_pvec(self.y_pvec))
         print(self.gradient)
+        print(np.abs(self.gradient - self.w.energy_gradient_wrt_pvec(self.y_pvec)))
 
 ################################################################################
 
