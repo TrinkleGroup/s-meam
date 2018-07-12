@@ -66,7 +66,8 @@ class WorkerSpline:
 
         self.structure_vectors = {}
         self.structure_vectors['energy'] = np.zeros(self.n_knots + 2)
-        self.structure_vectors['forces'] = np.zeros((natoms, self.n_knots+2, 3))
+        self.structure_vectors['forces'] = np.zeros((natoms, 3, self.n_knots+2))
+        # self.structure_vectors['forces'] = np.zeros((natoms, self.n_knots+2, 3))
 
     def get_abcd(self, x, deriv=0):
         """Calculates the spline coefficients for a set of points x
@@ -265,7 +266,7 @@ class WorkerSpline:
         # abcd = self.get_abcd(values, 1).ravel()
         abcd = np.sum(self.get_abcd(values, 1), axis=0).ravel()
 
-        self.structure_vectors['forces'][atom_id, :, :] += np.einsum('i,j->ij', abcd, dirs)
+        self.structure_vectors['forces'][atom_id, :, :] += np.einsum('i,j->ji', abcd, dirs)
 
     def calc_energy(self, y):
         """Evaluates the energy structure vector for a given y. A second list of
@@ -281,7 +282,7 @@ class WorkerSpline:
         return self.structure_vectors['energy'] @ y.T
 
     def calc_forces(self, y):
-        return np.einsum('ijk,pj->pik', self.structure_vectors['forces'], y)
+        return np.einsum('ijk,pk->pij', self.structure_vectors['forces'], y)
 
 class RhoSpline(WorkerSpline):
     """RhoSpline objects are a variant of the WorkerSpline, but that require
