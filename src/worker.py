@@ -761,25 +761,28 @@ class Worker:
         embedding_forces = np.zeros((3, self.natoms, self.natoms))
 
         # rho gradient term; there is a U'' and a U' term for each rho
-        for y, rho in zip(rho_pvecs, self.rhos):
+        for r_index, (y, rho) in enumerate(zip(rho_pvecs, self.rhos)):
 
-            rho_forces = rho.calc_forces(y).reshape((3,self.natoms,self.natoms))
-
-            # rzm: rho gradient terms good aa, ab, aaa; bad aba
-
-            # U'' term
             rho_e_sv = rho.structure_vectors['energy']
-
-            uprimes_scaled = np.einsum('i,ij->ij', uprimes_2.ravel(), rho_e_sv)
-            final = np.einsum('ij,kli->lkj', uprimes_scaled, rho_forces)
-
-            gradient[:, :, grad_index:grad_index + y.shape[1]] += final
-
-            # U' term
             rho_sv = rho.structure_vectors['forces'].toarray()
 
             rho_sv = rho_sv.reshape(
                 (3, self.natoms, self.natoms, y.shape[1]))
+
+            # U'' term
+            rho_forces = rho.calc_forces(y).reshape((3,self.natoms,self.natoms))
+
+            # rzm: rho gradient terms good aa, ab, aaa; bad aba
+
+            for rho2,y2 in zip(self.rhos, rho_pvecs):
+                rho2_forces = rho2.calc_forces(y2).reshape((3,self.natoms,self.natoms))
+
+                uprimes_scaled = np.einsum('i,ij->ij', uprimes_2.ravel(), rho_e_sv)
+                final = np.einsum('ij,kli->lkj', uprimes_scaled, rho2_forces)
+
+                gradient[:, :, grad_index:grad_index + y.shape[1]] += final
+
+            # U' term
 
             up_contracted_sv = np.einsum('ijkl,k->ijl', rho_sv, uprimes.ravel())
 
@@ -787,7 +790,7 @@ class Worker:
                 np.transpose(up_contracted_sv, axes=(1,0,2))
 
             # Used for U gradient term
-            embedding_forces += rho_forces#.reshape((3,self.natoms,self.natoms))
+            embedding_forces += rho_forces
 
             grad_index += y.shape[1]
 
@@ -949,11 +952,22 @@ def main():
     from tests.testPotentials import get_random_pots, get_constant_potential
     from tests.testStructs import allstructs, dimers
 
-    # pot = get_random_pots(1)['rhophis'][0]
-    pot = get_constant_potential()
+    pot = get_random_pots(1)['rhophis'][0]
+    # pot = get_constant_potential()
     x_pvec, y_pvec, indices = src.meam.splines_to_pvec(pot.splines)
 
-    atoms = allstructs['aba']
+    from ase import Atom
+    a_new = Atom()
+    a_new.position = [20, 0, 0]
+    a_new.symbol = "He"
+
+    atoms = allstructs['8_atoms']
+    # atoms.set_chemical_symbols(["H", "H", "H", "H"])
+    # atoms.positions[0] = [0, 0, 0]
+    # atoms.positions[1] = [5, 0, 0]
+    # atoms.positions[2] = [10, 0, 0]
+    # atoms.positions[3] = [15, 0, 0]
+    # atoms += a_new
 
     worker = Worker(atoms, x_pvec, indices, pot.types)
 
@@ -995,20 +1009,20 @@ def main():
     # print("Direct method")
     # for l in split:
     #     print(l)
-    # 
+    #
     # print()
     # print("Finite differences")
     # for l in split2:
     #     print(l)
-    # 
+    #
     # print()
     # print("Difference")
     # diff = np.abs(grad - fd_gradient)
     # split3 = np.array_split(diff, y_indices)[1:]
-    # 
+    #
     # for l in split3:
     #     print(l)
-    # 
+    #
     # print()
     diff = np.abs(grad - fd_gradient)
 
