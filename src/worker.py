@@ -756,7 +756,12 @@ class Worker:
         # chain rule on U functions means dU/dn values are needed
         ni = self.compute_ni(rho_pvecs, f_pvecs, g_pvecs)
 
+        N = self.natoms
+
         uprimes, uprimes_2 = self.evaluate_uprimes(ni, u_pvecs, second=True)
+
+        uprimes_diag = scipy.sparse.spdiags(uprimes, 0, N, N)
+        uprimes2_diag = scipy.sparse.spdiags(uprimes_2, 0, N, N)
 
         embedding_forces = np.zeros((3, self.natoms, self.natoms))
 
@@ -772,12 +777,11 @@ class Worker:
             # U'' term
             rho_forces = rho.calc_forces(y).reshape((3,self.natoms,self.natoms))
 
-            # rzm: rho gradient terms good aa, ab, aaa; bad aba
+            uprimes_scaled = np.einsum('i,ij->ij', uprimes_2.ravel(), rho_e_sv)
 
             for rho2,y2 in zip(self.rhos, rho_pvecs):
                 rho2_forces = rho2.calc_forces(y2).reshape((3,self.natoms,self.natoms))
 
-                uprimes_scaled = np.einsum('i,ij->ij', uprimes_2.ravel(), rho_e_sv)
                 final = np.einsum('ij,kli->lkj', uprimes_scaled, rho2_forces)
 
                 gradient[:, :, grad_index:grad_index + y.shape[1]] += final
@@ -837,56 +841,70 @@ class Worker:
                 # grad(f_j) contribution
 
                 ffg_sv = ffg.structure_vectors['forces']
+                ffg_e_sv = ffg.structure_vectors['energy']
 
                 ffg_forces = (ffg_sv @ cart_y.T).T
-                ffg_forces = ffg_forces.reshape((3, self.natoms, self.natoms))
+                # ffg_forces = ffg_forces.reshape((3, self.natoms, self.natoms))
 
-                embedding_forces += ffg_forces
+                embedding_forces += ffg_forces.reshape((3, self.natoms, self.natoms))
 
-                # scale by knot values
+                # U'' term
+                final_upp_part = lil_matrix((self.natoms*3, len(cart_y)))
+
+                # for rho2,y2 in zip(self.rhos, rho_pvecs):
+                for j2, (y_fj2,ffg_list2) in enumerate(zip(f_pvecs,self.ffgs)):
+                    y_fj2 = y_fj2.ravel()
+
+                    for k2, (y_fk2,ffg2) in enumerate(zip(f_pvecs, ffg_list2)):
+                        ffg_sv2 = ffg2.structure_vectors['forces']
+
+                        g_idx2 = src.meam.ij_to_potl(j2+1, k2+1, self.ntypes)
+
+                        y_g2 = g_pvecs[g_idx2]
+
+                        y_fk2 = y_fk2.ravel()
+                        y_g2 = y_g2.ravel()
+
+                        cart_y2 = my_outer_prod(y_fj2, y_fk2, y_g2)
+
+                        ffg_forces2 = (ffg_sv2 @ cart_y2.T).T
+                        # ffg_forces2 = ffg_forces2.reshape((3,self.natoms,
+                        #                                    self.natoms))
+
+                        scaled_by_up2 = uprimes2_diag * ffg_e_sv
+
+                        joined_svs = scaled_by_up2.T.dot(
+                            lil_matrix(ffg_forces2.reshape(3*N, N).T).tocsr())
+
+                        final_upp_part += joined_svs.T
+
+                # U' term
                 tmp = scipy.sparse.spdiags(cart_y, 0, len(cart_y), len(cart_y))
 
-                scaled_sv = ffg.structure_vectors['forces'] * tmp
+                scaled_by_knots = ffg.structure_vectors['forces'] * tmp
 
                 # element-wise multiply by original sv for U chain rule
-                scaled_sv = scaled_sv.multiply(ffg_sv)
-
-                N = self.natoms
+                # scaled_sv = scaled_sv.multiply(ffg_sv)
 
                 # replaces einsum, but for a sparse matrix; contracts by U', U''
                 contracted_by_up = scipy.sparse.csr_matrix((3*N, len(cart_y)))
-                contracted_by_upp = scipy.sparse.csr_matrix((3*N, len(cart_y)))
-
-                up = scipy.sparse.spdiags(
-                    uprimes.ravel(), 0, len(uprimes.ravel()),
-                    len(uprimes.ravel())
-                )
-
-                upp = scipy.sparse.spdiags(
-                    uprimes.ravel(), 0, len(uprimes.ravel()),
-                    len(uprimes.ravel())
-                )
+                # contracted_by_upp = scipy.sparse.csr_matrix((3*N, len(cart_y)))
 
                 for atom_id in range(self.natoms):
                     tmp0 = N*atom_id
                     tmp1 = N*N + tmp0
                     tmp2 = 2*N*N + tmp0
 
-                    contracted_by_up[0*N + atom_id, :] = \
-                        (up*ffg_sv[tmp0: tmp0 + self.natoms, :]).sum(axis=0)
-                    contracted_by_up[1*N + atom_id, :] = \
-                        (up*ffg_sv[tmp1: tmp1 + self.natoms, :]).sum(axis=0)
-                    contracted_by_up[2*N + atom_id, :] = \
-                        (up*ffg_sv[tmp2: tmp2 + self.natoms, :]).sum(axis=0)
+                    contracted_by_up[0*N + atom_id, :] = (uprimes_diag*
+                          scaled_by_knots[tmp0: tmp0 + self.natoms, :]).sum(axis=0)
 
-                    contracted_by_upp[0*N + atom_id, :] = \
-                        (upp*scaled_sv[tmp0: tmp0 + self.natoms, :]).sum(axis=0)
-                    contracted_by_upp[1*N + atom_id, :] = \
-                        (upp*scaled_sv[tmp1: tmp1 + self.natoms, :]).sum(axis=0)
-                    contracted_by_upp[2*N + atom_id, :] = \
-                        (upp*scaled_sv[tmp2: tmp2 + self.natoms, :]).sum(axis=0)
+                    contracted_by_up[1*N + atom_id, :] = (uprimes_diag*
+                          scaled_by_knots[tmp1: tmp1 + self.natoms, :]).sum(axis=0)
 
-                combined = contracted_by_up + contracted_by_upp
+                    contracted_by_up[2*N + atom_id, :] = (uprimes2_diag*
+                          scaled_by_knots[tmp2: tmp2 + self.natoms, :]).sum(axis=0)
+
+                combined = contracted_by_up + final_upp_part
 
                 n_fk_g = n_fk*n_g
 
@@ -895,7 +913,7 @@ class Worker:
                     block = combined[:, n_fj*l : n_fk_g*(l+1)].sum(axis=1)
                     block = block.reshape((self.natoms, 3))
 
-                    block /= y_fj[l]
+                    if y_fj[l] != 0: block /= y_fj[l]
                     block = np.nan_to_num(block)
 
                     gradient[:, :, ffg_indices[j] + l] += block
@@ -908,7 +926,7 @@ class Worker:
                     block = combined[:, sample_indices].sum(axis=1)
                     block = block.reshape((self.natoms, 3))
 
-                    block /= y_fk[l]
+                    if y_fk[l] != 0: block /= y_fk[l]
                     block = np.nan_to_num(block)
 
                     gradient[:, :, ffg_indices[k] + l] += block
@@ -921,7 +939,7 @@ class Worker:
                     block = combined[:, sample_indices].sum(axis=1)
                     block = block.reshape((self.natoms, 3))
 
-                    block /= y_g[l]
+                    if y_g[l] != 0: block /= y_g[l]
                     block = np.nan_to_num(block)
 
                     gradient[:,:, ffg_indices[self.ntypes + g_idx] + l] += block
@@ -952,7 +970,7 @@ def main():
     from tests.testPotentials import get_random_pots, get_constant_potential
     from tests.testStructs import allstructs, dimers
 
-    pot = get_random_pots(1)['rhophis'][0]
+    pot = get_random_pots(1)['meams'][0]
     # pot = get_constant_potential()
     x_pvec, y_pvec, indices = src.meam.splines_to_pvec(pot.splines)
 
@@ -961,13 +979,7 @@ def main():
     a_new.position = [20, 0, 0]
     a_new.symbol = "He"
 
-    atoms = allstructs['8_atoms']
-    # atoms.set_chemical_symbols(["H", "H", "H", "H"])
-    # atoms.positions[0] = [0, 0, 0]
-    # atoms.positions[1] = [5, 0, 0]
-    # atoms.positions[2] = [10, 0, 0]
-    # atoms.positions[3] = [15, 0, 0]
-    # atoms += a_new
+    atoms = allstructs['aba']
 
     worker = Worker(atoms, x_pvec, indices, pot.types)
 
@@ -1026,6 +1038,7 @@ def main():
     # print()
     diff = np.abs(grad - fd_gradient)
 
+    # print("Guess:", grad[:,0,39:])
     piece = diff[:,0,39:]
 
     print(piece)
