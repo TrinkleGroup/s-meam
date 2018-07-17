@@ -786,6 +786,18 @@ class Worker:
 
                 gradient[:, :, grad_index:grad_index + y.shape[1]] += final
 
+            for j, (y_fj, ffg_list) in enumerate(zip(f_pvecs, self.ffgs)):
+                for k, (y_fk, ffg) in enumerate(zip(f_pvecs, ffg_list)):
+                    g_idx = src.meam.ij_to_potl(j+1, k+1, self.ntypes)
+
+                    y_g = g_pvecs[g_idx]
+
+                    ffg_forces = ffg.calc_forces(y_fj, y_fk, y_g).reshape((3,self.natoms,self.natoms))
+
+                    final = np.einsum('ij,kli->lkj', uprimes_scaled, ffg_forces)
+
+                    gradient[:, :, grad_index:grad_index + y.shape[1]] += final
+
             # U' term
 
             up_contracted_sv = np.einsum('ijkl,k->ijl', rho_sv, uprimes.ravel())
@@ -979,7 +991,10 @@ def main():
     a_new.position = [20, 0, 0]
     a_new.symbol = "He"
 
-    atoms = allstructs['aba']
+    atoms = allstructs['8_atoms']
+    # atoms.positions[0] = [0,0,0]
+    # atoms.positions[1] = [5,0,0]
+    # atoms.positions[2] = [10,0,0]
 
     worker = Worker(atoms, x_pvec, indices, pot.types)
 
