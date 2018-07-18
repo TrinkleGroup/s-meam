@@ -4,6 +4,7 @@ import logging
 import scipy.sparse
 from scipy.sparse import lil_matrix
 import itertools
+from operator import itemgetter
 
 from ase.neighborlist import NeighborList
 from pympler import muppy, summary
@@ -677,7 +678,7 @@ class Worker:
         # add in second term of chain rule
         for j, (y_fj, ffg_list) in enumerate(zip(f_pvecs, self.ffgs)):
             n_fj = y_fj.shape[1]
-            y_fj = y_fj.ravel()
+            y_fj = y_fj
 
             for k, (y_fk, ffg) in enumerate(zip(f_pvecs, ffg_list)):
                 g_idx = src.meam.ij_to_potl(j+1, k+1, self.ntypes)
@@ -687,51 +688,48 @@ class Worker:
                 n_fk = y_fk.shape[1]
                 n_g = y_g.shape[1]
 
-                y_fk = y_fk.ravel()
-                y_g = y_g.ravel()
-
-                cart_y = my_outer_prod(y_fj, y_fk, y_g)
+                y_fk = y_fk
+                y_g = y_g
 
                 # every ffgSpline affects grad(f_j), grad(f_k), and grad(g)
 
                 # grad(f_j) contribution
-                tmp = scipy.sparse.spdiags(cart_y, 0, len(cart_y), len(cart_y))
 
-                scaled_sv = ffg.structure_vectors['energy'] * tmp
+                scaled_sv = ffg.structure_vectors['energy']
                 scaled_sv = uprimes * scaled_sv
 
-                fj_contrib = np.split(scaled_sv, n_fj, axis=1)
+                coeffs_for_fj = np.outer(y_fk, y_g).ravel()
+                coeffs_for_fk = np.outer(y_fj, y_g).ravel()
+                coeffs_for_g = np.outer(y_fj, y_fk).ravel()
+
+                fj_contrib = np.split(scaled_sv.ravel(), n_fj)
 
                 for l in range(n_fj):
-                    block = fj_contrib[l]
-
-                    if y_fj[l] != 0: block /= y_fj[l]
+                    block = fj_contrib[l].copy()
+                    block *= coeffs_for_fj
 
                     gradient[ffg_indices[j] + l] += np.sum(block)
 
                 # grad(f_k) contribution
 
-                fk_contrib = np.split(scaled_sv, n_fj*n_fk, axis=1)
+                fk_contrib = np.split(scaled_sv.ravel(), n_fj*n_fk)
                 fk_contrib = np.array(fk_contrib)
 
                 for l in range(n_fk):
                     sample_indices = np.arange(l, n_fj*n_fk, n_fk)
 
-                    block = fk_contrib[sample_indices, :, :]
-
-                    if y_fk[l] != 0: block /= y_fk[l]
+                    block = fk_contrib[sample_indices, :].copy()
+                    block = block.ravel()*coeffs_for_fk
 
                     gradient[ffg_indices[k] + l] += np.sum(block)
 
                 # grad(g) contribution
 
-                g_contrib = np.split(scaled_sv, n_fj*n_fk, axis=1)
-                g_contrib = np.array(g_contrib)
+                g_contrib = fk_contrib
 
                 for l in range(n_g):
-                    block = g_contrib[:, :, l]
-
-                    if y_g[l] != 0: block /= y_g[l]
+                    block = g_contrib[ :, l].copy()
+                    block = block.ravel()*coeffs_for_g
 
                     gradient[ffg_indices[self.ntypes + g_idx] + l] += np.sum(block)
 
@@ -841,7 +839,6 @@ class Worker:
         # ffg gradient terms
         for j, (y_fj, ffg_list) in enumerate(zip(f_pvecs, self.ffgs)):
             n_fj = y_fj.shape[1]
-            y_fj = y_fj
 
             for k, (y_fk, ffg) in enumerate(zip(f_pvecs, ffg_list)):
                 g_idx = src.meam.ij_to_potl(j+1, k+1, self.ntypes)
@@ -851,10 +848,9 @@ class Worker:
                 n_fk = y_fk.shape[1]
                 n_g = y_g.shape[1]
 
-                y_fk = y_fk
-                y_g = y_g
+                cart_y = my_outer_prod(y_fj, y_fk, y_g)
 
-                cart_y = my_outer_prod(y_fj.ravel(), y_fk.ravel(), y_g.ravel())
+                # TODO: converting to dense here may be problematic
 
                 ffg_sv = ffg.structure_vectors['forces'].toarray()
                 ffg_sv = ffg_sv.reshape((3, N, N, len(cart_y)))
@@ -901,25 +897,27 @@ class Worker:
                         upp_contrib += contracted
 
                 # U' term
-                scaled_sv = np.einsum('aizp,p->aizp', ffg_sv, cart_y.ravel())
+                scaled_sv = ffg_sv
                 up_contrib = np.einsum('z,aizp->aip', uprimes.ravel(),
                                              scaled_sv)
 
                 up_contrib = np.transpose(up_contrib, axes=(1,0,2))
 
                 # Group terms and add to gradient
+
+                coeffs_for_fj = np.outer(y_fk, y_g).ravel()
+                coeffs_for_fk = np.outer(y_fj, y_g).ravel()
+                coeffs_for_g = np.outer(y_fj, y_fk).ravel()
+
                 fj_contrib_up = np.split(up_contrib, n_fj, axis=2)
                 fj_contrib_upp = np.split(upp_contrib, n_fj, axis=2)
 
-                y_fjr = y_fj.ravel()
-                y_fkr = y_fk.ravel()
-                y_gr = y_g.ravel()
-
                 for l in range(n_fj):
-                    block_up = fj_contrib_up[l].sum(axis=2)
-                    block_upp = fj_contrib_upp[l].sum(axis=2)
+                    block_up = fj_contrib_up[l]
+                    block_upp = fj_contrib_upp[l]
 
-                    if y_fjr[l] != 0: block_up /= y_fjr[l]
+                    block_up = np.einsum('iap,p->ia', block_up, coeffs_for_fj)
+                    block_upp = np.einsum('iap,p->ia', block_upp, coeffs_for_fj)
 
                     gradient[:, :, ffg_indices[j] + l] += block_up
                     gradient[:, :, ffg_indices[j] + l] += block_upp
@@ -927,36 +925,30 @@ class Worker:
                 fk_contrib_up = np.split(up_contrib, n_fj*n_fk, axis=2)
                 fk_contrib_upp = np.split(upp_contrib, n_fj*n_fk, axis=2)
 
-                fk_contrib_up = np.array(fk_contrib_up)
-                fk_contrib_upp = np.array(fk_contrib_upp)
-
                 for l in range(n_fk):
-                    sample_indices = np.arange(l, n_fj*n_fk, n_fk)
+                    sample_indices = np.arange(l, n_fj*n_fk, n_fk).tolist()
 
-                    block_up = fk_contrib_up[sample_indices, :, :]
-                    block_upp = fk_contrib_upp[sample_indices, :, :]
+                    block_up = itemgetter(*sample_indices)(fk_contrib_up)
+                    block_up = np.concatenate(block_up, axis=2)
 
-                    if y_fkr[l] != 0: block_up /= y_fkr[l]
+                    block_upp = itemgetter(*sample_indices)(fk_contrib_upp)
+                    block_upp = np.concatenate(block_upp, axis=2)
 
-                    block_up = block_up.sum(axis=0).sum(axis=2)
-                    block_upp = block_upp.sum(axis=0).sum(axis=2)
+                    block_up = np.einsum('iap,p->ia', block_up, coeffs_for_fk)
+                    block_upp = np.einsum('iap,p->ia', block_upp, coeffs_for_fk)
 
                     gradient[:, :, ffg_indices[k] + l] += block_up
                     gradient[:, :, ffg_indices[k] + l] += block_upp
 
-                g_contrib_up = np.split(up_contrib, n_fj*n_fk, axis=2)
-                g_contrib_upp = np.split(upp_contrib, n_fj*n_fk, axis=2)
-
-                g_contrib_up = np.array(g_contrib_up)
-                g_contrib_upp = np.array(g_contrib_upp)
-
-                # rzm; f and g still wrong -- suggest try solving g first
+                g_contrib_up = np.array(fk_contrib_up)
+                g_contrib_upp = np.array(fk_contrib_upp)
 
                 for l in range(n_g):
-                    block_up = g_contrib_up[:, :, :, l].sum(axis=0)
-                    block_upp = g_contrib_upp[:, :, :, l].sum(axis=0)
+                    block_up = g_contrib_up[:, :, :, l]
+                    block_upp = g_contrib_upp[:, :, :, l]
 
-                    if y_gr[l] != 0: block_up /= y_gr[l]
+                    block_up = np.einsum('pia,p->ia', block_up, coeffs_for_g)
+                    block_upp = np.einsum('pia,p->ia', block_upp, coeffs_for_g)
 
                     gradient[:,:,ffg_indices[self.ntypes+g_idx] +l] += block_up
                     gradient[:,:,ffg_indices[self.ntypes+g_idx] +l] += block_upp
@@ -973,12 +965,16 @@ class Worker:
 
         return gradient
 
-def my_outer_prod(y1, y2, y3):
-    cart1 = np.einsum("i,j->ij", y1, y2)
-    cart1 = cart1.reshape((cart1.shape[0]*cart1.shape[1]))
+def my_outer_prod(y_fj, y_fk, y_g):
+    cart1 = np.einsum("ij,ik->ijk", y_fj, y_fk)
+    cart1 = cart1.reshape((cart1.shape[0], cart1.shape[1]*cart1.shape[2]))
 
-    cart2 = np.einsum("i,j->ij", cart1, y3)
-    return cart2.reshape((cart2.shape[0]*cart2.shape[1]))
+    cart2 = np.einsum("ij,ik->ijk", cart1, y_g)
+
+    cart_y = cart2.reshape((cart2.shape[0], cart2.shape[1]*cart2.shape[2]))
+
+    return cart_y.ravel()
+
 
 # @profile
 def main():
@@ -987,20 +983,11 @@ def main():
     from tests.testPotentials import get_random_pots, get_constant_potential
     from tests.testStructs import allstructs, dimers
 
-    pot = get_random_pots(1)['norhophis'][0]
-    # pot = get_constant_potential()
+    pot = get_random_pots(1)['meams'][0]
+
     x_pvec, y_pvec, indices = src.meam.splines_to_pvec(pot.splines)
 
-    from ase import Atom
-    a_new = Atom()
-    a_new.position = [20, 0, 0]
-    a_new.symbol = "He"
-
-    atoms = allstructs['aaa']
-    # atoms.set_chemical_symbols(['H', 'H', 'H', 'H'])
-    # atoms.positions[0] = [0,0,0]
-    # atoms.positions[1] = [5,0,0]
-    # atoms.positions[2] = [10,0,0]
+    atoms = allstructs['bulk_periodic_ortho_mixed']
 
     worker = Worker(atoms, x_pvec, indices, pot.types)
 
@@ -1008,10 +995,8 @@ def main():
     N = y_pvec.ravel().shape[0]
 
     cd_points = np.array([y_pvec] * N*2)
-    # cd_points = np.array([y_pvec] * N)
 
     for l in range(N):
-        # cd_points[l, l] += h
         cd_points[2*l, l] += h
         cd_points[2*l+1, l] -= h
 
@@ -1022,7 +1007,6 @@ def main():
     fd_gradient = np.zeros((worker.natoms, 3, worker.len_param_vec))
 
     for l in range(N):
-        # fd_gradient[l] = (cd_evaluated[l] - fx) / h
         # fd_gradient[l] = (cd_evaluated[2*l] - cd_evaluated[2*l+1]) / h / 2
         fd_gradient[:, :, l] = (cd_evaluated[2*l] - cd_evaluated[2*l+1]) / h / 2
 
@@ -1034,36 +1018,14 @@ def main():
     # grad = worker.energy_gradient_wrt_pvec(y_pvec)
     grad = worker.forces_gradient_wrt_pvec(y_pvec)
 
-    split = np.array_split(grad, y_indices)[1:]
-    split2 = np.array_split(fd_gradient, y_indices)[1:]
-
     np.set_printoptions(linewidth=np.infty)
 
-    # print("Direct method")
-    # for l in split:
-    #     print(l)
-    #
-    # print()
-    # print("Finite differences")
-    # for l in split2:
-    #     print(l)
-    #
-    # print()
-    # print("Difference")
-    # diff = np.abs(grad - fd_gradient)
-    # split3 = np.array_split(diff, y_indices)[1:]
-    #
-    # for l in split3:
-    #     print(l)
-    #
-    # print()
     diff = np.abs(grad - fd_gradient)
 
     # print("Guess:", grad[:,0,39:])
     piece = diff[:,0,91:]
 
-    print(piece)
-    print("Max difference:", np.max(piece))
+    print("Max difference:", np.max(diff))
 
 if __name__ == "__main__":
     main()
