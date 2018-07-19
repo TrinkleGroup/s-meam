@@ -983,11 +983,11 @@ def main():
     from tests.testPotentials import get_random_pots, get_constant_potential
     from tests.testStructs import allstructs, dimers
 
-    pot = get_random_pots(1)['meams'][0]
+    pot = get_random_pots(1)['phionlys'][0]
 
     x_pvec, y_pvec, indices = src.meam.splines_to_pvec(pot.splines)
 
-    atoms = allstructs['bulk_periodic_ortho_mixed']
+    atoms = allstructs['aa']
 
     worker = Worker(atoms, x_pvec, indices, pot.types)
 
