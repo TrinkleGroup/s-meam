@@ -1,3 +1,6 @@
+import sys
+sys.path.append('./');
+
 import numpy as np
 np.set_printoptions(precision=16)
 import logging
@@ -614,6 +617,7 @@ class Worker:
 
         return phi_pvecs, rho_pvecs, u_pvecs, f_pvecs, g_pvecs
 
+    @profile
     def energy_gradient_wrt_pvec(self, pvec):
         parameters = np.atleast_2d(pvec)
 
@@ -695,8 +699,14 @@ class Worker:
 
                 # grad(f_j) contribution
 
+
+                # print("Numpy reported size:", scaled_sv.nbytes)
+                # print("sys reported size:", sys.getsizeof(scaled_sv))
                 scaled_sv = ffg.structure_vectors['energy']
                 scaled_sv = uprimes * scaled_sv
+
+                # scaled_sv = ffg.structure_vectors['energy'].toarray()
+                # scaled_sv = np.einsum('z,zp->p', uprimes.ravel(), scaled_sv)
 
                 coeffs_for_fj = np.outer(y_fk, y_g).ravel()
                 coeffs_for_fk = np.outer(y_fj, y_g).ravel()
@@ -704,37 +714,73 @@ class Worker:
 
                 fj_contrib = np.split(scaled_sv.ravel(), n_fj)
 
+                scaled_sv = scaled_sv.ravel()
+
+                n_fk_g = n_fk*n_g
+                
+                # grad(f_k) contribution
+                
+                # fk_contrib = np.split(scaled_sv.ravel(), n_fj*n_fk)
+                # fk_contrib = np.array(fk_contrib)
+                
+                fj_contrib = np.split(scaled_sv.ravel(), n_fj)
+
                 for l in range(n_fj):
                     block = fj_contrib[l].copy()
                     block *= coeffs_for_fj
-
+                
                     gradient[ffg_indices[j] + l] += np.sum(block)
-
+                
                 # grad(f_k) contribution
-
+                
                 fk_contrib = np.split(scaled_sv.ravel(), n_fj*n_fk)
                 fk_contrib = np.array(fk_contrib)
-
+                
                 for l in range(n_fk):
                     sample_indices = np.arange(l, n_fj*n_fk, n_fk)
-
+                
                     block = fk_contrib[sample_indices, :].copy()
                     block = block.ravel()*coeffs_for_fk
-
+                
                     gradient[ffg_indices[k] + l] += np.sum(block)
-
+                
                 # grad(g) contribution
-
+                
                 g_contrib = fk_contrib
-
+                
                 for l in range(n_g):
                     block = g_contrib[ :, l].copy()
                     block = block.ravel()*coeffs_for_g
-
+                
                     gradient[ffg_indices[self.ntypes + g_idx] + l] += np.sum(block)
+
+                # g_indices = np.arange(n_g)
+
+                # for l in range(n_fk):
+                #     k_indices = np.arange(l*n_g, n_fj*n_fk*n_g, n_fk*n_g)
+
+                #     # sample_indices = [g+k for k in k_indices for g in g_indices]
+                #     gen = itertools.product(k_indices, g_indices)
+                #     sample_indices = [e1+e2 for e1,e2 in gen]
+
+                #     block = scaled_sv[sample_indices]
+                #     block = block*coeffs_for_fk
+
+                #     gradient[ffg_indices[k] + l] += np.sum(block)
+
+                # # grad(g) contribution
+
+                # # g_contrib = fk_contrib
+
+                # for l in range(n_g):
+                #     sample_indices = np.arange(l, n_fk*n_fj*n_g, n_g)
+                #     block = scaled_sv[sample_indices]*coeffs_for_g#cart_y[sample_indices]
+
+                #     gradient[ffg_indices[self.ntypes + g_idx] + l] += np.sum(block)
 
         return gradient
 
+    # @profile
     def forces_gradient_wrt_pvec(self, pvec):
         parameters = np.atleast_2d(pvec)
 
@@ -854,6 +900,9 @@ class Worker:
 
                 ffg_sv = ffg.structure_vectors['forces'].toarray()
                 ffg_sv = ffg_sv.reshape((3, N, N, len(cart_y)))
+
+                # print("Numpy reported size (forces):", ffg_sv.nbytes)
+                # print("sys reported size (forces):", sys.getsizeof(ffg_sv))
 
                 ffg_e_sv = ffg.structure_vectors['energy'].toarray()
 
@@ -976,18 +1025,19 @@ def my_outer_prod(y_fj, y_fk, y_g):
     return cart_y.ravel()
 
 
-# @profile
+@profile
 def main():
     np.random.seed(42)
     import src.meam
-    from tests.testPotentials import get_random_pots, get_constant_potential
-    from tests.testStructs import allstructs, dimers
+    from tests.testPotentials import get_random_pots
+    from tests.testStructs import allstructs
 
-    pot = get_random_pots(1)['phionlys'][0]
+    pot = get_random_pots(1)['meams'][0]
 
     x_pvec, y_pvec, indices = src.meam.splines_to_pvec(pot.splines)
 
-    atoms = allstructs['aa']
+    atoms = allstructs['bulk_periodic_ortho_mixed']
+    # atoms = allstructs['8_atoms']
 
     worker = Worker(atoms, x_pvec, indices, pot.types)
 
@@ -1000,32 +1050,27 @@ def main():
         cd_points[2*l, l] += h
         cd_points[2*l+1, l] -= h
 
-    # cd_evaluated = worker.compute_energy(np.array(cd_points))
-    cd_evaluated = worker.compute_forces(np.array(cd_points))
+    cd_evaluated_e = worker.compute_energy(np.array(cd_points))
+    cd_evaluated_f = worker.compute_forces(np.array(cd_points))
 
-    # fd_gradient = np.zeros(N)
-    fd_gradient = np.zeros((worker.natoms, 3, worker.len_param_vec))
+    fd_gradient_e = np.zeros(N)
+    fd_gradient_f = np.zeros((worker.natoms, 3, worker.len_param_vec))
 
     for l in range(N):
-        # fd_gradient[l] = (cd_evaluated[2*l] - cd_evaluated[2*l+1]) / h / 2
-        fd_gradient[:, :, l] = (cd_evaluated[2*l] - cd_evaluated[2*l+1]) / h / 2
+        fd_gradient_e[l] = (cd_evaluated_e[2*l] - cd_evaluated_e[2*l+1]) / h / 2
+        fd_gradient_f[:, :, l] = (cd_evaluated_f[2*l] - cd_evaluated_f[2*l+1]) / h / 2
 
-    splines = worker.phis + worker.rhos + worker.us + worker.fs + worker.gs
-
-    x_indices = [s.index for s in splines]
-    y_indices = [x_indices[i] + 2 * i for i in range(len(x_indices))]
-
-    # grad = worker.energy_gradient_wrt_pvec(y_pvec)
-    grad = worker.forces_gradient_wrt_pvec(y_pvec)
+    grad_e = worker.energy_gradient_wrt_pvec(y_pvec)
+    grad_f = worker.forces_gradient_wrt_pvec(y_pvec)
 
     np.set_printoptions(linewidth=np.infty)
 
-    diff = np.abs(grad - fd_gradient)
+    diff_e = np.abs(grad_e - fd_gradient_e)
+    diff_f = np.abs(grad_f - fd_gradient_f)
 
-    # print("Guess:", grad[:,0,39:])
-    piece = diff[:,0,91:]
-
-    print("Max difference:", np.max(diff))
+    print("Max difference:", np.max(diff_e))
+    print("Max difference:", np.max(diff_f))
+    print(len(atoms))
 
 if __name__ == "__main__":
     main()
