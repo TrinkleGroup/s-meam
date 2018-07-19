@@ -295,7 +295,8 @@ class RhoSpline(WorkerSpline):
         self.structure_vectors['energy'] = np.zeros((self.natoms, self.n_knots+2))
 
         N = self.natoms
-        self.structure_vectors['forces'] = lil_matrix((3*N*N, self.n_knots+2),dtype=float)
+        self.structure_vectors['forces'] = np.zeros((3*N*N, self.n_knots+2))
+        # self.structure_vectors['forces'] = lil_matrix((3*N*N, self.n_knots+2),dtype=float)
 
     def add_to_hdf5(self, hdf5_file, name, save_sv=False):
         """The 'save_sv' argument allows saving as a sparse matrix"""
