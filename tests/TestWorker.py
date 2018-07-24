@@ -654,6 +654,7 @@ class GradientTests(unittest.TestCase):
             np.testing.assert_almost_equal(fd_grad_f, w_grad_f,
                                            decimal=GRAD_DECIMAL)
 
+    @profile
     def test_aba(self):
         atoms = allstructs['aba']
         worker = Worker(atoms, self.phi.x_pvec, self.phi.indices, self.types)
@@ -688,6 +689,7 @@ class GradientTests(unittest.TestCase):
             np.testing.assert_almost_equal(fd_grad_f, w_grad_f,
                                            decimal=GRAD_DECIMAL)
 
+    @profile
     def test_bulk(self):
         atoms = allstructs['bulk_periodic_ortho_mixed']
         worker = Worker(atoms, self.phi.x_pvec, self.phi.indices, self.types)

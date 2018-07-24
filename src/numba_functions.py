@@ -80,6 +80,36 @@ def outer_prod_simple(arr1, arr2):
 
     return results
 
+@jit
+def jit_einsum(A, B):
+    return np.einsum('zp,aiz->iap', A, B)
+
+@jit(nopython=True, cache=True)
+def contract_extend_end_transpose(S, forces, N, len_cart):
+    """Equivalent to einsum('zp,aiz->iap'); used for multiplying the scaled
+    energy structure vector with the forces, summing along one dimension,
+    and reshaping
+
+    Args:
+        S (np.ndarray): (Z x P) array; the scaled structure vector
+        forces (np.ndarray): (A x I x Z) array; evaluated forces, uncontracted
+        N (int): the number of atoms in the system
+        len_cart (int): the length of the parameter vector
+
+    Returns:
+        A (np.ndarray): (I x A x P) gradient of forces w.r.t parameters
+    """
+
+    A = np.zeros((N, 3, len_cart))
+
+    for i in np.arange(N):
+        for a in np.arange(3):
+            for p in np.arange(len_cart):
+                for z in np.arange(N):
+                    A[i,a,p] += S[z,p]*forces[a,i,z]
+
+    return A
+
 # @jit(nopython=True, cache=True)
 @cc.export('mat_vec_mult', 'f8[:](f8[:], i4[:], i4[:], f8[:], i4)')
 def mat_vec_mult(val, row, col, vec, N):
