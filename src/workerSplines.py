@@ -30,7 +30,7 @@ class WorkerSpline:
         Extrapolation is done by building a spline between the end-point
         knot and a 'ghost' knot that is separated by a distance of
         extrap_dist.
-        
+
         NOTE: the assumption that all extrapolation points are added at once 
         is NOT needed, since get_abcd() scales each point accordingly
         """
@@ -304,14 +304,15 @@ class RhoSpline(WorkerSpline):
 
         spline_group = hdf5_file[name]
 
-        spline_group.create_dataset("energy_struct_vec",
+        spline_group.create_dataset("e_sv",
                 data=self.structure_vectors['energy'])
 
         f_sv = self.structure_vectors['forces']
-        spline_group.create_dataset('f_sv.data', data=f_sv.data)
-        spline_group.create_dataset('f_sv.indices', data=f_sv.indices)
-        spline_group.create_dataset('f_sv.indptr', data=f_sv.indptr)
-        spline_group.create_dataset('f_sv.shape', data=f_sv.shape)
+        spline_group.create_dataset('f_sv', data=f_sv)
+        # spline_group.create_dataset('f_sv.data', data=f_sv.data)
+        # spline_group.create_dataset('f_sv.indices', data=f_sv.indices)
+        # spline_group.create_dataset('f_sv.indptr', data=f_sv.indptr)
+        # spline_group.create_dataset('f_sv.shape', data=f_sv.shape)
 
     @classmethod
     def from_hdf5(cls, hdf5_file, name, load_sv=True):
@@ -332,15 +333,16 @@ class RhoSpline(WorkerSpline):
         rho.rhs_extrap_dist = np.array(spline_data.attrs['rhs_extrap_dist'])
         rho.index = int(spline_data.attrs['index'])
 
-        rho.structure_vectors['energy'] = np.array(spline_data['energy_struct_vec'])
+        rho.structure_vectors['energy'] = np.array(spline_data['e_sv'])
 
-        f_sv_data = np.array(spline_data['f_sv.data'])
-        f_sv_indices = np.array(spline_data['f_sv.indices'])
-        f_sv_indptr = np.array(spline_data['f_sv.indptr'])
-        f_sv_shape = np.array(spline_data['f_sv.shape'])
+        # f_sv_data = np.array(spline_data['f_sv.data'])
+        # f_sv_indices = np.array(spline_data['f_sv.indices'])
+        # f_sv_indptr = np.array(spline_data['f_sv.indptr'])
+        # f_sv_shape = np.array(spline_data['f_sv.shape'])
 
-        rho.structure_vectors['forces'] = csr_matrix(
-                (f_sv_data, f_sv_indices, f_sv_indptr), shape=f_sv_shape)
+        # rho.structure_vectors['forces'] = csr_matrix(
+        #         (f_sv_data, f_sv_indices, f_sv_indptr), shape=f_sv_shape)
+        rho.structure_vectors['forces'] = np.array(spline_data['f_sv'])
 
         rho.n_knots = len(x)
 
@@ -410,21 +412,23 @@ class ffgSpline:
 
         ffg = cls(fj, fk, g, natoms)
 
-        e_sv_data = ffg_data['e_sv.data']
-        e_sv_indices = ffg_data['e_sv.indices']
-        e_sv_indptr = ffg_data['e_sv.indptr']
-        e_sv_shape = ffg_data['e_sv.shape']
+        # e_sv_data = ffg_data['e_sv.data']
+        # e_sv_indices = ffg_data['e_sv.indices']
+        # e_sv_indptr = ffg_data['e_sv.indptr']
+        # e_sv_shape = ffg_data['e_sv.shape']
 
-        ffg.structure_vectors['energy'] = csr_matrix(
-                (e_sv_data, e_sv_indices, e_sv_indptr), shape=e_sv_shape)
+        # ffg.structure_vectors['energy'] = csr_matrix(
+        #         (e_sv_data, e_sv_indices, e_sv_indptr), shape=e_sv_shape)
+        ffg.structure_vectors['energy'] = ffg_data['e_sv']
 
-        f_sv_data = ffg_data['f_sv.data']
-        f_sv_indices = ffg_data['f_sv.indices']
-        f_sv_indptr = ffg_data['f_sv.indptr']
-        f_sv_shape = ffg_data['f_sv.shape']
-
-        ffg.structure_vectors['forces'] = csr_matrix(
-                (f_sv_data, f_sv_indices, f_sv_indptr), shape=f_sv_shape)
+        # f_sv_data = ffg_data['f_sv.data']
+        # f_sv_indices = ffg_data['f_sv.indices']
+        # f_sv_indptr = ffg_data['f_sv.indptr']
+        # f_sv_shape = ffg_data['f_sv.shape']
+        # 
+        # ffg.structure_vectors['forces'] = csr_matrix(
+        #         (f_sv_data, f_sv_indices, f_sv_indptr), shape=f_sv_shape)
+        ffg.structure_vectors['forces'] = ffg_data['f_sv']
 
         return ffg
 
@@ -434,15 +438,17 @@ class ffgSpline:
         new_group.attrs['natoms'] = self.natoms
 
         # assumes scipy sparse CSR
-        new_group.create_dataset('e_sv.data', data=self.structure_vectors['energy'].data)
-        new_group.create_dataset('e_sv.indices', data=self.structure_vectors['energy'].indices)
-        new_group.create_dataset('e_sv.indptr', data=self.structure_vectors['energy'].indptr)
-        new_group.create_dataset('e_sv.shape', data=self.structure_vectors['energy'].shape)
+        # new_group.create_dataset('e_sv.data', data=self.structure_vectors['energy'].data)
+        # new_group.create_dataset('e_sv.indices', data=self.structure_vectors['energy'].indices)
+        # new_group.create_dataset('e_sv.indptr', data=self.structure_vectors['energy'].indptr)
+        # new_group.create_dataset('e_sv.shape', data=self.structure_vectors['energy'].shape)
+        new_group.create_dataset('e_sv', data=self.structure_vectors['energy'])
 
-        new_group.create_dataset('f_sv.data', data=self.structure_vectors['forces'].data)
-        new_group.create_dataset('f_sv.indices', data=self.structure_vectors['forces'].indices)
-        new_group.create_dataset('f_sv.indptr', data=self.structure_vectors['forces'].indptr)
-        new_group.create_dataset('f_sv.shape', data=self.structure_vectors['forces'].shape)
+        # new_group.create_dataset('f_sv.data', data=self.structure_vectors['forces'].data)
+        # new_group.create_dataset('f_sv.indices', data=self.structure_vectors['forces'].indices)
+        # new_group.create_dataset('f_sv.indptr', data=self.structure_vectors['forces'].indptr)
+        # new_group.create_dataset('f_sv.shape', data=self.structure_vectors['forces'].shape)
+        new_group.create_dataset('f_sv', data=self.structure_vectors['forces'])
 
         self.fj.add_to_hdf5(new_group, 'fj', save_sv=False)
         self.fk.add_to_hdf5(new_group, 'fk', save_sv=False)

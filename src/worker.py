@@ -718,6 +718,10 @@ class Worker:
                 scaled_sv = ffg.structure_vectors['energy']
                 scaled_sv = np.einsum('z,zp->p', uprimes.ravel(), scaled_sv)
 
+                # coeffs_for_fj = np.outer(y_fk, y_g).ravel()
+                # coeffs_for_fk = np.outer(y_fj, y_g).ravel()
+                # coeffs_for_g = np.outer(y_fj, y_fk).ravel()
+
                 coeffs_for_fj = np.zeros(n_fk*n_g)
                 coeffs_for_fk = np.zeros(n_fj*n_g)
                 coeffs_for_g = np.zeros(n_fj*n_fk)
@@ -883,6 +887,10 @@ class Worker:
                 up_contrib = np.transpose(up_contrib, axes=(1,0,2))
 
                 # Group terms and add to gradient
+
+                # coeffs_for_fj = np.outer(y_fk, y_g).ravel()
+                # coeffs_for_fk = np.outer(y_fj, y_g).ravel()
+                # coeffs_for_g = np.outer(y_fj, y_fk).ravel()
 
                 coeffs_for_fj = np.zeros(n_fk*n_g)
                 coeffs_for_fk = np.zeros(n_fj*n_g)

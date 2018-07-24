@@ -57,15 +57,16 @@ if bulk_flag:
     allstructs = {**allstructs, **bulk_vac_ortho, **bulk_periodic_ortho,
                   **bulk_vac_rhombo, **bulk_periodic_rhombo, **extra}
 
-allstructs = {**allstructs, '8_atoms':extra['8_atoms']}
 
 # allstructs = {'bulk_vac_ortho_type1':bulk_vac_ortho['bulk_vac_ortho_type1'],}
 #               'bulk_vac_ortho_type1_v2':bulk_vac_ortho['bulk_vac_ortho_type1']}
-# allstructs = {'aba':trimers['aba']}
+# allstructs = {'aa':dimers['aa']}
 # allstructs = {'4_atom':extra['4_atoms']}
 # import lammpsTools
 # lammpsTools.atoms_to_LAMMPS_file('../data/structs/data.4atoms',
 #                                  allstructs['4_atom'])
+allstructs = {**allstructs, '8_atoms':extra['8_atoms']}
+
 full_start = time.time()
 
 ################################################################################
@@ -609,7 +610,7 @@ class GradientTests(unittest.TestCase):
         atoms = allstructs['aa']
         worker = Worker(atoms, self.phionly.x_pvec, self.phionly.indices,
                         self.types)
-
+        
         for pot in self.pots:
             fd_grad_e = self.fd_gradient_eval(pot.y_pvec, worker, 'energy')
             fd_grad_f = self.fd_gradient_eval(pot.y_pvec, worker, 'forces')

@@ -55,7 +55,7 @@ def outer_prod_1d(u1, u2, u3, n1, n2, n3, output):
             jn2 = j*n2
             u2_j = u2[j]
             for k in range(n3):
-                output[in1 + jn2 + k] = u1_i*u2_j*u3[k]
+                output[n3*(i*n2 + j) + k] = u1_i*u2_j*u3[k]
 
     # return output
 
