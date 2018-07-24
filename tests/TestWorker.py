@@ -28,14 +28,14 @@ GRAD_DECIMAL = 5
 N = 1
 
 # Flags for what tests to run
-energy_flag = True * 0
-forces_flag = True * 0
+energy_flag = True * 1
+forces_flag = True * 1
 
 zero_pots_flag  = True * 0
 const_pots_flag = True * 0
-rand_pots_flag  = True * 0
+rand_pots_flag  = True * 1
 
-meam_flag       = True * 0
+meam_flag       = True * 1
 phionly_flag    = True * 0
 rhophi_flag     = True * 0
 nophi_flag      = True * 0
@@ -45,7 +45,7 @@ norhophi_flag   = True * 0
 
 dimers_flag     = True * 1
 trimers_flag    = True * 1
-bulk_flag       = True * 1
+bulk_flag       = True * 0
 
 allstructs = {}
 
@@ -56,6 +56,8 @@ if trimers_flag:
 if bulk_flag:
     allstructs = {**allstructs, **bulk_vac_ortho, **bulk_periodic_ortho,
                   **bulk_vac_rhombo, **bulk_periodic_rhombo, **extra}
+
+allstructs = {**allstructs, '8_atoms':extra['8_atoms']}
 
 # allstructs = {'bulk_vac_ortho_type1':bulk_vac_ortho['bulk_vac_ortho_type1'],}
 #               'bulk_vac_ortho_type1_v2':bulk_vac_ortho['bulk_vac_ortho_type1']}
@@ -605,7 +607,8 @@ class GradientTests(unittest.TestCase):
 
     def test_aa(self):
         atoms = allstructs['aa']
-        worker = Worker(atoms, self.phi.x_pvec, self.phi.indices, self.types)
+        worker = Worker(atoms, self.phionly.x_pvec, self.phionly.indices,
+                        self.types)
 
         for pot in self.pots:
             fd_grad_e = self.fd_gradient_eval(pot.y_pvec, worker, 'energy')
@@ -622,7 +625,8 @@ class GradientTests(unittest.TestCase):
 
     def test_ab(self):
         atoms = allstructs['ab']
-        worker = Worker(atoms, self.phi.x_pvec, self.phi.indices, self.types)
+        worker = Worker(atoms, self.phionly.x_pvec, self.phionly.indices,
+                        self.types)
 
         for pot in self.pots:
             fd_grad_e = self.fd_gradient_eval(pot.y_pvec, worker, 'energy')
@@ -639,7 +643,8 @@ class GradientTests(unittest.TestCase):
 
     def test_aaa(self):
         atoms = allstructs['aaa']
-        worker = Worker(atoms, self.phi.x_pvec, self.phi.indices, self.types)
+        worker = Worker(atoms, self.phionly.x_pvec, self.phionly.indices,
+                        self.types)
 
         for pot in self.pots:
             fd_grad_e = self.fd_gradient_eval(pot.y_pvec, worker, 'energy')
@@ -654,10 +659,11 @@ class GradientTests(unittest.TestCase):
             np.testing.assert_almost_equal(fd_grad_f, w_grad_f,
                                            decimal=GRAD_DECIMAL)
 
-    @profile
+    # @profile
     def test_aba(self):
         atoms = allstructs['aba']
-        worker = Worker(atoms, self.phi.x_pvec, self.phi.indices, self.types)
+        worker = Worker(atoms, self.phionly.x_pvec, self.phionly.indices,
+                        self.types)
 
         for pot in self.pots:
             fd_grad_e = self.fd_gradient_eval(pot.y_pvec, worker, 'energy')
@@ -674,7 +680,8 @@ class GradientTests(unittest.TestCase):
 
     def test_8_atoms(self):
         atoms = allstructs['8_atoms']
-        worker = Worker(atoms, self.phi.x_pvec, self.phi.indices, self.types)
+        worker = Worker(atoms, self.phionly.x_pvec, self.phionly.indices,
+                        self.types)
 
         for pot in self.pots:
             fd_grad_e = self.fd_gradient_eval(pot.y_pvec, worker, 'energy')
@@ -689,23 +696,24 @@ class GradientTests(unittest.TestCase):
             np.testing.assert_almost_equal(fd_grad_f, w_grad_f,
                                            decimal=GRAD_DECIMAL)
 
-    @profile
-    def test_bulk(self):
-        atoms = allstructs['bulk_periodic_ortho_mixed']
-        worker = Worker(atoms, self.phi.x_pvec, self.phi.indices, self.types)
+    if bulk_flag:
+        def test_bulk(self):
+            atoms = allstructs['bulk_periodic_ortho_mixed']
+            worker = Worker(atoms, self.phionly.x_pvec, self.phionly.indices,
+                            self.types)
 
-        for pot in self.pots:
-            fd_grad_e = self.fd_gradient_eval(pot.y_pvec, worker, 'energy')
-            fd_grad_f = self.fd_gradient_eval(pot.y_pvec, worker, 'forces')
+            for pot in self.pots:
+                fd_grad_e = self.fd_gradient_eval(pot.y_pvec, worker, 'energy')
+                fd_grad_f = self.fd_gradient_eval(pot.y_pvec, worker, 'forces')
 
-            w_grad_e = worker.energy_gradient_wrt_pvec(pot.y_pvec)
-            w_grad_f = worker.forces_gradient_wrt_pvec(pot.y_pvec)
+                w_grad_e = worker.energy_gradient_wrt_pvec(pot.y_pvec)
+                w_grad_f = worker.forces_gradient_wrt_pvec(pot.y_pvec)
 
-            np.testing.assert_almost_equal(fd_grad_e, w_grad_e,
-                                           decimal=GRAD_DECIMAL)
+                np.testing.assert_almost_equal(fd_grad_e, w_grad_e,
+                                               decimal=GRAD_DECIMAL)
 
-            np.testing.assert_almost_equal(fd_grad_f, w_grad_f,
-                                           decimal=GRAD_DECIMAL)
+                np.testing.assert_almost_equal(fd_grad_f, w_grad_f,
+                                               decimal=GRAD_DECIMAL)
 
 ################################################################################
 

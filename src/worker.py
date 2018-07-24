@@ -18,8 +18,7 @@ import src.lammpsTools
 import src.meam
 from src.workerSplines import WorkerSpline, RhoSpline, ffgSpline, USpline
 
-from src.numba_functions import outer_prod_simple, \
-    contract_extend_end_transpose, jit_einsum
+from src.numba_functions import outer_prod_1d, outer_prod_1d_2vecs
 
 logger = logging.getLogger(__name__)
 
@@ -719,9 +718,16 @@ class Worker:
                 scaled_sv = ffg.structure_vectors['energy']
                 scaled_sv = np.einsum('z,zp->p', uprimes.ravel(), scaled_sv)
 
-                coeffs_for_fj = np.outer(y_fk, y_g).ravel()
-                coeffs_for_fk = np.outer(y_fj, y_g).ravel()
-                coeffs_for_g = np.outer(y_fj, y_fk).ravel()
+                coeffs_for_fj = np.zeros(n_fk*n_g)
+                coeffs_for_fk = np.zeros(n_fj*n_g)
+                coeffs_for_g = np.zeros(n_fj*n_fk)
+
+                outer_prod_1d_2vecs(y_fk.ravel(), y_g.ravel(),
+                                                    n_fk, n_g, coeffs_for_fj)
+                outer_prod_1d_2vecs(y_fj.ravel(), y_g.ravel(),
+                                                    n_fj, n_g, coeffs_for_fk)
+                outer_prod_1d_2vecs(y_fj.ravel(), y_fk.ravel(),
+                                                   n_fj, n_fk, coeffs_for_g)
 
                 scaled_sv = scaled_sv.ravel()
 
@@ -878,9 +884,16 @@ class Worker:
 
                 # Group terms and add to gradient
 
-                coeffs_for_fj = np.outer(y_fk, y_g).ravel()
-                coeffs_for_fk = np.outer(y_fj, y_g).ravel()
-                coeffs_for_g = np.outer(y_fj, y_fk).ravel()
+                coeffs_for_fj = np.zeros(n_fk*n_g)
+                coeffs_for_fk = np.zeros(n_fj*n_g)
+                coeffs_for_g = np.zeros(n_fj*n_fk)
+
+                outer_prod_1d_2vecs(y_fk.ravel(), y_g.ravel(), n_fk, n_g,
+                                                    coeffs_for_fj)
+                outer_prod_1d_2vecs(y_fj.ravel(), y_g.ravel(), n_fj, n_g,
+                                                    coeffs_for_fk)
+                outer_prod_1d_2vecs(y_fj.ravel(), y_fk.ravel(), n_fj, n_fk,
+                                                    coeffs_for_g)
 
                 # pre-computed indices for outer product indexing
                 indices_tuple = self.ffg_grad_indices[j][k]
@@ -1006,8 +1019,9 @@ def main():
     import pickle
     import os
 
-    # test_name = 'bulk_vac_rhombo_type1'
-    # allstructs = {test_name:allstructs[test_name]}
+    test_name = 'bulk_vac_rhombo_type1'
+    # test_name = '8_atoms'
+    allstructs = {test_name:allstructs[test_name]}
 
     with open("grad_accuracy_normed_redo.dat", 'w') as accuracy_outfile:
         with open("grad_time_normed_redo.dat", 'w') as time_outfile:
@@ -1103,7 +1117,6 @@ def main():
 
             # TODO: try JIT indexing; pre-compute indices, then call index(l)
             # TODO: rolling blocks; add/subtract as it rolls
-            # rzm: are you SURE the errors are okay?
 
 if __name__ == "__main__":
     main()

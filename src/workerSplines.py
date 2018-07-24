@@ -4,7 +4,7 @@ import h5py
 from scipy.interpolate import CubicSpline
 
 from scipy.sparse import diags, lil_matrix, csr_matrix
-from src.numba_functions import onepass_min_max, outer_prod, outer_prod_simple
+from src.numba_functions import onepass_min_max, outer_prod_1d
 
 logger = logging.getLogger(__name__)
 
@@ -515,8 +515,13 @@ class ffgSpline:
         abcd_fk = np.sum(self.fk.get_abcd(rik, 0), axis=0).ravel()
         abcd_g  = np.sum(self.g.get_abcd(cos, 0), axis=0).ravel()
 
-        cart = outer_prod_simple(
-            outer_prod_simple(abcd_fj, abcd_fk), abcd_g).ravel()
+        n_fj = abcd_fj.shape[0]
+        n_fk = abcd_fk.shape[0]
+        n_g = abcd_g.shape[0]
+
+        # cart = np.outer(np.outer(abcd_fj, abcd_fk), abcd_g).ravel()
+        cart = np.zeros(n_fj*n_fk*n_g)
+        outer_prod_1d(abcd_fj, abcd_fk, abcd_g, n_fj, n_fk, n_g, cart)
 
         self.structure_vectors['energy'][atom_id, :] += cart
 
@@ -541,9 +546,20 @@ class ffgSpline:
         fj_2, fk_2, g_2 = self.get_abcd(rij, rik, cos, [0, 1, 0])
         fj_3, fk_3, g_3 = self.get_abcd(rij, rik, cos, [0, 0, 1])
 
-        v1 = outer_prod_simple(outer_prod_simple(fj_1, fk_1), g_1) # fj' fk g
-        v2 = outer_prod_simple(outer_prod_simple(fj_2, fk_2), g_2) # fj fk' g
-        v3 = outer_prod_simple(outer_prod_simple(fj_3, fk_3), g_3) # fj fk g' -> PF
+        # v1 = np.outer(np.outer(fj_1, fk_1), g_1).ravel()
+        # v2 = np.outer(np.outer(fj_2, fk_2), g_2).ravel()
+        # v3 = np.outer(np.outer(fj_3, fk_3), g_3).ravel()
+
+        v1 = np.zeros(fj_1.shape[0]*fk_1.shape[0]*g_1.shape[0])
+        v2 = np.zeros(fj_2.shape[0]*fk_2.shape[0]*g_2.shape[0])
+        v3 = np.zeros(fj_3.shape[0]*fk_3.shape[0]*g_3.shape[0])
+
+        outer_prod_1d(fj_1, fk_1, g_1, fj_1.shape[0], fk_1.shape[0],
+                           g_1.shape[0], v1) # fj' fk g
+        outer_prod_1d(fj_2, fk_2, g_2, fj_2.shape[0], fk_2.shape[0],
+                           g_2.shape[0], v2) # fj' fk g
+        outer_prod_1d(fj_3, fk_3, g_3, fj_3.shape[0], fk_3.shape[0],
+                           g_3.shape[0], v3) # fj' fk g
 
         # all 6 terms to be added
         t0 = np.einsum('i,k->ik', v1, dirs[0])
