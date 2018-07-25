@@ -4,7 +4,7 @@ import h5py
 from scipy.interpolate import CubicSpline
 
 from scipy.sparse import diags, lil_matrix, csr_matrix
-from src.numba_functions import onepass_min_max, outer_prod, outer_prod_simple
+from src.numba_functions import onepass_min_max, outer_prod_1d
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +30,7 @@ class WorkerSpline:
         Extrapolation is done by building a spline between the end-point
         knot and a 'ghost' knot that is separated by a distance of
         extrap_dist.
-        
+
         NOTE: the assumption that all extrapolation points are added at once 
         is NOT needed, since get_abcd() scales each point accordingly
         """
@@ -66,7 +66,8 @@ class WorkerSpline:
 
         self.structure_vectors = {}
         self.structure_vectors['energy'] = np.zeros(self.n_knots + 2)
-        self.structure_vectors['forces'] = np.zeros((natoms, self.n_knots+2, 3))
+        self.structure_vectors['forces'] = np.zeros((natoms, 3, self.n_knots+2))
+        # self.structure_vectors['forces'] = np.zeros((natoms, self.n_knots+2, 3))
 
     def get_abcd(self, x, deriv=0):
         """Calculates the spline coefficients for a set of points x
@@ -109,7 +110,6 @@ class WorkerSpline:
         t3 = t2*t
 
         if deriv == 0:
-            scaling = np.ones(len(x))
 
             A = 2*t3 - 3*t2 + 1
             B = t3 - 2*t2 + t
@@ -117,15 +117,23 @@ class WorkerSpline:
             D = t3 - t2
 
         elif deriv == 1:
-            scaling =  1 / (prefactor * deriv)
 
             A = 6*t2 - 6*t
             B = 3*t2 - 4*t + 1
             C = -6*t2 + 6*t
             D = 3*t2 - 2*t
 
+        elif deriv == 2:
+
+            A = 12*t - 6
+            B = 6*t - 4
+            C = -12*t + 6
+            D = 6*t - 2
         else:
-            raise ValueError("Only allowed derivative values are 0 and 1")
+            raise ValueError("Only allowed derivative values are 0, 1, and 2")
+
+        scaling = 1 / prefactor
+        scaling = scaling**deriv
 
         B *= prefactor
         D *= prefactor
@@ -258,7 +266,7 @@ class WorkerSpline:
         # abcd = self.get_abcd(values, 1).ravel()
         abcd = np.sum(self.get_abcd(values, 1), axis=0).ravel()
 
-        self.structure_vectors['forces'][atom_id, :, :] += np.einsum('i,j->ij', abcd, dirs)
+        self.structure_vectors['forces'][atom_id, :, :] += np.einsum('i,j->ji', abcd, dirs)
 
     def calc_energy(self, y):
         """Evaluates the energy structure vector for a given y. A second list of
@@ -274,7 +282,7 @@ class WorkerSpline:
         return self.structure_vectors['energy'] @ y.T
 
     def calc_forces(self, y):
-        return np.einsum('ijk,pj->pik', self.structure_vectors['forces'], y)
+        return np.einsum('ijk,pk->pij', self.structure_vectors['forces'], y)
 
 class RhoSpline(WorkerSpline):
     """RhoSpline objects are a variant of the WorkerSpline, but that require
@@ -287,7 +295,8 @@ class RhoSpline(WorkerSpline):
         self.structure_vectors['energy'] = np.zeros((self.natoms, self.n_knots+2))
 
         N = self.natoms
-        self.structure_vectors['forces'] = lil_matrix((3*N*N, self.n_knots+2),dtype=float)
+        self.structure_vectors['forces'] = np.zeros((3*N*N, self.n_knots+2))
+        # self.structure_vectors['forces'] = lil_matrix((3*N*N, self.n_knots+2),dtype=float)
 
     def add_to_hdf5(self, hdf5_file, name, save_sv=False):
         """The 'save_sv' argument allows saving as a sparse matrix"""
@@ -295,14 +304,15 @@ class RhoSpline(WorkerSpline):
 
         spline_group = hdf5_file[name]
 
-        spline_group.create_dataset("energy_struct_vec",
+        spline_group.create_dataset("e_sv",
                 data=self.structure_vectors['energy'])
 
         f_sv = self.structure_vectors['forces']
-        spline_group.create_dataset('f_sv.data', data=f_sv.data)
-        spline_group.create_dataset('f_sv.indices', data=f_sv.indices)
-        spline_group.create_dataset('f_sv.indptr', data=f_sv.indptr)
-        spline_group.create_dataset('f_sv.shape', data=f_sv.shape)
+        spline_group.create_dataset('f_sv', data=f_sv)
+        # spline_group.create_dataset('f_sv.data', data=f_sv.data)
+        # spline_group.create_dataset('f_sv.indices', data=f_sv.indices)
+        # spline_group.create_dataset('f_sv.indptr', data=f_sv.indptr)
+        # spline_group.create_dataset('f_sv.shape', data=f_sv.shape)
 
     @classmethod
     def from_hdf5(cls, hdf5_file, name, load_sv=True):
@@ -323,15 +333,16 @@ class RhoSpline(WorkerSpline):
         rho.rhs_extrap_dist = np.array(spline_data.attrs['rhs_extrap_dist'])
         rho.index = int(spline_data.attrs['index'])
 
-        rho.structure_vectors['energy'] = np.array(spline_data['energy_struct_vec'])
+        rho.structure_vectors['energy'] = np.array(spline_data['e_sv'])
 
-        f_sv_data = np.array(spline_data['f_sv.data'])
-        f_sv_indices = np.array(spline_data['f_sv.indices'])
-        f_sv_indptr = np.array(spline_data['f_sv.indptr'])
-        f_sv_shape = np.array(spline_data['f_sv.shape'])
+        # f_sv_data = np.array(spline_data['f_sv.data'])
+        # f_sv_indices = np.array(spline_data['f_sv.indices'])
+        # f_sv_indptr = np.array(spline_data['f_sv.indptr'])
+        # f_sv_shape = np.array(spline_data['f_sv.shape'])
 
-        rho.structure_vectors['forces'] = csr_matrix(
-                (f_sv_data, f_sv_indices, f_sv_indptr), shape=f_sv_shape)
+        # rho.structure_vectors['forces'] = csr_matrix(
+        #         (f_sv_data, f_sv_indices, f_sv_indptr), shape=f_sv_shape)
+        rho.structure_vectors['forces'] = np.array(spline_data['f_sv'])
 
         rho.n_knots = len(x)
 
@@ -401,21 +412,23 @@ class ffgSpline:
 
         ffg = cls(fj, fk, g, natoms)
 
-        e_sv_data = ffg_data['e_sv.data']
-        e_sv_indices = ffg_data['e_sv.indices']
-        e_sv_indptr = ffg_data['e_sv.indptr']
-        e_sv_shape = ffg_data['e_sv.shape']
+        # e_sv_data = ffg_data['e_sv.data']
+        # e_sv_indices = ffg_data['e_sv.indices']
+        # e_sv_indptr = ffg_data['e_sv.indptr']
+        # e_sv_shape = ffg_data['e_sv.shape']
 
-        ffg.structure_vectors['energy'] = csr_matrix(
-                (e_sv_data, e_sv_indices, e_sv_indptr), shape=e_sv_shape)
+        # ffg.structure_vectors['energy'] = csr_matrix(
+        #         (e_sv_data, e_sv_indices, e_sv_indptr), shape=e_sv_shape)
+        ffg.structure_vectors['energy'] = ffg_data['e_sv']
 
-        f_sv_data = ffg_data['f_sv.data']
-        f_sv_indices = ffg_data['f_sv.indices']
-        f_sv_indptr = ffg_data['f_sv.indptr']
-        f_sv_shape = ffg_data['f_sv.shape']
-
-        ffg.structure_vectors['forces'] = csr_matrix(
-                (f_sv_data, f_sv_indices, f_sv_indptr), shape=f_sv_shape)
+        # f_sv_data = ffg_data['f_sv.data']
+        # f_sv_indices = ffg_data['f_sv.indices']
+        # f_sv_indptr = ffg_data['f_sv.indptr']
+        # f_sv_shape = ffg_data['f_sv.shape']
+        # 
+        # ffg.structure_vectors['forces'] = csr_matrix(
+        #         (f_sv_data, f_sv_indices, f_sv_indptr), shape=f_sv_shape)
+        ffg.structure_vectors['forces'] = ffg_data['f_sv']
 
         return ffg
 
@@ -425,15 +438,17 @@ class ffgSpline:
         new_group.attrs['natoms'] = self.natoms
 
         # assumes scipy sparse CSR
-        new_group.create_dataset('e_sv.data', data=self.structure_vectors['energy'].data)
-        new_group.create_dataset('e_sv.indices', data=self.structure_vectors['energy'].indices)
-        new_group.create_dataset('e_sv.indptr', data=self.structure_vectors['energy'].indptr)
-        new_group.create_dataset('e_sv.shape', data=self.structure_vectors['energy'].shape)
+        # new_group.create_dataset('e_sv.data', data=self.structure_vectors['energy'].data)
+        # new_group.create_dataset('e_sv.indices', data=self.structure_vectors['energy'].indices)
+        # new_group.create_dataset('e_sv.indptr', data=self.structure_vectors['energy'].indptr)
+        # new_group.create_dataset('e_sv.shape', data=self.structure_vectors['energy'].shape)
+        new_group.create_dataset('e_sv', data=self.structure_vectors['energy'])
 
-        new_group.create_dataset('f_sv.data', data=self.structure_vectors['forces'].data)
-        new_group.create_dataset('f_sv.indices', data=self.structure_vectors['forces'].indices)
-        new_group.create_dataset('f_sv.indptr', data=self.structure_vectors['forces'].indptr)
-        new_group.create_dataset('f_sv.shape', data=self.structure_vectors['forces'].shape)
+        # new_group.create_dataset('f_sv.data', data=self.structure_vectors['forces'].data)
+        # new_group.create_dataset('f_sv.indices', data=self.structure_vectors['forces'].indices)
+        # new_group.create_dataset('f_sv.indptr', data=self.structure_vectors['forces'].indptr)
+        # new_group.create_dataset('f_sv.shape', data=self.structure_vectors['forces'].shape)
+        new_group.create_dataset('f_sv', data=self.structure_vectors['forces'])
 
         self.fj.add_to_hdf5(new_group, 'fj', save_sv=False)
         self.fk.add_to_hdf5(new_group, 'fk', save_sv=False)
@@ -506,8 +521,13 @@ class ffgSpline:
         abcd_fk = np.sum(self.fk.get_abcd(rik, 0), axis=0).ravel()
         abcd_g  = np.sum(self.g.get_abcd(cos, 0), axis=0).ravel()
 
-        cart = outer_prod_simple(
-            outer_prod_simple(abcd_fj, abcd_fk), abcd_g).ravel()
+        n_fj = abcd_fj.shape[0]
+        n_fk = abcd_fk.shape[0]
+        n_g = abcd_g.shape[0]
+
+        cart = np.outer(np.outer(abcd_fj, abcd_fk), abcd_g).ravel()
+        # cart = np.zeros(n_fj*n_fk*n_g)
+        # outer_prod_1d(abcd_fj, abcd_fk, abcd_g, n_fj, n_fk, n_g, cart)
 
         self.structure_vectors['energy'][atom_id, :] += cart
 
@@ -532,9 +552,20 @@ class ffgSpline:
         fj_2, fk_2, g_2 = self.get_abcd(rij, rik, cos, [0, 1, 0])
         fj_3, fk_3, g_3 = self.get_abcd(rij, rik, cos, [0, 0, 1])
 
-        v1 = outer_prod_simple(outer_prod_simple(fj_1, fk_1), g_1) # fj' fk g
-        v2 = outer_prod_simple(outer_prod_simple(fj_2, fk_2), g_2) # fj fk' g
-        v3 = outer_prod_simple(outer_prod_simple(fj_3, fk_3), g_3) # fj fk g' -> PF
+        v1 = np.outer(np.outer(fj_1, fk_1), g_1).ravel()
+        v2 = np.outer(np.outer(fj_2, fk_2), g_2).ravel()
+        v3 = np.outer(np.outer(fj_3, fk_3), g_3).ravel()
+
+        # v1 = np.zeros(fj_1.shape[0]*fk_1.shape[0]*g_1.shape[0])
+        # v2 = np.zeros(fj_2.shape[0]*fk_2.shape[0]*g_2.shape[0])
+        # v3 = np.zeros(fj_3.shape[0]*fk_3.shape[0]*g_3.shape[0])
+        #
+        # outer_prod_1d(fj_1, fk_1, g_1, fj_1.shape[0], fk_1.shape[0],
+        #                    g_1.shape[0], v1) # fj' fk g
+        # outer_prod_1d(fj_2, fk_2, g_2, fj_2.shape[0], fk_2.shape[0],
+        #                    g_2.shape[0], v2) # fj' fk g
+        # outer_prod_1d(fj_3, fk_3, g_3, fj_3.shape[0], fk_3.shape[0],
+        #                    g_3.shape[0], v3) # fj' fk g
 
         # all 6 terms to be added
         t0 = np.einsum('i,k->ik', v1, dirs[0])
@@ -550,12 +581,13 @@ class ffgSpline:
         fk = t3 + t4 + t5
 
         N = self.natoms
+        N2 = N*N
         for a in range(3):
-            self.structure_vectors['forces'][N*N*a + N*i + i, :] += fj[:, a]
-            self.structure_vectors['forces'][N*N*a + N*j + i, :] -= fj[:, a]
+            self.structure_vectors['forces'][N2*a + N*i + i, :] += fj[:, a]
+            self.structure_vectors['forces'][N2*a + N*j + i, :] -= fj[:, a]
 
-            self.structure_vectors['forces'][N*N*a + N*i + i, :] += fk[:, a]
-            self.structure_vectors['forces'][N*N*a + N*k + i, :] -= fk[:, a]
+            self.structure_vectors['forces'][N2*a + N*i + i, :] += fk[:, a]
+            self.structure_vectors['forces'][N2*a + N*k + i, :] -= fk[:, a]
 
 class USpline(WorkerSpline):
     """Although U splines can't take as much advantage of pre-computing
@@ -565,7 +597,8 @@ class USpline(WorkerSpline):
     def __init__(self, knots, bc_type, natoms, M=None):
         super(USpline, self).__init__(knots, bc_type, natoms, M)
 
-        self.structure_vectors['deriv'] = np.zeros((natoms, len(self.knots)+2))
+        self.structure_vectors['deriv'] = np.zeros((1, natoms, len(self.knots)+2))
+        self.structure_vectors['2nd_deriv'] = np.zeros((1, natoms, len(self.knots)+2))
         self.structure_vectors['energy'] = None
         # self.structure_vectors['energy'] = np.zeros(len(self.knots) + 2)
 
@@ -598,10 +631,6 @@ class USpline(WorkerSpline):
         us.rhs_extrap_dist = np.array(spline_data.attrs['rhs_extrap_dist'])
         us.index = int(spline_data.attrs['index'])
 
-        # us.structure_vectors['energy'] = np.array(spline_data['energy_struct_vec'])
-        # us.structure_vectors['forces'] = np.array(spline_data['forces_struct_vec'])
-        # us.structure_vectors['deriv'] = np.array(spline_data['deriv_struct_vec'])
-
         us.zero_abcd = np.array(spline_data['zero_abcd'])
         us.atoms_embedded = np.array(spline_data.attrs['atoms_embedded'])
 
@@ -624,6 +653,7 @@ class USpline(WorkerSpline):
         self.atoms_embedded = 0
         self.structure_vectors['energy'][:] = 0
         self.structure_vectors['deriv'][:] = 0
+        self.structure_vectors['2nd_deriv'][:] = 0
 
     def add_to_energy_struct_vec(self, values):
         num_new_atoms = values.shape[1]
@@ -653,11 +683,26 @@ class USpline(WorkerSpline):
 
             self.structure_vectors['deriv'][:, indices, :] = abcd
 
+    def add_to_2nd_deriv_struct_vec(self, values, indices):
+        if values.shape[0] > 0:
+
+            values = np.atleast_1d(values)
+            org_shape = values.shape
+            flat_values = values.ravel()
+
+            abcd = self.get_abcd(flat_values, 2)
+            abcd = abcd.reshape(list(org_shape) + [abcd.shape[1]])
+
+            self.structure_vectors['2nd_deriv'][:, indices, :] = abcd
+
     def calc_energy(self, y):
         return np.einsum("ij,ij->i", self.structure_vectors['energy'], y)
 
     def calc_deriv(self, y):
         return np.einsum('ijk,ik->ij', self.structure_vectors['deriv'], y)
+
+    def calc_2nd_deriv(self, y):
+        return np.einsum('ijk,ik->ij', self.structure_vectors['2nd_deriv'], y)
 
     def compute_zero_potential(self, y, n):
         """Calculates the value of the potential as if every entry in the
@@ -671,41 +716,6 @@ class USpline(WorkerSpline):
             the value evaluated by the spline using num_zeros zeros"""
 
         return (self.zero_abcd @ y.T).T*n
-
-    # """The U functions are unable to take advantage of pre-computing spline
-    # coefficients, so it may be faster to use a scipy CubicSpline object with
-    # added functionality for linear extrapolation"""
-    #
-    # def __init__(self, knots, y, end_derivs=(0, 0)):
-    #
-    #     self.knots = knots
-    #     self.d0, self.dN = end_derivs
-    #     self.cutoff = (knots[0], knots[len(knots) - 1])
-    #     self.h = knots[1] - knots[0]
-    #
-    #     super().__init__(knots, y, bc_type=((1, self.d0), (1, self.dN)))
-    #
-    # def __call__(self, x, i=None):
-    #     """Evaluates the spline at the given point, linearly extrapolating if
-    #     outside of the spline cutoff. If 'i' is specified, evaluates the ith
-    #     derivative instead.
-    #     """
-    #
-    #     lhs_extrap_mask = x < self.knots[0]
-    #     rhs_extrap_mask = x > self.knots[-1]
-    #     interp_mask = np.logical_not(lhs_extrap_mask + rhs_extrap_mask)
-    #
-    #     computed_values = np.zeros(x.shape[0])
-    #
-    #     computed_values[interp_mask] = super().__call__(x, i)
-    #
-    #     computed_values[lhs_extrap_mask] =\
-    #         self.knots[0] + self.d0*(lhs_extrap_mask - self.knots[0])
-    #
-    #     computed_values[rhs_extrap_mask] = \
-    #         self.knots[-1] + self.d0*(rhs_extrap_mask - self.knots[-1])
-    #
-    #     return np.sum(computed_values)
 
 def build_M(num_x, dx, bc_type):
     """Builds the A and B matrices that are needed to find the function

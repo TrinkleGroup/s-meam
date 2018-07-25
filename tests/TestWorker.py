@@ -1,8 +1,11 @@
 import os
 import numpy as np
+np.random.seed(42)
+
 import logging
 import time
 import unittest
+import collections
 
 from nose_parameterized import parameterized
 
@@ -20,6 +23,7 @@ from tests.testStructs import dimers, trimers, bulk_vac_ortho, \
 # logging.disable(logging.CRITICAL)
 
 DECIMAL = 12
+GRAD_DECIMAL = 5
 
 N = 1
 
@@ -53,6 +57,7 @@ if bulk_flag:
     allstructs = {**allstructs, **bulk_vac_ortho, **bulk_periodic_ortho,
                   **bulk_vac_rhombo, **bulk_periodic_rhombo, **extra}
 
+
 # allstructs = {'bulk_vac_ortho_type1':bulk_vac_ortho['bulk_vac_ortho_type1'],}
 #               'bulk_vac_ortho_type1_v2':bulk_vac_ortho['bulk_vac_ortho_type1']}
 # allstructs = {'aa':dimers['aa']}
@@ -60,6 +65,8 @@ if bulk_flag:
 # import lammpsTools
 # lammpsTools.atoms_to_LAMMPS_file('../data/structs/data.4atoms',
 #                                  allstructs['4_atom'])
+allstructs = {**allstructs, '8_atoms':extra['8_atoms']}
+
 full_start = time.time()
 
 ################################################################################
@@ -551,22 +558,163 @@ def test_hdf5():
 
     os.remove("test.hdf5")
 
-# class GradientTests(unittest.TestCase):
-#
-#     def setUp(self):
-#
-#         p = tests.testPotentials.get_random_pots(1)['meams'][0]
-#         x_pvec, y_pvec, indices = src.meam.splines_to_pvec(p.splines)
-#         self.y_pvec = np.atleast_2d(y_pvec)
-#
-#         atoms = allstructs['8_atoms']
-#
-#         logging.info("Making worker ...")
-#         self.w = Worker(atoms, x_pvec, indices, ['H', 'He'])
-#
-#     def test_energy_grad(self):
-#         print(self.w.compute_forces(self.y_pvec))
-#         # print(self.w.energy_gradient_wrt_pvec(self.y_pvec))
+class GradientTests(unittest.TestCase):
+
+    def setUp(self):
+        phionly = tests.testPotentials.get_random_pots(1)['phionlys'][0]
+        rho = tests.testPotentials.get_random_pots(1)['rhos'][0]
+        rhophi = tests.testPotentials.get_random_pots(1)['rhophis'][0]
+        norhophi = tests.testPotentials.get_random_pots(1)['norhophis'][0]
+        full = tests.testPotentials.get_random_pots(1)['meams'][0]
+
+        Potential = collections.namedtuple('Potential', 'x_pvec y_pvec indices')
+
+        self.phionly = Potential(*src.meam.splines_to_pvec(phionly.splines))
+        self.rho = Potential(*src.meam.splines_to_pvec(rho.splines))
+        self.rhophi = Potential(*src.meam.splines_to_pvec(rhophi.splines))
+        self.norhophi = Potential(*src.meam.splines_to_pvec(norhophi.splines))
+        self.full = Potential(*src.meam.splines_to_pvec(full.splines))
+
+        def fd_gradient(y_pvec, worker, type, h=1e-8):
+            N = y_pvec.ravel().shape[0]
+
+            cd_points = np.array([y_pvec] * N*2)
+
+            for l in range(N):
+                cd_points[2*l, l] += h
+                cd_points[2*l+1, l] -= h
+
+            if type == 'energy':
+                cd_evaluated = worker.compute_energy(np.array(cd_points))
+                fd_gradient = np.zeros(N)
+            elif type == 'forces':
+                cd_evaluated = worker.compute_forces(np.array(cd_points))
+                fd_gradient = np.zeros((worker.natoms, 3, worker.len_param_vec))
+
+            for l in range(N):
+                if type == 'energy': fd_gradient[l] = \
+                    (cd_evaluated[2*l] - cd_evaluated[2*l+1]) / h / 2
+
+                elif type == 'forces': fd_gradient[:, :, l] = \
+                    (cd_evaluated[2*l] - cd_evaluated[2*l+1]) / h / 2
+
+            return fd_gradient
+
+        self.fd_gradient_eval = fd_gradient
+
+        self.types = ['H', 'He']
+        self.pots = [self.phionly, self.rho, self.rhophi,
+                     self.norhophi, self.full]
+
+    def test_aa(self):
+        atoms = allstructs['aa']
+        worker = Worker(atoms, self.phionly.x_pvec, self.phionly.indices,
+                        self.types)
+        
+        for pot in self.pots:
+            fd_grad_e = self.fd_gradient_eval(pot.y_pvec, worker, 'energy')
+            fd_grad_f = self.fd_gradient_eval(pot.y_pvec, worker, 'forces')
+
+            w_grad_e = worker.energy_gradient_wrt_pvec(pot.y_pvec)
+            w_grad_f = worker.forces_gradient_wrt_pvec(pot.y_pvec)
+
+            np.testing.assert_almost_equal(fd_grad_e, w_grad_e,
+                                           decimal=GRAD_DECIMAL)
+
+            np.testing.assert_almost_equal(fd_grad_f, w_grad_f,
+                                           decimal=GRAD_DECIMAL)
+
+    def test_ab(self):
+        atoms = allstructs['ab']
+        worker = Worker(atoms, self.phionly.x_pvec, self.phionly.indices,
+                        self.types)
+
+        for pot in self.pots:
+            fd_grad_e = self.fd_gradient_eval(pot.y_pvec, worker, 'energy')
+            fd_grad_f = self.fd_gradient_eval(pot.y_pvec, worker, 'forces')
+
+            w_grad_e = worker.energy_gradient_wrt_pvec(pot.y_pvec)
+            w_grad_f = worker.forces_gradient_wrt_pvec(pot.y_pvec)
+
+            np.testing.assert_almost_equal(fd_grad_e, w_grad_e,
+                                           decimal=GRAD_DECIMAL)
+
+            np.testing.assert_almost_equal(fd_grad_f, w_grad_f,
+                                           decimal=GRAD_DECIMAL)
+
+    def test_aaa(self):
+        atoms = allstructs['aaa']
+        worker = Worker(atoms, self.phionly.x_pvec, self.phionly.indices,
+                        self.types)
+
+        for pot in self.pots:
+            fd_grad_e = self.fd_gradient_eval(pot.y_pvec, worker, 'energy')
+            fd_grad_f = self.fd_gradient_eval(pot.y_pvec, worker, 'forces')
+
+            w_grad_e = worker.energy_gradient_wrt_pvec(pot.y_pvec)
+            w_grad_f = worker.forces_gradient_wrt_pvec(pot.y_pvec)
+
+            np.testing.assert_almost_equal(fd_grad_e, w_grad_e,
+                                           decimal=GRAD_DECIMAL)
+
+            np.testing.assert_almost_equal(fd_grad_f, w_grad_f,
+                                           decimal=GRAD_DECIMAL)
+
+    # @profile
+    def test_aba(self):
+        atoms = allstructs['aba']
+        worker = Worker(atoms, self.phionly.x_pvec, self.phionly.indices,
+                        self.types)
+
+        for pot in self.pots:
+            fd_grad_e = self.fd_gradient_eval(pot.y_pvec, worker, 'energy')
+            fd_grad_f = self.fd_gradient_eval(pot.y_pvec, worker, 'forces')
+
+            w_grad_e = worker.energy_gradient_wrt_pvec(pot.y_pvec)
+            w_grad_f = worker.forces_gradient_wrt_pvec(pot.y_pvec)
+
+            np.testing.assert_almost_equal(fd_grad_e, w_grad_e,
+                                           decimal=GRAD_DECIMAL)
+
+            np.testing.assert_almost_equal(fd_grad_f, w_grad_f,
+                                           decimal=GRAD_DECIMAL)
+
+    def test_8_atoms(self):
+        atoms = allstructs['8_atoms']
+        worker = Worker(atoms, self.phionly.x_pvec, self.phionly.indices,
+                        self.types)
+
+        for pot in self.pots:
+            fd_grad_e = self.fd_gradient_eval(pot.y_pvec, worker, 'energy')
+            fd_grad_f = self.fd_gradient_eval(pot.y_pvec, worker, 'forces')
+
+            w_grad_e = worker.energy_gradient_wrt_pvec(pot.y_pvec)
+            w_grad_f = worker.forces_gradient_wrt_pvec(pot.y_pvec)
+
+            np.testing.assert_almost_equal(fd_grad_e, w_grad_e,
+                                           decimal=GRAD_DECIMAL)
+
+            np.testing.assert_almost_equal(fd_grad_f, w_grad_f,
+                                           decimal=GRAD_DECIMAL)
+
+    if bulk_flag:
+        def test_bulk(self):
+            atoms = allstructs['bulk_periodic_ortho_mixed']
+            worker = Worker(atoms, self.phionly.x_pvec, self.phionly.indices,
+                            self.types)
+
+            for pot in self.pots:
+                fd_grad_e = self.fd_gradient_eval(pot.y_pvec, worker, 'energy')
+                fd_grad_f = self.fd_gradient_eval(pot.y_pvec, worker, 'forces')
+
+                w_grad_e = worker.energy_gradient_wrt_pvec(pot.y_pvec)
+                w_grad_f = worker.forces_gradient_wrt_pvec(pot.y_pvec)
+
+                np.testing.assert_almost_equal(fd_grad_e, w_grad_e,
+                                               decimal=GRAD_DECIMAL)
+
+                np.testing.assert_almost_equal(fd_grad_f, w_grad_f,
+                                               decimal=GRAD_DECIMAL)
 
 ################################################################################
 

@@ -4,10 +4,7 @@ import numpy as np
 import workerSplines
 
 from spline import Spline
-# from workerSplines import WorkerSpline, RhoSpline, USpline
-import src.workerSplines2
-from workerSplines import RhoSpline, USpline
-from src.workerSplines2 import WorkerSpline
+from workerSplines import WorkerSpline, RhoSpline, USpline
 
 DIGITS = 15
 EPS = 1e-12
@@ -252,7 +249,7 @@ class WorkerSplineTests(unittest.TestCase):
         r = 0.5
 
         ws = WorkerSpline(x, ('fixed', 'fixed'))
-        calc = ws.get_abcd(r)
+        calc = ws.get_abcd(r).ravel()
 
         true_beta = ws.M * np.array([.125, -.125, 0])[:, np.newaxis]
         true = np.array([.5, .5, 0, 0, 0]) + np.sum(true_beta, axis=0)
@@ -264,7 +261,7 @@ class WorkerSplineTests(unittest.TestCase):
         r = -0.5
 
         ws = WorkerSpline(x, ('fixed', 'fixed'))
-        calc = ws.get_abcd(r)
+        calc = ws.get_abcd(r).ravel()
 
         true_alpha = np.array([1, 0, 0, 0, 0])
         true_beta = ws.M * np.array([-0.5, 0, 0])[:, np.newaxis]
@@ -278,7 +275,7 @@ class WorkerSplineTests(unittest.TestCase):
         r = 2.5
 
         ws = WorkerSpline(x, ('fixed', 'fixed'))
-        calc = ws.get_abcd(r)
+        calc = ws.get_abcd(r).ravel()
 
         true_alpha = np.array([0, 0, 1, 0, 0])
         true_beta = ws.M * np.array([0, 0, 0.5])[:, np.newaxis]
@@ -372,8 +369,8 @@ class WorkerSplineTests(unittest.TestCase):
         y = np.array([0.05138434, 0.01790244, -0.26065088, -0.19016379,
                       -0.76379542, d0, dN])
 
-        # M = workerSplines.build_M(len(x), dx, bc_type=('natural', 'natural'))
-        M = src.workerSplines2.build_M(len(x), dx, bc_type=('natural','natural'))
+        M = workerSplines.build_M(len(x), dx, bc_type=('natural', 'natural'))
+        # M = src.workerSplines2.build_M(len(x), dx, bc_type=('natural','natural'))
 
         true = np.array([0.13719161, -0.47527463, -0.10830441,
                          -0.33990513, -1.55094231])
@@ -403,8 +400,8 @@ class WorkerSplineTests(unittest.TestCase):
         y = np.array([0.05138434, 0.01790244, -0.26065088, -0.19016379,
                       -0.76379542, d0, dN])
 
-        # M = workerSplines.build_M(len(x), dx, bc_type=('fixed', 'natural'))
-        M = src.workerSplines2.build_M(len(x), dx, bc_type=('fixed', 'natural'))
+        M = workerSplines.build_M(len(x), dx, bc_type=('fixed', 'natural'))
+        # M = src.workerSplines2.build_M(len(x), dx, bc_type=('fixed', 'natural'))
 
         true = np.array([0, -0.43850162, -0.11820483, -0.33707643, -1.55235667])
 
@@ -417,8 +414,8 @@ class WorkerSplineTests(unittest.TestCase):
         y = np.array([0.05138434, 0.01790244, -0.26065088, -0.19016379,
                       -0.76379542, d0, dN])
 
-        # M = workerSplines.build_M(len(x), dx, bc_type=('fixed', 'fixed'))
-        M = src.workerSplines2.build_M(len(x), dx, bc_type=('fixed', 'fixed'))
+        M = workerSplines.build_M(len(x), dx, bc_type=('fixed', 'fixed'))
+        # M = src.workerSplines2.build_M(len(x), dx, bc_type=('fixed', 'fixed'))
 
         true = np.array([0.00000000e+00, -4.66222277e-01, -7.32221143e-03,
                          -7.52886257e-01, -8.88178420e-16])
@@ -446,11 +443,6 @@ class USplineTests(unittest.TestCase):
 
         self.s = USpline(self.x, ('fixed', 'fixed'), 5)
         self.s.y = self.y
-
-    def test_reset(self):
-        self.s.atoms_embedded = 100
-        self.s.deriv_struct_vec[:] = 0
-        self.s.energy_struct_vec[:] = 0
 
     def test_zero_point_energy(self):
         # Should evaluate to # of evaluations (e.g. 4 fake atoms = result of 4)

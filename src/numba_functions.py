@@ -3,30 +3,6 @@ from numba import jit
 from numba.pycc import CC
 
 cc = CC('fast')
-#
-# @jit(nopython=True)
-# def jit_add_at_1D(indices, values, minlength):
-#     xmax = values.shape[0]
-#
-#     A = np.zeros(minlength)
-#
-#     for i in range(xmax):
-#             A[indices[i]] += values[i]
-#
-#     return A
-#
-# @jit(nopython=True)
-# def jit_add_at_2D(indices, values, minlength):
-#     ymax = values.shape[0]
-#     xmax = 3
-#
-#     A = np.zeros((minlength, 3))
-#
-#     for i in range(ymax):
-#         for j in range(xmax):
-#             A[indices[i]][j] += values[i][j]
-#
-#     return A
 
 # @cc.export('onepass_min_max', 'UniTuple(f8, 2)(f8[:])')
 @jit(nopython=True, cache=True)
@@ -50,12 +26,6 @@ def outer_prod(arr1, arr2):
 
     results = np.zeros((n_pots, N*M))
 
-    # for p in range(n_pots):
-    #     for i in range(N):
-    #         a = arr1[p, i]
-    #
-    #         for j in range(M):
-    #             results[p, i*M + j] += a*arr2[p, j]
     for i in range(N):
         v1 = arr1[:, i]
 
@@ -64,21 +34,61 @@ def outer_prod(arr1, arr2):
 
     return results
 
-@jit(cache=True)
-def outer_prod_simple(arr1, arr2):
-    """Normal outer product; not for multiple potentials"""
-    N = arr1.shape[0]
-    M = arr2.shape[0]
+# @jit(cache=True, nopython=True)
+def outer_prod_1d_2vecs(u1, u2, n1, n2, output):
+    return np.outer(u1, u2).ravel()
 
-    results = np.zeros(N*M)
+    # for i in range(n1):
+    #     in1 = i*n1
+    #     u1_i = u1[i]
+    #     for j in range(n2):
+    #         output[in1 + j] = u1_i*u2[j]
 
-    for i in range(N):
-        a = arr1[i]
+    # return output
 
-        for j in range(M):
-            results[i*M + j] += a*arr2[j]
+@jit(cache=True, nopython=True)
+def outer_prod_1d(u1, u2, u3, n1, n2, n3, output):
+    # return np.outer(np.outer(u1, u2).ravel(), u3).ravel()
+    for i in range(n1):
+        in1 = i*n1
+        u1_i = u1[i]
+        for j in range(n2):
+            jn2 = j*n2
+            u2_j = u2[j]
+            for k in range(n3):
+                output[n3*(i*n2 + j) + k] = u1_i*u2_j*u3[k]
 
-    return results
+    # return output
+
+@jit
+def jit_einsum(A, B):
+    return np.einsum('zp,aiz->iap', A, B)
+
+# @jit(nopython=True, cache=True)
+# def contract_extend_end_transpose(S, forces, N, len_cart):
+#     """Equivalent to einsum('zp,aiz->iap'); used for multiplying the scaled
+#     energy structure vector with the forces, summing along one dimension,
+#     and reshaping
+#
+#     Args:
+#         S (np.ndarray): (Z x P) array; the scaled structure vector
+#         forces (np.ndarray): (A x I x Z) array; evaluated forces, uncontracted
+#         N (int): the number of atoms in the system
+#         len_cart (int): the length of the parameter vector
+#
+#     Returns:
+#         A (np.ndarray): (I x A x P) gradient of forces w.r.t parameters
+#     """
+#
+#     A = np.zeros((N, 3, len_cart))
+#
+#     for i in np.arange(N):
+#         for a in np.arange(3):
+#             for p in np.arange(len_cart):
+#                 for z in np.arange(N):
+#                     A[i,a,p] += S[z,p]*forces[a,i,z]
+#
+#     return A
 
 # @jit(nopython=True, cache=True)
 @cc.export('mat_vec_mult', 'f8[:](f8[:], i4[:], i4[:], f8[:], i4)')
