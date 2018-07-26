@@ -36,18 +36,19 @@ def outer_prod(arr1, arr2):
 
 # @jit(cache=True, nopython=True)
 def outer_prod_1d_2vecs(u1, u2, n1, n2, output):
+    return np.outer(u1, u2).ravel()
 
-    for i in range(n1):
-        in1 = i*n1
-        u1_i = u1[i]
-        for j in range(n2):
-            output[in1 + j] = u1_i*u2[j]
+    # for i in range(n1):
+    #     in1 = i*n1
+    #     u1_i = u1[i]
+    #     for j in range(n2):
+    #         output[in1 + j] = u1_i*u2[j]
 
     # return output
 
 @jit(cache=True, nopython=True)
 def outer_prod_1d(u1, u2, u3, n1, n2, n3, output):
-
+    # return np.outer(np.outer(u1, u2).ravel(), u3).ravel()
     for i in range(n1):
         in1 = i*n1
         u1_i = u1[i]
