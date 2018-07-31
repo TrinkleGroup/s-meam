@@ -1004,8 +1004,8 @@ def main():
     import pickle
     import os
 
-    # test_name = 'bulk_vac_rhombo_type1'
-    test_name = '8_atoms'
+    test_name = 'bulk_vac_rhombo_type1'
+    # test_name = '8_atoms'
     allstructs = {test_name:allstructs[test_name]}
 
     with open("grad_accuracy_normed_redo.dat", 'w') as accuracy_outfile:
@@ -1069,14 +1069,16 @@ def main():
                     w_grad_e = worker.energy_gradient_wrt_pvec(y_pvec)
                     w_e_time = time.time() - start_w_e
 
+                    worker.compute_energy(y_pvec)
+
                     start_w_f = time.time()
                     w_grad_f = worker.forces_gradient_wrt_pvec(y_pvec)
                     w_f_time = time.time() - start_w_f
 
+                    worker.compute_forces(y_pvec)
+
                     diff_e = np.max(np.abs(fd_grad_e - w_grad_e))
                     diff_f = np.max(np.abs(fd_grad_f - w_grad_f))
-
-                    print()
 
                     for u in worker.us:
                         e_max = np.max(u.structure_vectors['energy'])
