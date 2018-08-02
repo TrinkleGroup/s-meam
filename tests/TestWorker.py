@@ -618,6 +618,9 @@ class GradientTests(unittest.TestCase):
             w_grad_e = worker.energy_gradient_wrt_pvec(pot.y_pvec)
             w_grad_f = worker.forces_gradient_wrt_pvec(pot.y_pvec)
 
+            fd_grad_e = fd_grad_e.reshape(w_grad_e.shape)
+            fd_grad_f = fd_grad_f.reshape(w_grad_f.shape)
+
             np.testing.assert_almost_equal(fd_grad_e, w_grad_e,
                                            decimal=GRAD_DECIMAL)
 
@@ -636,6 +639,9 @@ class GradientTests(unittest.TestCase):
             w_grad_e = worker.energy_gradient_wrt_pvec(pot.y_pvec)
             w_grad_f = worker.forces_gradient_wrt_pvec(pot.y_pvec)
 
+            fd_grad_e = fd_grad_e.reshape(w_grad_e.shape)
+            fd_grad_f = fd_grad_f.reshape(w_grad_f.shape)
+
             np.testing.assert_almost_equal(fd_grad_e, w_grad_e,
                                            decimal=GRAD_DECIMAL)
 
@@ -653,6 +659,9 @@ class GradientTests(unittest.TestCase):
 
             w_grad_e = worker.energy_gradient_wrt_pvec(pot.y_pvec)
             w_grad_f = worker.forces_gradient_wrt_pvec(pot.y_pvec)
+
+            fd_grad_e = fd_grad_e.reshape(w_grad_e.shape)
+            fd_grad_f = fd_grad_f.reshape(w_grad_f.shape)
 
             np.testing.assert_almost_equal(fd_grad_e, w_grad_e,
                                            decimal=GRAD_DECIMAL)
@@ -673,6 +682,9 @@ class GradientTests(unittest.TestCase):
             w_grad_e = worker.energy_gradient_wrt_pvec(pot.y_pvec)
             w_grad_f = worker.forces_gradient_wrt_pvec(pot.y_pvec)
 
+            fd_grad_e = fd_grad_e.reshape(w_grad_e.shape)
+            fd_grad_f = fd_grad_f.reshape(w_grad_f.shape)
+
             np.testing.assert_almost_equal(fd_grad_e, w_grad_e,
                                            decimal=GRAD_DECIMAL)
 
@@ -690,6 +702,9 @@ class GradientTests(unittest.TestCase):
 
             w_grad_e = worker.energy_gradient_wrt_pvec(pot.y_pvec)
             w_grad_f = worker.forces_gradient_wrt_pvec(pot.y_pvec)
+
+            fd_grad_e = fd_grad_e.reshape(w_grad_e.shape)
+            fd_grad_f = fd_grad_f.reshape(w_grad_f.shape)
 
             np.testing.assert_almost_equal(fd_grad_e, w_grad_e,
                                            decimal=GRAD_DECIMAL)
@@ -709,6 +724,9 @@ class GradientTests(unittest.TestCase):
 
                 w_grad_e = worker.energy_gradient_wrt_pvec(pot.y_pvec)
                 w_grad_f = worker.forces_gradient_wrt_pvec(pot.y_pvec)
+
+                fd_grad_e = fd_grad_e.reshape(w_grad_e.shape)
+                fd_grad_f = fd_grad_f.reshape(w_grad_f.shape)
 
                 np.testing.assert_almost_equal(fd_grad_e, w_grad_e,
                                                decimal=GRAD_DECIMAL)

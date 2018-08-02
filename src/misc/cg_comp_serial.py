@@ -1,5 +1,6 @@
 import os
 os.chdir('/home/jvita/scripts/s-meam/project/')
+print(os.getcwd())
 import time
 import h5py
 import glob
@@ -19,6 +20,8 @@ LOAD_PATH = "/home/jvita/scripts/s-meam/project/data/fitting_databases/lj/"
 
 DB_FILE_NAME = LOAD_PATH + 'structures.hdf5'
 
+THRESH = 10
+
 ################################################################################
 
 class AchievedThreshold(Exception):
@@ -36,6 +39,7 @@ class CallbackCollector:
         fval = self.f(xk)
 
         if fval < self._thresh:
+            print('The THRESHOLD HAS BEEN ACHIEVED')
             self.x_opt = xk
             raise AchievedThreshold
 
@@ -55,18 +59,19 @@ def main():
                                            true_energies, spline_indices)
 
     guess = init_potential()
-    # init_grad = grad_fxn(guess)
-    # 
-    # line_search(fxn, grad_fxn, guess, -init_grad, maxiter=100)
-    # 
-    # return
+
+    guess = np.vstack([guess]*7)
+
+    fxn(guess)
+    grad_fxn(guess)
+
+    return
 
     num_steps=None
 
-    # rzm: check if scipy.linesearch can minimize on it's own, given grad dir
-    # rzm: what is cost of del C vs C
-
-    cb = CallbackCollector(fxn, grad_fxn, thresh=0.1)
+    cb = CallbackCollector(fxn, grad_fxn, thresh=THRESH)
+    def cb(x):
+        pass
 
     print("Performing CG minimization using the analytical gradient ...")
     start = time.time()
@@ -90,30 +95,35 @@ def main():
 
     np.savetxt('comp_cg_results.dat', cg_xopt)
 
+    cb2 = CallbackCollector(fxn, thresh=THRESH)
+    def cb2(x):
+        pass
+
     print("Performing Powell minimization ...")
+    start = time.time()
     try:
-        start = time.time()
         pow_xopt, _, _, _, pow_n_f_calls, _ = fmin_powell(fxn, guess,
                                                           maxiter=num_steps, disp=0,
-                                                          ftol=1e-1, xtol=1e-5,
+                                                          ftol=1e-6, xtol=1e-5,
                                                           full_output=True,
-                                                          callback=cb)
-        pow_time = time.time() - start
+                                                          callback=cb2)
     except AchievedThreshold:
-        pow_xopt = cb.x_opt
+        pow_xopt = cb2.x_opt
         pow_n_f_calls = f_calls[0]
         pow_n_g_calls = g_calls[0]
 
         f_calls[0] = 0
         g_calls[0] = 0
+    pow_time = time.time() - start
 
     np.savetxt('comp_powell_results.dat', pow_xopt)
 
     print("Powell")
-    print("num Powell steps:", cb.n_iters)
+    print("num Powell steps:", cb2.n_iters)
     print("num fxn calls:", pow_n_f_calls)
-    print("num grad calls:", pow_n_g_calls)
 
+    print("CG time:", cg_time)
+    print("Powell time:", pow_time)
 
 ################################################################################
 
@@ -158,8 +168,8 @@ def load_structures_on_master():
             structures[short_name] = Worker(atoms, x_pvec, indices, pot.types)
 
     # structures = {key:val for (key,val) in list(structures.items())[0]}
-    # tmp_key = 'dimer_aa_1.65'
-    # structures = {tmp_key:structures[tmp_key]}
+    tmp_key = 'dimer_aa_1.65'
+    structures = {tmp_key:structures[tmp_key]}
 
     print(structures.keys())
     return structures, weights
@@ -187,56 +197,6 @@ def build_evaluation_functions(structures, weights, true_forces, true_energies,
     """Builds the function to evaluate populations. Wrapped here for readability
     of main code."""
 
-    # def fd_gradient(pot):
-    #     def mini_grad(y_pvec, worker, grad_type, h=1e-8):
-    #         N = y_pvec.ravel().shape[0]
-    # 
-    #         cd_points = np.array([y_pvec] * N*2)
-    # 
-    #         for l in range(N):
-    #             cd_points[2*l, l] += h
-    #             cd_points[2*l+1, l] -= h
-    # 
-    #         if grad_type == 'energy':
-    #             cd_evaluated = worker.compute_energy(np.array(cd_points))
-    #             fd_gradient = np.zeros(N)
-    #         elif grad_type == 'forces':
-    #             cd_evaluated = worker.compute_forces(np.array(cd_points))
-    #             fd_gradient = np.zeros((worker.natoms, 3, worker.len_param_vec))
-    # 
-    #         for l in range(N):
-    #             if grad_type == 'energy': fd_gradient[l] = \
-    #                 (cd_evaluated[2*l] - cd_evaluated[2*l+1]) / h / 2
-    # 
-    #             elif grad_type == 'forces': fd_gradient[:, :, l] = \
-    #                 (cd_evaluated[2*l] - cd_evaluated[2*l+1]) / h / 2
-    # 
-    #         return fd_gradient
-    # 
-    #     full = np.hstack([pot, np.zeros(108)])
-    # 
-    #     grad_vec = np.zeros(full.shape[0])
-    # 
-    #     for name in structures.keys():
-    #         w = structures[name]
-    # 
-    #         eng_err = w.compute_energy(full) - true_energies[name]
-    #         fcs_err = w.compute_forces(full) - true_forces[name]
-    # 
-    #         # Scale force errors
-    #         fcs_err = np.linalg.norm(fcs_err, axis=(1,2)) / np.sqrt(10)
-    # 
-    #         # compute gradients
-    #         eng_grad = mini_grad(full, w, 'energy')
-    #         fcs_grad = mini_grad(full, w, 'forces')
-    # 
-    #         fcs_grad = np.linalg.norm(fcs_grad, axis=(0,1))
-    # 
-    #         grad_vec += 2*eng_err*eng_grad
-    #         grad_vec += 2*fcs_err*fcs_grad
-    # 
-    #     return grad_vec[:36]
-
     def fxn_wrapper(fxn):
        ncalls = [0]
 
@@ -251,7 +211,6 @@ def build_evaluation_functions(structures, weights, true_forces, true_energies,
         # full = np.vstack(population)
 
         # hard-coded for phi splines only TODO: remove this later
-        # full = np.hstack([full, np.zeros((full.shape[0], 54))])
         pot = np.atleast_2d(pot)
         full = np.hstack([pot, np.zeros((pot.shape[0], 108))])
 
@@ -271,13 +230,12 @@ def build_evaluation_functions(structures, weights, true_forces, true_energies,
             fitness += eng_err*eng_err*weights[name]
 
         print(fitness, flush=True)
-        if fitness < 1e-1: raise AchievedThreshold()
         return fitness
 
     def grad(pot):
-        full = np.hstack([pot, np.zeros(108)])
+        full = np.hstack([pot, np.zeros((pot.shape[0], 108))])
 
-        grad_vec = np.zeros(full.shape[0])
+        grad_vec = np.zeros((pot.shape[0], full.shape[1]))
 
         for name in structures.keys():
             w = structures[name]
@@ -291,13 +249,13 @@ def build_evaluation_functions(structures, weights, true_forces, true_energies,
             eng_grad = w.energy_gradient_wrt_pvec(full)
             fcs_grad = w.forces_gradient_wrt_pvec(full)
 
-            scaled = np.einsum('na,nap->nap', fcs_err[0], fcs_grad)
-            summed = scaled.sum(axis=0).sum(axis=0)
+            scaled = np.einsum('pna,pnak->pnak', fcs_err, fcs_grad)
+            summed = scaled.sum(axis=1).sum(axis=1)
 
-            grad_vec += eng_grad*eng_err*2
+            grad_vec += eng_err[:, np.newaxis]*eng_grad*2
             grad_vec += 2*summed / 10
 
-        return grad_vec[:36]
+        return grad_vec[:, :36]
 
     f_calls, fxn = fxn_wrapper(fxn)
     g_calls, grad = fxn_wrapper(grad)
