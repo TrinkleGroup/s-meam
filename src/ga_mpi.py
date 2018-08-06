@@ -15,7 +15,7 @@ import time
 import datetime
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
-from scipy.optimize import fmin_powell, fmin_cg
+from scipy.optimize import fmin_powell, fmin_cg, least_squares
 from scipy.interpolate import CubicSpline
 from mpi4py import MPI
 
@@ -40,8 +40,12 @@ ACTIVE_SPLINES = [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
 ################################################################################
 """GA settings"""
 
-POP_SIZE = 50
-NUM_GENS = 1000
+comm = MPI.COMM_WORLD
+mpi_size = comm.Get_size()
+
+POP_SIZE = mpi_size
+# POP_SIZE = 4
+NUM_GENS = 100
 CXPB = 1.0
 MUTPB = 0.5
 
@@ -49,7 +53,7 @@ RUN_NEW_GA = True
 
 DO_LMIN = True
 LMIN_FREQUENCY = 100
-NUM_LMIN_STEPS = 10
+NUM_LMIN_STEPS = 20
 
 CHECKPOINT_FREQUENCY = 10
 
@@ -58,17 +62,17 @@ CHECKPOINT_FREQUENCY = 10
 
 date_str = datetime.datetime.now().strftime("%Y-%m-%d")
 
-CHECK_BEFORE_OVERWRITE = False
+CHECK_BEFORE_OVERWRITE = True
 
 # TODO: save path should be date + info_tag
 
 LOAD_PATH = "data/fitting_databases/leno-redo/"
 SAVE_PATH = "data/ga_results/"
-SAVE_DIRECTORY = SAVE_PATH + date_str + "-" + "fixing_mpi"
+SAVE_DIRECTORY = SAVE_PATH + date_str + "-" + "lm_version"
 
 # DB_FILE_NAME = LOAD_PATH + 'phionly/structures.hdf5'
 DB_PATH = LOAD_PATH + 'structures/'
-DB_INFO_FILE_NAME = LOAD_PATH + 'phionly/info'
+DB_INFO_FILE_NAME = LOAD_PATH + 'rhophi/info'
 POP_FILE_NAME = SAVE_DIRECTORY + "/pop.dat"
 LOG_FILE_NAME = SAVE_DIRECTORY + "/ga.log"
 TRACE_FILE_NAME = SAVE_DIRECTORY + "/trace.dat"
@@ -80,6 +84,8 @@ def main():
     comm = MPI.COMM_WORLD
     rank = comm.Get_rank()
     mpi_size = comm.Get_size()
+
+    POP_SIZE = mpi_size
 
     is_master_node = (rank == MASTER_RANK)
 
@@ -106,13 +112,13 @@ def main():
         print('PVEC=', pvec_len)
 
         print("MASTER: Preparing to send structures to slaves ... ", flush=True)
-        grouped_tup = group_for_mpi_scatter(structures, weights, true_forces,
-                true_energies, mpi_size)
-
-        structures = grouped_tup[0]
-        weights = grouped_tup[1]
-        true_forces = grouped_tup[2]
-        true_energies = grouped_tup[3]
+        # grouped_tup = group_for_mpi_scatter(structures, weights, true_forces,
+        #         true_energies, mpi_size)
+        #
+        # structures = grouped_tup[0]
+        # weights = grouped_tup[1]
+        # true_forces = grouped_tup[2]
+        # true_energies = grouped_tup[3]
     else:
         spline_indices = None
         structures = None
@@ -124,10 +130,14 @@ def main():
     # Send all necessary information to slaves
     spline_indices = comm.bcast(spline_indices, root=0)
     pvec_len = comm.bcast(pvec_len, root=0)
-    structures = comm.scatter(structures, root=0)
-    weights = comm.scatter(weights, root=0)
-    true_forces = comm.scatter(true_forces, root=0)
-    true_energies = comm.scatter(true_energies, root=0)
+    # structures = comm.scatter(structures, root=0)
+    # weights = comm.scatter(weights, root=0)
+    # true_forces = comm.scatter(true_forces, root=0)
+    # true_energies = comm.scatter(true_energies, root=0)
+    structures = comm.bcast(structures, root=0)
+    weights = comm.bcast(weights, root=0)
+    true_forces = comm.bcast(true_forces, root=0)
+    true_energies = comm.bcast(true_energies, root=0)
 
     print("SLAVE: Rank", rank, "received", len(structures), 'structures',
             flush=True)
@@ -143,8 +153,8 @@ def main():
         return grad_fxn(x).ravel()
 
     toolbox.register("evaluate_population", eval_fxn)
-    # toolbox.register("gradient", grad_fxn)
-    toolbox.register("gradient", grad_wrapper)
+    toolbox.register("gradient", grad_fxn)
+    # toolbox.register("gradient", grad_wrapper)
 
     # Compute initial fitnesses
     if is_master_node:
@@ -152,14 +162,24 @@ def main():
     else:
         pop = None
 
-    pop = comm.bcast(pop, root=0)
+    # pop = comm.bcast(pop, root=0)
+    print("SLAVE: Rank", rank, "performing LMIN ...", flush=True)
+    indiv = comm.scatter(pop, root=0)
+    opt_results = least_squares(toolbox.evaluate_population, indiv,
+                                toolbox.gradient, method='lm',
+                                max_nfev=NUM_LMIN_STEPS)
 
-    fitnesses = toolbox.evaluate_population(pop)
+    indiv = creator.Individual(opt_results['x'])
+
+    fitnesses = np.sum(toolbox.evaluate_population(indiv))
+    print("SLAVE: Rank", rank, "minimized fitness:", fitnesses, flush=True)
+
     all_fitnesses = comm.gather(fitnesses, root=0)
 
     # Have master gather fitnesses and update individuals
     if is_master_node:
-        all_fitnesses = np.sum(all_fitnesses, axis=0)
+        # all_fitnesses = np.sum(all_fitnesses, axis=0)
+        all_fitnesses = np.vstack(all_fitnesses, axis=0)
 
         for ind,fit in zip(pop, all_fitnesses):
             ind.fitness.values = fit,
@@ -167,16 +187,16 @@ def main():
         # Sort population; best on top
         pop = tools.selBest(pop, len(pop))
 
-        print("MASTER: before initial local minimization: ",
-              toolbox.evaluate_population([pop[0]])[0])
-
-        improved = local_minimization(pop[0], toolbox,
-                                      is_master_node, comm, 100)
-
-        pop[0] = creator.Individual(improved)
-
-        print("MASTER: after initial local minimization: ",
-              toolbox.evaluate_population([pop[0]])[0])
+        # print("MASTER: before initial local minimization: ",
+        #       toolbox.evaluate_population([pop[0]])[0])
+        #
+        # improved = local_minimization(pop[0], toolbox,
+        #                               is_master_node, comm, 7000)
+        #
+        # pop[0] = creator.Individual(improved)
+        #
+        # print("MASTER: after initial local minimization: ",
+        #       toolbox.evaluate_population([pop[0]])[0])
 
         # print_statistics(pop, 0, stats, logbook)
 
@@ -206,41 +226,51 @@ def main():
                 pop = None
 
             # Send out updated population
-            pop = comm.bcast(pop, root=0)
+            # pop = comm.bcast(pop, root=0)
+            indiv = comm.scatter(pop, root=0)
 
             # Run local minimization on best individual if desired
-            if DO_LMIN and (i % LMIN_FREQUENCY == 0):
-                guess = pop[0]
+            # if DO_LMIN and (i % LMIN_FREQUENCY == 0):
+            #     guess = pop[0]
+            #
+            #     if is_master_node:
+            #         print("MASTER: performing local minimization on best " +
+            #               "individual", flush=True)
+            #
+            #     # time-saver for testing purposes; TODO: delete later
+            #     was_run_prev = False
+            #
+            #     if not was_run_prev:
+            #         improved = local_minimization([guess], toolbox,
+            #                 is_master_node, comm, NUM_LMIN_STEPS)
+            #
+            #     if is_master_node:
+            #         if not was_run_prev:
+            #             np.savetxt("after_local_min_temp-crystal-first.dat",
+            #                        improved)
+            #         else:
+            #             improved = np.genfromtxt("after_local_min_temp.dat")
+            #
+            #         pop[0] = creator.Individual(improved)
+            #
+            # pop = comm.bcast(pop, root=0)
+            opt_results = least_squares(toolbox.evaluate_population, indiv,
+                                        toolbox.gradient, method='lm',
+                                        max_nfev=NUM_LMIN_STEPS)
 
-                if is_master_node:
-                    print("MASTER: performing local minimization on best " +
-                          "individual", flush=True)
-
-                # time-saver for testing purposes; TODO: delete later
-                was_run_prev = False
-
-                if not was_run_prev:
-                    improved = local_minimization([guess], toolbox,
-                            is_master_node, comm, NUM_LMIN_STEPS)
-
-                if is_master_node:
-                    if not was_run_prev:
-                        np.savetxt("after_local_min_temp-crystal-first.dat",
-                                   improved)
-                    else:
-                        improved = np.genfromtxt("after_local_min_temp.dat")
-
-                    pop[0] = creator.Individual(improved)
-
-            pop = comm.bcast(pop, root=0)
+            indiv = creator.Individual(opt_results['x'])
 
             # Compute fitnesses with mated/mutated/optimized population
-            fitnesses = toolbox.evaluate_population(pop)
+            fitnesses = np.sum(toolbox.evaluate_population(indiv))
             all_fitnesses = comm.gather(fitnesses, root=0)
+
+            # fitnesses = toolbox.evaluate_population(pop)
+            # all_fitnesses = comm.gather(fitnesses, root=0)
 
             # Update individuals with new fitnesses
             if is_master_node:
-                all_fitnesses = np.sum(all_fitnesses, axis=0)
+                # all_fitnesses = np.sum(all_fitnesses, axis=0)
+                all_fitnesses = np.vstack(all_fitnesses, axis=0)
 
                 for ind,fit in zip(pop, all_fitnesses):
                     ind.fitness.values = fit,
@@ -248,65 +278,70 @@ def main():
                 # Sort
                 pop = tools.selBest(pop, len(pop))
 
-            # Print statistics to screen and checkpoint
-            if is_master_node:
+                # Print statistics to screen and checkpoint
                 print_statistics(pop, i+1, stats, logbook)
 
                 if (i % CHECKPOINT_FREQUENCY == 0):
                     best = np.array(tools.selBest(pop, 1)[0])
                     checkpoint(pop, logbook, best, i)
 
-            i += 1
+                best_guess = pop[0]
 
-        best_guess = pop[0]
+            i += 1
     else:
         pop = np.genfromtxt(POP_FILE_NAME)
         best_guess = creator.Individual(pop[0])
 
     # Perform a final local optimization on the final results of the GA
-    best_guess = comm.bcast(best_guess, root=0)
+    # best_guess = comm.bcast(best_guess, root=0)
 
-    best_fitness = toolbox.evaluate_population([best_guess])
-    best_fitness = comm.gather(best_fitness, root=0)
+    # best_fitness = toolbox.evaluate_population([best_guess])
+    # best_fitness = comm.gather(best_fitness, root=0)
 
     if is_master_node:
         ga_runtime = time.time() - ga_start
+
+        best_fitness = toolbox.evaluate_population([best_guess])
+        best_fitness = comm.gather(best_fitness, root=0)
+
         print("MASTER: GA runtime = {:.2f} (s)".format(ga_runtime), flush=True)
         print("MASTER: Average time per step = {:.2f}"
                 " (s)".format(ga_runtime/NUM_GENS), flush=True)
 
         best_fitness = np.sum(best_fitness, axis=0)
 
-        print("MASTER: Fitness before final local minimization = ",
-              best_fitness[0], flush=True)
-
         pow_start = time.time()
 
-    improved = local_minimization(best_guess, toolbox,
-            is_master_node, comm, NUM_LMIN_STEPS)
+        opt_results = least_squares(toolbox.evaluate_population, indiv,
+                                    toolbox.gradient, method='lm')
 
-    if is_master_node:
-        print("MASTER: CG runtime = {:.2f} (s)".format(time.time() - pow_start))
+        final = creator.Individual(opt_results['x'])
 
-        np.savetxt("after_cg_temp-crystal-final.dat", improved)
+        print("MASTER: LMIN runtime = {:.2f} (s)".format(time.time()-pow_start))
 
-    optimized_fitness = toolbox.evaluate_population([improved])
-    optimized_fitness = comm.gather(optimized_fitness, root=0)
+    # improved = local_minimization(best_guess, toolbox,
+    #         is_master_node, comm, NUM_LMIN_STEPS)
 
-    if is_master_node:
-        optimized_fitness = np.sum(optimized_fitness, axis=0)[0]
+    # if is_master_node:
 
-        improved = creator.Individual(improved)
-        improved.fitness.values = optimized_fitness,
-        print("MASTER: Fitness after local minimization =",
-              optimized_fitness, flush=True)
+        # np.savetxt(SAVE_DIRECTORY + "final_pot.dat", final)
+
+    # optimized_fitness = toolbox.evaluate_population([improved])
+    # optimized_fitness = comm.gather(optimized_fitness, root=0)
+    #
+    # if is_master_node:
+    #     optimized_fitness = np.sum(optimized_fitness, axis=0)[0]
+    #
+    #     improved = creator.Individual(improved)
+    #     improved.fitness.values = optimized_fitness,
+    #     print("MASTER: Fitness after local minimization =",
+    #           optimized_fitness, flush=True)
 
     # Save final results
     if is_master_node:
-        improved_arr = np.array(improved)
+        final_arr = np.array(final)
 
-        np.savetxt(SAVE_PATH + 'final_potential.dat', improved_arr)
-        np.savetxt(open(TRACE_FILE_NAME, 'ab'), [improved_arr])
+        np.savetxt(SAVE_DIRECTORY + 'final_potential.dat', final_arr)
 
         # plot_best_individual()
 
@@ -445,7 +480,6 @@ def prepare_save_directory():
                 " to ovewrite old data, or Ctrl-C to quit")
         input("/" + "*"*30 + " WARNING " + "*"*30 + "/\n")
     else:
-        os.rmdir(SAVE_DIRECTORY)
         os.mkdir(SAVE_DIRECTORY)
 
     print()
@@ -536,16 +570,68 @@ def build_evaluation_functions(structures, weights, true_forces, true_energies,
     """Builds the function to evaluate populations. Wrapped here for readability
     of main code."""
 
-    def fxn(population):
+    # def fxn(population):
+    #     # Convert list of Individuals into a numpy array
+    #     full = np.vstack(population)
+    #
+    #     # TODO: hardcoded
+    #     full = np.hstack([full, np.zeros((full.shape[0], 54))])
+    #
+    #     fitnesses = np.zeros(full.shape[0])
+    #
+    #     # Compute error for each worker on MPI node
+    #     for name in structures.keys():
+    #         w = structures[name]
+    #
+    #         fcs_err = w.compute_forces(full) - true_forces[name]
+    #         eng_err = w.compute_energy(full) - true_energies[name]
+    #
+    #         # Scale force errors
+    #         fcs_err = np.linalg.norm(fcs_err, axis=(1,2)) / np.sqrt(10)
+    #
+    #         fitnesses += fcs_err*fcs_err*weights[name]
+    #         fitnesses += eng_err*eng_err*weights[name]
+    #
+    #     print(fitnesses[0])
+    #     return fitnesses
+    #
+    # def grad(pot):
+    #     # TODO: hardcoded
+    #     pot = np.vstack(pot)
+    #     full = np.hstack([pot, np.zeros((pot.shape[0], 54))])
+    #
+    #     grad_vec = np.zeros((pot.shape[0], full.shape[1]))
+    #
+    #     for name in structures.keys():
+    #         w = structures[name]
+    #
+    #         eng_err = w.compute_energy(full) - true_energies[name]
+    #         fcs_err = (w.compute_forces(full) - true_forces[name])
+    #
+    #         # Scale force errors
+    #
+    #         # compute gradients
+    #         eng_grad = w.energy_gradient_wrt_pvec(full)
+    #         fcs_grad = w.forces_gradient_wrt_pvec(full)
+    #
+    #         scaled = np.einsum('pna,pnak->pnak', fcs_err, fcs_grad)
+    #         summed = scaled.sum(axis=1).sum(axis=1)
+    #
+    #         grad_vec += eng_err[:, np.newaxis]*eng_grad*2
+    #         grad_vec += 2*summed / 10
+    #
+    #     # TODO: hardcoded
+    #     return grad_vec[:, :83]
+    def fxn(pot):
         # Convert list of Individuals into a numpy array
-        full = np.vstack(population)
+        pot = np.atleast_2d(pot)
+        # full = np.hstack([pot, np.zeros((pot.shape[0], 108))])
+        full = np.hstack([pot, np.zeros((pot.shape[0], 54))])
 
-        # TODO: hardcoded
-        full = np.hstack([full, np.zeros((full.shape[0], 54))])
-
-        fitnesses = np.zeros(full.shape[0])
+        fitness = np.zeros(2*len(structures))
 
         # Compute error for each worker on MPI node
+        i = 0
         for name in structures.keys():
             w = structures[name]
 
@@ -555,18 +641,23 @@ def build_evaluation_functions(structures, weights, true_forces, true_energies,
             # Scale force errors
             fcs_err = np.linalg.norm(fcs_err, axis=(1,2)) / np.sqrt(10)
 
-            fitnesses += fcs_err*fcs_err*weights[name]
-            fitnesses += eng_err*eng_err*weights[name]
+            fitness[i] += eng_err*eng_err*weights[name]
+            fitness[i+1] += fcs_err*fcs_err*weights[name]
 
-        return fitnesses
+            i += 2
+
+        print(np.sum(fitness), flush=True)
+
+        return fitness
 
     def grad(pot):
-        # TODO: hardcoded
-        pot = np.vstack(pot)
+        pot = np.atleast_2d(pot)
+        # full = np.hstack([pot, np.zeros((pot.shape[0], 108))])
         full = np.hstack([pot, np.zeros((pot.shape[0], 54))])
 
-        grad_vec = np.zeros((pot.shape[0], full.shape[1]))
+        grad_vec = np.zeros((2*len(structures), full.shape[1]))
 
+        i = 0
         for name in structures.keys():
             w = structures[name]
 
@@ -582,11 +673,14 @@ def build_evaluation_functions(structures, weights, true_forces, true_energies,
             scaled = np.einsum('pna,pnak->pnak', fcs_err, fcs_grad)
             summed = scaled.sum(axis=1).sum(axis=1)
 
-            grad_vec += eng_err[:, np.newaxis]*eng_grad*2
-            grad_vec += 2*summed / 10
+            grad_vec[i] += (eng_err[:, np.newaxis]*eng_grad*2).ravel()
+            grad_vec[i+1] += (2*summed / 10).ravel()
 
-        # TODO: hardcoded
-        return grad_vec[:, :83]
+            i += 2
+
+        # return grad_vec[:,:36]
+        return grad_vec[:,:83]
+
     return fxn, grad
 
 def build_stats_and_log():
@@ -653,13 +747,9 @@ def local_minimization(guess, toolbox, is_master_node, comm, num_steps=None,
 
         return value
 
-    lmin_counter = 0
-
     def cb(x):
-        global lmin_counter
-        lmin_counter += 1
-
-        print('-'*30 + "CG step " + str(lmin_counter) + '-'*30)
+        pass
+        # print('-'*30 + "CG step " + '-'*30)
 
     if is_master_node:
         stop = [0]
