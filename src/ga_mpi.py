@@ -54,7 +54,7 @@ MUTPB = 0.5
 RUN_NEW_GA = True
 
 DO_LMIN = True
-LMIN_FREQUENCY = 100
+LMIN_FREQUENCY = 10
 NUM_LMIN_STEPS = 20
 
 CHECKPOINT_FREQUENCY = 10
@@ -64,12 +64,12 @@ CHECKPOINT_FREQUENCY = 10
 
 date_str = datetime.datetime.now().strftime("%Y-%m-%d")
 
-CHECK_BEFORE_OVERWRITE = False
+CHECK_BEFORE_OVERWRITE = True
 
 # TODO: save path should be date + info_tag
 
-# LOAD_PATH = "data/fitting_databases/leno-redo/"
-LOAD_PATH = "/projects/sciteam/baot/leno-redo/"
+LOAD_PATH = "data/fitting_databases/leno-redo/"
+# LOAD_PATH = "/projects/sciteam/baot/leno-redo/"
 SAVE_PATH = "data/ga_results/"
 SAVE_DIRECTORY = SAVE_PATH + date_str + "-" + "lm_version"
 
@@ -178,6 +178,7 @@ def main():
     print("SLAVE: Rank", rank, "minimized fitness:", fitnesses, flush=True)
 
     all_fitnesses = comm.gather(fitnesses, root=0)
+    pop = comm.gather(indiv, root=0)
 
     # Have master gather fitnesses and update individuals
     if is_master_node:
@@ -186,6 +187,7 @@ def main():
         all_fitnesses = np.vstack(all_fitnesses)
 
         for ind,fit in zip(pop, all_fitnesses):
+            print(fit)
             ind.fitness.values = fit,
 
         # Sort population; best on top
@@ -202,7 +204,7 @@ def main():
         # print("MASTER: after initial local minimization: ",
         #       toolbox.evaluate_population([pop[0]])[0])
 
-        # print_statistics(pop, 0, stats, logbook)
+        print_statistics(pop, 0, stats, logbook)
 
         checkpoint(pop, logbook, pop[0], 0)
         ga_start = time.time()
@@ -222,10 +224,9 @@ def main():
                     pop[j] = kid
 
                 # Mutate randomly everyone except top 2
-                for ind in pop[2:]:
-                    if MUTPB >= np.random.random():
-
-                        toolbox.mutate(ind)
+                # for ind in pop[2:]:
+                for ind in pop:
+                    if MUTPB >= np.random.random(): toolbox.mutate(ind)
             else:
                 pop = None
 
@@ -269,6 +270,7 @@ def main():
             # Compute fitnesses with mated/mutated/optimized population
             fitnesses = np.sum(toolbox.evaluate_population(indiv))
             all_fitnesses = comm.gather(fitnesses, root=0)
+            pop = comm.gather(indiv, root=0)
 
             # fitnesses = toolbox.evaluate_population(pop)
             # all_fitnesses = comm.gather(fitnesses, root=0)
@@ -276,6 +278,7 @@ def main():
             # Update individuals with new fitnesses
             if is_master_node:
                 # all_fitnesses = np.sum(all_fitnesses, axis=0)
+                print("MASTER: received fitnesses:", all_fitnesses, flush=True)
                 all_fitnesses = np.vstack(all_fitnesses)
 
                 for ind,fit in zip(pop, all_fitnesses):
@@ -285,7 +288,7 @@ def main():
                 pop = tools.selBest(pop, len(pop))
 
                 # Print statistics to screen and checkpoint
-                print_statistics(pop, i+1, stats, logbook)
+                # print_statistics(pop, i, stats, logbook)
 
                 if (i % CHECKPOINT_FREQUENCY == 0):
                     best = np.array(tools.selBest(pop, 1)[0])
@@ -515,7 +518,7 @@ def load_structures_on_master():
 
     i = 0
     # for name in database.keys():
-    for name in glob.glob(DB_PATH + '*'):
+    for name in glob.glob(DB_PATH + '*')[:100]:
 
         # if 'dimer' in name:
         short_name = os.path.split(name)[-1]
