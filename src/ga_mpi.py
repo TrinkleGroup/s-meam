@@ -68,9 +68,9 @@ CHECK_BEFORE_OVERWRITE = True
 
 # TODO: save path should be date + info_tag
 
-LOAD_PATH = "data/fitting_databases/leno-redo/"
+LOAD_PATH = "../data/fitting_databases/leno-redo/"
 # LOAD_PATH = "/projects/sciteam/baot/leno-redo/"
-SAVE_PATH = "data/ga_results/"
+SAVE_PATH = "../data/ga_results/"
 SAVE_DIRECTORY = SAVE_PATH + date_str + "-" + "lm_version"
 
 # DB_FILE_NAME = LOAD_PATH + 'phionly/structures.hdf5'
@@ -93,6 +93,9 @@ def main():
     is_master_node = (rank == MASTER_RANK)
 
     if is_master_node:
+        # f = open(TRACE_FILE_NAME, 'wb')
+        # np.savetxt(f, np.zeros(10))
+        # f.close()
 
         # Initialize database and variables to prepare for GA
         print_settings()
@@ -818,7 +821,9 @@ def checkpoint(population, logbook, trace_update, i):
 
     np.savetxt(POP_FILE_NAME + str(i), population)
     pickle.dump(logbook, open(LOG_FILE_NAME, 'wb'))
-    np.savetxt(open(TRACE_FILE_NAME, 'ab'), [trace_update])
+
+    f = open(TRACE_FILE_NAME, 'ab')
+    np.savetxt(f, [np.array(trace_update)])
 
 def load_locally(long_names):
     structures = {}
