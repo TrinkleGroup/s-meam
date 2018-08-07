@@ -1,5 +1,7 @@
 import os
-os.chdir("/home/jvita/scripts/s-meam/project/")
+# os.chdir("/home/jvita/scripts/s-meam/project/")
+import sys
+sys.path.append('./')
 
 import numpy as np
 import random
@@ -62,11 +64,12 @@ CHECKPOINT_FREQUENCY = 10
 
 date_str = datetime.datetime.now().strftime("%Y-%m-%d")
 
-CHECK_BEFORE_OVERWRITE = True
+CHECK_BEFORE_OVERWRITE = False
 
 # TODO: save path should be date + info_tag
 
-LOAD_PATH = "data/fitting_databases/leno-redo/"
+# LOAD_PATH = "data/fitting_databases/leno-redo/"
+LOAD_PATH = "/projects/sciteam/baot/leno-redo/"
 SAVE_PATH = "data/ga_results/"
 SAVE_DIRECTORY = SAVE_PATH + date_str + "-" + "lm_version"
 
@@ -163,7 +166,7 @@ def main():
         pop = None
 
     # pop = comm.bcast(pop, root=0)
-    print("SLAVE: Rank", rank, "performing LMIN ...", flush=True)
+    print("SLAVE: Rank", rank, "performing initial LMIN ...", flush=True)
     indiv = comm.scatter(pop, root=0)
     opt_results = least_squares(toolbox.evaluate_population, indiv,
                                 toolbox.gradient, method='lm',
@@ -178,8 +181,9 @@ def main():
 
     # Have master gather fitnesses and update individuals
     if is_master_node:
+        print("MASTER: received fitnesses:", all_fitnesses, flush=True)
         # all_fitnesses = np.sum(all_fitnesses, axis=0)
-        all_fitnesses = np.vstack(all_fitnesses, axis=0)
+        all_fitnesses = np.vstack(all_fitnesses)
 
         for ind,fit in zip(pop, all_fitnesses):
             ind.fitness.values = fit,
@@ -254,11 +258,13 @@ def main():
             #         pop[0] = creator.Individual(improved)
             #
             # pop = comm.bcast(pop, root=0)
-            opt_results = least_squares(toolbox.evaluate_population, indiv,
-                                        toolbox.gradient, method='lm',
-                                        max_nfev=NUM_LMIN_STEPS)
+            if DO_LMIN and (i % LMIN_FREQUENCY == 0):
+                print("SLAVE: Rank", rank, "performing intermediate LMIN ...", flush=True)
+                opt_results = least_squares(toolbox.evaluate_population, indiv,
+                                            toolbox.gradient, method='lm',
+                                            max_nfev=NUM_LMIN_STEPS)
 
-            indiv = creator.Individual(opt_results['x'])
+                indiv = creator.Individual(opt_results['x'])
 
             # Compute fitnesses with mated/mutated/optimized population
             fitnesses = np.sum(toolbox.evaluate_population(indiv))
@@ -270,7 +276,7 @@ def main():
             # Update individuals with new fitnesses
             if is_master_node:
                 # all_fitnesses = np.sum(all_fitnesses, axis=0)
-                all_fitnesses = np.vstack(all_fitnesses, axis=0)
+                all_fitnesses = np.vstack(all_fitnesses)
 
                 for ind,fit in zip(pop, all_fitnesses):
                     ind.fitness.values = fit,
@@ -355,6 +361,7 @@ def build_ga_toolbox(pvec_len, index_ranges):
             fitness=creator.CostFunctionMinimizer)
 
     def ret_pvec(arr_fxn, rng):
+        scale_mag = 0.3
         # hard-coded version for pair-pots only
         ind = np.zeros(83)
 
@@ -365,22 +372,22 @@ def build_ga_toolbox(pvec_len, index_ranges):
         ind[:13] += np.random.normal(size=(13,), scale=0.1)
 
         ind[15:20] += np.linspace(0.2*(-1), 0.8*(4), 5)[::-1]
-        ind[15:20] += np.random.normal(size=(5,), scale=(5)*0.1)
+        ind[15:20] += np.random.normal(size=(5,), scale=(5)*scale_mag)
 
         ind[22:35] += np.linspace(0.2*(-1), 0.8, 13)[::-1]
-        ind[22:35] += np.random.normal(size=(13,), scale=(2)*0.1)
+        ind[22:35] += np.random.normal(size=(13,), scale=(2)*scale_mag)
 
         ind[37:48] += np.linspace(0.2*(-9), 0.8*(3), 11)[::-1]
-        ind[37:48] += np.random.normal(size=(11,), scale=(5)*0.1)
+        ind[37:48] += np.random.normal(size=(11,), scale=(5)*scale_mag)
 
         ind[50:55] += np.linspace(0.2*(-30), 0.8*(15), 5)[::-1]
-        ind[50:55] += np.random.normal(size=(5,), scale=(2)*0.1)
+        ind[50:55] += np.random.normal(size=(5,), scale=(2)*scale_mag)
 
         ind[57:61] += np.linspace(0.2*(-0.5), 0.8*(1), 4)[::-1]
-        ind[57:61] += np.random.normal(size=(4,), scale=(5)*0.1)
+        ind[57:61] += np.random.normal(size=(4,), scale=(5)*scale_mag)
 
         ind[63:68] += np.linspace(0.2*(-0.2), 0.8*(0.4), 5)[::-1]
-        ind[63:68] += np.random.normal(size=(5,), scale=(2)*0.1)
+        ind[63:68] += np.random.normal(size=(5,), scale=(2)*scale_mag)
 
         return arr_fxn(ind)
 
@@ -646,7 +653,7 @@ def build_evaluation_functions(structures, weights, true_forces, true_energies,
 
             i += 2
 
-        print(np.sum(fitness), flush=True)
+        # print(np.sum(fitness), flush=True)
 
         return fitness
 
