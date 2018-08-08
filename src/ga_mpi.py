@@ -5,7 +5,7 @@ sys.path.append('./')
 
 import numpy as np
 import random
-np.set_printoptions(precision=16, linewidth=np.inf, suppress=True)
+np.set_printoptions(precision=8, linewidth=np.inf, suppress=True)
 np.random.seed(42)
 random.seed(42)
 
@@ -46,7 +46,7 @@ comm = MPI.COMM_WORLD
 mpi_size = comm.Get_size()
 
 POP_SIZE = mpi_size
-NUM_GENS = 2000
+NUM_GENS = 1
 CXPB = 1.0
 MUTPB = 0.5
 
@@ -54,9 +54,9 @@ RUN_NEW_GA = True
 
 DO_LMIN = True
 LMIN_FREQUENCY = 50
-SMALL_NSTEPS = 20
-MED_NSTEPS = 2000
-LARGE_NSTEPS = 200
+SMALL_NSTEPS = 1
+MED_NSTEPS = 20
+LARGE_NSTEPS = 1
 
 #rzm: consider rescaling out-of-bounds potentials
 
@@ -71,12 +71,11 @@ CHECK_BEFORE_OVERWRITE = False
 
 # TODO: save path should be date + info_tag
 
-# LOAD_PATH = "../data/fitting_databases/leno-redo/"
-LOAD_PATH = "/projects/sciteam/baot/leno-redo/"
+LOAD_PATH = "data/fitting_databases/leno-redo/"
+# LOAD_PATH = "/projects/sciteam/baot/leno-redo/"
 SAVE_PATH = "data/ga_results/"
-SAVE_DIRECTORY = SAVE_PATH + date_str + "-" + "lm_version"
+SAVE_DIRECTORY = SAVE_PATH + date_str + "-" + "debugging"
 
-# DB_FILE_NAME = LOAD_PATH + 'phionly/structures.hdf5'
 DB_PATH = LOAD_PATH + 'structures/'
 DB_INFO_FILE_NAME = LOAD_PATH + 'rhophi/info'
 POP_FILE_NAME = SAVE_DIRECTORY + "/pop.dat"
@@ -292,9 +291,13 @@ def main():
         print_statistics(pop, i, stats, logbook)
 
         best = np.array(tools.selBest(pop, 1)[0])
+
+        recheck = np.sum(toolbox.evaluate_population(best))
+        print("MASTER: confirming best fitness:", recheck)
+
         final_arr = np.array(best)
 
-        checkpoint(pop, logbook, best, i)
+        checkpoint(pop, logbook, final_arr, i)
         np.savetxt(SAVE_DIRECTORY + '/final_potential.dat', final_arr)
 
         # plot_best_individual()
@@ -440,10 +443,10 @@ def prepare_save_directory():
         print("A folder already exists for these settings.\nPress Enter"
                 " to ovewrite old data, or Ctrl-C to quit")
         input("/" + "*"*30 + " WARNING " + "*"*30 + "/\n")
-    else:
-        os.mkdir(SAVE_DIRECTORY)
-
     print()
+
+    # os.rmdir(SAVE_DIRECTORY)
+    # os.mkdir(SAVE_DIRECTORY)
 
 def print_settings():
     """Prints settings to screen"""
@@ -468,7 +471,7 @@ def load_structures_on_master():
 
     i = 0
     # for name in database.keys():
-    for name in glob.glob(DB_PATH + '*')[:100]:
+    for name in glob.glob(DB_PATH + '*'):
 
         # if 'dimer' in name:
         short_name = os.path.split(name)[-1]
@@ -606,6 +609,7 @@ def build_evaluation_functions(structures, weights, true_forces, true_energies,
 
             i += 2
 
+        # print(fitness, flush=True)
         # print(np.sum(fitness), flush=True)
 
         return fitness
