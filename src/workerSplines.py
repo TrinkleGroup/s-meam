@@ -669,7 +669,7 @@ class USpline(WorkerSpline):
             abcd = abcd.reshape(list(org_shape) + [abcd.shape[1]])
 
             self.structure_vectors['energy'] += np.sum(abcd, axis=1)
-            self.structure_vectors['energy'] -= self.zero_abcd * num_new_atoms
+            # self.structure_vectors['energy'] -= self.zero_abcd * num_new_atoms
 
     def add_to_deriv_struct_vec(self, values, indices):
         if values.shape[0] > 0:
