@@ -203,14 +203,12 @@ def main():
 
         final = opt_best['x']
 
-        f = open("final_pot.dat", 'ab')
+        f = open("final_pot.dat", 'wb')
 
         np.savetxt(f, final)
-        np.savetxt(f, eval_fxn(final))
+        # np.savetxt(f, [np.sum(eval_fxn(final))])
 
         f.close()
-
-
 
 ################################################################################
 
