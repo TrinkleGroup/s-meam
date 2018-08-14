@@ -42,8 +42,8 @@ COGNITIVE_WEIGHT = 0.005  # relative importance of individual best
 SOCIAL_WEIGHT = 0.003     # relative importance of global best
 MOMENTUM_WEIGHT = 0.002   # relative importance of particle momentum
 
-MAX_NUM_PSO_STEPS = 500
-NUM_LMIN_STEPS = 30
+MAX_NUM_PSO_STEPS = 10
+NUM_LMIN_STEPS = 5
 
 FITNESS_THRESH = 1
 
@@ -150,7 +150,7 @@ def main():
     i = 0
     while (i < MAX_NUM_PSO_STEPS) and (global_best_fit > FITNESS_THRESH):
         if is_master_node:
-            print("{} {}".format(i+1, global_best_fit))
+            print("{} {}".format(i+1, global_best_fit[0]), flush=True)
 
         # generate new velocities; update positions
         rp = np.random.random(position.shape[0])
@@ -179,9 +179,6 @@ def main():
             all_fitnesses = np.vstack(all_fitnesses)
 
             min_idx = np.argmin(all_fitnesses)
-
-            global_best_pos = new_positions[min_idx]
-            global_best_fit = all_fitnesses[min_idx]
 
             if all_fitnesses[min_idx] < global_best_fit:
                 global_best_pos = new_position[min_idx]
