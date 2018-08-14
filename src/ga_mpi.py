@@ -58,8 +58,6 @@ SMALL_NSTEPS = 1
 MED_NSTEPS = 20
 LARGE_NSTEPS = 1
 
-#rzm: consider rescaling out-of-bounds potentials
-
 CHECKPOINT_FREQUENCY = 10
 
 ################################################################################ 
@@ -69,10 +67,10 @@ date_str = datetime.datetime.now().strftime("%Y-%m-%d")
 
 CHECK_BEFORE_OVERWRITE = False
 
-# TODO: save path should be date + info_tag
+# TODO: BW settings
 
-LOAD_PATH = "data/fitting_databases/leno-redo/"
-# LOAD_PATH = "/projects/sciteam/baot/leno-redo/"
+# LOAD_PATH = "data/fitting_databases/leno-redo/"
+LOAD_PATH = "/projects/sciteam/baot/leno-redo/"
 SAVE_PATH = "data/ga_results/"
 SAVE_DIRECTORY = SAVE_PATH + date_str + "-" + "debugging"
 
