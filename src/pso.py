@@ -16,8 +16,10 @@ from scipy.optimize import least_squares
 
 ################################################################################
 
-# LOAD_PATH = "data/fitting_databases/leno-redo/"
-LOAD_PATH = "/projects/sciteam/baot/leno-redo/"
+# TODO: BW settings
+
+LOAD_PATH = "data/fitting_databases/leno-redo/"
+# LOAD_PATH = "/projects/sciteam/baot/leno-redo/"
 
 DB_PATH = LOAD_PATH + 'structures/'
 DB_INFO_FILE_NAME = LOAD_PATH + 'rhophi/info'
@@ -44,8 +46,8 @@ COGNITIVE_WEIGHT = 0.005  # relative importance of individual best
 SOCIAL_WEIGHT = 0.003     # relative importance of global best
 MOMENTUM_WEIGHT = 0.002   # relative importance of particle momentum
 
-MAX_NUM_PSO_STEPS = 500
-NUM_LMIN_STEPS = 30
+MAX_NUM_PSO_STEPS = 5
+NUM_LMIN_STEPS = 5
 
 FITNESS_THRESH = 1
 
@@ -54,8 +56,11 @@ FITNESS_THRESH = 1
 def main():
     if is_master_node:
 
-        print("MASTER: Preparing save directory/files ... ", flush=True)
-        prepare_save_directory()
+        # print("MASTER: Preparing save directory/files ... ", flush=True)
+        # prepare_save_directory()
+
+        for fname in [LOG_FILENAME, BEST_TRACE_FILENAME, FINAL_FILENAME]:
+            if os.path.isfile(fname): os.remove(fname)
 
         print("MASTER: Loading structures ...", flush=True)
         structures, weights = load_structures_on_master()
@@ -148,7 +153,7 @@ def main():
         global_best_fit_trace = []
 
         log_f = open(LOG_FILENAME, 'wb')
-        np.savetxt(log_f, np.concatenate([[0], all_fitnesses.ravel()]))
+        np.savetxt(log_f, [np.concatenate([[0], all_fitnesses.ravel()])])
         log_f.close()
 
         print("MASTER: step g_best", flush=True)
@@ -194,8 +199,12 @@ def main():
         global_best_fit = comm.bcast(global_best_fit, root=0)
 
         if is_master_node:
+            log_f = open(LOG_FILENAME, 'wb')
+            np.savetxt(log_f, [np.concatenate([[0], all_fitnesses.ravel()])])
+            log_f.close()
+
             f = open(BEST_TRACE_FILENAME, 'ab')
-            np.savetxt(f, np.concatenate([[global_best_fit, global_best_pos]]))
+            np.savetxt(f, [np.concatenate([global_best_fit, global_best_pos.ravel()])])
             f.close()
 
         i += 1
@@ -204,11 +213,14 @@ def main():
         opt_best = least_squares(eval_fxn, position, grad_fxn, method='lm',
                 max_nfev=NUM_LMIN_STEPS)
 
-        final_opt = opt_best['x']
-        final_val = np.sum(eval_fxn(final))
+        final_pot = opt_best['x']
+        final_val = np.sum(eval_fxn(final_pot))
 
         f = open(FINAL_FILENAME, 'wb')
-        np.savetxt(f, np.concatenate([[final_val, final_opt]]))
+        print(final_pot)
+        print(final_val)
+        np.savetxt(f, [final_val])
+        np.savetxt(f, [final_pot.ravel()])
         f.close()
 
 ################################################################################
