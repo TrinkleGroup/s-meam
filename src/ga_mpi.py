@@ -69,8 +69,8 @@ CHECK_BEFORE_OVERWRITE = False
 
 # TODO: BW settings
 
-# LOAD_PATH = "data/fitting_databases/leno-redo/"
-LOAD_PATH = "/projects/sciteam/baot/leno-redo/"
+LOAD_PATH = "data/fitting_databases/leno-redo/"
+# LOAD_PATH = "/projects/sciteam/baot/leno-redo/"
 SAVE_PATH = "data/ga_results/"
 SAVE_DIRECTORY = SAVE_PATH + date_str + "-" + "debugging"
 
@@ -778,6 +778,31 @@ def get_all_struct_names():
 
 def load_weights(names):
     return {key:1 for key in names}
+
+def find_spline_type_deliminating_indices(worker):
+    """Finds the indices in the parameter vector that correspond to start/end
+    (inclusive/exclusive respectively) for each spline group. For example,
+    phi_range[0] is the index of the first know of the phi splines, while
+    phi_range[1] is the next knot that is NOT part of the phi splines
+
+    Args:
+        worker (WorkerSpline): example worker that holds all spline objects
+    """
+
+    ntypes = worker.ntypes
+    nphi = worker.nphi
+
+    splines = worker.phis + worker.rhos + worker.us + worker.fs + worker.gs
+    indices = [s.index for s in splines]
+
+    phi_range = (indices[0], indices[nphi])
+    rho_range = (indices[nphi], indices[nphi + ntypes])
+    u_range = (indices[nphi + ntypes], indices[nphi + 2*ntypes])
+    f_range = (indices[nphi + 2*ntypes], indices[nphi + 3*ntypes])
+    g_range = (indices[nphi + 3*ntypes], -1)
+
+    return [phi_range, rho_range, u_range, f_range, g_range], indices
+
 
 ################################################################################
 
