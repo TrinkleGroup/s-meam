@@ -190,10 +190,18 @@ def main():
         while (i < NUM_GENS):
             if is_master_node:
 
-                # Preserve top 2, cross others with top 2
-                for j in range(2, len(pop)):
-                    mom = pop[np.random.randint(2)]
-                    dad = pop[j]
+                # Preserve top 50%, breed survivors
+                for j in range(len(pop)//2, len(pop)):
+                    # mom = pop[np.random.randint(len(pop)//2)]
+                    # dad = pop[j]
+                    mom_idx = np.random.randint(len(pop)//2)
+                    
+                    dad_idx = mom_idx
+                    while dad_idx == mom_idx:
+                        dad_idx = np.random.randint(len(pop)//2)
+
+                    mom = pop[mom_idx]
+                    dad = pop[dad_idx]
 
                     kid,_ = toolbox.mate(toolbox.clone(mom), toolbox.clone(dad))
                     pop[j] = kid

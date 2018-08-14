@@ -18,8 +18,8 @@ from scipy.optimize import least_squares
 
 # TODO: BW settings
 
-LOAD_PATH = "data/fitting_databases/leno-redo/"
-# LOAD_PATH = "/projects/sciteam/baot/leno-redo/"
+# LOAD_PATH = "data/fitting_databases/leno-redo/"
+LOAD_PATH = "/projects/sciteam/baot/leno-redo/"
 
 DB_PATH = LOAD_PATH + 'structures/'
 DB_INFO_FILE_NAME = LOAD_PATH + 'rhophi/info'
@@ -46,8 +46,8 @@ COGNITIVE_WEIGHT = 0.005  # relative importance of individual best
 SOCIAL_WEIGHT = 0.003     # relative importance of global best
 MOMENTUM_WEIGHT = 0.002   # relative importance of particle momentum
 
-MAX_NUM_PSO_STEPS = 5
-NUM_LMIN_STEPS = 5
+MAX_NUM_PSO_STEPS = 500
+NUM_LMIN_STEPS = 30
 
 FITNESS_THRESH = 1
 
@@ -199,7 +199,7 @@ def main():
         global_best_fit = comm.bcast(global_best_fit, root=0)
 
         if is_master_node:
-            log_f = open(LOG_FILENAME, 'wb')
+            log_f = open(LOG_FILENAME, 'ab')
             np.savetxt(log_f, [np.concatenate([[0], all_fitnesses.ravel()])])
             log_f.close()
 
@@ -217,8 +217,6 @@ def main():
         final_val = np.sum(eval_fxn(final_pot))
 
         f = open(FINAL_FILENAME, 'wb')
-        print(final_pot)
-        print(final_val)
         np.savetxt(f, [final_val])
         np.savetxt(f, [final_pot.ravel()])
         f.close()
