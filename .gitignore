@@ -225,3 +225,5 @@ data.*
 *poop*
 
 data/
+src/misc/*
+*.png

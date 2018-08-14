@@ -15,8 +15,8 @@ from scipy.optimize import least_squares
 # TODO: BW setting
 os.chdir('/home/jvita/scripts/s-meam/project/')
 
-POTS_PER_PROC = 2
-NUM_LMIN_STEPS = 10
+POTS_PER_PROC = 1
+NUM_LMIN_STEPS = 50
 
 # TODO: BW setting
 LOAD_PATH = "data/fitting_databases/leno-redo/"
@@ -211,6 +211,8 @@ def build_evaluation_functions(structures, weights, true_forces, true_energies,
         slave_outfile = open(filename, 'ab')
         np.savetxt(slave_outfile, [np.array([pot_id+1, np.sum(fitness)])])
         slave_outfile.close()
+
+        print(np.sum(fitness), flush=True)
 
         trace[pot_id].append(np.sum(fitness))
 
