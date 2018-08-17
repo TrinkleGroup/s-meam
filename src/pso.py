@@ -21,7 +21,7 @@ from scipy.optimize import least_squares
 # LOAD_PATH = "data/fitting_databases/leno-redo/"
 LOAD_PATH = "/projects/sciteam/baot/leno-redo/"
 
-DB_PATH = LOAD_PATH + 'structures/'
+DB_PATH = './structures/'
 DB_INFO_FILE_NAME = LOAD_PATH + 'rhophi/info'
 
 date_str = datetime.datetime.now().strftime("%Y-%m-%d")
@@ -44,9 +44,9 @@ SWARM_SIZE = mpi_size
 
 COGNITIVE_WEIGHT = 0.005  # relative importance of individual best
 SOCIAL_WEIGHT = 0.003     # relative importance of global best
-MOMENTUM_WEIGHT = 0.002   # relative importance of particle momentum
+MOMENTUM_WEIGHT = 0   # relative importance of particle momentum
 
-MAX_NUM_PSO_STEPS = 500
+MAX_NUM_PSO_STEPS = 20000
 NUM_LMIN_STEPS = 30
 
 FITNESS_THRESH = 1
@@ -156,12 +156,14 @@ def main():
         np.savetxt(log_f, [np.concatenate([[0], all_fitnesses.ravel()])])
         log_f.close()
 
-        print("MASTER: step g_best", flush=True)
+        print("MASTER: step g_best max avg std", flush=True)
 
     i = 0
     while (i < MAX_NUM_PSO_STEPS) and (global_best_fit > FITNESS_THRESH):
         if is_master_node:
-            print("{} {}".format(i+1, global_best_fit[0]), flush=True)
+            print("{} {} {} {} {}".format(
+                i+1, global_best_fit[0], np.max(all_fitnesses), np.average(all_fitnesses),
+                np.std(all_fitnesses), flush=True))
 
         # generate new velocities; update positions
         rp = np.random.random(position.shape[0])
@@ -200,7 +202,7 @@ def main():
 
         if is_master_node:
             log_f = open(LOG_FILENAME, 'ab')
-            np.savetxt(log_f, [np.concatenate([[0], all_fitnesses.ravel()])])
+            np.savetxt(log_f, [np.concatenate([[i], all_fitnesses.ravel()])])
             log_f.close()
 
             f = open(BEST_TRACE_FILENAME, 'ab')

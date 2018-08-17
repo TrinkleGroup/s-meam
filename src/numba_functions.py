@@ -5,7 +5,7 @@ from numba.pycc import CC
 cc = CC('fast')
 
 # @cc.export('onepass_min_max', 'UniTuple(f8, 2)(f8[:])')
-@jit(nopython=True, cache=True)
+@jit(nopython=True)
 def onepass_min_max(a):
     min = a[0]
     max = a[0]
@@ -17,7 +17,7 @@ def onepass_min_max(a):
     return min, max
 
 #@jit(nopython=True, cache=True)
-@jit(nopython=True, cache=True)
+@jit(nopython=True)
 def outer_prod(arr1, arr2):
     n_pots = arr1.shape[0]
 
@@ -46,7 +46,7 @@ def outer_prod_1d_2vecs(u1, u2, n1, n2, output):
 
     # return output
 
-@jit(cache=True, nopython=True)
+@jit(nopython=True)
 def outer_prod_1d(u1, u2, u3, n1, n2, n3, output):
     # return np.outer(np.outer(u1, u2).ravel(), u3).ravel()
     for i in range(n1):

@@ -46,9 +46,9 @@ comm = MPI.COMM_WORLD
 mpi_size = comm.Get_size()
 
 POP_SIZE = mpi_size
-NUM_GENS = 1
+NUM_GENS = 1000
 CXPB = 1.0
-MUTPB = 0.5
+MUTPB = 0.3
 
 RUN_NEW_GA = True
 
@@ -69,8 +69,8 @@ CHECK_BEFORE_OVERWRITE = False
 
 # TODO: BW settings
 
-LOAD_PATH = "data/fitting_databases/leno-redo/"
-# LOAD_PATH = "/projects/sciteam/baot/leno-redo/"
+# LOAD_PATH = "data/fitting_databases/leno-redo/"
+LOAD_PATH = "/projects/sciteam/baot/leno-redo/"
 SAVE_PATH = "data/ga_results/"
 SAVE_DIRECTORY = SAVE_PATH + date_str + "-" + "debugging"
 
@@ -218,13 +218,15 @@ def main():
 
             # Run local minimization on best individual if desired
             if DO_LMIN and (i % LMIN_FREQUENCY == 0):
-                print("SLAVE: Rank", rank, "performing intermediate LMIN ...", flush=True)
+                if is_master_node:
+                    print("MASTER: performing intermediate LMIN ...", flush=True)
+
                 opt_results = least_squares(toolbox.evaluate_population, indiv,
                                             toolbox.gradient, method='lm',
                                             max_nfev=SMALL_NSTEPS)
 
                 indiv = creator.Individual(opt_results['x'])
-                print("SLAVE: Rank", rank, "minimized fitness:", np.sum(toolbox.evaluate_population(indiv)))
+                # print("SLAVE: Rank", rank, "minimized fitness:", np.sum(toolbox.evaluate_population(indiv)))
 
             # Compute fitnesses with mated/mutated/optimized population
             fitnesses = np.sum(toolbox.evaluate_population(indiv))
@@ -234,7 +236,7 @@ def main():
             # Update individuals with new fitnesses
             if is_master_node:
                 # all_fitnesses = np.sum(all_fitnesses, axis=0)
-                print("MASTER: received fitnesses:", all_fitnesses, flush=True)
+                #print("MASTER: received fitnesses:", all_fitnesses, flush=True)
                 all_fitnesses = np.vstack(all_fitnesses)
 
                 for ind,fit in zip(pop, all_fitnesses):
@@ -360,7 +362,7 @@ def build_ga_toolbox(pvec_len, index_ranges):
     toolbox.register("parameter_set", ret_pvec, creator.Individual, np.random.normal)
     toolbox.register("population", tools.initRepeat, list, toolbox.parameter_set,)
     toolbox.register("mutate", tools.mutGaussian, mu=0, sigma=1, indpb=0.1)
-    toolbox.register("mate", tools.cxBlend, alpha=0.5)
+    toolbox.register("mate", tools.cxBlend, alpha=0.2)
 
     return toolbox, creator
 
@@ -452,7 +454,7 @@ def prepare_save_directory():
     print()
 
     # os.rmdir(SAVE_DIRECTORY)
-    # os.mkdir(SAVE_DIRECTORY)
+    os.mkdir(SAVE_DIRECTORY)
 
 def print_settings():
     """Prints settings to screen"""
