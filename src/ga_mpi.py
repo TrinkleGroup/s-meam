@@ -46,9 +46,10 @@ comm = MPI.COMM_WORLD
 mpi_size = comm.Get_size()
 
 POP_SIZE = mpi_size
-NUM_GENS = 1000
+NUM_GENS = 2000
 CXPB = 1.0
-MUTPB = 0.3
+# MUTPB = 0.5
+MUTPB = float(sys.argv[1])
 
 RUN_NEW_GA = True
 
@@ -72,7 +73,7 @@ CHECK_BEFORE_OVERWRITE = False
 # LOAD_PATH = "data/fitting_databases/leno-redo/"
 LOAD_PATH = "/projects/sciteam/baot/leno-redo/"
 SAVE_PATH = "data/ga_results/"
-SAVE_DIRECTORY = SAVE_PATH + date_str + "-" + "debugging"
+SAVE_DIRECTORY = SAVE_PATH + date_str + "-" + "debugging" + "{}-{}".format(NUM_GENS, MUTPB)
 
 DB_PATH = LOAD_PATH + 'structures/'
 DB_INFO_FILE_NAME = LOAD_PATH + 'rhophi/info'

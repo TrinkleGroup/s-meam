@@ -42,8 +42,8 @@ is_master_node = (rank == MASTER_RANK)
 
 SWARM_SIZE = mpi_size
 
-COGNITIVE_WEIGHT = 0.005  # relative importance of individual best
-SOCIAL_WEIGHT = 0.003     # relative importance of global best
+COGNITIVE_WEIGHT = 0.0005  # relative importance of individual best
+SOCIAL_WEIGHT = 0.0003     # relative importance of global best
 MOMENTUM_WEIGHT = 0   # relative importance of particle momentum
 
 MAX_NUM_PSO_STEPS = 20000
