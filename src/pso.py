@@ -18,10 +18,11 @@ from scipy.optimize import least_squares
 
 # TODO: BW settings
 
-# LOAD_PATH = "data/fitting_databases/leno-redo/"
-LOAD_PATH = "/projects/sciteam/baot/leno-redo/"
+LOAD_PATH = "data/fitting_databases/leno-redo/"
+# LOAD_PATH = "/projects/sciteam/baot/leno-redo/"
 
-DB_PATH = './structures/'
+# DB_PATH = './structures/'
+DB_PATH = LOAD_PATH + 'structures/'
 DB_INFO_FILE_NAME = LOAD_PATH + 'rhophi/info'
 
 date_str = datetime.datetime.now().strftime("%Y-%m-%d")
@@ -42,11 +43,11 @@ is_master_node = (rank == MASTER_RANK)
 
 SWARM_SIZE = mpi_size
 
-COGNITIVE_WEIGHT = 0.0005  # relative importance of individual best
-SOCIAL_WEIGHT = 0.0003     # relative importance of global best
+COGNITIVE_WEIGHT = 0.05  # relative importance of individual best
+SOCIAL_WEIGHT = 0.03     # relative importance of global best
 MOMENTUM_WEIGHT = 0   # relative importance of particle momentum
 
-MAX_NUM_PSO_STEPS = 20000
+MAX_NUM_PSO_STEPS = 2000
 NUM_LMIN_STEPS = 30
 
 FITNESS_THRESH = 1
@@ -166,8 +167,10 @@ def main():
                 np.std(all_fitnesses), flush=True))
 
         # generate new velocities; update positions
-        rp = np.random.random(position.shape[0])
-        rg = np.random.random(position.shape[0])
+        # rp = np.random.random(position.shape[0])
+        # rg = np.random.random(position.shape[0])
+        rp = random_velocity()
+        rg = random_velocity()
 
         new_velocity = \
             MOMENTUM_WEIGHT * velocity + \
@@ -349,6 +352,28 @@ def init_velocities(N):
 
     return velocities
 
+def random_velocity():
+    velocities = np.zeros((1, 83))
+
+    scale_mag = 0.3
+
+    ind = np.zeros(83)
+
+    ranges = [(-0.5, 0.5), (-1, 4), (-1, 1), (-9, 3), (-30, 15), (-0.5, 1),
+            (-0.2, 0.4)]
+
+    indices = [(0,13), (15,20), (22,35), (37,48), (50,55), (57,61), (63,68)]
+
+    for rng,ind_tup in zip(ranges, indices):
+        r_lo, r_hi = rng
+        i_lo, i_hi = ind_tup
+
+        diff = i_hi - i_lo
+
+        # velocities should cover the range [-diff, diff]
+        velocities[:,i_lo:i_hi] = np.random.random(i_hi-i_lo)*(2*diff) - diff
+
+    return velocities.ravel()
 
 def build_evaluation_functions(structures, weights, true_forces, true_energies,
         spline_indices):
