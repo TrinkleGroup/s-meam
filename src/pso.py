@@ -18,8 +18,8 @@ from scipy.optimize import least_squares
 
 # TODO: BW settings
 
-LOAD_PATH = "data/fitting_databases/leno-redo/"
-# LOAD_PATH = "/projects/sciteam/baot/leno-redo/"
+# LOAD_PATH = "data/fitting_databases/leno-redo/"
+LOAD_PATH = "/projects/sciteam/baot/leno-redo/"
 
 # DB_PATH = './structures/'
 DB_PATH = LOAD_PATH + 'structures/'
@@ -43,8 +43,8 @@ is_master_node = (rank == MASTER_RANK)
 
 SWARM_SIZE = mpi_size
 
-COGNITIVE_WEIGHT = 0.05  # relative importance of individual best
-SOCIAL_WEIGHT = 0.03     # relative importance of global best
+COGNITIVE_WEIGHT = 0.005  # relative importance of individual best
+SOCIAL_WEIGHT = 0.003     # relative importance of global best
 MOMENTUM_WEIGHT = 0   # relative importance of particle momentum
 
 MAX_NUM_PSO_STEPS = 2000

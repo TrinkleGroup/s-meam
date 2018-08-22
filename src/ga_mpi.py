@@ -54,10 +54,10 @@ MUTPB = float(sys.argv[1])
 RUN_NEW_GA = True
 
 DO_LMIN = True
-LMIN_FREQUENCY = 50
-SMALL_NSTEPS = 1
-MED_NSTEPS = 20
-LARGE_NSTEPS = 1
+LMIN_FREQUENCY = 1
+SMALL_NSTEPS = 20
+MED_NSTEPS = 30
+LARGE_NSTEPS = 50
 
 CHECKPOINT_FREQUENCY = 10
 
@@ -73,7 +73,7 @@ CHECK_BEFORE_OVERWRITE = False
 # LOAD_PATH = "data/fitting_databases/leno-redo/"
 LOAD_PATH = "/projects/sciteam/baot/leno-redo/"
 SAVE_PATH = "data/ga_results/"
-SAVE_DIRECTORY = SAVE_PATH + date_str + "-" + "debugging" + "{}-{}".format(NUM_GENS, MUTPB)
+SAVE_DIRECTORY = SAVE_PATH + date_str + "-" + "lm_every" + "{}-{}".format(NUM_GENS, MUTPB)
 
 DB_PATH = LOAD_PATH + 'structures/'
 DB_INFO_FILE_NAME = LOAD_PATH + 'rhophi/info'
