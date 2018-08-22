@@ -16,12 +16,12 @@ from scipy.optimize import least_squares
 
 ################################################################################
 
-COGNITIVE_WEIGHT = 0.005  # relative importance of individual best
-SOCIAL_WEIGHT = 0.003     # relative importance of global best
+COGNITIVE_WEIGHT = 0.05  # relative importance of individual best
+SOCIAL_WEIGHT = 0.03     # relative importance of global best
 MOMENTUM_WEIGHT = 0   # relative importance of particle momentum
 
-MAX_NUM_PSO_STEPS = 2000
-NUM_LMIN_STEPS = 30
+MAX_NUM_PSO_STEPS = 2
+NUM_LMIN_STEPS = 3
 
 FITNESS_THRESH = 1
 
@@ -52,7 +52,9 @@ rank = comm.Get_rank()
 
 is_master_node = (rank == MASTER_RANK)
 
-SWARM_SIZE = mpi_size
+PARTICLES_PER_MPI_TASK = 2
+
+SWARM_SIZE = mpi_size*PARTICLES_PER_MPI_TASK
 
 ################################################################################
 
@@ -76,13 +78,13 @@ def main():
         ex_struct = structures[list(structures.keys())[0]]
         type_indices, spline_indices = find_spline_type_deliminating_indices(ex_struct)
         pvec_len = ex_struct.len_param_vec
-        print('PVEC=', pvec_len)
+        print('PVEC_SIZE =', pvec_len)
 
         print("MASTER: Preparing to send structures to slaves ... ", flush=True)
 
         # initialize swarm
-        swarm_positions = init_positions(SWARM_SIZE)
-        swarm_velocities = init_velocities(SWARM_SIZE)
+        swarm_positions = np.array_split(init_positions(SWARM_SIZE), mpi_size)
+        swarm_velocities = np.array_split(init_velocities(SWARM_SIZE), mpi_size)
     else:
         spline_indices = None
         structures = None
@@ -109,27 +111,34 @@ def main():
 
     # send individual particle informations to each process
     print("SLAVE: Rank", rank, "performing initial LMIN ...", flush=True)
-    position = comm.scatter(swarm_positions, root=0)
+    positions = comm.scatter(swarm_positions, root=0)
     velocity = comm.scatter(swarm_velocities, root=0)
 
-    opt_best = least_squares(eval_fxn, position, grad_fxn, method='lm',
-            max_nfev=NUM_LMIN_STEPS)
+    fitnesses = np.zeros(positions.shape[0])
+    personal_best_fitnesses = np.zeros(positions.shape[0])
 
-    position = opt_best['x']
+    for p,particle in enumerate(positions):
+        opt_best = least_squares(eval_fxn, particle, grad_fxn, method='lm',
+                max_nfev=NUM_LMIN_STEPS)
 
-    personal_best_pos = position
+        positions[p] = opt_best['x']
 
-    fitness = np.sum(eval_fxn(position))
-    personal_best_fitness = fitness
+        fitnesses[p] = np.sum(eval_fxn(positions[p]))
+        personal_best_fitnesses[p] = fitnesses[p]
 
-    print("SLAVE: Rank", rank, "minimized fitness:", fitness, flush=True)
+    personal_best_positions = np.copy(positions)
 
-    new_positions = comm.gather(position, root=0)
-    all_fitnesses = comm.gather(fitness, root=0)
+    print("SLAVE: Rank", rank, "minimized fitnesses:", fitnesses, flush=True)
+
+    new_positions = comm.gather(positions, root=0)
+    all_fitnesses = comm.gather(fitnesses, root=0)
 
     # record global best
     if is_master_node:
+        new_positions = np.vstack(new_positions)
         all_fitnesses = np.vstack(all_fitnesses)
+        all_fitnesses = np.ravel(all_fitnesses)
+        print(all_fitnesses)
 
         min_idx = np.argmin(all_fitnesses)
 
@@ -156,31 +165,32 @@ def main():
     while (i < MAX_NUM_PSO_STEPS) and (global_best_fit > FITNESS_THRESH):
         if is_master_node:
             print("{} {} {} {} {}".format(
-                i+1, global_best_fit[0], np.max(all_fitnesses), np.average(all_fitnesses),
+                i+1, global_best_fit, np.max(all_fitnesses), np.average(all_fitnesses),
                 np.std(all_fitnesses), flush=True))
 
         # generate new velocities; update positions
-        rp = random_velocity()
-        rg = random_velocity()
+        for p,particle in enumerate(positions):
+            rp = random_velocity()
+            rg = random_velocity()
 
-        new_velocity = \
-            MOMENTUM_WEIGHT * velocity + \
-            COGNITIVE_WEIGHT * rp * (personal_best_pos - position) + \
-            SOCIAL_WEIGHT * rg * (global_best_pos - position)
+            new_velocity = \
+                MOMENTUM_WEIGHT*velocity[p] + \
+                COGNITIVE_WEIGHT*rp*(personal_best_positions[p]-positions[p]) +\
+                SOCIAL_WEIGHT * rg * (global_best_pos - positions[p])
 
-        position += new_velocity
-        velocity = new_velocity
+            positions[p] += new_velocity
+            velocity = new_velocity
 
-        fitness = np.sum(eval_fxn(position))
+            fitnesses[p] = np.sum(eval_fxn(positions[p]))
 
-        # update personal bests
-        if fitness < personal_best_fitness:
-            personal_best_fitness = fitness
-            personal_best_pos = position
+            # update personal bests
+            if fitnesses[p] < personal_best_fitnesses[p]:
+                personal_best_fitnesses[p] = fitnesses[p]
+                personal_best_positions[p] = positions[p]
 
         # update global bests
-        new_positions = comm.gather(position, root=0)
-        all_fitnesses = comm.gather(fitness, root=0)
+        new_positions = comm.gather(positions, root=0)
+        all_fitnesses = comm.gather(fitnesses[p], root=0)
 
         if is_master_node:
             all_fitnesses = np.vstack(all_fitnesses)
@@ -200,14 +210,16 @@ def main():
             log_f.close()
 
             f = open(BEST_TRACE_FILENAME, 'ab')
-            np.savetxt(f, [np.concatenate([global_best_fit, global_best_pos.ravel()])])
+            np.savetxt(f, [np.concatenate([[global_best_fit],
+                                           global_best_pos.ravel()])])
             f.close()
 
         i += 1
 
     if is_master_node:
-        opt_best = least_squares(eval_fxn, position, grad_fxn, method='lm',
-                max_nfev=NUM_LMIN_STEPS)
+        print("MASTER: performing final minimization ...", flush=True)
+        opt_best = least_squares(eval_fxn, global_best_pos, grad_fxn,
+                                 method='lm', max_nfev=NUM_LMIN_STEPS)
 
         final_pot = opt_best['x']
         final_val = np.sum(eval_fxn(final_pot))
