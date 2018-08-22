@@ -16,10 +16,21 @@ from scipy.optimize import least_squares
 
 ################################################################################
 
+COGNITIVE_WEIGHT = 0.005  # relative importance of individual best
+SOCIAL_WEIGHT = 0.003     # relative importance of global best
+MOMENTUM_WEIGHT = 0   # relative importance of particle momentum
+
+MAX_NUM_PSO_STEPS = 2000
+NUM_LMIN_STEPS = 30
+
+FITNESS_THRESH = 1
+
+################################################################################
+
 # TODO: BW settings
 
-# LOAD_PATH = "data/fitting_databases/leno-redo/"
-LOAD_PATH = "/projects/sciteam/baot/leno-redo/"
+LOAD_PATH = "/home/jvita/scripts/s-meam/project/data/fitting_databases/leno-redo/"
+# LOAD_PATH = "/projects/sciteam/baot/leno-redo/"
 
 # DB_PATH = './structures/'
 DB_PATH = LOAD_PATH + 'structures/'
@@ -42,15 +53,6 @@ rank = comm.Get_rank()
 is_master_node = (rank == MASTER_RANK)
 
 SWARM_SIZE = mpi_size
-
-COGNITIVE_WEIGHT = 0.005  # relative importance of individual best
-SOCIAL_WEIGHT = 0.003     # relative importance of global best
-MOMENTUM_WEIGHT = 0   # relative importance of particle momentum
-
-MAX_NUM_PSO_STEPS = 2000
-NUM_LMIN_STEPS = 30
-
-FITNESS_THRESH = 1
 
 ################################################################################
 
@@ -81,24 +83,18 @@ def main():
         # initialize swarm
         swarm_positions = init_positions(SWARM_SIZE)
         swarm_velocities = init_velocities(SWARM_SIZE)
-        swarm_bests = np.copy(swarm_positions)
-        global_best_pos = swarm_positions.shape[1]
     else:
         spline_indices = None
         structures = None
         weights = None
         true_forces = None
         true_energies = None
-        pvec_len = None
 
         swarm_positions = None
         swarm_velocities = None
-        swarm_bests = None
-        global_best_pos = None
 
     # Send all information necessary to building evaluation functions
     spline_indices = comm.bcast(spline_indices, root=0)
-    pvec_len = comm.bcast(pvec_len, root=0)
     structures = comm.bcast(structures, root=0)
     weights = comm.bcast(weights, root=0)
     true_forces = comm.bcast(true_forces, root=0)
@@ -115,9 +111,6 @@ def main():
     print("SLAVE: Rank", rank, "performing initial LMIN ...", flush=True)
     position = comm.scatter(swarm_positions, root=0)
     velocity = comm.scatter(swarm_velocities, root=0)
-
-    personal_best_pos = comm.scatter(swarm_bests, root=0)
-    global_best_pos = comm.bcast(global_best_pos, root=0)
 
     opt_best = least_squares(eval_fxn, position, grad_fxn, method='lm',
             max_nfev=NUM_LMIN_STEPS)
@@ -167,8 +160,6 @@ def main():
                 np.std(all_fitnesses), flush=True))
 
         # generate new velocities; update positions
-        # rp = np.random.random(position.shape[0])
-        # rg = np.random.random(position.shape[0])
         rp = random_velocity()
         rg = random_velocity()
 
@@ -227,19 +218,6 @@ def main():
         f.close()
 
 ################################################################################
-
-def prepare_save_directory():
-    """Creates directories to store results"""
-
-    print()
-    print("Save location:", SAVE_DIRECTORY)
-    if os.path.isdir(SAVE_DIRECTORY) and CHECK_BEFORE_OVERWRITE:
-        print()
-        print("/" + "*"*30 + " WARNING " + "*"*30 + "/")
-        print("A folder already exists for these settings.\nPress Enter"
-                " to ovewrite old data, or Ctrl-C to quit")
-        input("/" + "*"*30 + " WARNING " + "*"*30 + "/\n")
-    print()
 
 def load_structures_on_master():
     """Builds Worker objects from the HDF5 database of stored values. Note that
@@ -331,12 +309,8 @@ def init_positions(N):
 def init_velocities(N):
     velocities = np.zeros((N, 83))
 
-    scale_mag = 0.3
-
-    ind = np.zeros(83)
-
-    ranges = [(-0.5, 0.5), (-1, 4), (-1, 1), (-9, 3), (-30, 15), (-0.5, 1),
-            (-0.2, 0.4)]
+    ranges = [(-1, 4), (-1, 4), (-1, 4), (-9, 3), (-9, 3), (-0.5, 1),
+            (-0.5, 1)]
 
     indices = [(0,13), (15,20), (22,35), (37,48), (50,55), (57,61), (63,68)]
 
@@ -345,7 +319,7 @@ def init_velocities(N):
             r_lo, r_hi = rng
             i_lo, i_hi = ind_tup
 
-            diff = i_hi - i_lo
+            diff = r_hi - r_lo
 
             # velocities should cover the range [-diff, diff]
             velocities[i,i_lo:i_hi] = np.random.random(i_hi-i_lo)*(2*diff) - diff
@@ -355,12 +329,8 @@ def init_velocities(N):
 def random_velocity():
     velocities = np.zeros((1, 83))
 
-    scale_mag = 0.3
-
-    ind = np.zeros(83)
-
-    ranges = [(-0.5, 0.5), (-1, 4), (-1, 1), (-9, 3), (-30, 15), (-0.5, 1),
-            (-0.2, 0.4)]
+    ranges = [(-1, 4), (-1, 4), (-1, 4), (-9, 3), (-9, 3), (-0.5, 1),
+            (-0.5, 1)]
 
     indices = [(0,13), (15,20), (22,35), (37,48), (50,55), (57,61), (63,68)]
 
@@ -368,7 +338,7 @@ def random_velocity():
         r_lo, r_hi = rng
         i_lo, i_hi = ind_tup
 
-        diff = i_hi - i_lo
+        diff = r_hi - r_lo
 
         # velocities should cover the range [-diff, diff]
         velocities[:,i_lo:i_hi] = np.random.random(i_hi-i_lo)*(2*diff) - diff
