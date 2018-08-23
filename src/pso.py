@@ -16,12 +16,12 @@ from scipy.optimize import least_squares
 
 ################################################################################
 
-COGNITIVE_WEIGHT = 0.05  # relative importance of individual best
-SOCIAL_WEIGHT = 0.03     # relative importance of global best
-MOMENTUM_WEIGHT = 0   # relative importance of particle momentum
+COGNITIVE_WEIGHT = 0.5  # relative importance of individual best
+SOCIAL_WEIGHT = 0.3     # relative importance of global best
+MOMENTUM_WEIGHT = 0.2   # relative importance of particle momentum
 
-MAX_NUM_PSO_STEPS = 2
-NUM_LMIN_STEPS = 3
+MAX_NUM_PSO_STEPS = 50
+NUM_LMIN_STEPS = 30
 
 FITNESS_THRESH = 1
 
@@ -170,23 +170,28 @@ def main():
 
         # generate new velocities; update positions
         for p,particle in enumerate(positions):
-            rp = random_velocity()
-            rg = random_velocity()
+            rp = np.random.random(particle.shape)
+            rg = np.random.random(particle.shape)
+            # rp = random_velocity()
+            # rg = random_velocity()
 
             new_velocity = \
                 MOMENTUM_WEIGHT*velocity[p] + \
-                COGNITIVE_WEIGHT*rp*(personal_best_positions[p]-positions[p]) +\
-                SOCIAL_WEIGHT * rg * (global_best_pos - positions[p])
+                COGNITIVE_WEIGHT*rp*(personal_best_positions[p]-particle) +\
+                SOCIAL_WEIGHT * rg * (global_best_pos - particle)
 
-            positions[p] += new_velocity
+            print(new_velocity, flush=True)
+            particle += new_velocity
             velocity = new_velocity
 
-            fitnesses[p] = np.sum(eval_fxn(positions[p]))
+            particle = check_bounds(particle)
+
+            fitnesses[p] = np.sum(eval_fxn(particle))
 
             # update personal bests
             if fitnesses[p] < personal_best_fitnesses[p]:
                 personal_best_fitnesses[p] = fitnesses[p]
-                personal_best_positions[p] = positions[p]
+                personal_best_positions[p] = particle
 
         # update global bests
         new_positions = comm.gather(positions, root=0)
@@ -426,6 +431,24 @@ def build_evaluation_functions(structures, weights, true_forces, true_energies,
 
     return fxn, grad
 
+
+def check_bounds(positions):
+
+    new_pos = positions.copy()
+
+    ranges = [(-0.5, 0.5), (-1, 4), (-1, 1), (-9, 3), (-30, 15), (-0.5, 1),
+            (-0.2, 0.4)]
+
+    indices = [(0,13), (15,20), (22,35), (37,48), (50,55), (57,61), (63,68)]
+
+    for rng,ind_tup in zip(ranges, indices):
+        r_lo, r_hi = rng
+        i_lo, i_hi = ind_tup
+
+        piece = positions[i_lo:i_hi]
+
+        new_pos[i_lo:i_hi] = np.clip(positions[i_lo:i_hi],
+                r_lo,r_hi)
 
 ################################################################################
 
