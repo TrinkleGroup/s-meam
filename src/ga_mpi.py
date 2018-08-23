@@ -100,6 +100,9 @@ def main():
         print("MASTER: Preparing save directory/files ... ", flush=True)
         prepare_save_directory()
 
+        f = open(TRACE_FILE_NAME, 'ab')
+        f.close()
+
         stats, logbook = build_stats_and_log()
 
         print("MASTER: Loading structures ...", flush=True)
@@ -335,27 +338,6 @@ def build_ga_toolbox(pvec_len, index_ranges):
             i_lo, i_hi = ind_tup
 
             ind[i_lo:i_hi] = np.random.random(i_hi-i_lo)*(r_hi-r_lo) + r_lo
-
-        # ind[:13] += np.linspace(0.2*(-0.5), 0.8*(0.5), 13)[::-1]
-        # ind[:13] += np.random.normal(size=(13,), scale=0.1)
-
-        # ind[15:20] += np.linspace(0.2*(-1), 0.8*(4), 5)[::-1]
-        # ind[15:20] += np.random.normal(size=(5,), scale=(5)*scale_mag)
-
-        # ind[22:35] += np.linspace(0.2*(-1), 0.8, 13)[::-1]
-        # ind[22:35] += np.random.normal(size=(13,), scale=(2)*scale_mag)
-
-        # ind[37:48] += np.linspace(0.2*(-9), 0.8*(3), 11)[::-1]
-        # ind[37:48] += np.random.normal(size=(11,), scale=(5)*scale_mag)
-
-        # ind[50:55] += np.linspace(0.2*(-30), 0.8*(15), 5)[::-1]
-        # ind[50:55] += np.random.normal(size=(5,), scale=(2)*scale_mag)
-
-        # ind[57:61] += np.linspace(0.2*(-0.5), 0.8*(1), 4)[::-1]
-        # ind[57:61] += np.random.normal(size=(4,), scale=(5)*scale_mag)
-
-        # ind[63:68] += np.linspace(0.2*(-0.2), 0.8*(0.4), 5)[::-1]
-        # ind[63:68] += np.random.normal(size=(5,), scale=(2)*scale_mag)
 
         return arr_fxn(ind)
 
