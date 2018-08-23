@@ -46,20 +46,23 @@ comm = MPI.COMM_WORLD
 mpi_size = comm.Get_size()
 
 POP_SIZE = mpi_size
-NUM_GENS = 2000
+NUM_GENS = 5
 CXPB = 1.0
-# MUTPB = 0.5
-MUTPB = float(sys.argv[1])
+
+if len(sys.argv) > 1:
+    MUTPB = float(sys.argv[1])
+else:
+    MUTPB = 0.5
 
 RUN_NEW_GA = True
 
 DO_LMIN = True
 LMIN_FREQUENCY = 1
-SMALL_NSTEPS = 20
-MED_NSTEPS = 30
-LARGE_NSTEPS = 50
+SMALL_NSTEPS = 1
+MED_NSTEPS = 1
+LARGE_NSTEPS = 1
 
-CHECKPOINT_FREQUENCY = 10
+CHECKPOINT_FREQUENCY = 1
 
 ################################################################################ 
 """I/O settings"""
@@ -70,10 +73,10 @@ CHECK_BEFORE_OVERWRITE = False
 
 # TODO: BW settings
 
-# LOAD_PATH = "data/fitting_databases/leno-redo/"
-LOAD_PATH = "/projects/sciteam/baot/leno-redo/"
+LOAD_PATH = "data/fitting_databases/leno-redo/"
+# LOAD_PATH = "/projects/sciteam/baot/leno-redo/"
 SAVE_PATH = "data/ga_results/"
-SAVE_DIRECTORY = SAVE_PATH + date_str + "-" + "lm_every" + "{}-{}".format(NUM_GENS, MUTPB)
+SAVE_DIRECTORY = SAVE_PATH + date_str + "-" + "trace_test" + "{}-{}".format(NUM_GENS, MUTPB)
 
 DB_PATH = LOAD_PATH + 'structures/'
 DB_INFO_FILE_NAME = LOAD_PATH + 'rhophi/info'
@@ -742,6 +745,7 @@ def checkpoint(population, logbook, trace_update, i):
 
     f = open(TRACE_FILE_NAME, 'ab')
     np.savetxt(f, [np.array(trace_update)])
+    f.close()
 
 def load_locally(long_names):
     structures = {}

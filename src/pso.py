@@ -31,8 +31,8 @@ PARTICLES_PER_MPI_TASK = 1
 
 # TODO: BW settings
 
-# LOAD_PATH = "/home/jvita/scripts/s-meam/project/data/fitting_databases/leno-redo/"
-LOAD_PATH = "/projects/sciteam/baot/leno-redo/"
+LOAD_PATH = "/home/jvita/scripts/s-meam/project/data/fitting_databases/leno-redo/"
+# LOAD_PATH = "/projects/sciteam/baot/leno-redo/"
 
 # DB_PATH = './structures/'
 DB_PATH = LOAD_PATH + 'structures/'
@@ -138,7 +138,6 @@ def main():
         new_positions = np.vstack(new_positions)
         all_fitnesses = np.vstack(all_fitnesses)
         all_fitnesses = np.ravel(all_fitnesses)
-        print(all_fitnesses)
 
         min_idx = np.argmin(all_fitnesses)
 
@@ -164,9 +163,11 @@ def main():
     i = 0
     while (i < MAX_NUM_PSO_STEPS) and (global_best_fit > FITNESS_THRESH):
         if is_master_node:
-            print("{} {} {} {} {}".format(
+            print("STEP: {} {} {} {} {}".format(
                 i+1, global_best_fit, np.max(all_fitnesses), np.average(all_fitnesses),
                 np.std(all_fitnesses), flush=True))
+
+            print(all_fitnesses)
 
         # generate new velocities; update positions
         for p,particle in enumerate(positions):
@@ -180,7 +181,7 @@ def main():
                 COGNITIVE_WEIGHT*rp*(personal_best_positions[p]-particle) +\
                 SOCIAL_WEIGHT * rg * (global_best_pos - particle)
 
-            print(new_velocity, flush=True)
+            # print(new_velocity, flush=True)
             particle += new_velocity
             velocity = new_velocity
 
@@ -228,6 +229,8 @@ def main():
 
         final_pot = opt_best['x']
         final_val = np.sum(eval_fxn(final_pot))
+
+        print("MASTER: final fitness =", final_val)
 
         f = open(FINAL_FILENAME, 'wb')
         np.savetxt(f, [final_val])
@@ -324,22 +327,24 @@ def init_positions(N):
     return positions
 
 def init_velocities(N):
-    velocities = np.zeros((N, 83))
+#     velocities = np.zeros((N, 83))
+# 
+#     ranges = [(-1, 4), (-1, 4), (-1, 4), (-9, 3), (-9, 3), (-0.5, 1),
+#             (-0.5, 1)]
+# 
+#     indices = [(0,13), (15,20), (22,35), (37,48), (50,55), (57,61), (63,68)]
+# 
+#     for i in range(N):
+#         for rng,ind_tup in zip(ranges, indices):
+#             r_lo, r_hi = rng
+#             i_lo, i_hi = ind_tup
+# 
+#             diff = r_hi - r_lo
+# 
+#             # velocities should cover the range [-diff, diff]
+#             velocities[i,i_lo:i_hi] = np.random.random(i_hi-i_lo)*(2*diff) - diff
 
-    ranges = [(-1, 4), (-1, 4), (-1, 4), (-9, 3), (-9, 3), (-0.5, 1),
-            (-0.5, 1)]
-
-    indices = [(0,13), (15,20), (22,35), (37,48), (50,55), (57,61), (63,68)]
-
-    for i in range(N):
-        for rng,ind_tup in zip(ranges, indices):
-            r_lo, r_hi = rng
-            i_lo, i_hi = ind_tup
-
-            diff = r_hi - r_lo
-
-            # velocities should cover the range [-diff, diff]
-            velocities[i,i_lo:i_hi] = np.random.random(i_hi-i_lo)*(2*diff) - diff
+    velocities = np.random.random((N, 83)) - 0.5
 
     return velocities
 
@@ -449,6 +454,8 @@ def check_bounds(positions):
 
         new_pos[i_lo:i_hi] = np.clip(positions[i_lo:i_hi],
                 r_lo,r_hi)
+
+    return new_pos
 
 ################################################################################
 
