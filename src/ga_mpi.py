@@ -46,7 +46,7 @@ comm = MPI.COMM_WORLD
 mpi_size = comm.Get_size()
 
 POP_SIZE = mpi_size
-NUM_GENS = 5
+NUM_GENS = 100
 CXPB = 1.0
 
 if len(sys.argv) > 1:
@@ -58,9 +58,9 @@ RUN_NEW_GA = True
 
 DO_LMIN = True
 LMIN_FREQUENCY = 1
-SMALL_NSTEPS = 1
-MED_NSTEPS = 1
-LARGE_NSTEPS = 1
+INIT_NSTEPS = 30
+INTER_NSTEPS = 20
+FINAL_NSTEPS = 30
 
 CHECKPOINT_FREQUENCY = 1
 
@@ -73,8 +73,8 @@ CHECK_BEFORE_OVERWRITE = False
 
 # TODO: BW settings
 
-LOAD_PATH = "data/fitting_databases/leno-redo/"
-# LOAD_PATH = "/projects/sciteam/baot/leno-redo/"
+# LOAD_PATH = "data/fitting_databases/leno-redo/"
+LOAD_PATH = "/projects/sciteam/baot/leno-redo/"
 SAVE_PATH = "data/ga_results/"
 SAVE_DIRECTORY = SAVE_PATH + date_str + "-" + "trace_test" + "{}-{}".format(NUM_GENS, MUTPB)
 
@@ -163,7 +163,7 @@ def main():
     indiv = comm.scatter(pop, root=0)
     opt_results = least_squares(toolbox.evaluate_population, indiv,
                                 toolbox.gradient, method='lm',
-                                max_nfev=MED_NSTEPS)
+                                max_nfev=INIT_NSTEPS)
 
     indiv = creator.Individual(opt_results['x'])
 
@@ -230,7 +230,7 @@ def main():
 
                 opt_results = least_squares(toolbox.evaluate_population, indiv,
                                             toolbox.gradient, method='lm',
-                                            max_nfev=SMALL_NSTEPS)
+                                            max_nfev=INTER_NSTEPS)
 
                 indiv = creator.Individual(opt_results['x'])
                 # print("SLAVE: Rank", rank, "minimized fitness:", np.sum(toolbox.evaluate_population(indiv)))
@@ -281,7 +281,7 @@ def main():
     print("SLAVE: Rank", rank,  "performing final minimization ... ", flush=True)
     opt_results = least_squares(toolbox.evaluate_population, indiv,
                                 toolbox.gradient, method='lm',
-                                max_nfev=LARGE_NSTEPS)
+                                max_nfev=FINAL_NSTEPS)
 
     final = creator.Individual(opt_results['x'])
 
