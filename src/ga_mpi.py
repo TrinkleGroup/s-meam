@@ -73,10 +73,10 @@ CHECK_BEFORE_OVERWRITE = False
 
 # TODO: BW settings
 
-# LOAD_PATH = "data/fitting_databases/leno-redo/"
-LOAD_PATH = "/projects/sciteam/baot/leno-redo/"
+LOAD_PATH = "data/fitting_databases/leno-redo/"
+# LOAD_PATH = "/projects/sciteam/baot/leno-redo/"
 SAVE_PATH = "data/ga_results/"
-SAVE_DIRECTORY = SAVE_PATH + date_str + "-" + "trace_test" + "{}-{}".format(NUM_GENS, MUTPB)
+SAVE_DIRECTORY = SAVE_PATH + date_str + "-" + "meam" + "{}-{}".format(NUM_GENS, MUTPB)
 
 DB_PATH = LOAD_PATH + 'structures/'
 DB_INFO_FILE_NAME = LOAD_PATH + 'rhophi/info'
@@ -329,12 +329,14 @@ def build_ga_toolbox(pvec_len, index_ranges):
     def ret_pvec(arr_fxn, rng):
         scale_mag = 0.3
         # hard-coded version for pair-pots only
-        ind = np.zeros(83)
+        # ind = np.zeros(83)
+        ind = np.zeros(137)
 
-        ranges = [(-0.5, 0.5), (-1, 4), (-1, 1), (-9, 3), (-30, 15), (-0.5, 1),
-                (-0.2, 0.4)]
+        ranges = [(-1, 4), (-1, 4), (-1, 4), (-9, 3), (-9, 3), (-0.5, 1),
+                (-0.5, 1)]
 
-        indices = [(0,13), (15,20), (22,35), (37,48), (50,55), (57,61), (63,68)]
+        indices = [(0,13), (15,28), (30,43), (45,56), (58,69), (71,75), (77,81),
+                (83,93), (95,105), (107,115), (117,125), (127,135)]
 
         for rng,ind_tup in zip(ranges, indices):
             r_lo, r_hi = rng
@@ -502,64 +504,12 @@ def build_evaluation_functions(structures, weights, true_forces, true_energies,
         spline_indices):
     """Builds the function to evaluate populations. Wrapped here for readability
     of main code."""
-
-    # def fxn(population):
-    #     # Convert list of Individuals into a numpy array
-    #     full = np.vstack(population)
-    #
-    #     # TODO: hardcoded
-    #     full = np.hstack([full, np.zeros((full.shape[0], 54))])
-    #
-    #     fitnesses = np.zeros(full.shape[0])
-    #
-    #     # Compute error for each worker on MPI node
-    #     for name in structures.keys():
-    #         w = structures[name]
-    #
-    #         fcs_err = w.compute_forces(full) - true_forces[name]
-    #         eng_err = w.compute_energy(full) - true_energies[name]
-    #
-    #         # Scale force errors
-    #         fcs_err = np.linalg.norm(fcs_err, axis=(1,2)) / np.sqrt(10)
-    #
-    #         fitnesses += fcs_err*fcs_err*weights[name]
-    #         fitnesses += eng_err*eng_err*weights[name]
-    #
-    #     print(fitnesses[0])
-    #     return fitnesses
-    #
-    # def grad(pot):
-    #     # TODO: hardcoded
-    #     pot = np.vstack(pot)
-    #     full = np.hstack([pot, np.zeros((pot.shape[0], 54))])
-    #
-    #     grad_vec = np.zeros((pot.shape[0], full.shape[1]))
-    #
-    #     for name in structures.keys():
-    #         w = structures[name]
-    #
-    #         eng_err = w.compute_energy(full) - true_energies[name]
-    #         fcs_err = (w.compute_forces(full) - true_forces[name])
-    #
-    #         # Scale force errors
-    #
-    #         # compute gradients
-    #         eng_grad = w.energy_gradient_wrt_pvec(full)
-    #         fcs_grad = w.forces_gradient_wrt_pvec(full)
-    #
-    #         scaled = np.einsum('pna,pnak->pnak', fcs_err, fcs_grad)
-    #         summed = scaled.sum(axis=1).sum(axis=1)
-    #
-    #         grad_vec += eng_err[:, np.newaxis]*eng_grad*2
-    #         grad_vec += 2*summed / 10
-    #
-    #     # TODO: hardcoded
-    #     return grad_vec[:, :83]
     def fxn(pot):
         # Convert list of Individuals into a numpy array
         pot = np.atleast_2d(pot)
         # full = np.hstack([pot, np.zeros((pot.shape[0], 108))])
-        full = np.hstack([pot, np.zeros((pot.shape[0], 54))])
+        # full = np.hstack([pot, np.zeros((pot.shape[0], 54))])
+        full = pot.copy()
 
         fitness = np.zeros(2*len(structures))
 
@@ -587,7 +537,8 @@ def build_evaluation_functions(structures, weights, true_forces, true_energies,
     def grad(pot):
         pot = np.atleast_2d(pot)
         # full = np.hstack([pot, np.zeros((pot.shape[0], 108))])
-        full = np.hstack([pot, np.zeros((pot.shape[0], 54))])
+        # full = np.hstack([pot, np.zeros((pot.shape[0], 54))])
+        full = pot.copy()
 
         grad_vec = np.zeros((2*len(structures), full.shape[1]))
 
@@ -613,7 +564,8 @@ def build_evaluation_functions(structures, weights, true_forces, true_energies,
             i += 2
 
         # return grad_vec[:,:36]
-        return grad_vec[:,:83]
+        # return grad_vec[:,:83]
+        return grad_vec
 
     return fxn, grad
 
@@ -708,35 +660,6 @@ def local_minimization(guess, toolbox, is_master_node, comm, num_steps=None,
 
     return improved
 
-def scale_into_range(original, index_ranges):
-    # TODO: do you actually need this?
-
-    new = original.copy()
-
-    ranges = [(-0.5, 0.5), (-1, 4), (-1, 1), (-9, 3), (-30, 15), (-0.5, 1),
-            (-0.2, 0.4), (-2, 3), (-7.5, 12), (-7, 2), (-1, 0.2), (-1, 1)]
-
-    indices = index_ranges + [-1]
-
-    mask = np.zeros(new.shape)
-
-    for i,is_active in enumerate(ACTIVE_SPLINES):
-        if is_active == 1:
-            a, b = ranges[i]
-            start, stop = indices[i], indices[i+1]
-
-            block = new[start:stop]
-            block -= np.min(block)
-            block /= np.max(block)
-
-            block = (b-a)*block + a
-
-            new[start:stop] = block
-
-            mask[start:stop] = 1
-
-    return np.multiply(new, mask)
-
 def checkpoint(population, logbook, trace_update, i):
     """Saves information to files for later use"""
 
@@ -791,7 +714,6 @@ def find_spline_type_deliminating_indices(worker):
     g_range = (indices[nphi + 3*ntypes], -1)
 
     return [phi_range, rho_range, u_range, f_range, g_range], indices
-
 
 ################################################################################
 
