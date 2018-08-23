@@ -16,21 +16,23 @@ from scipy.optimize import least_squares
 
 ################################################################################
 
-COGNITIVE_WEIGHT = 0.05  # relative importance of individual best
-SOCIAL_WEIGHT = 0.03     # relative importance of global best
-MOMENTUM_WEIGHT = 0   # relative importance of particle momentum
+COGNITIVE_WEIGHT = 0.5  # relative importance of individual best
+SOCIAL_WEIGHT = 0.3     # relative importance of global best
+MOMENTUM_WEIGHT = 0.2   # relative importance of particle momentum
 
-MAX_NUM_PSO_STEPS = 2
-NUM_LMIN_STEPS = 3
+MAX_NUM_PSO_STEPS = 2000
+NUM_LMIN_STEPS = 30
 
 FITNESS_THRESH = 1
+
+PARTICLES_PER_MPI_TASK = 1
 
 ################################################################################
 
 # TODO: BW settings
 
-LOAD_PATH = "/home/jvita/scripts/s-meam/project/data/fitting_databases/leno-redo/"
-# LOAD_PATH = "/projects/sciteam/baot/leno-redo/"
+# LOAD_PATH = "/home/jvita/scripts/s-meam/project/data/fitting_databases/leno-redo/"
+LOAD_PATH = "/projects/sciteam/baot/leno-redo/"
 
 # DB_PATH = './structures/'
 DB_PATH = LOAD_PATH + 'structures/'
@@ -51,8 +53,6 @@ mpi_size = comm.Get_size()
 rank = comm.Get_rank()
 
 is_master_node = (rank == MASTER_RANK)
-
-PARTICLES_PER_MPI_TASK = 2
 
 SWARM_SIZE = mpi_size*PARTICLES_PER_MPI_TASK
 
@@ -303,8 +303,8 @@ def init_positions(N):
 
     ind = np.zeros(83)
 
-    ranges = [(-0.5, 0.5), (-1, 4), (-1, 1), (-9, 3), (-30, 15), (-0.5, 1),
-            (-0.2, 0.4)]
+    ranges = [(-1, 4), (-1, 4), (-1, 4), (-9, 3), (-9, 3), (-0.5, 1),
+            (-0.5, 1)]
 
     indices = [(0,13), (15,20), (22,35), (37,48), (50,55), (57,61), (63,68)]
 
