@@ -58,9 +58,9 @@ RUN_NEW_GA = True
 
 DO_LMIN = True
 LMIN_FREQUENCY = 1
-INIT_NSTEPS = 50
-INTER_NSTEPS = 15
-FINAL_NSTEPS = 50
+INIT_NSTEPS = 30
+INTER_NSTEPS = 10
+FINAL_NSTEPS = 30
 
 CHECKPOINT_FREQUENCY = 1
 
@@ -75,8 +75,8 @@ CHECK_BEFORE_OVERWRITE = False
 
 # TODO: BW settings
 
-# LOAD_PATH = "data/fitting_databases/leno-redo/"
-LOAD_PATH = "/projects/sciteam/baot/leno-redo/"
+LOAD_PATH = "data/fitting_databases/leno-redo/"
+# LOAD_PATH = "/projects/sciteam/baot/leno-redo/"
 SAVE_PATH = "data/ga_results/"
 SAVE_DIRECTORY = SAVE_PATH + date_str + "-" + "meam" + "{}-{}".format(NUM_GENS, MUTPB)
 
@@ -145,7 +145,7 @@ def main():
     # Have every process build the toolbox
     toolbox, creator = build_ga_toolbox(pvec_len, spline_indices)
 
-    eval_fxn, grad_fxn = build_evaluation_functions(structures, weights,
+    eval_fxn, min_fxn, grad_fxn = build_evaluation_functions(structures, weights,
                                                     true_forces, true_energies,
                                                     spline_indices)
 
@@ -169,7 +169,8 @@ def main():
 
     indiv = creator.Individual(opt_results['x'])
 
-    fitnesses = np.sum(toolbox.evaluate_population(indiv))
+    # fitnesses = np.sum(toolbox.evaluate_population(indiv))
+    fitnesses = np.sum(min_fxn(indiv))
 
     print("SLAVE: Rank", rank, "minimized fitness:", fitnesses, flush=True)
 
@@ -238,8 +239,10 @@ def main():
 
                 opt_indiv = creator.Individual(opt_results['x'])
 
-                opt_fitness = np.sum(toolbox.evaluate_population(opt_indiv))
-                prev_fitness = np.sum(toolbox.evaluate_population(indiv))
+                # opt_fitness = np.sum(toolbox.evaluate_population(opt_indiv))
+                # prev_fitness = np.sum(toolbox.evaluate_population(indiv))
+                opt_fitness =  np.sum(min_fxn(opt_indiv))
+                prev_fitness = np.sum(min_fxn(indiv))
 
                 if opt_fitness < prev_fitness:
                     indiv = opt_indiv
@@ -249,7 +252,9 @@ def main():
                 # print("SLAVE: Rank", rank, "minimized fitness:", np.sum(toolbox.evaluate_population(indiv)))
 
             # Compute fitnesses with mated/mutated/optimized population
-            fitnesses = np.sum(toolbox.evaluate_population(indiv))
+            # fitnesses = np.sum(toolbox.evaluate_population(indiv))
+            fitnesses = np.sum(min_fxn(indiv))
+
             all_fitnesses = comm.gather(fitnesses, root=0)
             pop = comm.gather(indiv, root=0)
 
@@ -298,8 +303,10 @@ def main():
 
     final = creator.Individual(opt_results['x'])
 
-    print("SLAVE: Rank", rank, "minimized fitness:", np.sum(toolbox.evaluate_population(final)))
-    fitnesses = np.sum(toolbox.evaluate_population(final))
+    # print("SLAVE: Rank", rank, "minimized fitness:", np.sum(toolbox.evaluate_population(final)))
+    print("SLAVE: Rank", rank, "minimized fitness:", np.sum(min_fxn(final)))
+    # fitnesses = np.sum(toolbox.evaluate_population(final))
+    fitnesses = np.sum(min_fxn(final))
 
     all_fitnesses = comm.gather(fitnesses, root=0)
     pop = comm.gather(final, root=0)
@@ -320,7 +327,8 @@ def main():
 
         best = np.array(tools.selBest(pop, 1)[0])
 
-        recheck = np.sum(toolbox.evaluate_population(best))
+        # recheck = np.sum(toolbox.evaluate_population(best))
+        recheck = np.sum(min_fxn(best))
         print("MASTER: confirming best fitness:", recheck)
 
         final_arr = np.array(best)
@@ -523,14 +531,6 @@ def build_evaluation_functions(structures, weights, true_forces, true_energies,
         # full = np.hstack([pot, np.zeros((pot.shape[0], 108))])
         # full = np.hstack([pot, np.zeros((pot.shape[0], 54))])
         full = pot.copy()
-
-        for i,indiv in enumerate(full):
-            opt_results = least_squares(toolbox.evaluate_population, indiv,
-                                        toolbox.gradient, method='lm',
-                                        max_nfev=INTER_NSTEPS)
-
-            full[i] = opt_results['x']
-
         fitness = np.zeros(2*len(structures))
 
         # Compute error for each worker on MPI node
@@ -587,7 +587,21 @@ def build_evaluation_functions(structures, weights, true_forces, true_energies,
         # return grad_vec[:,:83]
         return grad_vec
 
-    return fxn, grad
+    def minimized_fxn(pot):
+
+        pot = np.atleast_2d(pot)
+        full = pot.copy()
+
+        for i,indiv in enumerate(full):
+            opt_results = least_squares(fxn, indiv, grad, method='lm',
+                                        max_nfev=INTER_NSTEPS)
+
+            full[i] = opt_results['x']
+
+        return fxn(full)
+
+    # return fxn, grad
+    return fxn, minimized_fxn, grad
 
 def build_stats_and_log():
     """Initialize DEAP Statistics and Logbook objects"""
