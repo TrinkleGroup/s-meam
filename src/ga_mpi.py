@@ -46,7 +46,7 @@ comm = MPI.COMM_WORLD
 mpi_size = comm.Get_size()
 
 POP_SIZE = mpi_size
-NUM_GENS = 100
+NUM_GENS = 400
 CXPB = 1.0
 
 if len(sys.argv) > 1:
@@ -58,11 +58,13 @@ RUN_NEW_GA = True
 
 DO_LMIN = True
 LMIN_FREQUENCY = 1
-INIT_NSTEPS = 30
-INTER_NSTEPS = 20
-FINAL_NSTEPS = 30
+INIT_NSTEPS = 50
+INTER_NSTEPS = 15
+FINAL_NSTEPS = 50
 
 CHECKPOINT_FREQUENCY = 1
+
+MATING_ALPHA = 0.5
 
 ################################################################################ 
 """I/O settings"""
@@ -73,8 +75,8 @@ CHECK_BEFORE_OVERWRITE = False
 
 # TODO: BW settings
 
-LOAD_PATH = "data/fitting_databases/leno-redo/"
-# LOAD_PATH = "/projects/sciteam/baot/leno-redo/"
+# LOAD_PATH = "data/fitting_databases/leno-redo/"
+LOAD_PATH = "/projects/sciteam/baot/leno-redo/"
 SAVE_PATH = "data/ga_results/"
 SAVE_DIRECTORY = SAVE_PATH + date_str + "-" + "meam" + "{}-{}".format(NUM_GENS, MUTPB)
 
@@ -213,10 +215,11 @@ def main():
                     kid,_ = toolbox.mate(toolbox.clone(mom), toolbox.clone(dad))
                     pop[j] = kid
 
+                # TODO: debug to make sure pop is always sorted here
+
                 # Mutate randomly everyone except top 10% (or top 2)
-                for ind in pop[max(2, int(NUM_GENS/10)):]:
-                # for ind in pop:
-                    if MUTPB >= np.random.random(): toolbox.mutate(ind)
+                for mut_ind in pop[max(2, int(POP_SIZE/10)):]:
+                    if np.random.random() >= MUTPB: toolbox.mutate(mut_ind)
             else:
                 pop = None
 
@@ -225,14 +228,24 @@ def main():
 
             # Run local minimization on best individual if desired
             if DO_LMIN and (i % LMIN_FREQUENCY == 0):
-                if is_master_node:
-                    print("MASTER: performing intermediate LMIN ...", flush=True)
+                # if is_master_node:
+                    # print("MASTER: performing intermediate LMIN ...", flush=True)
 
                 opt_results = least_squares(toolbox.evaluate_population, indiv,
                                             toolbox.gradient, method='lm',
                                             max_nfev=INTER_NSTEPS)
 
-                indiv = creator.Individual(opt_results['x'])
+
+                opt_indiv = creator.Individual(opt_results['x'])
+
+                opt_fitness = np.sum(toolbox.evaluate_population(opt_indiv))
+                prev_fitness = np.sum(toolbox.evaluate_population(indiv))
+
+                if opt_fitness < prev_fitness:
+                    indiv = opt_indiv
+                else:
+                    print("MASTER: LM was unable to reduce the cost", flush=True)
+
                 # print("SLAVE: Rank", rank, "minimized fitness:", np.sum(toolbox.evaluate_population(indiv)))
 
             # Compute fitnesses with mated/mutated/optimized population
@@ -350,7 +363,7 @@ def build_ga_toolbox(pvec_len, index_ranges):
     toolbox.register("parameter_set", ret_pvec, creator.Individual, np.random.normal)
     toolbox.register("population", tools.initRepeat, list, toolbox.parameter_set,)
     toolbox.register("mutate", tools.mutGaussian, mu=0, sigma=1, indpb=0.1)
-    toolbox.register("mate", tools.cxBlend, alpha=0.2)
+    toolbox.register("mate", tools.cxBlend, alpha=MATING_ALPHA)
 
     return toolbox, creator
 
@@ -510,6 +523,13 @@ def build_evaluation_functions(structures, weights, true_forces, true_energies,
         # full = np.hstack([pot, np.zeros((pot.shape[0], 108))])
         # full = np.hstack([pot, np.zeros((pot.shape[0], 54))])
         full = pot.copy()
+
+        for i,indiv in enumerate(full):
+            opt_results = least_squares(toolbox.evaluate_population, indiv,
+                                        toolbox.gradient, method='lm',
+                                        max_nfev=INTER_NSTEPS)
+
+            full[i] = opt_results['x']
 
         fitness = np.zeros(2*len(structures))
 
