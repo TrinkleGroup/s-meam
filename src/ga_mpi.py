@@ -79,7 +79,7 @@ SAVE_PATH = "data/ga_results/"
 SAVE_DIRECTORY = SAVE_PATH + date_str + "-" + "meam" + "{}-{}".format(NUM_GENS, MUTPB)
 
 DB_PATH = LOAD_PATH + 'structures/'
-DB_INFO_FILE_NAME = LOAD_PATH + 'rhophi/info'
+DB_INFO_FILE_NAME = LOAD_PATH + 'full/info'
 POP_FILE_NAME = SAVE_DIRECTORY + "/pop.dat"
 LOG_FILE_NAME = SAVE_DIRECTORY + "/ga.log"
 TRACE_FILE_NAME = SAVE_DIRECTORY + "/trace.dat"
