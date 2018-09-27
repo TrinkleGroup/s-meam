@@ -1,3 +1,6 @@
+import sys
+sys.path.append('./')
+
 import numpy as np
 import random
 np.set_printoptions(precision=8, linewidth=np.inf, suppress=True)
@@ -13,19 +16,19 @@ from scipy.optimize import least_squares
 ################################################################################
 
 # TODO: BW setting
-os.chdir('/home/jvita/scripts/s-meam/project/')
+# os.chdir('/home/jvita/scripts/s-meam/project/')
 
-POTS_PER_PROC = 1
+POTS_PER_PROC = 50
 NUM_LMIN_STEPS = 50
 
 # TODO: BW setting
-LOAD_PATH = "data/fitting_databases/leno-redo/"
-# LOAD_PATH = "/projects/sciteam/baot/leno-redo/"
+# LOAD_PATH = "data/fitting_databases/leno-redo/"
+LOAD_PATH = "/projects/sciteam/baot/leno-redo/"
 
 DB_PATH = LOAD_PATH + 'structures/'
 DB_INFO_FILE_NAME = LOAD_PATH + 'rhophi/info'
 
-SAVEFILE_NAME = LOAD_PATH + "cluster_optimized.dat"
+SAVEFILE_NAME = "cluster_optimized.dat"
 
 ################################################################################
 
@@ -73,7 +76,8 @@ def main():
 
     optimized = np.zeros(pop.shape)
 
-    CHECKPOINT_FILENAME = LOAD_PATH + "rank{}_trace.dat".format(rank)
+    TRACE_FILENAME = "rank{}_trace.dat".format(rank)
+    POT_FILENAME = "rank{}_opt.dat".format(rank)
 
     for i,indiv in enumerate(pop):
         print("Rank", rank, "optimizing pot {}/{}".format(i+1, POTS_PER_PROC),
@@ -81,9 +85,12 @@ def main():
 
         opt_results = least_squares(eval_fxn, indiv, grad_fxn, method='lm',
                                     max_nfev=NUM_LMIN_STEPS,
-                                    args=(i, CHECKPOINT_FILENAME))
+                                    args=(i, TRACE_FILENAME))
 
         optimized[i] = opt_results['x']
+
+        pot_outfile = open(POT_FILENAME, 'ab')
+        np.savetxt(pot_outfile, [optimized[i]])
 
     print("Rank", rank, "finished all optimizations", flush=True)
 
@@ -159,16 +166,23 @@ def find_spline_type_deliminating_indices(worker):
 def initialize_population(N):
 
     population = np.zeros((N,83))
+    #population = np.zeros((N,137))
 
-    ranges = [(-0.5, 0.5), (-1, 4), (-1, 1), (-9, 3), (-30, 15), (-0.5, 1),
-            (-0.2, 0.4)]
+    ranges = [(-1, 4), (-1, 4), (-1, 4), (-9, 3), (-9, 3), (-0.5, 1),
+            (-0.5, 1), (-2,3), (-2, 3), (-7,2), (-7,2), (-7,2)]
 
-    indices = [(0,13), (15,20), (22,35), (37,48), (50,55), (57,61), (63,68)]
+    indices = [(0,13), (15,28), (30,43), (45,56), (58,69), (71,75), (77,81),
+            (83,93), (95,105), (107,115), (117,125), (127,135)]
 
     for i in range(N):
-        ind = np.zeros(83)
+        # ind = np.zeros(83)
+        ind = np.zeros(137)
 
-        for rng,ind_tup in zip(ranges, indices):
+        # for rng,ind_tup in zip(ranges, indices):
+        for j in range(7):
+            rng = ranges[i]
+            ind_tup = indices[i]
+
             r_lo, r_hi = rng
             i_lo, i_hi = ind_tup
 
@@ -189,6 +203,7 @@ def build_evaluation_functions(structures, weights, true_forces, true_energies,
         pot = np.atleast_2d(pot)
         # full = np.hstack([pot, np.zeros((pot.shape[0], 108))])
         full = np.hstack([pot, np.zeros((pot.shape[0], 54))])
+        # full = pot.copy()
 
         fitness = np.zeros(2*len(structures))
 
@@ -212,8 +227,6 @@ def build_evaluation_functions(structures, weights, true_forces, true_energies,
         np.savetxt(slave_outfile, [np.array([pot_id+1, np.sum(fitness)])])
         slave_outfile.close()
 
-        print(np.sum(fitness), flush=True)
-
         trace[pot_id].append(np.sum(fitness))
 
         return fitness
@@ -222,6 +235,7 @@ def build_evaluation_functions(structures, weights, true_forces, true_energies,
         pot = np.atleast_2d(pot)
         # full = np.hstack([pot, np.zeros((pot.shape[0], 108))])
         full = np.hstack([pot, np.zeros((pot.shape[0], 54))])
+        # full = pot.copy()
 
         grad_vec = np.zeros((2*len(structures), full.shape[1]))
 
@@ -248,6 +262,7 @@ def build_evaluation_functions(structures, weights, true_forces, true_energies,
 
         # return grad_vec[:,:36]
         return grad_vec[:,:83]
+        # return grad_vec
 
     return fxn, grad, trace
 

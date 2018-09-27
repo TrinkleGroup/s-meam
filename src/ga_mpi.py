@@ -64,7 +64,7 @@ FINAL_NSTEPS = 30
 
 CHECKPOINT_FREQUENCY = 1
 
-MATING_ALPHA = 0.5
+MATING_ALPHA = 0.2
 
 ################################################################################ 
 """I/O settings"""
@@ -75,13 +75,13 @@ CHECK_BEFORE_OVERWRITE = False
 
 # TODO: BW settings
 
-LOAD_PATH = "data/fitting_databases/leno-redo/"
-# LOAD_PATH = "/projects/sciteam/baot/leno-redo/"
+# LOAD_PATH = "data/fitting_databases/leno-redo/"
+LOAD_PATH = "/projects/sciteam/baot/leno-redo/"
 SAVE_PATH = "data/ga_results/"
 SAVE_DIRECTORY = SAVE_PATH + date_str + "-" + "meam" + "{}-{}".format(NUM_GENS, MUTPB)
 
 DB_PATH = LOAD_PATH + 'structures/'
-DB_INFO_FILE_NAME = LOAD_PATH + 'full/info'
+DB_INFO_FILE_NAME = LOAD_PATH + 'rhophi/info'
 POP_FILE_NAME = SAVE_DIRECTORY + "/pop.dat"
 LOG_FILE_NAME = SAVE_DIRECTORY + "/ga.log"
 TRACE_FILE_NAME = SAVE_DIRECTORY + "/trace.dat"
@@ -145,7 +145,8 @@ def main():
     # Have every process build the toolbox
     toolbox, creator = build_ga_toolbox(pvec_len, spline_indices)
 
-    eval_fxn, min_fxn, grad_fxn = build_evaluation_functions(structures, weights,
+    # eval_fxn, min_fxn, grad_fxn = build_evaluation_functions(structures, weights,
+    eval_fxn, grad_fxn = build_evaluation_functions(structures, weights,
                                                     true_forces, true_energies,
                                                     spline_indices)
 
@@ -169,8 +170,8 @@ def main():
 
     indiv = creator.Individual(opt_results['x'])
 
-    # fitnesses = np.sum(toolbox.evaluate_population(indiv))
-    fitnesses = np.sum(min_fxn(indiv))
+    fitnesses = np.sum(toolbox.evaluate_population(indiv))
+    # fitnesses = np.sum(min_fxn(indiv))
 
     print("SLAVE: Rank", rank, "minimized fitness:", fitnesses, flush=True)
 
@@ -199,6 +200,11 @@ def main():
         i = 1
         while (i < NUM_GENS):
             if is_master_node:
+
+                # TODO: this mating method doesn't make sense
+                # TODO: use crossover; need high mut rate for exploration
+
+                # TODO: fit EAM first, then ffg
 
                 # Preserve top 50%, breed survivors
                 for j in range(len(pop)//2, len(pop)):
@@ -234,26 +240,26 @@ def main():
 
                 opt_results = least_squares(toolbox.evaluate_population, indiv,
                                             toolbox.gradient, method='lm',
-                                            max_nfev=INTER_NSTEPS)
+                                            max_nfev=INTER_NSTEPS*2)
 
 
                 opt_indiv = creator.Individual(opt_results['x'])
 
-                # opt_fitness = np.sum(toolbox.evaluate_population(opt_indiv))
-                # prev_fitness = np.sum(toolbox.evaluate_population(indiv))
-                opt_fitness =  np.sum(min_fxn(opt_indiv))
-                prev_fitness = np.sum(min_fxn(indiv))
+                opt_fitness = np.sum(toolbox.evaluate_population(opt_indiv))
+                prev_fitness = np.sum(toolbox.evaluate_population(indiv))
+                # opt_fitness =  np.sum(min_fxn(opt_indiv))
+                # prev_fitness = np.sum(min_fxn(indiv))
 
                 if opt_fitness < prev_fitness:
                     indiv = opt_indiv
-                else:
-                    print("MASTER: LM was unable to reduce the cost", flush=True)
+                # else:
+                #     print("MASTER: LM was unable to reduce the cost", flush=True)
 
                 # print("SLAVE: Rank", rank, "minimized fitness:", np.sum(toolbox.evaluate_population(indiv)))
 
             # Compute fitnesses with mated/mutated/optimized population
-            # fitnesses = np.sum(toolbox.evaluate_population(indiv))
-            fitnesses = np.sum(min_fxn(indiv))
+            fitnesses = np.sum(toolbox.evaluate_population(indiv))
+            # fitnesses = np.sum(min_fxn(indiv))
 
             all_fitnesses = comm.gather(fitnesses, root=0)
             pop = comm.gather(indiv, root=0)
@@ -303,10 +309,10 @@ def main():
 
     final = creator.Individual(opt_results['x'])
 
-    # print("SLAVE: Rank", rank, "minimized fitness:", np.sum(toolbox.evaluate_population(final)))
-    print("SLAVE: Rank", rank, "minimized fitness:", np.sum(min_fxn(final)))
-    # fitnesses = np.sum(toolbox.evaluate_population(final))
-    fitnesses = np.sum(min_fxn(final))
+    print("SLAVE: Rank", rank, "minimized fitness:", np.sum(toolbox.evaluate_population(final)))
+    # print("SLAVE: Rank", rank, "minimized fitness:", np.sum(min_fxn(final)))
+    fitnesses = np.sum(toolbox.evaluate_population(final))
+    # fitnesses = np.sum(min_fxn(final))
 
     all_fitnesses = comm.gather(fitnesses, root=0)
     pop = comm.gather(final, root=0)
@@ -327,8 +333,8 @@ def main():
 
         best = np.array(tools.selBest(pop, 1)[0])
 
-        # recheck = np.sum(toolbox.evaluate_population(best))
-        recheck = np.sum(min_fxn(best))
+        recheck = np.sum(toolbox.evaluate_population(best))
+        # recheck = np.sum(min_fxn(best))
         print("MASTER: confirming best fitness:", recheck)
 
         final_arr = np.array(best)
@@ -350,16 +356,20 @@ def build_ga_toolbox(pvec_len, index_ranges):
     def ret_pvec(arr_fxn, rng):
         scale_mag = 0.3
         # hard-coded version for pair-pots only
-        # ind = np.zeros(83)
-        ind = np.zeros(137)
+        ind = np.zeros(83)
+        # ind = np.zeros(137)
 
         ranges = [(-1, 4), (-1, 4), (-1, 4), (-9, 3), (-9, 3), (-0.5, 1),
-                (-0.5, 1)]
+                (-0.5, 1), (-2,3), (-2, 3), (-7,2), (-7,2), (-7,2)]
 
         indices = [(0,13), (15,28), (30,43), (45,56), (58,69), (71,75), (77,81),
                 (83,93), (95,105), (107,115), (117,125), (127,135)]
 
-        for rng,ind_tup in zip(ranges, indices):
+        # for rng,ind_tup in zip(ranges, indices):
+        for i in range(7):
+            rng = ranges[i]
+            ind_tup = indices[i]
+
             r_lo, r_hi = rng
             i_lo, i_hi = ind_tup
 
@@ -529,8 +539,8 @@ def build_evaluation_functions(structures, weights, true_forces, true_energies,
         # Convert list of Individuals into a numpy array
         pot = np.atleast_2d(pot)
         # full = np.hstack([pot, np.zeros((pot.shape[0], 108))])
-        # full = np.hstack([pot, np.zeros((pot.shape[0], 54))])
-        full = pot.copy()
+        full = np.hstack([pot, np.zeros((pot.shape[0], 54))])
+        # full = pot.copy()
         fitness = np.zeros(2*len(structures))
 
         # Compute error for each worker on MPI node
@@ -557,8 +567,8 @@ def build_evaluation_functions(structures, weights, true_forces, true_energies,
     def grad(pot):
         pot = np.atleast_2d(pot)
         # full = np.hstack([pot, np.zeros((pot.shape[0], 108))])
-        # full = np.hstack([pot, np.zeros((pot.shape[0], 54))])
-        full = pot.copy()
+        full = np.hstack([pot, np.zeros((pot.shape[0], 54))])
+        # full = pot.copy()
 
         grad_vec = np.zeros((2*len(structures), full.shape[1]))
 
@@ -584,8 +594,8 @@ def build_evaluation_functions(structures, weights, true_forces, true_energies,
             i += 2
 
         # return grad_vec[:,:36]
-        # return grad_vec[:,:83]
-        return grad_vec
+        return grad_vec[:,:83]
+        # return grad_vec
 
     def minimized_fxn(pot):
 
@@ -600,8 +610,8 @@ def build_evaluation_functions(structures, weights, true_forces, true_energies,
 
         return fxn(full)
 
-    # return fxn, grad
-    return fxn, minimized_fxn, grad
+    return fxn, grad
+    # return fxn, minimized_fxn, grad
 
 def build_stats_and_log():
     """Initialize DEAP Statistics and Logbook objects"""
