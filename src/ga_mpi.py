@@ -46,7 +46,7 @@ comm = MPI.COMM_WORLD
 mpi_size = comm.Get_size()
 
 POP_SIZE = mpi_size
-NUM_GENS = 400
+NUM_GENS = 50
 CXPB = 1.0
 
 if len(sys.argv) > 1:
@@ -76,7 +76,7 @@ CHECK_BEFORE_OVERWRITE = False
 # TODO: BW settings
 
 # LOAD_PATH = "data/fitting_databases/leno-redo/"
-LOAD_PATH = "/projects/sciteam/baot/leno-redo/"
+LOAD_PATH = "/projects/sciteam/baot/fixU-clean/"
 SAVE_PATH = "data/ga_results/"
 SAVE_DIRECTORY = SAVE_PATH + date_str + "-" + "meam" + "{}-{}".format(NUM_GENS, MUTPB)
 
