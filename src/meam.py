@@ -205,6 +205,10 @@ class MEAM:
         natoms = len(atoms)
         self.energies = np.zeros((natoms,))
         self.uprimes = [None] * natoms
+        
+        all_ni = []
+        all_rij = []
+        all_costheta = []
 
         for i in range(natoms):
             itype = src.lammpsTools.symbol_to_type(atoms[i].symbol, self.types)
@@ -246,7 +250,7 @@ class MEAM:
 
                     r_ij = np.linalg.norm(
                         ipos - neighbor_shifted_positions[j])
-
+                    
                     phi = self.phis[ij_to_potl(itype, jtype, self.ntypes)]
 
                     phi_idx = ij_to_potl(itype, jtype, self.ntypes)
@@ -261,6 +265,8 @@ class MEAM:
                     r_ij = np.linalg.norm(
                         ipos - neighbor_shifted_positions[j])
 
+                    all_rij.append(r_ij)
+                    
                     rho = self.rhos[i_to_potl(jtype)]
                     fj = self.fs[i_to_potl(jtype)]
 
@@ -288,6 +294,9 @@ class MEAM:
                             nb = np.linalg.norm(b)
 
                             cos_theta = np.dot(a, b) / na / nb
+                            
+                            all_rij.append(r_ik)
+                            all_costheta.append(cos_theta)
 
                             fk_val = fk(r_ik)
                             g_val = g(cos_theta)
@@ -324,6 +333,8 @@ class MEAM:
                 #     self.zero_atom_energies[i_to_potl(itype)]))
                 atom_e = total_phi + u(total_ni) - self.zero_atom_energies[
                     i_to_potl(itype)]
+                
+                all_ni.append(total_ni)
 
                 self.energies[i] = atom_e
                 total_pe += atom_e
@@ -331,6 +342,22 @@ class MEAM:
                 # logging.info("MEAM: u' = {0}".format(u(total_ni, 1)))
                 self.uprimes[i] = u(total_ni, 1)
             # end atom loop
+
+        outfile_ni = open("meam_ni.dat", 'ab')
+        outfile_rij = open("meam_rij.dat", 'ab')
+        outfile_costheta = open("meam_costheta.dat", 'ab')
+        
+        print("ni", len(all_ni))
+        print("rij", len(all_rij))
+        # print(len(all_costheta))
+
+        np.savetxt(outfile_ni, all_ni)
+        np.savetxt(outfile_rij, all_rij)
+        np.savetxt(outfile_costheta, all_costheta)
+
+        outfile_ni.close()
+        outfile_rij.close()
+        outfile_costheta.close()
 
         # logging.info("MEAM: eng = {0}".format(total_pe))
         return total_pe

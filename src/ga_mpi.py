@@ -1,5 +1,5 @@
 import os
-# os.chdir("/home/jvita/scripts/s-meam/project/")
+os.chdir("/home/jvita/scripts/s-meam/project/")
 import sys
 sys.path.append('./')
 
@@ -25,6 +25,8 @@ import src.meam
 from src.worker import Worker
 from src.meam import MEAM
 from src.spline import Spline
+from src.database import Database
+from src.potential_templates import Template
 
 ################################################################################
 """MPI settings"""
@@ -35,7 +37,7 @@ MASTER_RANK = 0
 """MEAM potential settings"""
 
 # ACTIVE_SPLINES = [1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-ACTIVE_SPLINES = [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+ACTIVE_SPLINES = [1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0]
 
 ################################################################################
 """GA settings"""
@@ -117,59 +119,67 @@ def main():
         #
         # print("MASTER: Loading energy/forces database ... ", flush=True)
         # true_forces, true_energies = load_true_values(structures.keys())
-        
+
         database = Database(DB_PATH, DB_INFO_FILE_NAME, ['H', 'He'])
 
+        database.print_metadata()
+
         print("MASTER: Determining potential information ...", flush=True)
-        ex_struct = structures[list(structures.keys())[0]]
+        ex_struct = database.structures[list(database.structures.keys())[0]]
         type_indices, spline_indices = find_spline_type_deliminating_indices(ex_struct)
         pvec_len = ex_struct.len_param_vec
-        print('PVEC=', pvec_len)
 
-        print("MASTER: Preparing to send structures to slaves ... ", flush=True)
+
+
+        x_indices = np.array(spline_indices[1:])
+        delimiters = [x_indices[i-1]+2*i for i in range(1, len(x_indices) + 1)]
+
+        potential_template = Template(
+            pvec_len=pvec_len,
+            spline_ranges= [(-1, 4), (-1, 4), (-1, 4), (-9, 3), (-9, 3),
+                            (-0.5, 1), (-0.5, 1), (-2,3), (-2, 3), (-7,2),
+                            (-7,2), (-7,2)],
+            spline_delimiters=delimiters,
+            active_splines = ACTIVE_SPLINES
+            )
+
+        potential_template.print_statistics()
+        print()
     else:
-        spline_indices = None
-        structures = None
-        weights = None
-        true_forces = None
-        true_energies = None
-        pvec_len = None
+        # spline_indices = None
+        # structures = None
+        # weights = None
+        # true_forces = None
+        # true_energies = None
+        # pvec_len = None
+        #
+        database = None
+        potential_template = None
 
     # Send all necessary information to slaves
-    spline_indices = comm.bcast(spline_indices, root=0)
-    pvec_len = comm.bcast(pvec_len, root=0)
-    structures = comm.bcast(structures, root=0)
-    weights = comm.bcast(weights, root=0)
-    true_forces = comm.bcast(true_forces, root=0)
-    true_energies = comm.bcast(true_energies, root=0)
+    # spline_indices = comm.bcast(spline_indices, root=0)
+    # pvec_len = comm.bcast(pvec_len, root=0)
+    # structures = comm.bcast(structures, root=0)
+    # weights = comm.bcast(weights, root=0)
+    # true_forces = comm.bcast(true_forces, root=0)
+    # true_energies = comm.bcast(true_energies, root=0)
 
-    print("SLAVE: Rank", rank, "received", len(structures), 'structures',
-            flush=True)
+    database = comm.bcast(database, root=0)
+    potential_template = comm.bcast(potential_template, root=0)
 
     # Have every process build the toolbox
-    toolbox, creator = build_ga_toolbox(pvec_len, spline_indices)
+    toolbox, creator = build_ga_toolbox(potential_template)
 
-    # eval_fxn, min_fxn, grad_fxn = build_evaluation_functions(structures, weights,
-    eval_fxn, grad_fxn = build_evaluation_functions(structures, weights,
-                                                    true_forces, true_energies,
-                                                    spline_indices)
-
-    def grad_wrapper(x):
-        return grad_fxn(x).ravel()
+    eval_fxn, grad_fxn = build_evaluation_functions(
+        database,
+        potential_template
+        )
 
     toolbox.register("evaluate_population", eval_fxn)
     toolbox.register("gradient", grad_fxn)
 
     # Compute initial fitnesses
     if is_master_node:
-
-        # true_pot = MEAM.from_file("data/fitting_databases/fixU-clean/HHe.meam.spline")
-        # _, true_pvec, _ = src.meam.splines_to_pvec(true_pot.splines)
-        #
-        # true = creator.Individual(true_pvec[:83])
-        #
-        # print("Confirming clean: ", np.sum(toolbox.evaluate_population(true))))
-
         pop = toolbox.population(n=POP_SIZE)
     else:
         pop = None
@@ -203,8 +213,6 @@ def main():
         pop = tools.selBest(pop, len(pop))
 
         print_statistics(pop, 0, stats, logbook)
-
-        print("Confirming best: ", np.sum(toolbox.evaluate_population(pop[0])))
 
         checkpoint(pop, logbook, pop[0], 0)
         ga_start = time.time()
@@ -360,7 +368,7 @@ def main():
 
 ################################################################################
 
-def build_ga_toolbox(pvec_len, index_ranges):
+def build_ga_toolbox(potential_template):
     """Initializes GA toolbox with desired functions"""
 
     creator.create("CostFunctionMinimizer", base.Fitness, weights=(-1.,))
@@ -368,28 +376,10 @@ def build_ga_toolbox(pvec_len, index_ranges):
             fitness=creator.CostFunctionMinimizer)
 
     def ret_pvec(arr_fxn, rng):
-        scale_mag = 0.3
         # hard-coded version for pair-pots only
-        ind = np.zeros(83)
-        # ind = np.zeros(137)
+        tmp = arr_fxn(potential_template.generate_random_instance(rng))
 
-        ranges = [(-1, 4), (-1, 4), (-1, 4), (-9, 3), (-9, 3), (-0.5, 1),
-                (-0.5, 1), (-2,3), (-2, 3), (-7,2), (-7,2), (-7,2)]
-
-        indices = [(0,13), (15,28), (30,43), (45,56), (58,69), (71,75), (77,81),
-                (83,93), (95,105), (107,115), (117,125), (127,135)]
-
-        # for rng,ind_tup in zip(ranges, indices):
-        for i in range(7):
-            rng = ranges[i]
-            ind_tup = indices[i]
-
-            r_lo, r_hi = rng
-            i_lo, i_hi = ind_tup
-
-            ind[i_lo:i_hi] = np.random.random(i_hi-i_lo)*(r_hi-r_lo) + r_lo
-
-        return arr_fxn(ind)
+        return tmp[np.where(potential_template.active_mask)[0]]
 
     toolbox = base.Toolbox()
     toolbox.register("parameter_set", ret_pvec, creator.Individual, np.random.normal)
@@ -545,53 +535,46 @@ def load_true_values(all_names):
 
     return true_forces, true_energies
 
-def build_evaluation_functions(structures, weights, true_forces, true_energies,
-        spline_indices):
+def build_evaluation_functions(database, potential_template):
     """Builds the function to evaluate populations. Wrapped here for readability
     of main code."""
     def fxn(pot):
-        # Convert list of Individuals into a numpy array
-        pot = np.atleast_2d(pot)
-        # full = np.hstack([pot, np.zeros((pot.shape[0], 108))])
-        full = np.hstack([pot, np.zeros((pot.shape[0], 54))])
-        # full = pot.copy()
-        fitness = np.zeros(2*len(structures))
+        # "pot" should be a of potential Template objects
+
+        full = potential_template.insert_active_splines(pot)
+
+        fitness = np.zeros(2*len(database.structures))
 
         # Compute error for each worker on MPI node
         i = 0
-        for name in structures.keys():
-            w = structures[name]
+        for name in database.structures.keys():
+            w = database.structures[name]
 
-            fcs_err = w.compute_forces(full) - true_forces[name]
-            eng_err = w.compute_energy(full) - true_energies[name]
+            fcs_err = w.compute_forces(full) - database.true_forces[name]
+            eng_err = w.compute_energy(full) - database.true_energies[name]
 
             # Scale force errors
             fcs_err = np.linalg.norm(fcs_err, axis=(1,2)) / np.sqrt(10)
 
-            fitness[i] += eng_err*eng_err*weights[name]
-            fitness[i+1] += fcs_err*fcs_err*weights[name]
+            fitness[i] += eng_err*eng_err*database.weights[name]
+            fitness[i+1] += fcs_err*fcs_err*database.weights[name]
 
             i += 2
-
-        # print(fitness, flush=True)
-        # print(np.sum(fitness), flush=True)
 
         return fitness
 
     def grad(pot):
-        pot = np.atleast_2d(pot)
-        # full = np.hstack([pot, np.zeros((pot.shape[0], 108))])
-        full = np.hstack([pot, np.zeros((pot.shape[0], 54))])
-        # full = pot.copy()
+        # full = np.atleast_2d(pot[np.where(potential_template.active_mask)])
+        full = np.atleast_2d(potential_template.insert_active_splines(pot))
 
-        grad_vec = np.zeros((2*len(structures), full.shape[1]))
+        grad_vec = np.zeros((2*len(database.structures), full.shape[1]))
 
         i = 0
-        for name in structures.keys():
-            w = structures[name]
+        for name in database.structures.keys():
+            w = database.structures[name]
 
-            eng_err = w.compute_energy(full) - true_energies[name]
-            fcs_err = (w.compute_forces(full) - true_forces[name])
+            eng_err = w.compute_energy(full) - database.true_energies[name]
+            fcs_err = (w.compute_forces(full) - database.true_forces[name])
 
             # Scale force errors
 
@@ -607,9 +590,8 @@ def build_evaluation_functions(structures, weights, true_forces, true_energies,
 
             i += 2
 
-        # return grad_vec[:,:36]
-        return grad_vec[:,:83]
-        # return grad_vec
+        # return grad_vec[:,:83]
+        return grad_vec[:, np.where(potential_template.active_mask)[0]]
 
     def minimized_fxn(pot):
 
@@ -625,7 +607,7 @@ def build_evaluation_functions(structures, weights, true_forces, true_energies,
         return fxn(full)
 
     return fxn, grad
-    # return fxn, minimized_fxn, grad
+        # return fxn, minimized_fxn, grad
 
 def build_stats_and_log():
     """Initialize DEAP Statistics and Logbook objects"""
