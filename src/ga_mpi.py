@@ -6,8 +6,6 @@ sys.path.append('./')
 import numpy as np
 import random
 np.set_printoptions(precision=8, linewidth=np.inf, suppress=True)
-np.random.seed(42)
-random.seed(42)
 
 import pickle
 import glob
@@ -46,7 +44,7 @@ comm = MPI.COMM_WORLD
 mpi_size = comm.Get_size()
 
 POP_SIZE = mpi_size
-NUM_GENS = 50
+NUM_GENS = 5
 CXPB = 1.0
 
 if len(sys.argv) > 1:
@@ -66,7 +64,7 @@ CHECKPOINT_FREQUENCY = 1
 
 MATING_ALPHA = 0.2
 
-################################################################################ 
+################################################################################
 """I/O settings"""
 
 date_str = datetime.datetime.now().strftime("%Y-%m-%d")
@@ -75,18 +73,22 @@ CHECK_BEFORE_OVERWRITE = False
 
 # TODO: BW settings
 
-# LOAD_PATH = "data/fitting_databases/leno-redo/"
-LOAD_PATH = "/projects/sciteam/baot/fixU-clean/"
+LOAD_PATH = "data/fitting_databases/fixU-clean/"
+# LOAD_PATH = "/projects/sciteam/baot/fixU-clean/"
 SAVE_PATH = "data/ga_results/"
+
 SAVE_DIRECTORY = SAVE_PATH + date_str + "-" + "meam" + "{}-{}".format(NUM_GENS, MUTPB)
 
-DB_PATH = LOAD_PATH + 'structures/'
+if os.path.isdir(SAVE_DIRECTORY):
+    SAVE_DIRECTORY = SAVE_DIRECTORY + str(np.random.randint(100000))
+
+DB_PATH = LOAD_PATH + 'structures'
 DB_INFO_FILE_NAME = LOAD_PATH + 'rhophi/info'
 POP_FILE_NAME = SAVE_DIRECTORY + "/pop.dat"
 LOG_FILE_NAME = SAVE_DIRECTORY + "/ga.log"
 TRACE_FILE_NAME = SAVE_DIRECTORY + "/trace.dat"
 
-################################################################################ 
+################################################################################
 
 def main():
     # Record MPI settings
@@ -110,11 +112,13 @@ def main():
 
         stats, logbook = build_stats_and_log()
 
-        print("MASTER: Loading structures ...", flush=True)
-        structures, weights = load_structures_on_master()
-
-        print("MASTER: Loading energy/forces database ... ", flush=True)
-        true_forces, true_energies = load_true_values(structures.keys())
+        # print("MASTER: Loading structures ...", flush=True)
+        # structures, weights = load_structures_on_master()
+        #
+        # print("MASTER: Loading energy/forces database ... ", flush=True)
+        # true_forces, true_energies = load_true_values(structures.keys())
+        
+        database = Database(DB_PATH, DB_INFO_FILE_NAME, ['H', 'He'])
 
         print("MASTER: Determining potential information ...", flush=True)
         ex_struct = structures[list(structures.keys())[0]]
@@ -158,6 +162,14 @@ def main():
 
     # Compute initial fitnesses
     if is_master_node:
+
+        # true_pot = MEAM.from_file("data/fitting_databases/fixU-clean/HHe.meam.spline")
+        # _, true_pvec, _ = src.meam.splines_to_pvec(true_pot.splines)
+        #
+        # true = creator.Individual(true_pvec[:83])
+        #
+        # print("Confirming clean: ", np.sum(toolbox.evaluate_population(true))))
+
         pop = toolbox.population(n=POP_SIZE)
     else:
         pop = None
@@ -192,6 +204,8 @@ def main():
 
         print_statistics(pop, 0, stats, logbook)
 
+        print("Confirming best: ", np.sum(toolbox.evaluate_population(pop[0])))
+
         checkpoint(pop, logbook, pop[0], 0)
         ga_start = time.time()
 
@@ -211,7 +225,7 @@ def main():
                     # mom = pop[np.random.randint(len(pop)//2)]
                     # dad = pop[j]
                     mom_idx = np.random.randint(len(pop)//2)
-                    
+
                     dad_idx = mom_idx
                     while dad_idx == mom_idx:
                         dad_idx = np.random.randint(len(pop)//2)
@@ -344,7 +358,7 @@ def main():
 
         # plot_best_individual()
 
-################################################################################ 
+################################################################################
 
 def build_ga_toolbox(pvec_len, index_ranges):
     """Initializes GA toolbox with desired functions"""
@@ -738,7 +752,7 @@ def load_weights(names):
 def find_spline_type_deliminating_indices(worker):
     """Finds the indices in the parameter vector that correspond to start/end
     (inclusive/exclusive respectively) for each spline group. For example,
-    phi_range[0] is the index of the first know of the phi splines, while
+    phi_range[0] is the index of the first knot of the phi splines, while
     phi_range[1] is the next knot that is NOT part of the phi splines
 
     Args:

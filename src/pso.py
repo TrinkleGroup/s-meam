@@ -25,7 +25,7 @@ NUM_LMIN_STEPS = 30
 
 FITNESS_THRESH = 1
 
-PARTICLES_PER_MPI_TASK = 1
+PARTICLES_PER_MPI_TASK = 5
 
 ################################################################################
 
@@ -109,7 +109,7 @@ def main():
                                                     true_forces, true_energies,
                                                     spline_indices)
 
-    # send individual particle informations to each process
+    # send individual particle information to each process
     print("SLAVE: Rank", rank, "performing initial LMIN ...", flush=True)
     positions = comm.scatter(swarm_positions, root=0)
     velocity = comm.scatter(swarm_velocities, root=0)
