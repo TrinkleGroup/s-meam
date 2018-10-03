@@ -22,6 +22,7 @@ from mpi4py import MPI
 from deap import base, creator, tools, algorithms
 
 import src.meam
+from src.meam import MEAM
 from src.worker import Worker
 from src.meam import MEAM
 from src.spline import Spline
@@ -36,8 +37,8 @@ MASTER_RANK = 0
 ################################################################################
 """MEAM potential settings"""
 
-# ACTIVE_SPLINES = [1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-ACTIVE_SPLINES = [1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0]
+# ACTIVE_SPLINES = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+ACTIVE_SPLINES = [0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0]
 
 ################################################################################
 """GA settings"""
@@ -75,14 +76,15 @@ CHECK_BEFORE_OVERWRITE = False
 
 # TODO: BW settings
 
-LOAD_PATH = "data/fitting_databases/fixU-clean/"
+# LOAD_PATH = "data/fitting_databases/fixU-clean/"
+LOAD_PATH = "data/fitting_databases/leno-redo/"
 # LOAD_PATH = "/projects/sciteam/baot/fixU-clean/"
 SAVE_PATH = "data/ga_results/"
 
 SAVE_DIRECTORY = SAVE_PATH + date_str + "-" + "meam" + "{}-{}".format(NUM_GENS, MUTPB)
 
 if os.path.isdir(SAVE_DIRECTORY):
-    SAVE_DIRECTORY = SAVE_DIRECTORY + str(np.random.randint(100000))
+    SAVE_DIRECTORY = SAVE_DIRECTORY + '-' + str(np.random.randint(100000))
 
 DB_PATH = LOAD_PATH + 'structures'
 DB_INFO_FILE_NAME = LOAD_PATH + 'rhophi/info'
@@ -129,7 +131,20 @@ def main():
         type_indices, spline_indices = find_spline_type_deliminating_indices(ex_struct)
         pvec_len = ex_struct.len_param_vec
 
+        potential = MEAM.from_file('data/fitting_databases/fixU-clean/HHe.meam.spline')
+        x_pvec, true_y_pvec, indices = src.meam.splines_to_pvec(potential.splines)
 
+        true_y_pvec[83:] = 0
+
+        old_rho_A = true_y_pvec[45:56]
+        old_rho_B = true_y_pvec[58:69]
+
+        scaled_up_rho_A = old_rho_A * 10
+        scaled_up_rho_B = old_rho_B * 10
+
+        scaled_up_y_pvec = true_y_pvec.copy()
+        scaled_up_y_pvec[45:56] = scaled_up_rho_A
+        scaled_up_y_pvec[58:69] = scaled_up_rho_B
 
         x_indices = np.array(spline_indices[1:])
         delimiters = [x_indices[i-1]+2*i for i in range(1, len(x_indices) + 1)]
@@ -140,7 +155,8 @@ def main():
                             (-0.5, 1), (-0.5, 1), (-2,3), (-2, 3), (-7,2),
                             (-7,2), (-7,2)],
             spline_delimiters=delimiters,
-            active_splines = ACTIVE_SPLINES
+            active_splines = ACTIVE_SPLINES,
+            seed=true_y_pvec
             )
 
         potential_template.print_statistics()
@@ -375,14 +391,15 @@ def build_ga_toolbox(potential_template):
     creator.create("Individual", np.ndarray,
             fitness=creator.CostFunctionMinimizer)
 
-    def ret_pvec(arr_fxn, rng):
+    def ret_pvec(arr_fxn):
         # hard-coded version for pair-pots only
-        tmp = arr_fxn(potential_template.generate_random_instance(rng))
+        tmp = arr_fxn(potential_template.generate_random_instance())
 
         return tmp[np.where(potential_template.active_mask)[0]]
 
     toolbox = base.Toolbox()
-    toolbox.register("parameter_set", ret_pvec, creator.Individual, np.random.normal)
+    toolbox.register("parameter_set", ret_pvec, creator.Individual,)
+                     # np.random.random)
     toolbox.register("population", tools.initRepeat, list, toolbox.parameter_set,)
     toolbox.register("mutate", tools.mutGaussian, mu=0, sigma=1, indpb=0.1)
     toolbox.register("mate", tools.cxBlend, alpha=MATING_ALPHA)
@@ -538,8 +555,12 @@ def load_true_values(all_names):
 def build_evaluation_functions(database, potential_template):
     """Builds the function to evaluate populations. Wrapped here for readability
     of main code."""
+
     def fxn(pot):
         # "pot" should be a of potential Template objects
+
+        potential = MEAM.from_file('HHe.meam.spline')
+        x_pvec, true_y_pvec, indices = src.meam.splines_to_pvec(potential.splines)
 
         full = potential_template.insert_active_splines(pot)
 
@@ -559,8 +580,13 @@ def build_evaluation_functions(database, potential_template):
             fitness[i] += eng_err*eng_err*database.weights[name]
             fitness[i+1] += fcs_err*fcs_err*database.weights[name]
 
+            if name == 'hcp_2.8_4.64_ab4':
+                np.savetxt("ga_version.dat", full)
+                print()
+
             i += 2
 
+        print("in eval:", np.sum(fitness))
         return fitness
 
     def grad(pot):

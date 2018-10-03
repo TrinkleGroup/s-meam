@@ -120,10 +120,10 @@ class Worker:
         nl = NeighborList(np.ones(self.natoms) * (cutoff / 2.),
                           self_interaction=False, bothways=True, skin=0.0)
         nl.update(atoms)
-        
+
         all_rij = []
         all_costheta = []
-        
+
         for i, atom in enumerate(atoms):
             # Record atom type info
             itype = self.type_of_each_atom[i]
@@ -144,9 +144,9 @@ class Worker:
                 jvec = jpos - ipos
                 rij = np.sqrt(jvec[0]**2 + jvec[1]**2 + jvec[2]**2)
                 jvec /= rij
-                
+
                 all_rij.append(rij)
-                
+
                 # Add distance/index/direction information to necessary lists
                 phi_idx = src.meam.ij_to_potl(itype, jtype, self.ntypes)
 
@@ -222,15 +222,18 @@ class Worker:
 
         # convert arrays to avoid having to convert on call
         self.type_of_each_atom = np.array(self.type_of_each_atom)
-        
+
         # outfile1 = open("rij.dat", 'ab')
 #         outfile2 = open("cos_theta.dat", 'ab')
 
         # np.savetxt(outfile1, all_rij)
         # np.savetxt(outfile2, all_costheta)
-        
+
         # outfile1.close()
         # outfile2.close()
+
+        # self.all_rijj = all_rij
+        # self.all_costheta = all_costheta
 
     @classmethod
     def from_hdf5(cls, hdf5_file, name):
@@ -430,10 +433,12 @@ class Worker:
                 y_g = g_pvecs[src.meam.ij_to_potl(j + 1, k + 1, self.ntypes)]
 
                 ni += ffg.calc_energy(y_fj, y_fk, y_g)
-        
+
         # outfile = open("ni.dat", 'ab')
         # np.savetxt(outfile, ni.ravel())
         # outfile.close()
+
+        self.all_ni = ni
 
         return ni
 

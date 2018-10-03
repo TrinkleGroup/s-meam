@@ -205,7 +205,7 @@ class MEAM:
         natoms = len(atoms)
         self.energies = np.zeros((natoms,))
         self.uprimes = [None] * natoms
-        
+
         all_ni = []
         all_rij = []
         all_costheta = []
@@ -250,7 +250,7 @@ class MEAM:
 
                     r_ij = np.linalg.norm(
                         ipos - neighbor_shifted_positions[j])
-                    
+
                     phi = self.phis[ij_to_potl(itype, jtype, self.ntypes)]
 
                     phi_idx = ij_to_potl(itype, jtype, self.ntypes)
@@ -266,7 +266,7 @@ class MEAM:
                         ipos - neighbor_shifted_positions[j])
 
                     all_rij.append(r_ij)
-                    
+
                     rho = self.rhos[i_to_potl(jtype)]
                     fj = self.fs[i_to_potl(jtype)]
 
@@ -294,7 +294,7 @@ class MEAM:
                             nb = np.linalg.norm(b)
 
                             cos_theta = np.dot(a, b) / na / nb
-                            
+
                             all_rij.append(r_ik)
                             all_costheta.append(cos_theta)
 
@@ -333,7 +333,7 @@ class MEAM:
                 #     self.zero_atom_energies[i_to_potl(itype)]))
                 atom_e = total_phi + u(total_ni) - self.zero_atom_energies[
                     i_to_potl(itype)]
-                
+
                 all_ni.append(total_ni)
 
                 self.energies[i] = atom_e
@@ -346,21 +346,21 @@ class MEAM:
         outfile_ni = open("meam_ni.dat", 'ab')
         outfile_rij = open("meam_rij.dat", 'ab')
         outfile_costheta = open("meam_costheta.dat", 'ab')
-        
-        print("ni", len(all_ni))
-        print("rij", len(all_rij))
-        # print(len(all_costheta))
 
-        np.savetxt(outfile_ni, all_ni)
-        np.savetxt(outfile_rij, all_rij)
-        np.savetxt(outfile_costheta, all_costheta)
-
-        outfile_ni.close()
-        outfile_rij.close()
-        outfile_costheta.close()
+        # print("ni", len(all_ni))
+        # print("rij", len(all_rij))
+        # # print(len(all_costheta))
+        #
+        # np.savetxt(outfile_ni, all_ni)
+        # np.savetxt(outfile_rij, all_rij)
+        # np.savetxt(outfile_costheta, all_costheta)
+        #
+        # outfile_ni.close()
+        # outfile_rij.close()
+        # outfile_costheta.close()
 
         # logging.info("MEAM: eng = {0}".format(total_pe))
-        return total_pe
+        return total_pe, all_ni
 
     def compute_forces(self, atoms):
         """Evaluates the energies for the given system using the MEAM potential,
@@ -837,7 +837,7 @@ def ij_to_potl(itype, jtype, ntypes):
     indexing spline functions. Currently only works for binary systems;
     ternary systems causes overlap with current algorithm (e.g. 2-1 bond maps to
     same as 1-3 bond)
-    
+
     Args:
         itype (int):
             the i-th element in the system (e.g. in Ti-O, Ti=1)
@@ -845,7 +845,7 @@ def ij_to_potl(itype, jtype, ntypes):
             the j-the element in the system (e.g. in Ti-O, O=2)
         ntypes (int):
             the number of unique element types in the system
-        
+
     Returns:
         The mapping of ij into an index of a 1D 0-indexed list
     """
@@ -862,11 +862,11 @@ def ij_to_potl(itype, jtype, ntypes):
 def i_to_potl(itype):
     """Maps element number i to an index of a 1D list; used for indexing spline
     functions. Taken directly from pair_meam_spline.h
-    
+
     Args:
         itype (int):
             the i-the element in the system (e.g. in Ti-O, Ti=1)
-        
+
     Returns:
         The array index for the given element
     """

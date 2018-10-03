@@ -28,7 +28,7 @@ class Template:
 
         # Initialize properties
         if load_file_path:
-            pot = MEAM.from_file(file_path)
+            pot = MEAM.from_file(load_file_path)
 
             x_pvec, y_pvec, delimiters = src.meam.splines_to_pvec(pot.splines)
             self.pvec = y_pvec
@@ -37,7 +37,7 @@ class Template:
             # TODO: ranges could be taken from LAMMPS file
         else:
             if len(seed) > 0:
-                self.pvec = seed
+                self.pvec = seed.copy()
             else:
                 self.pvec = np.zeros(pvec_len)
 
@@ -48,21 +48,23 @@ class Template:
         if len(active_splines) < 0:
             active_splines = np.ones(len(spline_delimiters) + 1)
 
-        self.active_splines = active_splines
-        self.active_mask = np.zeros(len(self.pvec), dtype=int)
-
         self.spline_delimiters.append(len(self.pvec))
 
-        start = 0
-        for i,active in enumerate(self.active_splines):
-            stop = self.spline_delimiters[i]
+        self.set_active_splines(active_splines)
 
-            if active == 1:
-                self.active_mask[start:stop] = 1
+        # self.active_splines = active_splines
+        # self.active_mask = np.zeros(len(self.pvec), dtype=int)
+        #
+        # start = 0
+        # for i,active in enumerate(self.active_splines):
+        #     stop = self.spline_delimiters[i]
+        #
+        #     if active == 1:
+        #         self.active_mask[start:stop] = 1
+        #
+        #     start = stop
 
-            start = stop
-
-    def generate_random_instance(self, rng):
+    def generate_random_instance(self):
         """
         Instantiates a random instance of the template, using the given random
         number generator in the range of each spline
@@ -76,7 +78,7 @@ class Template:
 
             low, high = self.spline_ranges[i]
 
-            ind[start:stop] = rng(stop-start)*(high-low) + low
+            ind[start:stop] = np.random.random(stop-start)*(high-low) + low
 
             start = stop
 
@@ -88,30 +90,29 @@ class Template:
 
         return tmp
 
-    # def set_active_splines(self, active_splines):
-    #     if active_splines is None:
-    #         self.active_splines = np.ones(len(spline_delimiters) + 1)
-    #     else:
-    #         self.active_splines = np.array(active_splines)
-    #
-    #     self.active_delimiters = []
-    #
-    #     # self.active_delimiters is a list of [start, stop) tuples
-    #     for i,is_active in enumerate(active_splines):
-    #         if is_active:
-    #             self.active_delimiters.append(
-    #                 (self.spline_delimiters[i-1], self.spline_delimiters[i])
-    #                 )
-    #
-    @classmethod
-    def from_file(cls, file_path):
-        """
-        Args:
-            file_path (str): full path to LAMMPS-style potential file
-        """
+    def set_active_splines(self, active_splines):
 
-        self.load_file_str = file_path
-        return cls()
+        self.active_splines = active_splines
+        self.active_mask = np.zeros(len(self.pvec), dtype=int)
+
+        start = 0
+        for i,active in enumerate(self.active_splines):
+            stop = self.spline_delimiters[i]
+
+            if active == 1:
+                self.active_mask[start:stop] = 1
+
+            start = stop
+
+    # @classmethod
+    # def from_file(cls, file_path):
+    #     """
+    #     Args:
+    #         file_path (str): full path to LAMMPS-style potential file
+    #     """
+    #
+    #     self.load_file_str = file_path
+    #     return cls(file)
 
     def update_active_pvec(self, new_pvec):
         counter = 0
@@ -131,6 +132,14 @@ class Template:
         print("spline_ranges:", self.spline_ranges)
         print("active_splines:", self.active_splines)
 
+    # def compare_to_file(self, save_name, comp_file_path):
+    #     true_pot = MEAM.from_file(comp_file_path)
+    #     _, true_pvec, _ = src.meam.splines_to_pvec(true_pot.splines)
+    #
+    #     for i in range(len(self.active_splines)):
+    #         if i == 1: # spline is active
+    #             x_plt
+    #
 if __name__ == "__main__":
     pot = Template(
         137,
@@ -142,3 +151,4 @@ if __name__ == "__main__":
         )
 
     pot.print_statistics()
+    print(pot.generate_random_instance(np.random.random)[45:71])

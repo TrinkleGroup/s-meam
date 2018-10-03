@@ -57,7 +57,7 @@ class Database:
                 fcs = np.genfromtxt(open(file_name, 'rb'), skip_header=1)
 
                 self.true_energies[short_name] = eng
-                self.true_forces[short_name] = eng
+                self.true_forces[short_name] = fcs
             else:
                 # each line should be of the form "[data_name] [data]"
                 for line in open(file_name):
