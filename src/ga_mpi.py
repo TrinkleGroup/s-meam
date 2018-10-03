@@ -76,8 +76,8 @@ CHECK_BEFORE_OVERWRITE = False
 
 # TODO: BW settings
 
-# LOAD_PATH = "data/fitting_databases/fixU-clean/"
-LOAD_PATH = "data/fitting_databases/leno-redo/"
+LOAD_PATH = "data/fitting_databases/fixU-clean/"
+# LOAD_PATH = "data/fitting_databases/leno-redo/"
 # LOAD_PATH = "/projects/sciteam/baot/fixU-clean/"
 SAVE_PATH = "data/ga_results/"
 
@@ -156,7 +156,7 @@ def main():
                             (-7,2), (-7,2)],
             spline_delimiters=delimiters,
             active_splines = ACTIVE_SPLINES,
-            seed=true_y_pvec
+            seed=scaled_up_y_pvec
             )
 
         potential_template.print_statistics()
@@ -586,7 +586,6 @@ def build_evaluation_functions(database, potential_template):
 
             i += 2
 
-        print("in eval:", np.sum(fitness))
         return fitness
 
     def grad(pot):
