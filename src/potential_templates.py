@@ -70,6 +70,8 @@ class Template:
         number generator in the range of each spline
         """
 
+        #TODO: if seeded, add noise to seed
+
         ind = np.zeros(len(self.pvec))
 
         start = 0

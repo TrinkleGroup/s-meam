@@ -402,10 +402,12 @@ class Worker:
             energy += phi.calc_energy(y)
 
         # Embedding terms
-        energy += self.embedding_energy(self.compute_ni(rho_pvecs, f_pvecs,\
-                                                        g_pvecs), u_pvecs)
+        ni = self.compute_ni(rho_pvecs, f_pvecs, g_pvecs)
 
-        return energy
+        tmp_eng, ni_sorted = self.embedding_energy(ni, u_pvecs)
+        energy += tmp_eng
+
+        return energy, ni_sorted
 
     # @profile
     def compute_ni(self, rho_pvecs, f_pvecs, g_pvecs):
@@ -456,12 +458,16 @@ class Worker:
         """
 
         u_energy = np.zeros(self.n_pots)
+        
+        ni_sorted = np.zeros(len(u_pvecs))
 
         # Evaluate U, U', and compute zero-point energies
         for i,(y,u) in enumerate(zip(u_pvecs, self.us)):
             u.structure_vectors['energy'] = np.zeros((self.n_pots, u.knots.shape[0]+2))
 
             ni_sublist = ni[:, self.type_of_each_atom - 1 == i]
+            
+            ni_sorted[i] += np.sum(ni_sublist)
 
             num_embedded = ni_sublist.shape[1]
 
@@ -471,7 +477,7 @@ class Worker:
 
             u.reset()
 
-        return u_energy
+        return u_energy, ni_sorted
 
     # @profile
     def evaluate_uprimes(self, ni, u_pvecs, second=False):
