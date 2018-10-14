@@ -37,8 +37,9 @@ MASTER_RANK = 0
 ################################################################################
 """MEAM potential settings"""
 
-# ACTIVE_SPLINES = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-ACTIVE_SPLINES = [0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0]
+NTYPES = 2
+# ACTIVE_SPLINES = [0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0]
+ACTIVE_SPLINES = [1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0]
 
 ################################################################################
 """GA settings"""
@@ -558,65 +559,160 @@ def build_evaluation_functions(database, potential_template):
 
     def fxn(pot):
         # "pot" should be a of potential Template objects
-
-        # potential = MEAM.from_file('HHe.meam.spline')
-        # x_pvec, true_y_pvec, indices = src.meam.splines_to_pvec(potential.splines)
+        # u_params = pot[-2*NTYPES:]
+        # pot = pot[:-2*NTYPES]
 
         full = potential_template.insert_active_splines(pot)
+        # full = np.concatenate([full, u_params])
 
         fitness = np.zeros(2*len(database.structures))
 
+        all_worker_energies = []
+        all_worker_forces = []
+
+        all_true_energies = []
+        all_true_forces = []
+
+        ref_struct_idx = None
+
         # Compute error for each worker on MPI node
-        i = 0
-        for name in database.structures.keys():
+        for j, name in enumerate(database.structures.keys()):
             w = database.structures[name]
 
-            fcs_err = w.compute_forces(full) - database.true_forces[name]
-            eng_err = w.compute_energy(full) - database.true_energies[name]
+            if name == database.reference_struct:
+                ref_struct_idx = j
 
-            # Scale force errors
+            all_worker_energies.append(w.compute_energy(full))
+            all_worker_forces.append(w.compute_forces(full))
+
+            all_true_energies.append(database.true_energies[name])
+            all_true_forces.append(database.true_forces[name])
+
+        # subtract off reference energies
+        all_worker_energies = np.array(all_worker_energies)
+        all_worker_energies -= all_worker_energies[ref_struct_idx]
+
+        all_true_energies = np.array(all_true_energies)
+        all_true_energies -= all_true_energies[ref_struct_idx]
+
+        i = 0
+        for i in range(len(database.structures)):
+            eng_err = all_worker_energies[i] - all_true_energies[i]
+            fcs_err = all_worker_forces[i] - all_true_forces[i]
             fcs_err = np.linalg.norm(fcs_err, axis=(1,2)) / np.sqrt(10)
 
             fitness[i] += eng_err*eng_err
             fitness[i+1] += fcs_err*fcs_err
 
-            if name == 'hcp_2.8_4.64_ab4':
-                np.savetxt("ga_version.dat", full)
-                print()
-
             i += 2
 
+        # all_worker_energies = np.array(all_worker_energies)
+        # all_true_energies = np.array(all_true_forces)
+        # 
+        # all_true_energies = np.array(all_true_energies)
+        # all_true_energies -= database.true_energies[database.reference_struct]
+        # 
+        # eng_err = (all_worker_energies - all_true_energies)**2
+        # fcs_err = ((all_worker_forces - all_true_forces) / np.sqrt(10))**2
+
+        # return np.vstack([eng_err, fcs_err])
         return fitness
 
     def grad(pot):
         # full = np.atleast_2d(pot[np.where(potential_template.active_mask)])
-        full = np.atleast_2d(potential_template.insert_active_splines(pot))
+        full = potential_template.insert_active_splines(pot)
 
-        grad_vec = np.zeros((2*len(database.structures), full.shape[1]))
+        # grad_vec = np.zeros((2*len(database.structures), full.shape[0] + 2*NTYPES))
+        # grad_vec = np.zeros((2*len(database.structures), full.shape[0] - 2*NTYPES))
 
-        i = 0
-        for name in database.structures.keys():
+        all_worker_energies = []
+        all_worker_forces = []
+
+        all_true_energies = []
+        all_true_forces = []
+
+        all_eng_grads = []
+        all_fcs_grads = []
+
+        work_ref_eng = 0.0
+
+        all_worker_energies = []
+        all_worker_forces = []
+
+        all_true_energies = []
+        all_true_forces = []
+
+        ref_struct_idx = None
+
+        grad_vec = np.zeros((2*len(database.structures), 137))
+
+        # Compute error for each worker on MPI node
+        for j, name in enumerate(database.structures.keys()):
             w = database.structures[name]
 
-            eng_err = w.compute_energy(full) - database.true_energies[name]
-            fcs_err = (w.compute_forces(full) - database.true_forces[name])
+            if name == database.reference_struct:
+                ref_struct_idx = j
 
-            # Scale force errors
+            all_worker_energies.append(w.compute_energy(full))
+            all_worker_forces.append(w.compute_forces(full))
 
-            # compute gradients
+            all_true_energies.append(database.true_energies[name])
+            all_true_forces.append(database.true_forces[name])
+
+        # subtract off reference energies
+        all_worker_energies = np.array(all_worker_energies)
+        all_worker_energies -= all_worker_energies[ref_struct_idx]
+
+        all_true_energies = np.array(all_true_energies)
+        all_true_energies -= all_true_energies[ref_struct_idx]
+
+        i = 0
+        for k, name in enumerate(database.structures.keys()):
+            w = database.structures[name]
+
+            eng_err = all_worker_energies[k] - all_true_energies[k]
+            fcs_err = all_worker_forces[k] - all_true_forces[k]
+            # fcs_err = np.linalg.norm(fcs_err, axis=(1,2)) / np.sqrt(10)
+
             eng_grad = w.energy_gradient_wrt_pvec(full)
             fcs_grad = w.forces_gradient_wrt_pvec(full)
+
+            # print(fcs_err.shape, fcs_grad.shape)
+
+            scaled = np.einsum('pna,pnak->pnak', fcs_err, fcs_grad)
+            summed = scaled.sum(axis=1).sum(axis=1)
+            all_fcs_grads.append(summed)
+
+            i += 2
+
+        all_worker_energies = np.array(all_worker_energies)
+        all_true_energies = np.array(all_true_energies)
+
+        all_worker_energies -= work_ref_eng
+        all_true_energies -= database.true_energies[database.reference_struct]
+
+        for i, name in enumerate(database.structures.keys()):
+
+            w = database.structures[name]
+
+            eng_err = (all_worker_energies[i] - all_true_energies[i])**2
+            fcs_err = ((all_worker_forces[i] - all_true_forces[i]) / np.sqrt(10))**2
+
+            eng_grad = w.energy_gradient_wrt_pvec(full)
+            fcs_grad = w.forces_gradient_wrt_pvec(full)
+
 
             scaled = np.einsum('pna,pnak->pnak', fcs_err, fcs_grad)
             summed = scaled.sum(axis=1).sum(axis=1)
 
             grad_vec[i] += (eng_err[:, np.newaxis]*eng_grad*2).ravel()
-            grad_vec[i+1] += (2*summed / 10).ravel()
-
-            i += 2
+            grad_vec[i+1] += (2*summed/ 10).ravel()
 
         # return grad_vec[:,:83]
-        return grad_vec[:, np.where(potential_template.active_mask)[0]]
+        tmp = grad_vec[:, np.where(potential_template.active_mask)[0]]
+        # return np.hstack([tmp, np.zeros((tmp.shape[0], 2*NTYPES))])
+        return tmp
+
 
     def minimized_fxn(pot):
 
