@@ -559,8 +559,8 @@ def build_evaluation_functions(database, potential_template):
     def fxn(pot):
         # "pot" should be a of potential Template objects
 
-        potential = MEAM.from_file('HHe.meam.spline')
-        x_pvec, true_y_pvec, indices = src.meam.splines_to_pvec(potential.splines)
+        # potential = MEAM.from_file('HHe.meam.spline')
+        # x_pvec, true_y_pvec, indices = src.meam.splines_to_pvec(potential.splines)
 
         full = potential_template.insert_active_splines(pot)
 
@@ -577,8 +577,8 @@ def build_evaluation_functions(database, potential_template):
             # Scale force errors
             fcs_err = np.linalg.norm(fcs_err, axis=(1,2)) / np.sqrt(10)
 
-            fitness[i] += eng_err*eng_err*database.weights[name]
-            fitness[i+1] += fcs_err*fcs_err*database.weights[name]
+            fitness[i] += eng_err*eng_err
+            fitness[i+1] += fcs_err*fcs_err
 
             if name == 'hcp_2.8_4.64_ab4':
                 np.savetxt("ga_version.dat", full)

@@ -407,7 +407,7 @@ class Worker:
         tmp_eng, ni_sorted = self.embedding_energy(ni, u_pvecs)
         energy += tmp_eng
 
-        return energy, ni_sorted
+        return energy#, ni_sorted
 
     # @profile
     def compute_ni(self, rho_pvecs, f_pvecs, g_pvecs):
