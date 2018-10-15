@@ -6,23 +6,27 @@ import numpy as np
 import src.meam
 from src.meam import MEAM
 
+
 class Template:
     def __init__(self,
-        pvec_len, spline_delimiters, spline_ranges, active_splines=[],
-        load_file_path=None, seed=[]):
+                 seed, active_mask, spline_indices=None, spline_ranges=None,
+                 load_file_path=None):
         """
         A tool for generating new potentials based off a given template. For
         example, it may be necessary to set certain splines to given values, but
         then to easily extract and change the portions that are variable.
 
         Args:
-            pvec_len (int): the length of the parameter vector
-            spline_delimiters (list): indices separating unique splines
-            spline_ranges (list): list of [low, high] tuples for each spline
-            active_splines (list): list of 0/1 where 1 means active
-            input_file_name (str): path to LAMMPS-style potential to use as base
             seed (np.arr): starting format for pvec
+            active_mask (np.arr): 1 where parameter is 'active'
+            spline_indices (list): list of (start, stop) tuples for each spline
+            spline_ranges (list): list of (low, high) tuples for each spline
+            load_file_path (str): path to LAMMPS-style potential to use as base
         """
+
+        self.active_mask = active_mask
+        self.spline_ranges = spline_ranges
+        self.spline_indices = spline_indices
 
         self.load_file_path = load_file_path
 
@@ -32,37 +36,13 @@ class Template:
 
             x_pvec, y_pvec, delimiters = src.meam.splines_to_pvec(pot.splines)
             self.pvec = y_pvec
-            self.spline_delimiters = delimiters
 
             # TODO: ranges could be taken from LAMMPS file
         else:
-            if len(seed) > 0:
-                self.pvec = seed.copy()
-            else:
-                self.pvec = np.zeros(pvec_len)
+            self.pvec = seed.copy()
 
-            self.spline_delimiters = spline_delimiters
-
-        self.spline_ranges = spline_ranges
-
-        if len(active_splines) < 0:
-            active_splines = np.ones(len(spline_delimiters) + 1)
-
-        self.spline_delimiters.append(len(self.pvec))
-
-        self.set_active_splines(active_splines)
-
-        # self.active_splines = active_splines
-        # self.active_mask = np.zeros(len(self.pvec), dtype=int)
-        #
-        # start = 0
-        # for i,active in enumerate(self.active_splines):
-        #     stop = self.spline_delimiters[i]
-        #
-        #     if active == 1:
-        #         self.active_mask[start:stop] = 1
-        #
-        #     start = stop
+    def get_active_params(self):
+        return self.pvec[np.where(self.active_mask)[0]]
 
     def generate_random_instance(self):
         """
@@ -70,87 +50,25 @@ class Template:
         number generator in the range of each spline
         """
 
-        #TODO: if seeded, add noise to seed
+        ind = self.pvec.copy()
 
-        ind = np.zeros(len(self.pvec))
+        for ind_tup, rng_tup in zip(self.spline_indices, self.spline_ranges):
+            start, stop = ind_tup
+            low, high = rng_tup
 
-        start = 0
-        for i in range(len(self.active_splines)):
-            stop = self.spline_delimiters[i]
-
-            low, high = self.spline_ranges[i]
-
-            ind[start:stop] = np.random.random(stop-start)*(high-low) + low
-
-            start = stop
+            ind[start:stop] = np.random.random(stop - start) * (high-low) + low
 
         return ind
 
     def insert_active_splines(self, new_pvec):
         tmp = self.pvec.copy()
-        tmp[np.where(self.active_mask)] = new_pvec
+        tmp[np.where(self.active_mask)[0]] = new_pvec
 
         return tmp
 
-    def set_active_splines(self, active_splines):
-
-        self.active_splines = active_splines
-        self.active_mask = np.zeros(len(self.pvec), dtype=int)
-
-        start = 0
-        for i,active in enumerate(self.active_splines):
-            stop = self.spline_delimiters[i]
-
-            if active == 1:
-                self.active_mask[start:stop] = 1
-
-            start = stop
-
-    # @classmethod
-    # def from_file(cls, file_path):
-    #     """
-    #     Args:
-    #         file_path (str): full path to LAMMPS-style potential file
-    #     """
-    #
-    #     self.load_file_str = file_path
-    #     return cls(file)
-
-    def update_active_pvec(self, new_pvec):
-        counter = 0
-        for start,stop in self.active_delimiters:
-            diff = stop - start
-
-            self.pvec[start:stop] = new_pvec[counter:counter+diff]
-            counter += diff
-
-    def split_pvec(self):
-        return np.array_split(self.pvec, self.spline_delimiters)
-
     def print_statistics(self):
         print("Loaded from:", self.load_file_path)
-        print("pvec_len:", len(self.pvec))
-        print("spline_delimiters:", self.spline_delimiters)
+        print("pvec", self.pvec)
+        print("active_mask", self.active_mask)
         print("spline_ranges:", self.spline_ranges)
-        print("active_splines:", self.active_splines)
-
-    # def compare_to_file(self, save_name, comp_file_path):
-    #     true_pot = MEAM.from_file(comp_file_path)
-    #     _, true_pvec, _ = src.meam.splines_to_pvec(true_pot.splines)
-    #
-    #     for i in range(len(self.active_splines)):
-    #         if i == 1: # spline is active
-    #             x_plt
-    #
-if __name__ == "__main__":
-    pot = Template(
-        137,
-        spline_ranges= [(-1, 4), (-1, 4), (-1, 4), (-9, 3), (-9, 3), (-0.5, 1),
-                        (-0.5, 1), (-2,3), (-2, 3), (-7,2), (-7,2), (-7,2)],
-        spline_delimiters=[15, 30, 45, 58, 71, 77, 83, 95, 107, 117, 127],
-        active_splines=[0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0],
-        seed=np.arange(137)
-        )
-
-    pot.print_statistics()
-    print(pot.generate_random_instance(np.random.random)[45:71])
+        print("spline_indices:", self.spline_indices)
