@@ -122,21 +122,9 @@ def main():
 
         stats, logbook = build_stats_and_log()
 
-        # print("MASTER: Loading structures ...", flush=True)
-        # structures, weights = load_structures_on_master()
-        #
-        # print("MASTER: Loading energy/forces database ... ", flush=True)
-        # true_forces, true_energies = load_true_values(structures.keys())
-
         database = Database(DB_PATH, DB_INFO_FILE_NAME, ['H', 'He'])
 
         database.print_metadata()
-
-        print("MASTER: Determining potential information ...", flush=True)
-        ex_struct = database.structures[list(database.structures.keys())[0]]
-        type_indices, spline_indices = find_spline_type_deliminating_indices(
-            ex_struct)
-        pvec_len = ex_struct.len_param_vec
 
         potential = MEAM.from_file(
             'data/fitting_databases/fixU-clean/HHe.meam.spline')
@@ -178,23 +166,8 @@ def main():
         potential_template.print_statistics()
         print()
     else:
-        # spline_indices = None
-        # structures = None
-        # weights = None
-        # true_forces = None
-        # true_energies = None
-        # pvec_len = None
-        #
         database = None
         potential_template = None
-
-    # Send all necessary information to slaves
-    # spline_indices = comm.bcast(spline_indices, root=0)
-    # pvec_len = comm.bcast(pvec_len, root=0)
-    # structures = comm.bcast(structures, root=0)
-    # weights = comm.bcast(weights, root=0)
-    # true_forces = comm.bcast(true_forces, root=0)
-    # true_energies = comm.bcast(true_energies, root=0)
 
     database = comm.bcast(database, root=0)
     potential_template = comm.bcast(potential_template, root=0)
@@ -210,12 +183,12 @@ def main():
     toolbox.register("evaluate_population", eval_fxn)
     toolbox.register("gradient", grad_fxn)
 
-    # Compute initial fitnesses
     if is_master_node:
         pop = toolbox.population(n=POP_SIZE)
     else:
         pop = None
 
+    # Compute initial minimization
     print("SLAVE: Rank", rank, "performing initial LMIN ...", flush=True)
     indiv = comm.scatter(pop, root=0)
     opt_results = least_squares(toolbox.evaluate_population, indiv,
@@ -225,7 +198,6 @@ def main():
     indiv = creator.Individual(opt_results['x'])
 
     fitnesses = np.sum(toolbox.evaluate_population(indiv))
-    # fitnesses = np.sum(min_fxn(indiv))
 
     print("SLAVE: Rank", rank, "minimized fitness:", fitnesses, flush=True)
 
@@ -234,7 +206,7 @@ def main():
 
     # Have master gather fitnesses and update individuals
     if is_master_node:
-        print("MASTER: received fitnesses:", all_fitnesses, flush=True)
+        print("MASTER: initial fitnesses:", all_fitnesses, flush=True)
         all_fitnesses = np.vstack(all_fitnesses)
         print(all_fitnesses)
 
@@ -255,15 +227,10 @@ def main():
         while (i < NUM_GENS):
             if is_master_node:
 
-                # TODO: this mating method doesn't make sense
-                # TODO: use crossover; need high mut rate for exploration
-
-                # TODO: fit EAM first, then ffg
+                # TODO: currently using crossover; used to use blend
 
                 # Preserve top 50%, breed survivors
                 for j in range(len(pop) // 2, len(pop)):
-                    # mom = pop[np.random.randint(len(pop)//2)]
-                    # dad = pop[j]
                     mom_idx = np.random.randint(len(pop) // 2)
 
                     dad_idx = mom_idx
@@ -290,9 +257,6 @@ def main():
 
             # Run local minimization on best individual if desired
             if DO_LMIN and (i % LMIN_FREQUENCY == 0):
-                # if is_master_node:
-                # print("MASTER: performing intermediate LMIN ...", flush=True)
-
                 opt_results = least_squares(toolbox.evaluate_population, indiv,
                                             toolbox.gradient, method='lm',
                                             max_nfev=INTER_NSTEPS * 2)
@@ -301,27 +265,18 @@ def main():
 
                 opt_fitness = np.sum(toolbox.evaluate_population(opt_indiv))
                 prev_fitness = np.sum(toolbox.evaluate_population(indiv))
-                # opt_fitness =  np.sum(min_fxn(opt_indiv))
-                # prev_fitness = np.sum(min_fxn(indiv))
 
                 if opt_fitness < prev_fitness:
                     indiv = opt_indiv
-                # else:
-                #     print("MASTER: LM was unable to reduce the cost", flush=True)
-
-                # print("SLAVE: Rank", rank, "minimized fitness:", np.sum(toolbox.evaluate_population(indiv)))
 
             # Compute fitnesses with mated/mutated/optimized population
             fitnesses = np.sum(toolbox.evaluate_population(indiv))
-            # fitnesses = np.sum(min_fxn(indiv))
 
             all_fitnesses = comm.gather(fitnesses, root=0)
             pop = comm.gather(indiv, root=0)
 
             # Update individuals with new fitnesses
             if is_master_node:
-                # all_fitnesses = np.sum(all_fitnesses, axis=0)
-                # print("MASTER: received fitnesses:", all_fitnesses, flush=True)
                 all_fitnesses = np.vstack(all_fitnesses)
 
                 for ind, fit in zip(pop, all_fitnesses):
@@ -352,8 +307,6 @@ def main():
         print("MASTER: Average time per step = {:.2f}"
               " (s)".format(ga_runtime / NUM_GENS), flush=True)
 
-        lmin_start = time.time()
-
         # best_fitness = np.sum(toolbox.evaluate_population(best_guess))
 
     print("SLAVE: Rank", rank, "performing final minimization ... ", flush=True)
@@ -365,9 +318,8 @@ def main():
 
     print("SLAVE: Rank", rank, "minimized fitness:",
           np.sum(toolbox.evaluate_population(final)))
-    # print("SLAVE: Rank", rank, "minimized fitness:", np.sum(min_fxn(final)))
+
     fitnesses = np.sum(toolbox.evaluate_population(final))
-    # fitnesses = np.sum(min_fxn(final))
 
     all_fitnesses = comm.gather(fitnesses, root=0)
     pop = comm.gather(final, root=0)
@@ -389,7 +341,7 @@ def main():
         best = np.array(tools.selBest(pop, 1)[0])
 
         recheck = np.sum(toolbox.evaluate_population(best))
-        # recheck = np.sum(min_fxn(best))
+
         print("MASTER: confirming best fitness:", recheck)
 
         final_arr = np.array(best)
@@ -421,7 +373,8 @@ def build_ga_toolbox(potential_template):
     toolbox.register("population", tools.initRepeat, list,
                      toolbox.parameter_set, )
     toolbox.register("mutate", tools.mutGaussian, mu=0, sigma=1, indpb=0.1)
-    toolbox.register("mate", tools.cxBlend, alpha=MATING_ALPHA)
+    # toolbox.register("mate", tools.cxBlend, alpha=MATING_ALPHA)
+    toolbox.register("mate", tools.cxTwoPoint)
 
     return toolbox, creator
 
