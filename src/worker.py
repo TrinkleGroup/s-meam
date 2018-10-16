@@ -402,12 +402,12 @@ class Worker:
             energy += phi.calc_energy(y)
 
         # Embedding terms
-        ni = self.compute_ni(rho_pvecs, f_pvecs, g_pvecs)
+        ni, per_rho_ranges = self.compute_ni(rho_pvecs, f_pvecs, g_pvecs)
 
         tmp_eng, ni_sorted = self.embedding_energy(ni, u_pvecs)
         energy += tmp_eng
 
-        return energy#, ni_sorted
+        return energy, per_rho_ranges
 
     # @profile
     def compute_ni(self, rho_pvecs, f_pvecs, g_pvecs):
@@ -424,9 +424,15 @@ class Worker:
         """
         ni = np.zeros((self.n_pots, self.natoms))
 
+        per_rho_ranges = []
+
         # Rho contribution
         for y, rho in zip(rho_pvecs, self.rhos):
-            ni += rho.calc_energy(y).T
+            new_ni = rho.calc_energy(y).T
+
+            per_rho_ranges.append((np.min(new_ni), np.max(new_ni)))
+
+            ni += new_ni
 
         # Three-body contribution
         for j, (y_fj,ffg_list) in enumerate(zip(f_pvecs, self.ffgs)):
@@ -442,7 +448,7 @@ class Worker:
 
         self.all_ni = ni
 
-        return ni
+        return ni, per_rho_ranges
 
     # @profile
     def embedding_energy(self, ni, u_pvecs):
@@ -550,7 +556,7 @@ class Worker:
         for phi_idx, (phi, y) in enumerate(zip(self.phis, phi_pvecs)):
             forces += phi.calc_forces(y)
 
-        ni = self.compute_ni(rho_pvecs, f_pvecs, g_pvecs)
+        ni, _ = self.compute_ni(rho_pvecs, f_pvecs, g_pvecs)
         uprimes = self.evaluate_uprimes(ni, u_pvecs)
 
         # Electron density embedding (rho)
@@ -684,7 +690,7 @@ class Worker:
             grad_index += y.shape[1]
 
         # chain rule on U functions means dU/dn values are needed
-        ni = self.compute_ni(rho_pvecs, f_pvecs, g_pvecs)
+        ni, _ = self.compute_ni(rho_pvecs, f_pvecs, g_pvecs)
         uprimes = self.evaluate_uprimes(ni, u_pvecs)
 
         for y, rho in zip(rho_pvecs, self.rhos):
@@ -813,7 +819,7 @@ class Worker:
             grad_index += y.shape[1]
 
         # chain rule on U functions means dU/dn values are needed
-        ni = self.compute_ni(rho_pvecs, f_pvecs, g_pvecs)
+        ni, _ = self.compute_ni(rho_pvecs, f_pvecs, g_pvecs)
 
         N = self.natoms
 
