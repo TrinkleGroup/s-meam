@@ -1,10 +1,14 @@
 import os
+
+# TODO: BW settings
 os.chdir("/home/jvita/scripts/s-meam/project/")
 import sys
+
 sys.path.append('./')
 
 import numpy as np
 import random
+
 np.set_printoptions(precision=8, linewidth=np.inf, suppress=True)
 
 import pickle
@@ -37,8 +41,9 @@ MASTER_RANK = 0
 ################################################################################
 """MEAM potential settings"""
 
-# ACTIVE_SPLINES = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-ACTIVE_SPLINES = [0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0]
+NTYPES = 2
+# ACTIVE_SPLINES = [0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0]
+# ACTIVE_SPLINES = [1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0]
 
 ################################################################################
 """GA settings"""
@@ -46,12 +51,12 @@ ACTIVE_SPLINES = [0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0]
 comm = MPI.COMM_WORLD
 mpi_size = comm.Get_size()
 
-POP_SIZE = mpi_size
-NUM_GENS = 5
+POP_SIZE = sys.argv[1]
+NUM_GENS = 10
 CXPB = 1.0
 
-if len(sys.argv) > 1:
-    MUTPB = float(sys.argv[1])
+if len(sys.argv) > 2:
+    MUTPB = float(sys.argv[2])
 else:
     MUTPB = 0.5
 
@@ -59,9 +64,9 @@ RUN_NEW_GA = True
 
 DO_LMIN = True
 LMIN_FREQUENCY = 1
-INIT_NSTEPS = 30
-INTER_NSTEPS = 10
-FINAL_NSTEPS = 30
+INIT_NSTEPS = 1
+INTER_NSTEPS = 1
+FINAL_NSTEPS = 1
 
 CHECKPOINT_FREQUENCY = 1
 
@@ -81,7 +86,8 @@ LOAD_PATH = "data/fitting_databases/fixU-clean/"
 # LOAD_PATH = "/projects/sciteam/baot/fixU-clean/"
 SAVE_PATH = "data/ga_results/"
 
-SAVE_DIRECTORY = SAVE_PATH + date_str + "-" + "meam" + "{}-{}".format(NUM_GENS, MUTPB)
+SAVE_DIRECTORY = SAVE_PATH + date_str + "-" + "meam" + "{}-{}".format(NUM_GENS,
+                                                                      MUTPB)
 
 if os.path.isdir(SAVE_DIRECTORY):
     SAVE_DIRECTORY = SAVE_DIRECTORY + '-' + str(np.random.randint(100000))
@@ -91,6 +97,7 @@ DB_INFO_FILE_NAME = LOAD_PATH + 'rhophi/info'
 POP_FILE_NAME = SAVE_DIRECTORY + "/pop.dat"
 LOG_FILE_NAME = SAVE_DIRECTORY + "/ga.log"
 TRACE_FILE_NAME = SAVE_DIRECTORY + "/trace.dat"
+
 
 ################################################################################
 
@@ -116,69 +123,57 @@ def main():
 
         stats, logbook = build_stats_and_log()
 
-        # print("MASTER: Loading structures ...", flush=True)
-        # structures, weights = load_structures_on_master()
-        #
-        # print("MASTER: Loading energy/forces database ... ", flush=True)
-        # true_forces, true_energies = load_true_values(structures.keys())
-
         database = Database(DB_PATH, DB_INFO_FILE_NAME, ['H', 'He'])
 
         database.print_metadata()
 
-        print("MASTER: Determining potential information ...", flush=True)
-        ex_struct = database.structures[list(database.structures.keys())[0]]
-        type_indices, spline_indices = find_spline_type_deliminating_indices(ex_struct)
-        pvec_len = ex_struct.len_param_vec
+        # TODO: BW settings
+        potential = MEAM.from_file(LOAD_PATH + 'HHe.meam.spline')
 
-        potential = MEAM.from_file('data/fitting_databases/fixU-clean/HHe.meam.spline')
-        x_pvec, true_y_pvec, indices = src.meam.splines_to_pvec(potential.splines)
+        x_pvec, seed_pvec, indices = src.meam.splines_to_pvec(
+            potential.splines)
 
-        true_y_pvec[83:] = 0
+        mask = np.ones(seed_pvec.shape)
 
-        old_rho_A = true_y_pvec[45:56]
-        old_rho_B = true_y_pvec[58:69]
+        seed_pvec[12] = 0; mask[12] = 0 # rhs phi_A knot
+        seed_pvec[14] = 0; mask[14] = 0 # rhs phi_A deriv
 
-        scaled_up_rho_A = old_rho_A * 10
-        scaled_up_rho_B = old_rho_B * 10
+        seed_pvec[27] = 0; mask[27] = 0 # rhs phi_B knot
+        seed_pvec[29] = 0; mask[29] = 0 # rhs phi_B deriv
 
-        scaled_up_y_pvec = true_y_pvec.copy()
-        scaled_up_y_pvec[45:56] = scaled_up_rho_A
-        scaled_up_y_pvec[58:69] = scaled_up_rho_B
+        seed_pvec[42] = 0; mask[42] = 0 # rhs phi_B knot
+        seed_pvec[44] = 0; mask[44] = 0 # rhs phi_B deriv
 
-        x_indices = np.array(spline_indices[1:])
-        delimiters = [x_indices[i-1]+2*i for i in range(1, len(x_indices) + 1)]
+        seed_pvec[55] = 0; mask[55] = 0 # rhs rho_A knot
+        seed_pvec[57] = 0; mask[57] = 0 # rhs rho_A deriv
+
+        seed_pvec[68] = 0; mask[68] = 0 # rhs rho_B knot
+        seed_pvec[70] = 0; mask[70] = 0 # rhs rho_B deriv
+
+        seed_pvec[92] = 0; mask[92] = 0 # rhs f_A knot
+        seed_pvec[94] = 0; mask[94] = 0 # rhs f_A deriv
+
+        seed_pvec[104] = 0; mask[104] = 0 # rhs f_B knot
+        seed_pvec[106] = 0; mask[106] = 0 # rhs f_B deriv
+
+        seed_pvec[83:] = 0; mask[83:] = 0 # EAM params only
 
         potential_template = Template(
-            pvec_len=pvec_len,
-            spline_ranges= [(-1, 4), (-1, 4), (-1, 4), (-9, 3), (-9, 3),
-                            (-0.5, 1), (-0.5, 1), (-2,3), (-2, 3), (-7,2),
-                            (-7,2), (-7,2)],
-            spline_delimiters=delimiters,
-            active_splines = ACTIVE_SPLINES,
-            seed=scaled_up_y_pvec
-            )
+            seed=seed_pvec,
+            active_mask=mask,
+            spline_ranges=[(-1, 4), (-1, 4), (-1, 4), (-9, 3), (-9, 3),
+                           (-0.5, 1), (-0.5, 1), (-2, 3), (-2, 3), (-7, 2),
+                           (-7, 2), (-7, 2)],
+            spline_indices=[(0, 15), (15, 30), (30, 45), (45, 58), (58, 71),
+                             (71, 77), (77, 83), (83, 95), (95, 107),
+                             (107, 117), (117, 127), (127, 137)]
+        )
 
         potential_template.print_statistics()
         print()
     else:
-        # spline_indices = None
-        # structures = None
-        # weights = None
-        # true_forces = None
-        # true_energies = None
-        # pvec_len = None
-        #
         database = None
         potential_template = None
-
-    # Send all necessary information to slaves
-    # spline_indices = comm.bcast(spline_indices, root=0)
-    # pvec_len = comm.bcast(pvec_len, root=0)
-    # structures = comm.bcast(structures, root=0)
-    # weights = comm.bcast(weights, root=0)
-    # true_forces = comm.bcast(true_forces, root=0)
-    # true_energies = comm.bcast(true_energies, root=0)
 
     database = comm.bcast(database, root=0)
     potential_template = comm.bcast(potential_template, root=0)
@@ -189,40 +184,48 @@ def main():
     eval_fxn, grad_fxn = build_evaluation_functions(
         database,
         potential_template
-        )
+    )
 
     toolbox.register("evaluate_population", eval_fxn)
     toolbox.register("gradient", grad_fxn)
 
-    # Compute initial fitnesses
     if is_master_node:
         pop = toolbox.population(n=POP_SIZE)
+        pop = np.array_split(pop, mpi_size)
     else:
         pop = None
 
+    # Compute initial minimization
     print("SLAVE: Rank", rank, "performing initial LMIN ...", flush=True)
-    indiv = comm.scatter(pop, root=0)
-    opt_results = least_squares(toolbox.evaluate_population, indiv,
-                                toolbox.gradient, method='lm',
-                                max_nfev=INIT_NSTEPS)
+    my_indivs = comm.scatter(pop, root=0)
 
-    indiv = creator.Individual(opt_results['x'])
+    new_indivs = []
+    my_fitnesses = []
 
-    fitnesses = np.sum(toolbox.evaluate_population(indiv))
-    # fitnesses = np.sum(min_fxn(indiv))
+    for indiv in my_indivs:
+        print(indiv)
+        opt_results = least_squares(toolbox.evaluate_population, indiv,
+                                    toolbox.gradient, method='lm',
+                                    max_nfev=INIT_NSTEPS)
 
-    print("SLAVE: Rank", rank, "minimized fitness:", fitnesses, flush=True)
+        indiv = creator.Individual(opt_results['x'])
+        new_indivs.append(indiv)
 
-    all_fitnesses = comm.gather(fitnesses, root=0)
-    pop = comm.gather(indiv, root=0)
+        fitnesses = np.sum(toolbox.evaluate_population(indiv))
+        my_fitnesses.append(fitnesses)
+
+        # print("SLAVE: Rank", rank, "minimized fitness:", fitnesses, flush=True)
+
+    all_fitnesses = comm.gather(my_fitnesses, root=0)
+    pop = comm.gather(new_indivs, root=0)
 
     # Have master gather fitnesses and update individuals
     if is_master_node:
-        print("MASTER: received fitnesses:", all_fitnesses, flush=True)
+        print("MASTER: initial fitnesses:", all_fitnesses, flush=True)
         all_fitnesses = np.vstack(all_fitnesses)
         print(all_fitnesses)
 
-        for ind,fit in zip(pop, all_fitnesses):
+        for ind, fit in zip(pop, all_fitnesses):
             ind.fitness.values = fit,
 
         # Sort population; best on top
@@ -239,31 +242,27 @@ def main():
         while (i < NUM_GENS):
             if is_master_node:
 
-                # TODO: this mating method doesn't make sense
-                # TODO: use crossover; need high mut rate for exploration
-
-                # TODO: fit EAM first, then ffg
+                # TODO: currently using crossover; used to use blend
 
                 # Preserve top 50%, breed survivors
-                for j in range(len(pop)//2, len(pop)):
-                    # mom = pop[np.random.randint(len(pop)//2)]
-                    # dad = pop[j]
-                    mom_idx = np.random.randint(len(pop)//2)
+                for j in range(len(pop) // 2, len(pop)):
+                    mom_idx = np.random.randint(len(pop) // 2)
 
                     dad_idx = mom_idx
                     while dad_idx == mom_idx:
-                        dad_idx = np.random.randint(len(pop)//2)
+                        dad_idx = np.random.randint(len(pop) // 2)
 
                     mom = pop[mom_idx]
                     dad = pop[dad_idx]
 
-                    kid,_ = toolbox.mate(toolbox.clone(mom), toolbox.clone(dad))
+                    kid, _ = toolbox.mate(toolbox.clone(mom),
+                                          toolbox.clone(dad))
                     pop[j] = kid
 
                 # TODO: debug to make sure pop is always sorted here
 
                 # Mutate randomly everyone except top 10% (or top 2)
-                for mut_ind in pop[max(2, int(POP_SIZE/10)):]:
+                for mut_ind in pop[max(2, int(POP_SIZE / 10)):]:
                     if np.random.random() >= MUTPB: toolbox.mutate(mut_ind)
             else:
                 pop = None
@@ -273,42 +272,29 @@ def main():
 
             # Run local minimization on best individual if desired
             if DO_LMIN and (i % LMIN_FREQUENCY == 0):
-                # if is_master_node:
-                    # print("MASTER: performing intermediate LMIN ...", flush=True)
-
                 opt_results = least_squares(toolbox.evaluate_population, indiv,
                                             toolbox.gradient, method='lm',
-                                            max_nfev=INTER_NSTEPS*2)
-
+                                            max_nfev=INTER_NSTEPS * 2)
 
                 opt_indiv = creator.Individual(opt_results['x'])
 
                 opt_fitness = np.sum(toolbox.evaluate_population(opt_indiv))
                 prev_fitness = np.sum(toolbox.evaluate_population(indiv))
-                # opt_fitness =  np.sum(min_fxn(opt_indiv))
-                # prev_fitness = np.sum(min_fxn(indiv))
 
                 if opt_fitness < prev_fitness:
                     indiv = opt_indiv
-                # else:
-                #     print("MASTER: LM was unable to reduce the cost", flush=True)
-
-                # print("SLAVE: Rank", rank, "minimized fitness:", np.sum(toolbox.evaluate_population(indiv)))
 
             # Compute fitnesses with mated/mutated/optimized population
             fitnesses = np.sum(toolbox.evaluate_population(indiv))
-            # fitnesses = np.sum(min_fxn(indiv))
 
             all_fitnesses = comm.gather(fitnesses, root=0)
             pop = comm.gather(indiv, root=0)
 
             # Update individuals with new fitnesses
             if is_master_node:
-                # all_fitnesses = np.sum(all_fitnesses, axis=0)
-                #print("MASTER: received fitnesses:", all_fitnesses, flush=True)
                 all_fitnesses = np.vstack(all_fitnesses)
 
-                for ind,fit in zip(pop, all_fitnesses):
+                for ind, fit in zip(pop, all_fitnesses):
                     ind.fitness.values = fit,
 
                 # Sort
@@ -334,23 +320,21 @@ def main():
 
         print("MASTER: GA runtime = {:.2f} (s)".format(ga_runtime), flush=True)
         print("MASTER: Average time per step = {:.2f}"
-                " (s)".format(ga_runtime/NUM_GENS), flush=True)
-
-        lmin_start = time.time()
+              " (s)".format(ga_runtime / NUM_GENS), flush=True)
 
         # best_fitness = np.sum(toolbox.evaluate_population(best_guess))
 
-    print("SLAVE: Rank", rank,  "performing final minimization ... ", flush=True)
+    print("SLAVE: Rank", rank, "performing final minimization ... ", flush=True)
     opt_results = least_squares(toolbox.evaluate_population, indiv,
                                 toolbox.gradient, method='lm',
                                 max_nfev=FINAL_NSTEPS)
 
     final = creator.Individual(opt_results['x'])
 
-    print("SLAVE: Rank", rank, "minimized fitness:", np.sum(toolbox.evaluate_population(final)))
-    # print("SLAVE: Rank", rank, "minimized fitness:", np.sum(min_fxn(final)))
+    print("SLAVE: Rank", rank, "minimized fitness:",
+          np.sum(toolbox.evaluate_population(final)))
+
     fitnesses = np.sum(toolbox.evaluate_population(final))
-    # fitnesses = np.sum(min_fxn(final))
 
     all_fitnesses = comm.gather(fitnesses, root=0)
     pop = comm.gather(final, root=0)
@@ -360,7 +344,7 @@ def main():
         print("MASTER: final fitnesses:", all_fitnesses, flush=True)
         all_fitnesses = np.vstack(all_fitnesses)
 
-        for ind,fit in zip(pop, all_fitnesses):
+        for ind, fit in zip(pop, all_fitnesses):
             ind.fitness.values = fit,
 
         # Sort
@@ -372,7 +356,7 @@ def main():
         best = np.array(tools.selBest(pop, 1)[0])
 
         recheck = np.sum(toolbox.evaluate_population(best))
-        # recheck = np.sum(min_fxn(best))
+
         print("MASTER: confirming best fitness:", recheck)
 
         final_arr = np.array(best)
@@ -382,6 +366,7 @@ def main():
 
         # plot_best_individual()
 
+
 ################################################################################
 
 def build_ga_toolbox(potential_template):
@@ -389,7 +374,7 @@ def build_ga_toolbox(potential_template):
 
     creator.create("CostFunctionMinimizer", base.Fitness, weights=(-1.,))
     creator.create("Individual", np.ndarray,
-            fitness=creator.CostFunctionMinimizer)
+                   fitness=creator.CostFunctionMinimizer)
 
     def ret_pvec(arr_fxn):
         # hard-coded version for pair-pots only
@@ -398,16 +383,19 @@ def build_ga_toolbox(potential_template):
         return tmp[np.where(potential_template.active_mask)[0]]
 
     toolbox = base.Toolbox()
-    toolbox.register("parameter_set", ret_pvec, creator.Individual,)
-                     # np.random.random)
-    toolbox.register("population", tools.initRepeat, list, toolbox.parameter_set,)
+    toolbox.register("parameter_set", ret_pvec, creator.Individual, )
+    # np.random.random)
+    toolbox.register("population", tools.initRepeat, list,
+                     toolbox.parameter_set, )
     toolbox.register("mutate", tools.mutGaussian, mu=0, sigma=1, indpb=0.1)
-    toolbox.register("mate", tools.cxBlend, alpha=MATING_ALPHA)
+    # toolbox.register("mate", tools.cxBlend, alpha=MATING_ALPHA)
+    toolbox.register("mate", tools.cxTwoPoint)
 
     return toolbox, creator
 
+
 def group_for_mpi_scatter(structs, database_weights, true_forces, true_energies,
-        size):
+                          size):
     """Splits database information into groups to be scattered to nodes.
 
     Args:
@@ -447,6 +435,7 @@ def group_for_mpi_scatter(structs, database_weights, true_forces, true_energies,
 
     return grouped_structs, grouped_weights, grouped_forces, grouped_energies
 
+
 def plot_best_individual():
     """Builds an animated plot of the trace of the GA. The final frame should be
     the final results after local optimization
@@ -456,29 +445,30 @@ def plot_best_individual():
 
     # currently only plots the 1st pair potential
     fig, ax = plt.subplots()
-    ax.set_ylim([-2,2])
+    ax.set_ylim([-2, 2])
     ax.set_xlabel("0")
 
-    sp = CubicSpline(np.arange(10), trace[0,:10])
+    sp = CubicSpline(np.arange(10), trace[0, :10])
 
     xlin = np.linspace(0, 9, 100)
     line, = ax.plot(xlin, sp(xlin))
-    line2, = ax.plot(np.arange(10), trace[0,:10], 'bo')
+    line2, = ax.plot(np.arange(10), trace[0, :10], 'bo')
 
     def animate(i):
         label = "{}".format(i)
 
-        sp = CubicSpline(np.arange(10), trace[i,:10])
+        sp = CubicSpline(np.arange(10), trace[i, :10])
         line.set_ydata(sp(xlin))
-        line2.set_ydata(trace[i,:10])
+        line2.set_ydata(trace[i, :10])
 
         ax.set_xlabel(label)
         return line, ax
 
     ani = animation.FuncAnimation(fig, animate, np.arange(1, trace.shape[0]),
-            interval=200)
+                                  interval=200)
 
     ani.save('trace_of_best.gif', writer='imagemagick')
+
 
 def prepare_save_directory():
     """Creates directories to store results"""
@@ -487,14 +477,15 @@ def prepare_save_directory():
     print("Save location:", SAVE_DIRECTORY)
     if os.path.isdir(SAVE_DIRECTORY) and CHECK_BEFORE_OVERWRITE:
         print()
-        print("/" + "*"*30 + " WARNING " + "*"*30 + "/")
+        print("/" + "*" * 30 + " WARNING " + "*" * 30 + "/")
         print("A folder already exists for these settings.\nPress Enter"
-                " to ovewrite old data, or Ctrl-C to quit")
-        input("/" + "*"*30 + " WARNING " + "*"*30 + "/\n")
+              " to ovewrite old data, or Ctrl-C to quit")
+        input("/" + "*" * 30 + " WARNING " + "*" * 30 + "/\n")
     print()
 
     # os.rmdir(SAVE_DIRECTORY)
     os.mkdir(SAVE_DIRECTORY)
+
 
 def print_settings():
     """Prints settings to screen"""
@@ -505,6 +496,7 @@ def print_settings():
     print("MUTPB:", MUTPB, flush=True)
     print("CHECKPOINT_FREQUENCY:", CHECKPOINT_FREQUENCY, flush=True)
     print()
+
 
 def load_structures_on_master():
     """Builds Worker objects from the HDF5 database of stored values. Note that
@@ -534,6 +526,7 @@ def load_structures_on_master():
 
     return structures, weights
 
+
 def load_true_values(all_names):
     """Loads the 'true' values according to the database provided"""
 
@@ -541,16 +534,16 @@ def load_true_values(all_names):
     true_energies = {}
 
     for name in all_names:
-
         fcs = np.genfromtxt(open(DB_INFO_FILE_NAME + '/info.' + name, 'rb'),
-                skip_header=1)
+                            skip_header=1)
         eng = np.genfromtxt(open(DB_INFO_FILE_NAME + '/info.' + name, 'rb'),
-                max_rows=1)
+                            max_rows=1)
 
         true_forces[name] = fcs
         true_energies[name] = eng
 
     return true_forces, true_energies
+
 
 def build_evaluation_functions(database, potential_template):
     """Builds the function to evaluate populations. Wrapped here for readability
@@ -558,72 +551,138 @@ def build_evaluation_functions(database, potential_template):
 
     def fxn(pot):
         # "pot" should be a of potential Template objects
-
-        potential = MEAM.from_file('HHe.meam.spline')
-        x_pvec, true_y_pvec, indices = src.meam.splines_to_pvec(potential.splines)
+        # u_params = pot[-2*NTYPES:]
+        # pot = pot[:-2*NTYPES]
 
         full = potential_template.insert_active_splines(pot)
+        # full = np.concatenate([full, u_params])
 
-        fitness = np.zeros(2*len(database.structures))
+        fitness = np.zeros(2 * len(database.structures))
+
+        all_worker_energies = []
+        all_worker_forces = []
+
+        all_true_energies = []
+        all_true_forces = []
+
+        ref_struct_idx = None
 
         # Compute error for each worker on MPI node
-        i = 0
-        for name in database.structures.keys():
+        for j, name in enumerate(database.structures.keys()):
             w = database.structures[name]
 
-            fcs_err = w.compute_forces(full) - database.true_forces[name]
-            eng_err = w.compute_energy(full) - database.true_energies[name]
+            if name == database.reference_struct:
+                ref_struct_idx = j
 
-            # Scale force errors
-            fcs_err = np.linalg.norm(fcs_err, axis=(1,2)) / np.sqrt(10)
+            all_worker_energies.append(w.compute_energy(full))
+            all_worker_forces.append(w.compute_forces(full))
 
-            fitness[i] += eng_err*eng_err*database.weights[name]
-            fitness[i+1] += fcs_err*fcs_err*database.weights[name]
+            all_true_energies.append(database.true_energies[name])
+            all_true_forces.append(database.true_forces[name])
 
-            if name == 'hcp_2.8_4.64_ab4':
-                np.savetxt("ga_version.dat", full)
-                print()
+        # subtract off reference energies
+        all_worker_energies = np.array(all_worker_energies)
+        all_worker_energies -= all_worker_energies[ref_struct_idx]
+
+        all_true_energies = np.array(all_true_energies)
+        all_true_energies -= all_true_energies[ref_struct_idx]
+
+        i = 0
+        for i in range(len(database.structures)):
+            eng_err = all_worker_energies[i] - all_true_energies[i]
+            fcs_err = all_worker_forces[i] - all_true_forces[i]
+            fcs_err = np.linalg.norm(fcs_err, axis=(1, 2)) / np.sqrt(10)
+
+            fitness[i] += eng_err * eng_err
+            fitness[i + 1] += fcs_err * fcs_err
 
             i += 2
 
+        # all_worker_energies = np.array(all_worker_energies)
+        # all_true_energies = np.array(all_true_forces)
+        # 
+        # all_true_energies = np.array(all_true_energies)
+        # all_true_energies -= database.true_energies[database.reference_struct]
+        # 
+        # eng_err = (all_worker_energies - all_true_energies)**2
+        # fcs_err = ((all_worker_forces - all_true_forces) / np.sqrt(10))**2
+
+        # return np.vstack([eng_err, fcs_err])
         return fitness
 
     def grad(pot):
         # full = np.atleast_2d(pot[np.where(potential_template.active_mask)])
-        full = np.atleast_2d(potential_template.insert_active_splines(pot))
+        full = potential_template.insert_active_splines(pot)
 
-        grad_vec = np.zeros((2*len(database.structures), full.shape[1]))
+        # grad_vec = np.zeros((2*len(database.structures), full.shape[0] + 2*NTYPES))
+        # grad_vec = np.zeros((2*len(database.structures), full.shape[0] - 2*NTYPES))
 
-        i = 0
-        for name in database.structures.keys():
+        all_worker_energies = []
+        all_worker_forces = []
+
+        all_true_energies = []
+        all_true_forces = []
+
+        all_eng_grads = []
+        all_fcs_grads = []
+
+        all_worker_energies = []
+        all_worker_forces = []
+
+        all_true_energies = []
+        all_true_forces = []
+
+        ref_struct_idx = None
+
+        grad_vec = np.zeros((2 * len(database.structures), 137))
+
+        # Compute error for each worker on MPI node
+        for j, name in enumerate(database.structures.keys()):
             w = database.structures[name]
 
-            eng_err = w.compute_energy(full) - database.true_energies[name]
-            fcs_err = (w.compute_forces(full) - database.true_forces[name])
+            if name == database.reference_struct:
+                ref_struct_idx = j
 
-            # Scale force errors
+            all_worker_energies.append(w.compute_energy(full))
+            all_worker_forces.append(w.compute_forces(full))
 
-            # compute gradients
+            all_true_energies.append(database.true_energies[name])
+            all_true_forces.append(database.true_forces[name])
+
+        # subtract off reference energies
+        all_worker_energies = np.array(all_worker_energies)
+        all_worker_energies -= all_worker_energies[ref_struct_idx]
+
+        all_true_energies = np.array(all_true_energies)
+        all_true_energies -= all_true_energies[ref_struct_idx]
+
+        for i, name in enumerate(database.structures.keys()):
+            w = database.structures[name]
+
+            eng_err = (all_worker_energies[i] - all_true_energies[i]) ** 2
+            fcs_err = ((all_worker_forces[i] - all_true_forces[i]) / np.sqrt(
+                10)) ** 2
+
             eng_grad = w.energy_gradient_wrt_pvec(full)
             fcs_grad = w.forces_gradient_wrt_pvec(full)
 
             scaled = np.einsum('pna,pnak->pnak', fcs_err, fcs_grad)
             summed = scaled.sum(axis=1).sum(axis=1)
 
-            grad_vec[i] += (eng_err[:, np.newaxis]*eng_grad*2).ravel()
-            grad_vec[i+1] += (2*summed / 10).ravel()
-
-            i += 2
+            grad_vec[i] += (eng_err[:, np.newaxis] * eng_grad * 2).ravel()
+            grad_vec[i + 1] += (2 * summed / 10).ravel()
 
         # return grad_vec[:,:83]
-        return grad_vec[:, np.where(potential_template.active_mask)[0]]
+        tmp = grad_vec[:, np.where(potential_template.active_mask)[0]]
+        # return np.hstack([tmp, np.zeros((tmp.shape[0], 2*NTYPES))])
+        return tmp
 
     def minimized_fxn(pot):
 
         pot = np.atleast_2d(pot)
         full = pot.copy()
 
-        for i,indiv in enumerate(full):
+        for i, indiv in enumerate(full):
             opt_results = least_squares(fxn, indiv, grad, method='lm',
                                         max_nfev=INTER_NSTEPS)
 
@@ -632,7 +691,8 @@ def build_evaluation_functions(database, potential_template):
         return fxn(full)
 
     return fxn, grad
-        # return fxn, minimized_fxn, grad
+    # return fxn, minimized_fxn, grad
+
 
 def build_stats_and_log():
     """Initialize DEAP Statistics and Logbook objects"""
@@ -649,12 +709,14 @@ def build_stats_and_log():
 
     return stats, logbook
 
+
 def print_statistics(pop, gen_num, stats, logbook):
     """Use Statistics and Logbook objects to output results to screen"""
 
     record = stats.compile(pop)
     logbook.record(gen=gen_num, size=len(pop), **record)
     print(logbook.stream, flush=True)
+
 
 def local_minimization(guess, toolbox, is_master_node, comm, num_steps=None,
                        thresh=None):
@@ -672,7 +734,7 @@ def local_minimization(guess, toolbox, is_master_node, comm, num_steps=None,
 
         value = 0
 
-        if stop[0] == 0: # i.e. DON'T stop
+        if stop[0] == 0:  # i.e. DON'T stop
             cost = toolbox.evaluate_population([x])
             all_costs = comm.gather(cost, root=0)
 
@@ -689,7 +751,7 @@ def local_minimization(guess, toolbox, is_master_node, comm, num_steps=None,
 
         value = 0
 
-        if stop[0] == 0: # i.e. DON'T stop
+        if stop[0] == 0:  # i.e. DON'T stop
             cost = toolbox.gradient([x])
             all_costs = comm.gather(cost, root=0)
 
@@ -705,13 +767,15 @@ def local_minimization(guess, toolbox, is_master_node, comm, num_steps=None,
     if is_master_node:
         stop = [0]
         locally_optimized_pot = fmin_cg(parallel_wrapper, guess,
-                parallel_grad_wrapper, args=(stop,), maxiter=num_steps,
-                callback=cb, disp=0, gtol=1e-6)
+                                        parallel_grad_wrapper, args=(stop,),
+                                        maxiter=num_steps,
+                                        callback=cb, disp=0, gtol=1e-6)
 
         stop = [1]
         parallel_wrapper(guess, stop)
 
-        optimized_fitness = toolbox.evaluate_population([locally_optimized_pot])[0]
+        optimized_fitness = \
+        toolbox.evaluate_population([locally_optimized_pot])[0]
     else:
         stop = [0]
         while stop[0] == 0:
@@ -725,6 +789,7 @@ def local_minimization(guess, toolbox, is_master_node, comm, num_steps=None,
 
     return improved
 
+
 def checkpoint(population, logbook, trace_update, i):
     """Saves information to files for later use"""
 
@@ -735,6 +800,7 @@ def checkpoint(population, logbook, trace_update, i):
     np.savetxt(f, [np.array(trace_update)])
     f.close()
 
+
 def load_locally(long_names):
     structures = {}
 
@@ -742,9 +808,10 @@ def load_locally(long_names):
         short_name = os.path.split(name)[-1]
         # short_name = os.path.splitext(short_name)[0]
         structures[short_name] = pickle.load(open(LOAD_PATH + 'structures/' +
-            name + '.pkl', 'rb'))
+                                                  name + '.pkl', 'rb'))
 
     return structures
+
 
 def get_all_struct_names():
     path_list = glob.glob(LOAD_PATH + 'structures/*')
@@ -753,8 +820,10 @@ def get_all_struct_names():
 
     return no_ext
 
+
 def load_weights(names):
-    return {key:1 for key in names}
+    return {key: 1 for key in names}
+
 
 def find_spline_type_deliminating_indices(worker):
     """Finds the indices in the parameter vector that correspond to start/end
@@ -774,11 +843,12 @@ def find_spline_type_deliminating_indices(worker):
 
     phi_range = (indices[0], indices[nphi])
     rho_range = (indices[nphi], indices[nphi + ntypes])
-    u_range = (indices[nphi + ntypes], indices[nphi + 2*ntypes])
-    f_range = (indices[nphi + 2*ntypes], indices[nphi + 3*ntypes])
-    g_range = (indices[nphi + 3*ntypes], -1)
+    u_range = (indices[nphi + ntypes], indices[nphi + 2 * ntypes])
+    f_range = (indices[nphi + 2 * ntypes], indices[nphi + 3 * ntypes])
+    g_range = (indices[nphi + 3 * ntypes], -1)
 
     return [phi_range, rho_range, u_range, f_range, g_range], indices
+
 
 ################################################################################
 

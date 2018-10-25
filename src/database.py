@@ -43,6 +43,9 @@ class Database:
                     self.structures_metadata[tag] = info
 
     def load_true_values(self):
+        min_energy = None
+        self.reference_struct = ""
+
         for file_name in glob.glob(self.true_values_folder_path + "/*"):
             if "metadata" not in file_name:
 
@@ -52,6 +55,10 @@ class Database:
 
                 # assumes the first line of the file is the energy
                 eng = np.genfromtxt(open(file_name, 'rb'), max_rows=1)
+
+                if (min_energy == None) or (eng < min_energy):
+                    min_energy = eng
+                    self.reference_struct = short_name
 
                 # assumes the next N lines are the forces on the N atoms
                 fcs = np.genfromtxt(open(file_name, 'rb'), skip_header=1)
@@ -67,6 +74,7 @@ class Database:
                     self.true_values_metadata[tag] = info
 
     def print_metadata(self):
+        print("Reference structure:", self.reference_struct)
         print("Metadata (structures):")
         for tag, info in self.structures_metadata.items():
             print(tag + ":", " ".join(info))
