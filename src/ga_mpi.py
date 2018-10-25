@@ -1,5 +1,6 @@
 import os
 
+# TODO: BW settings
 os.chdir("/home/jvita/scripts/s-meam/project/")
 import sys
 
@@ -40,10 +41,6 @@ MASTER_RANK = 0
 ################################################################################
 """MEAM potential settings"""
 
-# TODO: implement variable-U version to make sure U_RANGE matches worker range
-# TODO: U_RANGE should be [-1, 1] for easy rescaling
-
-U_RANGE = [0, 1]
 NTYPES = 2
 # ACTIVE_SPLINES = [0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0]
 # ACTIVE_SPLINES = [1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0]
@@ -54,12 +51,12 @@ NTYPES = 2
 comm = MPI.COMM_WORLD
 mpi_size = comm.Get_size()
 
-POP_SIZE = mpi_size
-NUM_GENS = 1
+POP_SIZE = sys.argv[1]
+NUM_GENS = 10
 CXPB = 1.0
 
-if len(sys.argv) > 1:
-    MUTPB = float(sys.argv[1])
+if len(sys.argv) > 2:
+    MUTPB = float(sys.argv[2])
 else:
     MUTPB = 0.5
 
@@ -130,8 +127,8 @@ def main():
 
         database.print_metadata()
 
-        potential = MEAM.from_file(
-            'data/fitting_databases/fixU-clean/HHe.meam.spline')
+        # TODO: BW settings
+        potential = MEAM.from_file(LOAD_PATH + 'HHe.meam.spline')
 
         x_pvec, seed_pvec, indices = src.meam.splines_to_pvec(
             potential.splines)
@@ -144,6 +141,9 @@ def main():
         seed_pvec[27] = 0; mask[27] = 0 # rhs phi_B knot
         seed_pvec[29] = 0; mask[29] = 0 # rhs phi_B deriv
 
+        seed_pvec[42] = 0; mask[42] = 0 # rhs phi_B knot
+        seed_pvec[44] = 0; mask[44] = 0 # rhs phi_B deriv
+
         seed_pvec[55] = 0; mask[55] = 0 # rhs rho_A knot
         seed_pvec[57] = 0; mask[57] = 0 # rhs rho_A deriv
 
@@ -155,6 +155,8 @@ def main():
 
         seed_pvec[104] = 0; mask[104] = 0 # rhs f_B knot
         seed_pvec[106] = 0; mask[106] = 0 # rhs f_B deriv
+
+        seed_pvec[83:] = 0; mask[83:] = 0 # EAM params only
 
         potential_template = Template(
             seed=seed_pvec,
@@ -184,39 +186,42 @@ def main():
         potential_template
     )
 
-    def first_arg_only(params):
-        fitness, _ = eval_fxn(params)
-        return fitness
-
     toolbox.register("evaluate_population", eval_fxn)
     toolbox.register("gradient", grad_fxn)
 
     if is_master_node:
         pop = toolbox.population(n=POP_SIZE)
+        pop = np.array_split(pop, mpi_size)
     else:
         pop = None
 
     # Compute initial minimization
     print("SLAVE: Rank", rank, "performing initial LMIN ...", flush=True)
-    indiv = comm.scatter(pop, root=0)
-    opt_results = least_squares(first_arg_only, indiv,
-                                toolbox.gradient, method='lm',
-                                max_nfev=INIT_NSTEPS)
+    my_indivs = comm.scatter(pop, root=0)
 
-    indiv = creator.Individual(opt_results['x'])
+    new_indivs = []
+    my_fitnesses = []
 
-    fit_arr, ni_ranges = toolbox.evaluate_population(indiv)
-    fitnesses = np.sum(fit_arr)
+    for indiv in my_indivs:
+        print(indiv)
+        opt_results = least_squares(toolbox.evaluate_population, indiv,
+                                    toolbox.gradient, method='lm',
+                                    max_nfev=INIT_NSTEPS)
 
-    all_ni_ranges = comm.gather(ni_ranges, root=0)
-    all_fitnesses = comm.gather(fitnesses, root=0)
-    pop = comm.gather(indiv, root=0)
+        indiv = creator.Individual(opt_results['x'])
+        new_indivs.append(indiv)
 
-    print("SLAVE: Rank", rank, "minimized fitness:", fitnesses, flush=True)
+        fitnesses = np.sum(toolbox.evaluate_population(indiv))
+        my_fitnesses.append(fitnesses)
+
+        # print("SLAVE: Rank", rank, "minimized fitness:", fitnesses, flush=True)
+
+    all_fitnesses = comm.gather(my_fitnesses, root=0)
+    pop = comm.gather(new_indivs, root=0)
+
     # Have master gather fitnesses and update individuals
     if is_master_node:
         print("MASTER: initial fitnesses:", all_fitnesses, flush=True)
-        # all_ni_ranges = np.vstack(all_ni_ranges)
         all_fitnesses = np.vstack(all_fitnesses)
         print(all_fitnesses)
 
@@ -234,25 +239,8 @@ def main():
     # Begin GA
     if RUN_NEW_GA:
         i = 1
-        while i < NUM_GENS:
+        while (i < NUM_GENS):
             if is_master_node:
-
-                # re-scale potentials with bad rho
-                for indiv_idx in range(len(pop)):
-                    indiv = pop[indiv_idx]
-
-                    for kk, new_range in enumerate(all_ni_ranges[indiv_idx]):
-                        print(new_range)
-
-                        low, high = new_range
-
-                        if (low < U_RANGE[0]) or (high > U_RANGE[1]):
-                            # TODO: remove hard-coding of indices
-                            if kk == 0: indiv[45:58] /= max(low, high)
-                            elif kk == 1: indiv[58:71] /= max(low, high)
-
-                # TODO: kill anyone whose ni fall largely out of U range
-                # TODO: should us variable-U version
 
                 # TODO: currently using crossover; used to use blend
 
@@ -284,27 +272,21 @@ def main():
 
             # Run local minimization on best individual if desired
             if DO_LMIN and (i % LMIN_FREQUENCY == 0):
-                opt_results = least_squares(first_arg_only, indiv,
+                opt_results = least_squares(toolbox.evaluate_population, indiv,
                                             toolbox.gradient, method='lm',
                                             max_nfev=INTER_NSTEPS * 2)
 
                 opt_indiv = creator.Individual(opt_results['x'])
 
-                fit, _ = toolbox.evaluate_population(opt_indiv)
-                opt_fitness = np.sum(fit)
-
-                prev_fit, _ = toolbox.evaluate_population(indiv)
-                prev_fitness = np.sum(prev_fit)
+                opt_fitness = np.sum(toolbox.evaluate_population(opt_indiv))
+                prev_fitness = np.sum(toolbox.evaluate_population(indiv))
 
                 if opt_fitness < prev_fitness:
                     indiv = opt_indiv
 
             # Compute fitnesses with mated/mutated/optimized population
+            fitnesses = np.sum(toolbox.evaluate_population(indiv))
 
-            fit_arr, ni_ranges = toolbox.evaluate_population(indiv)
-            fitnesses = np.sum(fit_arr)
-
-            all_ni_ranges = comm.gather(ni_ranges, root=0)
             all_fitnesses = comm.gather(fitnesses, root=0)
             pop = comm.gather(indiv, root=0)
 
@@ -343,23 +325,19 @@ def main():
         # best_fitness = np.sum(toolbox.evaluate_population(best_guess))
 
     print("SLAVE: Rank", rank, "performing final minimization ... ", flush=True)
-    opt_results = least_squares(first_arg_only, indiv,
+    opt_results = least_squares(toolbox.evaluate_population, indiv,
                                 toolbox.gradient, method='lm',
                                 max_nfev=FINAL_NSTEPS)
 
     final = creator.Individual(opt_results['x'])
 
-    fit_arr, ni_ranges = toolbox.evaluate_population(final)
-
     print("SLAVE: Rank", rank, "minimized fitness:",
-          np.sum(fit_arr))
+          np.sum(toolbox.evaluate_population(final)))
 
-    fit_arr, ni_ranges = toolbox.evaluate_population(indiv)
-    fitnesses = np.sum(fit_arr)
+    fitnesses = np.sum(toolbox.evaluate_population(final))
 
-    all_ni_ranges = comm.gather(ni_ranges, root=0)
     all_fitnesses = comm.gather(fitnesses, root=0)
-    pop = comm.gather(indiv, root=0)
+    pop = comm.gather(final, root=0)
 
     # Save final results
     if is_master_node:
@@ -377,8 +355,7 @@ def main():
 
         best = np.array(tools.selBest(pop, 1)[0])
 
-        fit, _ = toolbox.evaluate_population(best)
-        recheck = np.sum(fit)
+        recheck = np.sum(toolbox.evaluate_population(best))
 
         print("MASTER: confirming best fitness:", recheck)
 
@@ -573,10 +550,12 @@ def build_evaluation_functions(database, potential_template):
     of main code."""
 
     def fxn(pot):
-
-        ni_range = [0, 0]
+        # "pot" should be a of potential Template objects
+        # u_params = pot[-2*NTYPES:]
+        # pot = pot[:-2*NTYPES]
 
         full = potential_template.insert_active_splines(pot)
+        # full = np.concatenate([full, u_params])
 
         fitness = np.zeros(2 * len(database.structures))
 
@@ -588,11 +567,6 @@ def build_evaluation_functions(database, potential_template):
 
         ref_struct_idx = None
 
-        # TODO: get rid of this hard coding
-        final_per_rho_ranges = []
-        for atom_type in range(NTYPES):
-            final_per_rho_ranges.append([0, 0])
-
         # Compute error for each worker on MPI node
         for j, name in enumerate(database.structures.keys()):
             w = database.structures[name]
@@ -600,20 +574,7 @@ def build_evaluation_functions(database, potential_template):
             if name == database.reference_struct:
                 ref_struct_idx = j
 
-            eng, per_rho_ranges = w.compute_energy(full)
-            # print('per', per_rho_ranges)
-
-            # split_ranges = np.split(per_rho_ranges, NTYPES)
-
-            for atom_type, new_range in enumerate(per_rho_ranges):
-
-                if new_range[0] < final_per_rho_ranges[atom_type][0]:
-                    final_per_rho_ranges[atom_type][0] = new_range[0]
-
-                if new_range[1] < final_per_rho_ranges[atom_type][1]:
-                    final_per_rho_ranges[atom_type][1] = new_range[1]
-
-            all_worker_energies.append(eng)
+            all_worker_energies.append(w.compute_energy(full))
             all_worker_forces.append(w.compute_forces(full))
 
             all_true_energies.append(database.true_energies[name])
@@ -626,6 +587,7 @@ def build_evaluation_functions(database, potential_template):
         all_true_energies = np.array(all_true_energies)
         all_true_energies -= all_true_energies[ref_struct_idx]
 
+        i = 0
         for i in range(len(database.structures)):
             eng_err = all_worker_energies[i] - all_true_energies[i]
             fcs_err = all_worker_forces[i] - all_true_forces[i]
@@ -634,10 +596,26 @@ def build_evaluation_functions(database, potential_template):
             fitness[i] += eng_err * eng_err
             fitness[i + 1] += fcs_err * fcs_err
 
-        return fitness, final_per_rho_ranges
+            i += 2
+
+        # all_worker_energies = np.array(all_worker_energies)
+        # all_true_energies = np.array(all_true_forces)
+        # 
+        # all_true_energies = np.array(all_true_energies)
+        # all_true_energies -= database.true_energies[database.reference_struct]
+        # 
+        # eng_err = (all_worker_energies - all_true_energies)**2
+        # fcs_err = ((all_worker_forces - all_true_forces) / np.sqrt(10))**2
+
+        # return np.vstack([eng_err, fcs_err])
+        return fitness
 
     def grad(pot):
+        # full = np.atleast_2d(pot[np.where(potential_template.active_mask)])
         full = potential_template.insert_active_splines(pot)
+
+        # grad_vec = np.zeros((2*len(database.structures), full.shape[0] + 2*NTYPES))
+        # grad_vec = np.zeros((2*len(database.structures), full.shape[0] - 2*NTYPES))
 
         all_worker_energies = []
         all_worker_forces = []
@@ -665,9 +643,7 @@ def build_evaluation_functions(database, potential_template):
             if name == database.reference_struct:
                 ref_struct_idx = j
 
-            eng, _ = w.compute_energy(full)
-
-            all_worker_energies.append(eng)
+            all_worker_energies.append(w.compute_energy(full))
             all_worker_forces.append(w.compute_forces(full))
 
             all_true_energies.append(database.true_energies[name])
@@ -696,8 +672,23 @@ def build_evaluation_functions(database, potential_template):
             grad_vec[i] += (eng_err[:, np.newaxis] * eng_grad * 2).ravel()
             grad_vec[i + 1] += (2 * summed / 10).ravel()
 
+        # return grad_vec[:,:83]
         tmp = grad_vec[:, np.where(potential_template.active_mask)[0]]
+        # return np.hstack([tmp, np.zeros((tmp.shape[0], 2*NTYPES))])
         return tmp
+
+    def minimized_fxn(pot):
+
+        pot = np.atleast_2d(pot)
+        full = pot.copy()
+
+        for i, indiv in enumerate(full):
+            opt_results = least_squares(fxn, indiv, grad, method='lm',
+                                        max_nfev=INTER_NSTEPS)
+
+            full[i] = opt_results['x']
+
+        return fxn(full)
 
     return fxn, grad
     # return fxn, minimized_fxn, grad
