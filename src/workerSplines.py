@@ -4,7 +4,7 @@ import h5py
 from scipy.interpolate import CubicSpline
 
 from scipy.sparse import diags, lil_matrix, csr_matrix
-from src.numba_functions import onepass_min_max, outer_prod_1d
+# from src.numba_functions import onepass_min_max, outer_prod_1d
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +31,7 @@ class WorkerSpline:
         knot and a 'ghost' knot that is separated by a distance of
         extrap_dist.
 
-        NOTE: the assumption that all extrapolation points are added at once 
+        NOTE: the assumption that all extrapolation points are added at once
         is NOT needed, since get_abcd() scales each point accordingly
         """
 
@@ -44,18 +44,18 @@ class WorkerSpline:
         Hermitian form of cubic splines that will evaluate a spline for a
         set of points when dotted with a vector of knot y-coordinates and
         boundary conditions. Some important definitions:
-        
+
         M: the matrix corresponding to the system of equations for y'
         alpha: the set of coefficients corresponding to knot y-values
         beta: the set of coefficients corresponding to knot y'-values
         gamma: the result of M being row-scaled by beta
         structure vector: the summation of alpha + gamma
-        
-        Note that the extrapolation structure vectors are NOT of the same 
-        form as the rest; they rely on the results of previous y' 
-        calculations, whereas the others only depend on y values. In short, 
+
+        Note that the extrapolation structure vectors are NOT of the same
+        form as the rest; they rely on the results of previous y'
+        calculations, whereas the others only depend on y values. In short,
         they can't be treated the same mathematically
-        
+
         Apologies for the vague naming conventions... see README for explanation
         """
 
@@ -84,7 +84,9 @@ class WorkerSpline:
         """
         x = np.atleast_1d(x)
 
-        mn, mx = onepass_min_max(x)
+        # mn, mx = onepass_min_max(x)
+        mn = np.min(x)
+        mx = np.max(x)
 
         lhs_extrap_dist = max(self.extrap_dist, self.knots[0] - mn)
         rhs_extrap_dist = max(self.extrap_dist, mx - self.knots[-1])
@@ -425,7 +427,7 @@ class ffgSpline:
         # f_sv_indices = ffg_data['f_sv.indices']
         # f_sv_indptr = ffg_data['f_sv.indptr']
         # f_sv_shape = ffg_data['f_sv.shape']
-        # 
+        #
         # ffg.structure_vectors['forces'] = csr_matrix(
         #         (f_sv_data, f_sv_indices, f_sv_indptr), shape=f_sv_shape)
         ffg.structure_vectors['forces'] = ffg_data['f_sv']

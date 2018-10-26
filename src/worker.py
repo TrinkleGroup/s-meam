@@ -18,8 +18,8 @@ import src.lammpsTools
 import src.meam
 from src.workerSplines import WorkerSpline, RhoSpline, ffgSpline, USpline
 
-from src.numba_functions import outer_prod_1d, outer_prod_1d_2vecs
-from numba import jit
+# from src.numba_functions import outer_prod_1d, outer_prod_1d_2vecs
+# from numba import jit
 
 
 logger = logging.getLogger(__name__)
@@ -458,7 +458,7 @@ class Worker:
         """
 
         u_energy = np.zeros(self.n_pots)
-        
+
         ni_sorted = np.zeros(len(u_pvecs))
 
         # Evaluate U, U', and compute zero-point energies
@@ -466,7 +466,7 @@ class Worker:
             u.structure_vectors['energy'] = np.zeros((self.n_pots, u.knots.shape[0]+2))
 
             ni_sublist = ni[:, self.type_of_each_atom - 1 == i]
-            
+
             ni_sorted[i] += np.sum(ni_sublist)
 
             num_embedded = ni_sublist.shape[1]

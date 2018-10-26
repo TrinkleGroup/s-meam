@@ -327,8 +327,12 @@ class MEAM:
                     # logging.info("MEAM: fj_val = {0}".format(fj_val))
                 # end u loop
 
-                atom_e = total_phi + u(total_ni) # - self.zero_atom_energies[
-                    #i_to_potl(itype)]
+                # logging.info("MEAM: u({0}) = {1}".format(total_ni,u(total_ni)))
+                # logging.info("MEAM: ni = {0}".format(total_ni))
+                # logging.info("MEAM: zero_point = {0}".format(
+                #     self.zero_atom_energies[i_to_potl(itype)]))
+                atom_e = total_phi + u(total_ni) - self.zero_atom_energies[
+                    i_to_potl(itype)]
 
                 all_ni.append(total_ni)
 

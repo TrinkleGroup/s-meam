@@ -83,6 +83,7 @@ class Database:
         print("Metadata (true values):")
         for tag, info in self.true_values_metadata.items():
             print(tag + ":", " ".join(info))
+        print(flush=True)
 
     def __len__(self):
         return len(self.structures)

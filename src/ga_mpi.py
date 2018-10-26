@@ -1,7 +1,7 @@
 import os
 
 # TODO: BW settings
-os.chdir("/home/jvita/scripts/s-meam/project/")
+# os.chdir("/home/jvita/scripts/s-meam/project/")
 import sys
 
 sys.path.append('./')
@@ -81,9 +81,9 @@ CHECK_BEFORE_OVERWRITE = False
 
 # TODO: BW settings
 
-LOAD_PATH = "data/fitting_databases/fixU-clean/"
-# LOAD_PATH = "data/fitting_databases/leno-redo/"
-# LOAD_PATH = "/projects/sciteam/baot/fixU-clean/"
+# LOAD_PATH = "data/fitting_databases/fixU-clean/"
+LOAD_PATH = "data/fitting_databases/leno-redo/"
+    # LOAD_PATH = "/projects/sciteam/baot/fixU-clean/"
 SAVE_PATH = "data/ga_results/"
 
 SAVE_DIRECTORY = SAVE_PATH + date_str + "-" + "meam" + "{}-{}".format(NUM_GENS,
@@ -225,6 +225,13 @@ def main():
         all_fitnesses = np.vstack(all_fitnesses)
         print(all_fitnesses)
 
+        join_pop = []
+        for slave_pop in pop:
+            for ind in slave_pop:
+                join_pop.append(ind)
+
+        pop = join_pop
+
         for ind, fit in zip(pop, all_fitnesses):
             ind.fitness.values = fit,
 
@@ -270,6 +277,8 @@ def main():
             # Send out updated population
             indiv = comm.scatter(pop, root=0)
 
+            # TODO: pull changes from BW?
+
             # Run local minimization on best individual if desired
             if DO_LMIN and (i % LMIN_FREQUENCY == 0):
                 opt_results = least_squares(toolbox.evaluate_population, indiv,
@@ -293,6 +302,13 @@ def main():
             # Update individuals with new fitnesses
             if is_master_node:
                 all_fitnesses = np.vstack(all_fitnesses)
+
+                join_pop = []
+                for slave_pop in pop:
+                    for ind in slave_pop:
+                        join_pop.append(ind)
+
+                pop = join_pop
 
                 for ind, fit in zip(pop, all_fitnesses):
                     ind.fitness.values = fit,
@@ -343,6 +359,13 @@ def main():
     if is_master_node:
         print("MASTER: final fitnesses:", all_fitnesses, flush=True)
         all_fitnesses = np.vstack(all_fitnesses)
+
+        join_pop = []
+        for slave_pop in pop:
+            for ind in slave_pop:
+                join_pop.append(ind)
+
+        pop = join_pop
 
         for ind, fit in zip(pop, all_fitnesses):
             ind.fitness.values = fit,
@@ -600,10 +623,10 @@ def build_evaluation_functions(database, potential_template):
 
         # all_worker_energies = np.array(all_worker_energies)
         # all_true_energies = np.array(all_true_forces)
-        # 
+        #
         # all_true_energies = np.array(all_true_energies)
         # all_true_energies -= database.true_energies[database.reference_struct]
-        # 
+        #
         # eng_err = (all_worker_energies - all_true_energies)**2
         # fcs_err = ((all_worker_forces - all_true_forces) / np.sqrt(10))**2
 

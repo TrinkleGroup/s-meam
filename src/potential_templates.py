@@ -71,4 +71,4 @@ class Template:
         print("pvec", self.pvec)
         print("active_mask", self.active_mask)
         print("spline_ranges:", self.spline_ranges)
-        print("spline_indices:", self.spline_indices)
+        print("spline_indices:", self.spline_indices, flush=True)
