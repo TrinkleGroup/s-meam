@@ -52,11 +52,23 @@ class Template:
 
         ind = self.pvec.copy()
 
+        spline_num = 0
         for ind_tup, rng_tup in zip(self.spline_indices, self.spline_ranges):
+
             start, stop = ind_tup
             low, high = rng_tup
 
+            # TODO: hard-coded for binary
+            # if spline_num < 5:
+            #     seed = np.linspace(high, low, stop-start)
+            #
+            #     ind[start:stop] = seed + np.random.normal(
+            #                                 size=(stop-start), scale=0.1)
+            # else:
+            #     ind[start:stop] = np.random.random(stop - start) * (high-low) + low
             ind[start:stop] = np.random.random(stop - start) * (high-low) + low
+
+            spline_num += 1
 
         return ind
 

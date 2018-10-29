@@ -25,17 +25,19 @@ from src.potential_templates import Template
 
 ################################################################################
 
-COGNITIVE_WEIGHT = 0.4  # relative importance of individual best
-SOCIAL_WEIGHT = 0.5     # relative importance of global best
-MOMENTUM_WEIGHT = 0.1   # relative importance of particle momentum
+COGNITIVE_WEIGHT = 0.33  # relative importance of individual best
+SOCIAL_WEIGHT = 0.33     # relative importance of global best
+MOMENTUM_WEIGHT = 1   # relative importance of particle momentum
 
 MAX_NUM_PSO_STEPS = int(sys.argv[2])  # maximum number of PSO steps
-NUM_LMIN_STEPS = 20     # maximum number of LM steps
+
+DO_LOCAL_MIN = False
+NUM_LMIN_STEPS = 10     # maximum number of LM steps
 LMIN_FREQUENCY = 20
 
 FITNESS_THRESH = 1
 
-VELOCITY_SCALE = 0.05 # scale for starting velocity
+VELOCITY_SCALE = 0.01 # scale for starting velocity
 
 # PARTICLES_PER_MPI_TASK = int(sys.argv[1])
 
@@ -80,7 +82,7 @@ def main():
 
         # load database of structures and true values
         database = Database(DB_PATH, DB_INFO_FILE_NAME, ['H', 'He'])
-        database.print_metadata()
+        # database.print_metadata()
 
         # build potential template
         potential = MEAM.from_file(LOAD_PATH + 'HHe.meam.spline')
@@ -129,7 +131,7 @@ def main():
                              (107, 117), (117, 127), (127, 137)]
         )
 
-        potential_template.print_statistics()
+        # potential_template.print_statistics()
 
         # initialize swarm
         swarm_positions = np.array_split(
@@ -165,10 +167,11 @@ def main():
 
     # print("SLAVE: Rank", rank, "performing initial LMIN ...", flush=True)
     for p,particle in enumerate(positions):
-        opt_best = least_squares(eval_fxn, particle, grad_fxn, method='lm',
-                max_nfev=NUM_LMIN_STEPS)
+        if DO_LOCAL_MIN:
+            opt_best = least_squares(eval_fxn, particle, grad_fxn, method='lm',
+                    max_nfev=NUM_LMIN_STEPS)
 
-        positions[p] = opt_best['x']
+            positions[p] = opt_best['x']
 
         fitnesses[p] = np.sum(eval_fxn(positions[p]))
         personal_best_fitnesses[p] = fitnesses[p]
@@ -206,48 +209,47 @@ def main():
         log_f.close()
 
         start = time.time()
-        print("MASTER: step g_best max avg std", flush=True)
+        print("MASTER: step g_best max avg std avg_vel_mag", flush=True)
 
     i = 0
     while (i < MAX_NUM_PSO_STEPS) and (global_best_fit > FITNESS_THRESH):
         if is_master_node:
-            print("STEP: {} {} {} {} {}".format(
-                i+1,
+
+            avg_vel = np.average(np.linalg.norm(velocities, axis=1))
+
+            print("STEP: {} {:5.2f} {:5.2f} {:5.2f} {:5.2f} {:5.2f}".format(
+                i,
                 global_best_fit,
                 np.max(all_fitnesses),
                 np.average(all_fitnesses),
-                np.std(all_fitnesses)),
+                np.std(all_fitnesses),
+                avg_vel),
                 flush=True
                 )
 
-                # generate new velocities; update positions
         for p,(particle,velocity) in enumerate(zip(positions, velocities)):
             rp = np.random.random(particle.shape)
             rg = np.random.random(particle.shape)
 
-            if (i % LMIN_FREQUENCY == 0):
+            if (i % LMIN_FREQUENCY == 0) and DO_LOCAL_MIN:
                 opt_best = least_squares(eval_fxn, particle, grad_fxn, method='lm',
                         max_nfev=NUM_LMIN_STEPS)
 
-                particle = opt_best['x']
+                positions[p] = opt_best['x']
 
-            # print("velocity", velocity.shape)
-            # print("particle", particle.shape)
-            # print("personal_best_positions[p]", personal_best_positions[p].shape)
-            # print("global_best_pos", global_best_pos.shape)
+                particle = positions[p]
 
             new_velocity = \
                 MOMENTUM_WEIGHT*velocity + \
-                COGNITIVE_WEIGHT*rp*(personal_best_positions[p]-particle) +\
+                COGNITIVE_WEIGHT*rp*(personal_best_positions[p] - particle) +\
                 SOCIAL_WEIGHT * rg * (global_best_pos - particle)
 
-            # print(new_velocity, flush=True)
-            particle += new_velocity
-            velocity = new_velocity
+            positions[p] = particle + new_velocity
+            velocities[p] = new_velocity
 
-            # particle = check_bounds(particle)
+            # particle = check_bounds(particle, potential_template)
 
-            fitnesses[p] = np.sum(eval_fxn(particle))
+            fitnesses[p] = np.sum(eval_fxn(positions[p]))
 
             # update personal bests
             if fitnesses[p] < personal_best_fitnesses[p]:
@@ -256,10 +258,12 @@ def main():
 
         # update global bests
         new_positions = comm.gather(positions, root=0)
+        new_velocities = comm.gather(velocities, root=0)
         all_fitnesses = comm.gather(fitnesses[p], root=0)
 
         if is_master_node:
             new_positions = np.vstack(new_positions)
+            new_velocities = np.vstack(new_velocities)
             all_fitnesses = np.vstack(all_fitnesses).ravel()
 
             min_idx = np.argmin(all_fitnesses)
@@ -270,6 +274,12 @@ def main():
 
         global_best_pos = comm.bcast(global_best_pos, root=0)
         global_best_fit = comm.bcast(global_best_fit, root=0)
+
+        # positions = np.array_split(new_positions, mpi_size)
+        # velocities = np.array_split(new_velocities, mpi_size)
+        #
+        # positions = comm.scatter(positions, root=0)
+        # velocities = comm.scatter(velocities, root=0)
 
         # if is_master_node:
         #     log_f = open(LOG_FILENAME, 'ab')
@@ -527,23 +537,23 @@ def build_evaluation_functions(database, potential_template):
 
     return fxn, grad
 
-def check_bounds(positions):
+def check_bounds(positions, template):
 
     new_pos = positions.copy()
+    reset = False
 
-    ranges = [(-1, 4), (-1, 4), (-1, 4), (-9, 3), (-9, 3), (-0.5, 1),
-            (-0.5, 1)]
+    for ind_tup,rng_tup in zip(template.spline_indices, template.spline_ranges):
+        start, stop = ind_tup
+        low, high = rng_tup
 
-    indices = [(0,13), (15,20), (22,35), (37,48), (50,55), (57,61), (63,68)]
+        piece = positions[start:stop]
 
-    for rng,ind_tup in zip(ranges, indices):
-        r_lo, r_hi = rng
-        i_lo, i_hi = ind_tup
+        if not np.all(np.logical_and(piece < high, piece > low)):
+            reset = True
 
-        piece = positions[i_lo:i_hi]
-
-        new_pos[i_lo:i_hi] = np.clip(positions[i_lo:i_hi],
-                r_lo,r_hi)
+    if reset:
+        new_pos = template.generate_random_instance()
+        new_pos = new_pos[np.where(template.active_mask)[0]]
 
     return new_pos
 
