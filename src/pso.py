@@ -31,7 +31,7 @@ MOMENTUM_WEIGHT = 0.5   # relative importance of particle momentum
 
 MAX_NUM_PSO_STEPS = int(sys.argv[2])  # maximum number of PSO steps
 
-DO_LOCAL_MIN = True
+DO_LOCAL_MIN = False
 NUM_LMIN_STEPS = 30     # maximum number of LM steps
 LMIN_FREQUENCY = 20
 
@@ -85,45 +85,9 @@ def main():
         # database.print_metadata()
 
         # build potential template
-        potential = MEAM.from_file(LOAD_PATH + 'HHe.meam.spline')
-        x_pvec, true_y_pvec, indices = src.meam.splines_to_pvec(potential.splines)
-
-        # TODO: download updated Template from git
-        # TODO: hard-coded for EAM
-        true_y_pvec[83:] = 0
-
-        x_pvec, seed_pvec, indices = src.meam.splines_to_pvec(
-            potential.splines)
-
-        mask = np.ones(seed_pvec.shape)
-
-        seed_pvec[12] = 0; mask[12] = 0 # rhs phi_A knot
-        seed_pvec[14] = 0; mask[14] = 0 # rhs phi_A deriv
-
-        seed_pvec[27] = 0; mask[27] = 0 # rhs phi_B knot
-        seed_pvec[29] = 0; mask[29] = 0 # rhs phi_B deriv
-
-        seed_pvec[42] = 0; mask[42] = 0 # rhs phi_B knot
-        seed_pvec[44] = 0; mask[44] = 0 # rhs phi_B deriv
-
-        seed_pvec[55] = 0; mask[55] = 0 # rhs rho_A knot
-        seed_pvec[57] = 0; mask[57] = 0 # rhs rho_A deriv
-
-        seed_pvec[68] = 0; mask[68] = 0 # rhs rho_B knot
-        seed_pvec[70] = 0; mask[70] = 0 # rhs rho_B deriv
-
-        seed_pvec[92] = 0; mask[92] = 0 # rhs f_A knot
-        seed_pvec[94] = 0; mask[94] = 0 # rhs f_A deriv
-
-        seed_pvec[104] = 0; mask[104] = 0 # rhs f_B knot
-        seed_pvec[106] = 0; mask[106] = 0 # rhs f_B deriv
-
-        seed_pvec[83:] = 0; mask[83:] = 0 # EAM params only
-        # seed_pvec[45:] = 0; mask[45:] = 0 # EAM params only
 
         potential_template = Template(
-            seed=seed_pvec,
-            active_mask=mask,
+            pvec_len=137,
             spline_ranges=[(-1, 4), (-1, 4), (-1, 4), (-9, 3), (-9, 3),
                            (-0.5, 1), (-0.5, 1), (-2, 3), (-2, 3), (-7, 2),
                            (-7, 2), (-7, 2)],
@@ -131,6 +95,33 @@ def main():
                              (71, 77), (77, 83), (83, 95), (95, 107),
                              (107, 117), (117, 127), (127, 137)]
         )
+
+        mask = np.ones(potential_template.pvec.shape)
+
+        potential_template.pvec[12] = 0; mask[12] = 0 # rhs phi_A knot
+        potential_template.pvec[14] = 0; mask[14] = 0 # rhs phi_A deriv
+
+        potential_template.pvec[27] = 0; mask[27] = 0 # rhs phi_B knot
+        potential_template.pvec[29] = 0; mask[29] = 0 # rhs phi_B deriv
+
+        potential_template.pvec[42] = 0; mask[42] = 0 # rhs phi_B knot
+        potential_template.pvec[44] = 0; mask[44] = 0 # rhs phi_B deriv
+
+        potential_template.pvec[55] = 0; mask[55] = 0 # rhs rho_A knot
+        potential_template.pvec[57] = 0; mask[57] = 0 # rhs rho_A deriv
+
+        potential_template.pvec[68] = 0; mask[68] = 0 # rhs rho_B knot
+        potential_template.pvec[70] = 0; mask[70] = 0 # rhs rho_B deriv
+
+        potential_template.pvec[92] = 0; mask[92] = 0 # rhs f_A knot
+        potential_template.pvec[94] = 0; mask[94] = 0 # rhs f_A deriv
+
+        potential_template.pvec[104] = 0; mask[104] = 0 # rhs f_B knot
+        potential_template.pvec[106] = 0; mask[106] = 0 # rhs f_B deriv
+
+        potential_template.pvec[83:] = 0; mask[83:] = 0 # EAM params only
+
+        potential_template.active_mask = mask
 
         # potential_template.print_statistics()
 
@@ -207,9 +198,9 @@ def main():
         global_best_pos_trace = []
         global_best_fit_trace = []
 
-        log_f = open(LOG_FILENAME, 'wb')
-        np.savetxt(log_f, [np.concatenate([[0], all_fitnesses.ravel()])])
-        log_f.close()
+        # log_f = open(LOG_FILENAME, 'wb')
+        # np.savetxt(log_f, [np.concatenate([[0], all_fitnesses.ravel()])])
+        # log_f.close()
 
         start = time.time()
         print("MASTER: step g_best max avg std avg_vel_mag", flush=True)
@@ -252,10 +243,12 @@ def main():
 
             # particle = check_bounds(particle, potential_template)
 
-            opt_best = least_squares(eval_fxn, particle, grad_fxn, method='lm',
-                    max_nfev=10)
+            # opt_best = least_squares(eval_fxn, particle, grad_fxn, method='lm',
+            #         max_nfev=10)
+            #
+            # fitnesses[p] = np.sum(eval_fxn(opt_best['x']))
 
-            fitnesses[p] = np.sum(eval_fxn(opt_best['x']))
+            fitnesses[p] = np.sum(eval_fxn(positions[p]))
 
             # update personal bests
             if fitnesses[p] < personal_best_fitnesses[p]:
@@ -287,15 +280,15 @@ def main():
         # positions = comm.scatter(positions, root=0)
         # velocities = comm.scatter(velocities, root=0)
 
-        # if is_master_node:
-        #     log_f = open(LOG_FILENAME, 'ab')
-        #     np.savetxt(log_f, [np.concatenate([[i], all_fitnesses.ravel()])])
-        #     log_f.close()
-        #
-        #     f = open(BEST_TRACE_FILENAME, 'ab')
-        #     np.savetxt(f, [np.concatenate([[global_best_fit],
-        #                                    global_best_pos.ravel()])])
-        #     f.close()
+        if is_master_node:
+            log_f = open(LOG_FILENAME, 'ab')
+            np.savetxt(log_f, [np.concatenate([[i], all_fitnesses.ravel()])])
+            log_f.close()
+
+            f = open(BEST_TRACE_FILENAME, 'ab')
+            np.savetxt(f, [np.concatenate([[global_best_fit],
+                                           global_best_pos.ravel()])])
+            f.close()
 
         i += 1
 

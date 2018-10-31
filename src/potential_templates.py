@@ -9,22 +9,28 @@ from src.meam import MEAM
 
 class Template:
     def __init__(self,
-                 seed, active_mask, spline_indices=None, spline_ranges=None,
-                 load_file_path=None):
+                 pvec_len, active_mask=None, spline_indices=None,
+                 spline_ranges=None, load_file_path=None, seed=None):
         """
         A tool for generating new potentials based off a given template. For
         example, it may be necessary to set certain splines to given values, but
         then to easily extract and change the portions that are variable.
 
         Args:
-            seed (np.arr): starting format for pvec
+            pvec_len(int): size of parameter vector
             active_mask (np.arr): 1 where parameter is 'active'
             spline_indices (list): list of (start, stop) tuples for each spline
             spline_ranges (list): list of (low, high) tuples for each spline
             load_file_path (str): path to LAMMPS-style potential to use as base
+            seed (np.arr): starting format for pvec
         """
 
-        self.active_mask = active_mask
+        if active_mask:
+            self.active_mask = active_mask
+        else:
+            self.active_mask = np.ones(pvec_len)
+
+        self.pvec_len = pvec_len
         self.spline_ranges = spline_ranges
         self.spline_indices = spline_indices
 
@@ -38,8 +44,10 @@ class Template:
             self.pvec = y_pvec
 
             # TODO: ranges could be taken from LAMMPS file
-        else:
+        elif seed is not None:
             self.pvec = seed.copy()
+        else:
+            self.pvec = self.generate_random_instance()
 
     def get_active_params(self):
         return self.pvec[np.where(self.active_mask)[0]]
@@ -50,7 +58,7 @@ class Template:
         number generator in the range of each spline
         """
 
-        ind = self.pvec.copy()
+        ind = np.zeros(self.pvec_len)
 
         spline_num = 0
         for ind_tup, rng_tup in zip(self.spline_indices, self.spline_ranges):
