@@ -51,7 +51,7 @@ NTYPES = 2
 comm = MPI.COMM_WORLD
 mpi_size = comm.Get_size()
 
-POP_SIZE = sys.argv[1]
+POP_SIZE = int(sys.argv[1])
 NUM_GENS = 10
 CXPB = 1.0
 
@@ -64,9 +64,9 @@ RUN_NEW_GA = True
 
 DO_LMIN = True
 LMIN_FREQUENCY = 1
-INIT_NSTEPS = 1
-INTER_NSTEPS = 1
-FINAL_NSTEPS = 1
+INIT_NSTEPS = 30
+INTER_NSTEPS = 10
+FINAL_NSTEPS = 30
 
 CHECKPOINT_FREQUENCY = 1
 
@@ -81,8 +81,8 @@ CHECK_BEFORE_OVERWRITE = False
 
 # TODO: BW settings
 
-# LOAD_PATH = "data/fitting_databases/fixU-clean/"
-LOAD_PATH = "data/fitting_databases/leno-redo/"
+LOAD_PATH = "data/fitting_databases/fixU/"
+# LOAD_PATH = "data/fitting_databases/leno-redo/"
     # LOAD_PATH = "/projects/sciteam/baot/fixU-clean/"
 SAVE_PATH = "data/ga_results/"
 
@@ -107,7 +107,7 @@ def main():
     rank = comm.Get_rank()
     mpi_size = comm.Get_size()
 
-    POP_SIZE = mpi_size
+    # POP_SIZE = mpi_size
 
     is_master_node = (rank == MASTER_RANK)
 
@@ -196,14 +196,16 @@ def main():
         pop = None
 
     # Compute initial minimization
-    print("SLAVE: Rank", rank, "performing initial LMIN ...", flush=True)
+    # print("SLAVE: Rank", rank, "performing initial LMIN ...", flush=True)
     my_indivs = comm.scatter(pop, root=0)
+
+    print("SLAVE: Rank", rank, "received", len(my_indivs), "potentials",
+        flush=True)
 
     new_indivs = []
     my_fitnesses = []
 
     for indiv in my_indivs:
-        print(indiv)
         opt_results = least_squares(toolbox.evaluate_population, indiv,
                                     toolbox.gradient, method='lm',
                                     max_nfev=INIT_NSTEPS)
@@ -221,9 +223,9 @@ def main():
 
     # Have master gather fitnesses and update individuals
     if is_master_node:
-        print("MASTER: initial fitnesses:", all_fitnesses, flush=True)
         all_fitnesses = np.vstack(all_fitnesses)
-        print(all_fitnesses)
+        all_fitnesses = all_fitnesses.ravel()
+        print("MASTER: initial fitnesses:", all_fitnesses, flush=True)
 
         join_pop = []
         for slave_pop in pop:
@@ -234,6 +236,7 @@ def main():
 
         for ind, fit in zip(pop, all_fitnesses):
             ind.fitness.values = fit,
+            print(ind.fitness.values[0])
 
         # Sort population; best on top
         pop = tools.selBest(pop, len(pop))
@@ -271,37 +274,47 @@ def main():
                 # Mutate randomly everyone except top 10% (or top 2)
                 for mut_ind in pop[max(2, int(POP_SIZE / 10)):]:
                     if np.random.random() >= MUTPB: toolbox.mutate(mut_ind)
+
+                pop = np.array_split(pop, mpi_size)
             else:
                 pop = None
 
             # Send out updated population
-            indiv = comm.scatter(pop, root=0)
+            my_indivs = comm.scatter(pop, root=0)
 
             # TODO: pull changes from BW?
 
             # Run local minimization on best individual if desired
             if DO_LMIN and (i % LMIN_FREQUENCY == 0):
-                opt_results = least_squares(toolbox.evaluate_population, indiv,
-                                            toolbox.gradient, method='lm',
-                                            max_nfev=INTER_NSTEPS * 2)
+                new_indivs = []
 
-                opt_indiv = creator.Individual(opt_results['x'])
+                for indiv in my_indivs:
+                    opt_results = least_squares(toolbox.evaluate_population, indiv,
+                                                toolbox.gradient, method='lm',
+                                                max_nfev=INTER_NSTEPS * 2)
 
-                opt_fitness = np.sum(toolbox.evaluate_population(opt_indiv))
-                prev_fitness = np.sum(toolbox.evaluate_population(indiv))
+                    opt_indiv = creator.Individual(opt_results['x'])
 
-                if opt_fitness < prev_fitness:
-                    indiv = opt_indiv
+                    opt_fitness = np.sum(toolbox.evaluate_population(opt_indiv))
+                    prev_fitness = np.sum(toolbox.evaluate_population(indiv))
+
+                    if opt_fitness < prev_fitness:
+                        indiv = opt_indiv
+
+                    new_indivs.append(creator.Individual(indiv))
+
+                my_indivs = new_indivs
 
             # Compute fitnesses with mated/mutated/optimized population
             fitnesses = np.sum(toolbox.evaluate_population(indiv))
 
             all_fitnesses = comm.gather(fitnesses, root=0)
-            pop = comm.gather(indiv, root=0)
+            pop = comm.gather(my_indivs, root=0)
 
             # Update individuals with new fitnesses
             if is_master_node:
                 all_fitnesses = np.vstack(all_fitnesses)
+                all_fitnesses = all_fitnesses.ravel()
 
                 join_pop = []
                 for slave_pop in pop:
@@ -359,6 +372,7 @@ def main():
     if is_master_node:
         print("MASTER: final fitnesses:", all_fitnesses, flush=True)
         all_fitnesses = np.vstack(all_fitnesses)
+        all_fitnesses = all_fitnesses.ravel()
 
         join_pop = []
         for slave_pop in pop:
@@ -573,118 +587,58 @@ def build_evaluation_functions(database, potential_template):
     of main code."""
 
     def fxn(pot):
-        # "pot" should be a of potential Template objects
-        # u_params = pot[-2*NTYPES:]
-        # pot = pot[:-2*NTYPES]
-
         full = potential_template.insert_active_splines(pot)
-        # full = np.concatenate([full, u_params])
 
         fitness = np.zeros(2 * len(database.structures))
 
-        all_worker_energies = []
-        all_worker_forces = []
-
-        all_true_energies = []
-        all_true_forces = []
-
-        ref_struct_idx = None
-
-        # Compute error for each worker on MPI node
-        for j, name in enumerate(database.structures.keys()):
-            w = database.structures[name]
-
-            if name == database.reference_struct:
-                ref_struct_idx = j
-
-            all_worker_energies.append(w.compute_energy(full))
-            all_worker_forces.append(w.compute_forces(full))
-
-            all_true_energies.append(database.true_energies[name])
-            all_true_forces.append(database.true_forces[name])
-
-        # subtract off reference energies
-        all_worker_energies = np.array(all_worker_energies)
-        all_worker_energies -= all_worker_energies[ref_struct_idx]
-
-        all_true_energies = np.array(all_true_energies)
-        all_true_energies -= all_true_energies[ref_struct_idx]
+    #     ref_energy = 0
 
         i = 0
-        for i in range(len(database.structures)):
-            eng_err = all_worker_energies[i] - all_true_energies[i]
-            fcs_err = all_worker_forces[i] - all_true_forces[i]
+        for name in database.structures.keys():
+
+            w = database.structures[name]
+
+            w_eng = w.compute_energy(full)
+            w_fcs = w.compute_forces(full)
+
+    #         if name == database.reference_struct:
+    #             ref_energy = w_eng
+
+            true_eng = database.true_energies[name]
+            true_fcs = database.true_forces[name]
+
+            eng_err = (w_eng - true_eng) ** 2
+            fcs_err = ((w_fcs - true_fcs) / np.sqrt(10)) ** 2
+
             fcs_err = np.linalg.norm(fcs_err, axis=(1, 2)) / np.sqrt(10)
 
-            fitness[i] += eng_err * eng_err
-            fitness[i + 1] += fcs_err * fcs_err
+            fitness[i] = eng_err
+            fitness[i+1] = fcs_err
 
             i += 2
 
-        # all_worker_energies = np.array(all_worker_energies)
-        # all_true_energies = np.array(all_true_forces)
-        #
-        # all_true_energies = np.array(all_true_energies)
-        # all_true_energies -= database.true_energies[database.reference_struct]
-        #
-        # eng_err = (all_worker_energies - all_true_energies)**2
-        # fcs_err = ((all_worker_forces - all_true_forces) / np.sqrt(10))**2
+    #     fitness[::2] -= ref_energy
 
-        # return np.vstack([eng_err, fcs_err])
+        # print(np.sum(fitness), flush=True)
         return fitness
 
     def grad(pot):
-        # full = np.atleast_2d(pot[np.where(potential_template.active_mask)])
         full = potential_template.insert_active_splines(pot)
-
-        # grad_vec = np.zeros((2*len(database.structures), full.shape[0] + 2*NTYPES))
-        # grad_vec = np.zeros((2*len(database.structures), full.shape[0] - 2*NTYPES))
-
-        all_worker_energies = []
-        all_worker_forces = []
-
-        all_true_energies = []
-        all_true_forces = []
-
-        all_eng_grads = []
-        all_fcs_grads = []
-
-        all_worker_energies = []
-        all_worker_forces = []
-
-        all_true_energies = []
-        all_true_forces = []
-
-        ref_struct_idx = None
 
         grad_vec = np.zeros((2 * len(database.structures), 137))
 
-        # Compute error for each worker on MPI node
-        for j, name in enumerate(database.structures.keys()):
+        i = 0
+        for name in database.structures.keys():
             w = database.structures[name]
 
-            if name == database.reference_struct:
-                ref_struct_idx = j
+            w_eng = w.compute_energy(full)
+            w_fcs = w.compute_forces(full)
 
-            all_worker_energies.append(w.compute_energy(full))
-            all_worker_forces.append(w.compute_forces(full))
+            true_eng = database.true_energies[name]
+            true_fcs = database.true_forces[name]
 
-            all_true_energies.append(database.true_energies[name])
-            all_true_forces.append(database.true_forces[name])
-
-        # subtract off reference energies
-        all_worker_energies = np.array(all_worker_energies)
-        all_worker_energies -= all_worker_energies[ref_struct_idx]
-
-        all_true_energies = np.array(all_true_energies)
-        all_true_energies -= all_true_energies[ref_struct_idx]
-
-        for i, name in enumerate(database.structures.keys()):
-            w = database.structures[name]
-
-            eng_err = (all_worker_energies[i] - all_true_energies[i]) ** 2
-            fcs_err = ((all_worker_forces[i] - all_true_forces[i]) / np.sqrt(
-                10)) ** 2
+            eng_err = (w_eng - true_eng)
+            fcs_err = ((w_fcs - true_fcs) / np.sqrt(10))
 
             eng_grad = w.energy_gradient_wrt_pvec(full)
             fcs_grad = w.forces_gradient_wrt_pvec(full)
@@ -695,11 +649,142 @@ def build_evaluation_functions(database, potential_template):
             grad_vec[i] += (eng_err[:, np.newaxis] * eng_grad * 2).ravel()
             grad_vec[i + 1] += (2 * summed / 10).ravel()
 
-        # return grad_vec[:,:83]
+            i += 2
+
         tmp = grad_vec[:, np.where(potential_template.active_mask)[0]]
-        # return np.hstack([tmp, np.zeros((tmp.shape[0], 2*NTYPES))])
         return tmp
 
+    # def fxn(pot):
+    #     # "pot" should be a of potential Template objects
+    #     # u_params = pot[-2*NTYPES:]
+    #     # pot = pot[:-2*NTYPES]
+    #
+    #     full = potential_template.insert_active_splines(pot)
+    #     # full = np.concatenate([full, u_params])
+    #
+    #     fitness = np.zeros(2 * len(database.structures))
+    #
+    #     all_worker_energies = []
+    #     all_worker_forces = []
+    #
+    #     all_true_energies = []
+    #     all_true_forces = []
+    #
+    #     ref_struct_idx = None
+    #
+    #     # Compute error for each worker on MPI node
+    #     for j, name in enumerate(database.structures.keys()):
+    #         w = database.structures[name]
+    #
+    #         if name == database.reference_struct:
+    #             ref_struct_idx = j
+    #
+    #         all_worker_energies.append(w.compute_energy(full))
+    #         all_worker_forces.append(w.compute_forces(full))
+    #
+    #         all_true_energies.append(database.true_energies[name])
+    #         all_true_forces.append(database.true_forces[name])
+    #
+    #     # subtract off reference energies
+    #     # all_worker_energies = np.array(all_worker_energies)
+    #     # all_worker_energies -= all_worker_energies[ref_struct_idx]
+    #     #
+    #     # all_true_energies = np.array(all_true_energies)
+    #     # all_true_energies -= all_true_energies[ref_struct_idx]
+    #     #
+    #     i = 0
+    #     for i in range(len(database.structures)):
+    #         eng_err = all_worker_energies[i] - all_true_energies[i]
+    #         fcs_err = all_worker_forces[i] - all_true_forces[i]
+    #         fcs_err = np.linalg.norm(fcs_err, axis=(1, 2)) / np.sqrt(10)
+    #
+    #         fitness[i] += eng_err * eng_err
+    #         fitness[i + 1] += fcs_err * fcs_err
+    #
+    #         i += 2
+    #
+    #     # all_worker_energies = np.array(all_worker_energies)
+    #     # all_true_energies = np.array(all_true_forces)
+    #     #
+    #     # all_true_energies = np.array(all_true_energies)
+    #     # all_true_energies -= database.true_energies[database.reference_struct]
+    #     #
+    #     # eng_err = (all_worker_energies - all_true_energies)**2
+    #     # fcs_err = ((all_worker_forces - all_true_forces) / np.sqrt(10))**2
+    #
+    #     # return np.vstack([eng_err, fcs_err])
+    #     return fitness
+    #
+    # def grad(pot):
+    #     # full = np.atleast_2d(pot[np.where(potential_template.active_mask)])
+    #     full = potential_template.insert_active_splines(pot)
+    #
+    #     # grad_vec = np.zeros((2*len(database.structures), full.shape[0] + 2*NTYPES))
+    #     # grad_vec = np.zeros((2*len(database.structures), full.shape[0] - 2*NTYPES))
+    #
+    #     all_worker_energies = []
+    #     all_worker_forces = []
+    #
+    #     all_true_energies = []
+    #     all_true_forces = []
+    #
+    #     all_eng_grads = []
+    #     all_fcs_grads = []
+    #
+    #     all_worker_energies = []
+    #     all_worker_forces = []
+    #
+    #     all_true_energies = []
+    #     all_true_forces = []
+    #
+    #     ref_struct_idx = None
+    #
+    #     grad_vec = np.zeros((2 * len(database.structures), 137))
+    #
+    #     # Compute error for each worker on MPI node
+    #     for j, name in enumerate(database.structures.keys()):
+    #         w = database.structures[name]
+    #
+    #         if name == database.reference_struct:
+    #             ref_struct_idx = j
+    #
+    #         all_worker_energies.append(w.compute_energy(full))
+    #         all_worker_forces.append(w.compute_forces(full))
+    #
+    #         all_true_energies.append(database.true_energies[name])
+    #         all_true_forces.append(database.true_forces[name])
+    #
+    #     # subtract off reference energies
+    #     # all_worker_energies = np.array(all_worker_energies)
+    #     # all_worker_energies -= all_worker_energies[ref_struct_idx]
+    #     #
+    #     # all_true_energies = np.array(all_true_energies)
+    #     # all_true_energies -= all_true_energies[ref_struct_idx]
+    #     #
+    #     i = 0
+    #     for name in database.structures.keys():
+    #         w = database.structures[name]
+    #
+    #         eng_err = (all_worker_energies[i] - all_true_energies[i])
+    #         fcs_err = ((all_worker_forces[i] - all_true_forces[i]) / np.sqrt(
+    #             10)) ** 2
+    #
+    #         eng_grad = w.energy_gradient_wrt_pvec(full)
+    #         fcs_grad = w.forces_gradient_wrt_pvec(full)
+    #
+    #         scaled = np.einsum('pna,pnak->pnak', fcs_err, fcs_grad)
+    #         summed = scaled.sum(axis=1).sum(axis=1)
+    #
+    #         grad_vec[i] += (eng_err[:, np.newaxis] * eng_grad * 2).ravel()
+    #         grad_vec[i + 1] += (2 * summed / 10).ravel()
+    #
+    #         i += 2
+    #
+    #     # return grad_vec[:,:83]
+    #     tmp = grad_vec[:, np.where(potential_template.active_mask)[0]]
+    #     # return np.hstack([tmp, np.zeros((tmp.shape[0], 2*NTYPES))])
+    #     return tmp
+    #
     def minimized_fxn(pot):
 
         pot = np.atleast_2d(pot)
