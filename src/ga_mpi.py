@@ -52,7 +52,7 @@ comm = MPI.COMM_WORLD
 mpi_size = comm.Get_size()
 
 POP_SIZE = int(sys.argv[1])
-NUM_GENS = 10
+NUM_GENS = 50
 CXPB = 1.0
 
 if len(sys.argv) > 2:
@@ -83,7 +83,7 @@ CHECK_BEFORE_OVERWRITE = False
 
 LOAD_PATH = "data/fitting_databases/fixU/"
 # LOAD_PATH = "data/fitting_databases/leno-redo/"
-    # LOAD_PATH = "/projects/sciteam/baot/fixU-clean/"
+# LOAD_PATH = "/projects/sciteam/baot/fixU-clean/"
 SAVE_PATH = "data/results/"
 
 SAVE_DIRECTORY = SAVE_PATH + date_str + "-" + "meam" + "{}-{}".format(NUM_GENS,
@@ -93,7 +93,7 @@ if os.path.isdir(SAVE_DIRECTORY):
     SAVE_DIRECTORY = SAVE_DIRECTORY + '-' + str(np.random.randint(100000))
 
 DB_PATH = LOAD_PATH + 'structures'
-DB_INFO_FILE_NAME = LOAD_PATH + 'rhophi/info'
+DB_INFO_FILE_NAME = LOAD_PATH + 'full/info'
 POP_FILE_NAME = SAVE_DIRECTORY + "/pop.dat"
 LOG_FILE_NAME = SAVE_DIRECTORY + "/ga.log"
 TRACE_FILE_NAME = SAVE_DIRECTORY + "/trace.dat"
@@ -161,7 +161,8 @@ def main():
         potential_template.pvec[104] = 0; mask[104] = 0 # rhs f_B knot
         potential_template.pvec[106] = 0; mask[106] = 0 # rhs f_B deriv
 
-        potential_template.pvec[83:] = 0; mask[83:] = 0 # EAM params only
+        # potential_template.pvec[83:] = 0; mask[83:] = 0 # EAM params only
+        potential_template.pvec[45:] = 0; mask[45:] = 0 # EAM params only
 
         potential_template.active_mask = mask
 
@@ -207,6 +208,7 @@ def main():
                                     max_nfev=INIT_NSTEPS)
 
         indiv = creator.Individual(opt_results['x'])
+
         new_indivs.append(indiv)
 
         fitnesses = np.sum(toolbox.evaluate_population(indiv))
@@ -232,7 +234,6 @@ def main():
 
         for ind, fit in zip(pop, all_fitnesses):
             ind.fitness.values = fit,
-            print(ind.fitness.values[0])
 
         # Sort population; best on top
         pop = tools.selBest(pop, len(pop))
@@ -278,8 +279,6 @@ def main():
             # Send out updated population
             my_indivs = comm.scatter(pop, root=0)
 
-            # TODO: pull changes from BW?
-
             # Run local minimization on best individual if desired
             if DO_LMIN and (i % LMIN_FREQUENCY == 0):
                 new_indivs = []
@@ -315,7 +314,7 @@ def main():
                 join_pop = []
                 for slave_pop in pop:
                     for ind in slave_pop:
-                        join_pop.append(ind)
+                        join_pop.append(creator.Individual(ind))
 
                 pop = join_pop
 
@@ -585,70 +584,88 @@ def build_evaluation_functions(database, potential_template):
     def fxn(pot):
         full = potential_template.insert_active_splines(pot)
 
-        fitness = np.zeros(2 * len(database.structures))
+        w_energies = np.zeros(len(database.structures))
+        t_energies = np.zeros(len(database.structures))
 
-    #     ref_energy = 0
+        fcs_fitnesses = np.zeros(len(database.structures))
 
-        i = 0
-        for name in database.structures.keys():
+        ref_energy = 0
+
+        for j,name in enumerate(database.structures.keys()):
 
             w = database.structures[name]
 
-            w_eng = w.compute_energy(full)
+            w_energies[j] = w.compute_energy(full)
+            t_energies[j] = database.true_energies[name]
+
+            if name == database.reference_struct:
+                ref_energy = w_energies[j]
+
             w_fcs = w.compute_forces(full)
-
-    #         if name == database.reference_struct:
-    #             ref_energy = w_eng
-
-            true_eng = database.true_energies[name]
             true_fcs = database.true_forces[name]
 
-            eng_err = (w_eng - true_eng) ** 2
             fcs_err = ((w_fcs - true_fcs) / np.sqrt(10)) ** 2
-
             fcs_err = np.linalg.norm(fcs_err, axis=(1, 2)) / np.sqrt(10)
 
-            fitness[i] = eng_err
-            fitness[i+1] = fcs_err
+            fcs_fitnesses[j] = fcs_err
 
-            i += 2
+        w_energies -= ref_energy
+        t_energies -= database.true_energies[database.reference_struct]
 
-    #     fitness[::2] -= ref_energy
+        eng_fitnesses = np.zeros(len(database.structures))
 
-        # print(np.sum(fitness), flush=True)
-        return fitness
+        for j, (w_eng, t_eng) in enumerate(zip(w_energies, t_energies)):
+            eng_fitnesses[j] = (w_eng - t_eng) ** 2
+
+        fitnesses = np.concatenate([eng_fitnesses, fcs_fitnesses])
+
+        # print(np.sum(fitnesses), flush=True)
+        return fitnesses
 
     def grad(pot):
         full = potential_template.insert_active_splines(pot)
 
-        grad_vec = np.zeros((2 * len(database.structures), 137))
+        fcs_grad_vec = np.zeros((len(database.structures), 137))
 
-        i = 0
-        for name in database.structures.keys():
+        w_energies = np.zeros(len(database.structures))
+        t_energies = np.zeros(len(database.structures))
+
+        ref_energy = 0
+
+        for j,name in enumerate(database.structures.keys()):
             w = database.structures[name]
 
-            w_eng = w.compute_energy(full)
-            w_fcs = w.compute_forces(full)
+            w_energies[j] = w.compute_energy(full)
+            t_energies[j] = database.true_energies[name]
 
-            true_eng = database.true_energies[name]
+            if name == database.reference_struct:
+                ref_energy = w_energies[j]
+
+            w_fcs = w.compute_forces(full)
             true_fcs = database.true_forces[name]
 
-            eng_err = (w_eng - true_eng)
             fcs_err = ((w_fcs - true_fcs) / np.sqrt(10))
 
-            eng_grad = w.energy_gradient_wrt_pvec(full)
             fcs_grad = w.forces_gradient_wrt_pvec(full)
 
             scaled = np.einsum('pna,pnak->pnak', fcs_err, fcs_grad)
             summed = scaled.sum(axis=1).sum(axis=1)
 
-            grad_vec[i] += (eng_err[:, np.newaxis] * eng_grad * 2).ravel()
-            grad_vec[i + 1] += (2 * summed / 10).ravel()
+            fcs_grad_vec[j] += (2 * summed / 10).ravel()
 
-            i += 2
+        w_energies -= ref_energy
+        t_energies -= database.true_energies[database.reference_struct]
 
-        tmp = grad_vec[:, np.where(potential_template.active_mask)[0]]
-        return tmp
+        eng_grad_vec = np.zeros((len(database.structures), 137))
+        for j, (w_eng, t_eng) in enumerate(zip(w_energies, t_energies)):
+            eng_err = (w_eng - t_eng)
+            eng_grad = w.energy_gradient_wrt_pvec(full)
+
+            # eng_grad_vec[j] += (eng_err[:, np.newaxis] * eng_grad * 2).ravel()
+            eng_grad_vec[j] += (eng_err * eng_grad * 2).ravel()
+
+        grad_vec = np.vstack([eng_grad_vec, fcs_grad_vec])
+        return grad_vec[:, np.where(potential_template.active_mask)[0]]
 
     # def fxn(pot):
     #     # "pot" should be a of potential Template objects
