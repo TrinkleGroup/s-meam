@@ -31,6 +31,7 @@ from src.meam import MEAM
 from src.spline import Spline
 from src.database import Database
 from src.potential_templates import Template
+from src.node import Node
 
 ################################################################################
 """MPI settings"""
@@ -157,6 +158,9 @@ def main():
 
     toolbox.register("evaluate_population", eval_fxn)
     toolbox.register("gradient", grad_fxn)
+
+    # construct node for MPI task
+    middle_man = Node(database, potential_template, 6)
 
     if is_master_node:
         pop = toolbox.population(n=POP_SIZE)

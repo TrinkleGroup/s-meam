@@ -83,8 +83,9 @@ class Template:
         return ind
 
     def insert_active_splines(self, new_pvec):
-        tmp = self.pvec.copy()
-        tmp[np.where(self.active_mask)[0]] = new_pvec
+        tmp = np.tile(self.pvec, (new_pvec.shape[0], 1))
+
+        tmp[:, np.where(self.active_mask)[0]] = new_pvec
 
         return tmp
 

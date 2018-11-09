@@ -3,6 +3,7 @@
 import numpy as np
 import logging
 from multiprocessing import Pool
+from scipy.optimize import least_squares
 from src.database import Database
 
 logging.basicConfig(filename='node.log',
@@ -19,15 +20,13 @@ class Node:
             procs_per_mpi: number of processors available to the Node
         """
 
-        # TODO: structures in shared memory?? or is that why I separated...
-
-        self.pool = Pool(processes=procs_per_mpi)
-
         self.database = database
         self.potential_template = potential_template
         self.procs_per_mpi = procs_per_mpi
 
         self.assignments, _ , _ = self.partition_work()
+
+        self.pool = Pool(processes=procs_per_mpi)
 
     def evaluate_f(self, x):
         # TODO: sort according to some given order
@@ -46,24 +45,19 @@ class Node:
             )
         )
 
-    # def build_grouped_eval_fxns(self, work_weights, name_list):
-    #     grouped_functions = []
-    #
-    #     for weight_block, name_block in zip(work_weights, name_list):
-    #         function_block = []
-    #
-    #         mini_database = {self.database[s_name] for s_name in name_block}
-    #
-    #         for weight, name in zip(weight_block, name_block):
-    #             function_block.append(
-    #                 build_eval_fxns(
-    #                     mini_database, self.potential_template
-    #                 )
-    #             )
-    #
-    #         grouped_functions.append(function_block)
-    #
-    #     return grouped_functions
+    def local_minimization(self, x, max_nsteps):
+
+        def wrap_f(x):
+            return self.evaluate_f(x)[:, 0]
+
+        def wrap_g(x):
+            return self.evaluate_grad(x)[:, 0]
+
+        opt_results = least_squares(
+            wrap_f, x, wrap_g, method='lm', max_nfev=max_nsteps
+        )
+
+        return opt_results
 
     def compute_relative_weights(self):
         work_weights = []
@@ -126,27 +120,29 @@ class Node:
         return assignments, grouped_work, work_per_proc
 
 def fxn(database, pot, potential_template):
+    pot = np.atleast_2d(pot)
+
     full = potential_template.insert_active_splines(pot)
 
-    w_energies = np.zeros(len(database.structures))
+    w_energies = np.zeros((len(database.structures), full.shape[0]))
     t_energies = np.zeros(len(database.structures))
 
-    fcs_fitnesses = np.zeros(len(database.structures))
+    fcs_fitnesses = np.zeros((len(database.structures), full.shape[0]))
 
-    ref_energy = 0
+    ref_energy = np.zeros(full.shape[0])
 
     for j,name in enumerate(database.structures.keys()):
 
         w = database.structures[name]
 
-        w_energies[j] = w.compute_energy(
+        w_energies[j, :] = w.compute_energy(
             full, potential_template.u_ranges
         )
 
         t_energies[j] = database.true_energies[name]
 
         if name == database.reference_struct:
-            ref_energy = w_energies[j]
+            ref_energy = w_energies[j, :]
 
         w_fcs = w.compute_forces(full, potential_template.u_ranges)
         true_fcs = database.true_forces[name]
@@ -154,26 +150,30 @@ def fxn(database, pot, potential_template):
         fcs_err = ((w_fcs - true_fcs) / np.sqrt(10)) ** 2
         fcs_err = np.linalg.norm(fcs_err, axis=(1, 2)) / np.sqrt(10)
 
-        fcs_fitnesses[j] = fcs_err
+        fcs_fitnesses[j, :] = fcs_err
 
-    w_energies -= ref_energy
+    w_energies = (w_energies - ref_energy)
     t_energies -= database.reference_energy
 
-    eng_fitnesses = np.zeros(len(database.structures))
+    eng_fitnesses = np.zeros((len(database.structures), pot.shape[0]))
 
     for j, (w_eng, t_eng) in enumerate(zip(w_energies, t_energies)):
-        eng_fitnesses[j] = (w_eng - t_eng) ** 2
+        eng_fitnesses[j, :] = (w_eng - t_eng) ** 2
 
     fitnesses = np.concatenate([eng_fitnesses, fcs_fitnesses])
 
     return fitnesses
 
 def grad(database, pot, potential_template):
+    pot = np.atleast_2d(pot)
+
     full = potential_template.insert_active_splines(pot)
 
-    fcs_grad_vec = np.zeros((len(database.structures), 137))
+    fcs_grad_vec = np.zeros(
+        (len(database.structures), full.shape[0], full.shape[1])
+    )
 
-    w_energies = np.zeros(len(database.structures))
+    w_energies = np.zeros((len(database.structures), full.shape[0]))
     t_energies = np.zeros(len(database.structures))
 
     ref_energy = 0
@@ -181,14 +181,14 @@ def grad(database, pot, potential_template):
     for j,name in enumerate(database.structures.keys()):
         w = database.structures[name]
 
-        w_energies[j] = w.compute_energy(
+        w_energies[j, :] = w.compute_energy(
             full, potential_template.u_ranges
         )
 
         t_energies[j] = database.true_energies[name]
 
         if name == database.reference_struct:
-            ref_energy = w_energies[j]
+            ref_energy = w_energies[j, :]
 
         w_fcs = w.compute_forces(full, potential_template.u_ranges)
         true_fcs = database.true_forces[name]
@@ -202,19 +202,22 @@ def grad(database, pot, potential_template):
         scaled = np.einsum('pna,pnak->pnak', fcs_err, fcs_grad)
         summed = scaled.sum(axis=1).sum(axis=1)
 
-        fcs_grad_vec[j] += (2 * summed / 10).ravel()
+        fcs_grad_vec[j, :] += (2 * summed / 10)
 
-    w_energies -= ref_energy
+    w_energies = (w_energies - ref_energy)
     t_energies -= database.reference_energy
 
-    eng_grad_vec = np.zeros((len(database.structures), 137))
+    eng_grad_vec = np.zeros(
+        (len(database.structures), full.shape[0], full.shape[1])
+    )
+
     for j, (w_eng, t_eng) in enumerate(zip(w_energies, t_energies)):
         eng_err = (w_eng - t_eng)
         eng_grad = w.energy_gradient_wrt_pvec(
             full, potential_template.u_ranges
         )
 
-        eng_grad_vec[j] += (eng_err * eng_grad * 2).ravel()
+        eng_grad_vec[j, :] += (eng_err * eng_grad.T * 2).T
 
     grad_vec = np.vstack([eng_grad_vec, fcs_grad_vec])
-    return grad_vec[:, np.where(potential_template.active_mask)[0]]
+    return grad_vec[:, :, np.where(potential_template.active_mask)[0]]
