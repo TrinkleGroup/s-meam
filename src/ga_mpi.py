@@ -163,7 +163,7 @@ def main():
         # pop = np.array_split(pop, mpi_size)
 
         # TODO: currently parallel over structs; need to par over pot too
-        # structures, potentials = distribute_work(database, pop, mpi_size)
+        # structures, potentials = partition_work(database, pop, mpi_size)
     else:
         pop = None
 

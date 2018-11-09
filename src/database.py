@@ -36,7 +36,7 @@ class Database:
         new_db.structures = structures
         new_db.true_energies = energies
         new_db.true_forces = forces
-        new_db.true_weights = weights
+        new_db.weights = weights
         new_db.reference_struct = ref_struct
         new_db.reference_energy = ref_eng
 
