@@ -1,7 +1,6 @@
 import os
-
 # TODO: BW settings
-# os.chdir("/home/jvita/scripts/s-meam/project/")
+os.chdir("/home/jvita/scripts/s-meam/project/")
 import sys
 
 sys.path.append('./')
@@ -51,8 +50,12 @@ NTYPES = 2
 comm = MPI.COMM_WORLD
 mpi_size = comm.Get_size()
 
-POP_SIZE = int(sys.argv[1])
-NUM_GENS = 50
+if len(sys.argv) > 1:
+    POP_SIZE = int(sys.argv[1])
+else:
+    POP_SIZE = 4
+
+NUM_GENS = 1
 CXPB = 1.0
 
 if len(sys.argv) > 2:
@@ -62,11 +65,11 @@ else:
 
 RUN_NEW_GA = True
 
-DO_LMIN = True
+DO_LMIN = False
 LMIN_FREQUENCY = 1
 INIT_NSTEPS = 30
 INTER_NSTEPS = 10
-FINAL_NSTEPS = 30
+FINAL_NSTEPS = 4
 
 CHECKPOINT_FREQUENCY = 1
 
@@ -81,8 +84,8 @@ CHECK_BEFORE_OVERWRITE = False
 
 # TODO: BW settings
 
-LOAD_PATH = "data/fitting_databases/fixU/"
-# LOAD_PATH = "data/fitting_databases/leno-redo/"
+# LOAD_PATH = "data/fitting_databases/fixU/"
+LOAD_PATH = "data/fitting_databases/leno-redo/"
 # LOAD_PATH = "/projects/sciteam/baot/fixU-clean/"
 SAVE_PATH = "data/results/"
 
@@ -112,75 +115,44 @@ def main():
     is_master_node = (rank == MASTER_RANK)
 
     if is_master_node:
-        # Initialize database and variables to prepare for GA
+        # Prepare directories and files
         print_settings()
 
         print("MASTER: Preparing save directory/files ... ", flush=True)
         prepare_save_directory()
 
+        # Trace file to be appended to later
         f = open(TRACE_FILE_NAME, 'ab')
         f.close()
 
+        # GA tools
         stats, logbook = build_stats_and_log()
 
-        database = Database(DB_PATH, DB_INFO_FILE_NAME, ['H', 'He'])
-
-        database.print_metadata()
-
-        # TODO: BW settings
-        potential_template = Template(
-            pvec_len=137,
-            spline_ranges=[(-1, 4), (-1, 4), (-1, 4), (-9, 3), (-9, 3),
-                           (-0.5, 1), (-0.5, 1), (-2, 3), (-2, 3), (-7, 2),
-                           (-7, 2), (-7, 2)],
-            spline_indices=[(0, 15), (15, 30), (30, 45), (45, 58), (58, 71),
-                             (71, 77), (77, 83), (83, 95), (95, 107),
-                             (107, 117), (117, 127), (127, 137)]
-        )
-
-        mask = np.ones(potential_template.pvec.shape)
-
-        potential_template.pvec[12] = 0; mask[12] = 0 # rhs phi_A knot
-        potential_template.pvec[14] = 0; mask[14] = 0 # rhs phi_A deriv
-
-        potential_template.pvec[27] = 0; mask[27] = 0 # rhs phi_B knot
-        potential_template.pvec[29] = 0; mask[29] = 0 # rhs phi_B deriv
-
-        potential_template.pvec[42] = 0; mask[42] = 0 # rhs phi_B knot
-        potential_template.pvec[44] = 0; mask[44] = 0 # rhs phi_B deriv
-
-        potential_template.pvec[55] = 0; mask[55] = 0 # rhs rho_A knot
-        potential_template.pvec[57] = 0; mask[57] = 0 # rhs rho_A deriv
-
-        potential_template.pvec[68] = 0; mask[68] = 0 # rhs rho_B knot
-        potential_template.pvec[70] = 0; mask[70] = 0 # rhs rho_B deriv
-
-        potential_template.pvec[92] = 0; mask[92] = 0 # rhs f_A knot
-        potential_template.pvec[94] = 0; mask[94] = 0 # rhs f_A deriv
-
-        potential_template.pvec[104] = 0; mask[104] = 0 # rhs f_B knot
-        potential_template.pvec[106] = 0; mask[106] = 0 # rhs f_B deriv
-
-        # potential_template.pvec[83:] = 0; mask[83:] = 0 # EAM params only
-        potential_template.pvec[45:] = 0; mask[45:] = 0 # EAM params only
-
-        potential_template.active_mask = mask
-
+        # Prepare database and potential template
+        potential_template = initialize_potential_template()
         potential_template.print_statistics()
         print()
+
+        database = Database(DB_PATH, DB_INFO_FILE_NAME)
+        database.print_metadata()
+        print()
+
+        # TODO: each structure should READ the worker, not get passed it
+        # currently, this will probably require twice as much mem (during scat)
+        grouped_databases = group_for_mpi_scatter(database, mpi_size)
+
     else:
-        database = None
+        grouped_databases = None
         potential_template = None
 
-    database = comm.bcast(database, root=0)
+    database = comm.scatter(grouped_databases, root=0)
     potential_template = comm.bcast(potential_template, root=0)
 
     # Have every process build the toolbox
     toolbox, creator = build_ga_toolbox(potential_template)
 
     eval_fxn, grad_fxn = build_evaluation_functions(
-        database,
-        potential_template
+        database, potential_template
     )
 
     toolbox.register("evaluate_population", eval_fxn)
@@ -188,36 +160,59 @@ def main():
 
     if is_master_node:
         pop = toolbox.population(n=POP_SIZE)
-        pop = np.array_split(pop, mpi_size)
+        # pop = np.array_split(pop, mpi_size)
+
+        # TODO: currently parallel over structs; need to par over pot too
+        # structures, potentials = distribute_work(database, pop, mpi_size)
     else:
         pop = None
 
     # Compute initial minimization
     # print("SLAVE: Rank", rank, "performing initial LMIN ...", flush=True)
-    my_indivs = comm.scatter(pop, root=0)
 
-    print("SLAVE: Rank", rank, "received", len(my_indivs), "potentials",
-        flush=True)
+    pop = comm.bcast(pop, root=0)
+    # my_indivs = comm.scatter(pop, root=0)
 
-    new_indivs = []
-    my_fitnesses = []
+    # print("SLAVE: Rank", rank, "received", len(my_indivs), "potentials",
+    #     flush=True)
 
-    for indiv in my_indivs:
-        opt_results = least_squares(toolbox.evaluate_population, indiv,
-                                    toolbox.gradient, method='lm',
-                                    max_nfev=INIT_NSTEPS)
+    # pop = minimize_population(
+    #     pop, toolbox, comm, mpi_size, INIT_NSTEPS
+    # )
 
-        indiv = creator.Individual(opt_results['x'])
+    minimized_fitnesses = np.zeros(len(pop))
 
-        new_indivs.append(indiv)
+    for ind_num, indiv in enumerate(pop):
 
-        fitnesses = np.sum(toolbox.evaluate_population(indiv))
-        my_fitnesses.append(fitnesses)
+        if is_master_node:
+            print(
+                "MASTER: minimizing potential %d/%d" % (ind_num, len(pop)),
+                flush=True
+            )
 
-        # print("SLAVE: Rank", rank, "minimized fitness:", fitnesses, flush=True)
+        opt_results = local_minimization(
+            indiv, toolbox, is_master_node, comm, num_steps=INIT_NSTEPS
+        )
 
-    all_fitnesses = comm.gather(my_fitnesses, root=0)
-    pop = comm.gather(new_indivs, root=0)
+        # opt_results = least_squares(toolbox.evaluate_population, indiv,
+        #                             toolbox.gradient, method='lm',
+        #                             max_nfev=INTER_NSTEPS * 2)
+
+        opt_indiv = creator.Individual(opt_results)
+
+        subset_fitness = toolbox.evaluate_population(opt_indiv)
+
+        opt_fitness = np.sum(toolbox.evaluate_population(opt_indiv))
+        prev_fitness = np.sum(toolbox.evaluate_population(indiv))
+
+        if opt_fitness < prev_fitness:
+            pop[ind_num] = opt_indiv
+            minimized_fitnesses[ind_num] = opt_fitness
+        else:
+            minimized_fitnesses[ind_num] = prev_fitness
+
+    # Compute fitnesses with mated/mutated/optimized population
+    fitnesses = np.sum(toolbox.evaluate_population(indiv))
 
     # Have master gather fitnesses and update individuals
     if is_master_node:
@@ -284,11 +279,15 @@ def main():
                 new_indivs = []
 
                 for indiv in my_indivs:
-                    opt_results = least_squares(toolbox.evaluate_population, indiv,
-                                                toolbox.gradient, method='lm',
-                                                max_nfev=INTER_NSTEPS * 2)
+                    opt_results = local_minimization(
+                        indiv, toolbox, is_master_node, comm, num_steps=None
+                    )
 
-                    opt_indiv = creator.Individual(opt_results['x'])
+                    # opt_results = least_squares(toolbox.evaluate_population, indiv,
+                    #                             toolbox.gradient, method='lm',
+                    #                             max_nfev=INTER_NSTEPS * 2)
+
+                    opt_indiv = creator.Individual(opt_results)
 
                     opt_fitness = np.sum(toolbox.evaluate_population(opt_indiv))
                     prev_fitness = np.sum(toolbox.evaluate_population(indiv))
@@ -348,12 +347,20 @@ def main():
 
         # best_fitness = np.sum(toolbox.evaluate_population(best_guess))
 
-    print("SLAVE: Rank", rank, "performing final minimization ... ", flush=True)
-    opt_results = least_squares(toolbox.evaluate_population, indiv,
-                                toolbox.gradient, method='lm',
-                                max_nfev=FINAL_NSTEPS)
+    new_indivs = []
+    for indiv in my_indivs:
+        print("SLAVE: Rank", rank, "performing final minimization ... ", flush=True)
+        opt_results = local_minimization(
+            indiv, toolbox, is_master_node, comm, num_steps=None
+        )
 
-    final = creator.Individual(opt_results['x'])
+        # opt_results = least_squares(toolbox.evaluate_population, indiv,
+        #                             toolbox.gradient, method='lm',
+        #                             max_nfev=INTER_NSTEPS * 2)
+
+        final = creator.Individual(opt_results)
+
+        new_indivs.append(final)
 
     print("SLAVE: Rank", rank, "minimized fitness:",
           np.sum(toolbox.evaluate_population(final)))
@@ -372,7 +379,7 @@ def main():
         join_pop = []
         for slave_pop in pop:
             for ind in slave_pop:
-                join_pop.append(ind)
+                join_pop.append(creator.Individual(ind))
 
         pop = join_pop
 
@@ -426,46 +433,41 @@ def build_ga_toolbox(potential_template):
     return toolbox, creator
 
 
-def group_for_mpi_scatter(structs, database_weights, true_forces, true_energies,
-                          size):
+def group_for_mpi_scatter(database, size):
     """Splits database information into groups to be scattered to nodes.
 
     Args:
-        structs (dict): dictionary of Worker objects (key=name)
-        database_weights (dict): dictionary of weights (key=name)
-        true_forces (dict): dictionary of 'true' forces (key=name)
-        true_energies (dict): dictionary of 'true' energies (key=name)
+        database (Database): structures and true values
         size (int): number of MPI nodes available
 
     Returns:
         lists of grouped dictionaries of all input arguments
     """
 
-    grouped_keys = np.array_split(list(database_weights.keys()), size)
+    grouped_keys = np.array_split(list(database.structures.keys()), size)
 
-    grouped_structs = []
-    grouped_weights = []
-    grouped_forces = []
-    grouped_energies = []
+    grouped_databases = []
 
     for group in grouped_keys:
-        tmp = {}
-        tmp2 = {}
-        tmp3 = {}
-        tmp4 = {}
+        tmp_structs = {}
+        tmp_energies = {}
+        tmp_forces = {}
+        tmp_weights = {}
 
         for name in group:
-            tmp[name] = structs[name]
-            tmp2[name] = database_weights[name]
-            tmp3[name] = true_forces[name]
-            tmp4[name] = true_energies[name]
+            tmp_structs[name] = database.structures[name]
+            tmp_energies[name] = database.true_energies[name]
+            tmp_forces[name] = database.true_forces[name]
+            tmp_weights[name] = 1
 
-        grouped_structs.append(tmp)
-        grouped_weights.append(tmp2)
-        grouped_forces.append(tmp3)
-        grouped_energies.append(tmp4)
+        grouped_databases.append(
+            Database.manual_init(
+                tmp_structs, tmp_energies, tmp_forces, tmp_weights,
+                database.reference_struct, database.reference_energy
+            )
+        )
 
-    return grouped_structs, grouped_weights, grouped_forces, grouped_energies
+    return grouped_databases
 
 
 def plot_best_individual():
@@ -595,13 +597,13 @@ def build_evaluation_functions(database, potential_template):
 
             w = database.structures[name]
 
-            w_energies[j] = w.compute_energy(full)
+            w_energies[j] = w.compute_energy(full, potential_template.u_ranges)
             t_energies[j] = database.true_energies[name]
 
             if name == database.reference_struct:
                 ref_energy = w_energies[j]
 
-            w_fcs = w.compute_forces(full)
+            w_fcs = w.compute_forces(full, potential_template.u_ranges)
             true_fcs = database.true_forces[name]
 
             fcs_err = ((w_fcs - true_fcs) / np.sqrt(10)) ** 2
@@ -610,7 +612,7 @@ def build_evaluation_functions(database, potential_template):
             fcs_fitnesses[j] = fcs_err
 
         w_energies -= ref_energy
-        t_energies -= database.true_energies[database.reference_struct]
+        t_energies -= database.reference_energy
 
         eng_fitnesses = np.zeros(len(database.structures))
 
@@ -635,18 +637,18 @@ def build_evaluation_functions(database, potential_template):
         for j,name in enumerate(database.structures.keys()):
             w = database.structures[name]
 
-            w_energies[j] = w.compute_energy(full)
+            w_energies[j] = w.compute_energy(full, potential_template.u_ranges)
             t_energies[j] = database.true_energies[name]
 
             if name == database.reference_struct:
                 ref_energy = w_energies[j]
 
-            w_fcs = w.compute_forces(full)
+            w_fcs = w.compute_forces(full, potential_template.u_ranges)
             true_fcs = database.true_forces[name]
 
             fcs_err = ((w_fcs - true_fcs) / np.sqrt(10))
 
-            fcs_grad = w.forces_gradient_wrt_pvec(full)
+            fcs_grad = w.forces_gradient_wrt_pvec(full, potential_template.u_ranges)
 
             scaled = np.einsum('pna,pnak->pnak', fcs_err, fcs_grad)
             summed = scaled.sum(axis=1).sum(axis=1)
@@ -654,18 +656,20 @@ def build_evaluation_functions(database, potential_template):
             fcs_grad_vec[j] += (2 * summed / 10).ravel()
 
         w_energies -= ref_energy
-        t_energies -= database.true_energies[database.reference_struct]
+        t_energies -= database.reference_energy
 
         eng_grad_vec = np.zeros((len(database.structures), 137))
         for j, (w_eng, t_eng) in enumerate(zip(w_energies, t_energies)):
             eng_err = (w_eng - t_eng)
-            eng_grad = w.energy_gradient_wrt_pvec(full)
+            eng_grad = w.energy_gradient_wrt_pvec(full, potential_template.u_ranges)
 
             # eng_grad_vec[j] += (eng_err[:, np.newaxis] * eng_grad * 2).ravel()
             eng_grad_vec[j] += (eng_err * eng_grad * 2).ravel()
 
         grad_vec = np.vstack([eng_grad_vec, fcs_grad_vec])
-        return grad_vec[:, np.where(potential_template.active_mask)[0]]
+        tmp = grad_vec[:, np.where(potential_template.active_mask)[0]]
+
+        return tmp
 
     # def fxn(pot):
     #     # "pot" should be a of potential Template objects
@@ -797,7 +801,7 @@ def build_evaluation_functions(database, potential_template):
     #     tmp = grad_vec[:, np.where(potential_template.active_mask)[0]]
     #     # return np.hstack([tmp, np.zeros((tmp.shape[0], 2*NTYPES))])
     #     return tmp
-    #
+
     def minimized_fxn(pot):
 
         pot = np.atleast_2d(pot)
@@ -839,8 +843,7 @@ def print_statistics(pop, gen_num, stats, logbook):
     print(logbook.stream, flush=True)
 
 
-def local_minimization(guess, toolbox, is_master_node, comm, num_steps=None,
-                       thresh=None):
+def local_minimization(guess, toolbox, is_master_node, comm, num_steps=None,):
     """Wrapper for local minimization function"""
 
     def parallel_wrapper(x, stop):
@@ -860,7 +863,8 @@ def local_minimization(guess, toolbox, is_master_node, comm, num_steps=None,
             all_costs = comm.gather(cost, root=0)
 
             if is_master_node:
-                value = np.sum(all_costs, axis=0)
+                print('costs', [x.shape for x in all_costs], flush=True)
+                value = np.concatenate(all_costs)
 
         return value
 
@@ -873,39 +877,61 @@ def local_minimization(guess, toolbox, is_master_node, comm, num_steps=None,
         value = 0
 
         if stop[0] == 0:  # i.e. DON'T stop
-            cost = toolbox.gradient([x])
-            all_costs = comm.gather(cost, root=0)
+            grad = toolbox.gradient([x])
+            all_grads = comm.gather(grad, root=0)
 
             if is_master_node:
-                value = np.sum(all_costs, axis=0)
+                print('grads', [x.shape for x in all_grads], flush=True)
+                value = np.vstack(all_grads)
 
         return value
 
-    def cb(x):
-        pass
-        # print('-'*30 + "CG step " + '-'*30)
+    def big_wrapper(x, stop):
+
+        stop[0] = comm.bcast(stop[0], root=0)
+        x = comm.bcast(x, root=0)
+
+        value = 0
+
+        if stop[0] == 0:  # i.e. DON'T stop
+            grad = toolbox.gradient([x])
+            all_grads = comm.gather(grad, root=0)
+
+            if is_master_node:
+                print('grads', [x.shape for x in all_grads], flush=True)
+                value = np.vstack(all_grads)
+
+        return value
 
     if is_master_node:
         stop = [0]
-        locally_optimized_pot = fmin_cg(parallel_wrapper, guess,
-                                        parallel_grad_wrapper, args=(stop,),
-                                        maxiter=num_steps,
-                                        callback=cb, disp=0, gtol=1e-6)
+
+        # opt_pot = fmin_cg(parallel_wrapper, guess,
+        #                                 parallel_grad_wrapper, args=(stop,),
+        #                                 maxiter=num_steps,
+        #                                 callback=cb, disp=0, gtol=1e-6)
+
+        opt_results = least_squares(
+            parallel_wrapper, guess, parallel_grad_wrapper, method='lm',
+            args=(stop,), max_nfev=num_steps*2
+        )
+
+        opt_pot = opt_results['x']
 
         stop = [1]
         parallel_wrapper(guess, stop)
-
-        optimized_fitness = \
-        toolbox.evaluate_population([locally_optimized_pot])[0]
+        parallel_grad_wrapper(guess, stop)
+        # optimized_fitness = toolbox.evaluate_population([opt_pot])[0]
     else:
         stop = [0]
         while stop[0] == 0:
             parallel_wrapper(guess, stop)
+            parallel_grad_wrapper(guess, stop)
 
-        locally_optimized_pot = None
+        opt_pot = None
         optimized_fitness = None
 
-    improved = comm.bcast(locally_optimized_pot, root=0)
+    improved = comm.bcast(opt_pot, root=0)
     fitness = comm.bcast(optimized_fitness, root=0)
 
     return improved
@@ -970,6 +996,71 @@ def find_spline_type_deliminating_indices(worker):
 
     return [phi_range, rho_range, u_range, f_range, g_range], indices
 
+def initialize_potential_template():
+
+    # TODO: BW settings
+    potential_template = Template(
+        pvec_len=137,
+        u_ranges = [(-1, 1), (-1, 1)],
+        spline_ranges=[(-1, 4), (-1, 4), (-1, 4), (-9, 3), (-9, 3),
+                       (-0.5, 1), (-0.5, 1), (-2, 3), (-2, 3), (-7, 2),
+                       (-7, 2), (-7, 2)],
+        spline_indices=[(0, 15), (15, 30), (30, 45), (45, 58), (58, 71),
+                         (71, 77), (77, 83), (83, 95), (95, 107),
+                         (107, 117), (117, 127), (127, 137)]
+    )
+
+    mask = np.ones(potential_template.pvec.shape)
+
+    potential_template.pvec[12] = 0; mask[12] = 0 # rhs phi_A knot
+    potential_template.pvec[14] = 0; mask[14] = 0 # rhs phi_A deriv
+
+    potential_template.pvec[27] = 0; mask[27] = 0 # rhs phi_B knot
+    potential_template.pvec[29] = 0; mask[29] = 0 # rhs phi_B deriv
+
+    potential_template.pvec[42] = 0; mask[42] = 0 # rhs phi_B knot
+    potential_template.pvec[44] = 0; mask[44] = 0 # rhs phi_B deriv
+
+    potential_template.pvec[55] = 0; mask[55] = 0 # rhs rho_A knot
+    potential_template.pvec[57] = 0; mask[57] = 0 # rhs rho_A deriv
+
+    potential_template.pvec[68] = 0; mask[68] = 0 # rhs rho_B knot
+    potential_template.pvec[70] = 0; mask[70] = 0 # rhs rho_B deriv
+
+    potential_template.pvec[92] = 0; mask[92] = 0 # rhs f_A knot
+    potential_template.pvec[94] = 0; mask[94] = 0 # rhs f_A deriv
+
+    potential_template.pvec[104] = 0; mask[104] = 0 # rhs f_B knot
+    potential_template.pvec[106] = 0; mask[106] = 0 # rhs f_B deriv
+
+    # potential_template.pvec[83:] = 0; mask[83:] = 0 # EAM params only
+    potential_template.pvec[45:] = 0; mask[45:] = 0 # EAM params only
+
+    potential_template.active_mask = mask
+
+    return potential_template
+
+def minimize_population(pop, toolbox, comm, mpi_size, max_nsteps):
+
+    my_indivs = comm.scatter(np.array_split(pop, mpi_size))
+
+    new_indivs = []
+    my_fitnesses = []
+
+    for indiv in my_indivs:
+        opt_results = least_squares(toolbox.evaluate_population, indiv,
+                                    toolbox.gradient, method='lm',
+                                    max_nfev=max_nsteps)
+
+        indiv = creator.Individual(opt_results['x'])
+
+        new_indivs.append(creator.Individual(indiv))
+
+        fitnesses = np.sum(toolbox.evaluate_population(indiv))
+        my_fitnesses.append(fitnesses)
+
+    return np.vstack(comm.gather(pop, root=0)),\
+           np.concatenate(comm.gather(my_fitnesses, root=0))
 
 ################################################################################
 

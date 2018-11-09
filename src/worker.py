@@ -375,7 +375,7 @@ class Worker:
         return ffg_list
 
     # @profile
-    def compute_energy(self, parameters):
+    def compute_energy(self, parameters, u_ranges):
         """Calculates energies for all potentials using information
         pre-computed during initialization.
 
@@ -389,6 +389,19 @@ class Worker:
         """
         parameters = np.array(parameters)
         parameters = np.atleast_2d(parameters)
+
+        # TODO: u_params needs to be able to handle multiple pots at once
+
+        # assumption: U additional params look like (lhs_knot, rhs_knot)
+        # u_additional_params = parameters[:, -2*self.ntypes:]
+        #
+        # u_ranges = []
+        #
+        # # print('u_params', u_additional_params.shape)
+        # for params in np.split(u_additional_params, self.ntypes, axis=1):
+        #     u_ranges.append(params[:, :2])
+        #
+        # parameters = parameters[:, :-2*self.ntypes]
 
         self.n_pots = parameters.shape[0]
 
@@ -404,7 +417,7 @@ class Worker:
         # Embedding terms
         ni = self.compute_ni(rho_pvecs, f_pvecs, g_pvecs)
 
-        tmp_eng, ni_sorted = self.embedding_energy(ni, u_pvecs)
+        tmp_eng, ni_sorted = self.embedding_energy(ni, u_pvecs, u_ranges)
         energy += tmp_eng
 
         return energy#, ni_sorted
@@ -445,7 +458,7 @@ class Worker:
         return ni
 
     # @profile
-    def embedding_energy(self, ni, u_pvecs):
+    def embedding_energy(self, ni, u_pvecs, new_range):
         """
         Computes embedding energy
 
@@ -461,6 +474,9 @@ class Worker:
 
         ni_sorted = np.zeros(len(u_pvecs))
 
+        # TODO: this splitting may not be working properly
+        # TODO: confirm potential accuracy (make tests????)
+
         # Evaluate U, U', and compute zero-point energies
         for i,(y,u) in enumerate(zip(u_pvecs, self.us)):
             u.structure_vectors['energy'] = np.zeros((self.n_pots, u.knots.shape[0]+2))
@@ -472,7 +488,12 @@ class Worker:
             num_embedded = ni_sublist.shape[1]
 
             if num_embedded > 0:
-                u.add_to_energy_struct_vec(ni_sublist)
+                u_range = new_range[i]
+
+                u.add_to_energy_struct_vec(
+                    ni_sublist, u_range[0], u_range[1]
+                    )
+
                 u_energy += u.calc_energy(y)
 
             u.reset()
@@ -480,7 +501,7 @@ class Worker:
         return u_energy, ni_sorted
 
     # @profile
-    def evaluate_uprimes(self, ni, u_pvecs, second=False):
+    def evaluate_uprimes(self, ni, u_pvecs, u_ranges, second=False):
         """
         Computes U' values for every atom
 
@@ -499,6 +520,7 @@ class Worker:
         shifted_types = self.type_of_each_atom - 1
 
         for i, u in enumerate(self.us):
+            new_range = u_ranges[i]
 
             # get atom ids of type i
             indices = tags[shifted_types == i]
@@ -511,10 +533,16 @@ class Worker:
                     (self.n_pots, self.natoms, u.knots.shape[0]+2))
 
             if indices.shape[0] > 0:
-                u.add_to_deriv_struct_vec(ni[:, shifted_types == i], indices)
+                u.add_to_deriv_struct_vec(
+                    ni[:, shifted_types == i], indices, new_range[0],
+                    new_range[1]
+                )
 
                 if second:
-                    u.add_to_2nd_deriv_struct_vec(ni[:, shifted_types == i], indices)
+                    u.add_to_2nd_deriv_struct_vec(
+                        ni[:, shifted_types == i], indices, new_range[0],
+                        new_range[1]
+                        )
 
         # Evaluate U, U', and compute zero-point energies
         uprimes = np.zeros((self.n_pots, self.natoms))
@@ -530,15 +558,27 @@ class Worker:
         else: return uprimes
 
     # @profile
-    def compute_forces(self, parameters):
+    def compute_forces(self, parameters, u_ranges):
         """Calculates the force vectors on each atom using the given spline
         parameters.
 
         Args:
             parameters (np.arr): the 1D array of concatenated parameter
-                vectors for all splines in the system
+                                 vectors for all splines in the system
+            u_ranges (list): list of tuples of (lhs_knot, rhs_knot)
         """
         parameters = np.atleast_2d(parameters)
+
+        # # assumption: U additional params look like (lhs_knot, rhs_knot, nknots)
+        # u_additional_params = parameters[:, -2*self.ntypes:]
+        #
+        # u_ranges = []
+        #
+        # for params in np.split(u_additional_params, self.ntypes, axis=1):
+        #     u_ranges.append(params[:, :2])
+        #
+        # parameters = parameters[:, :-2*self.ntypes]
+
         self.n_pots = parameters.shape[0]
 
         phi_pvecs, rho_pvecs, u_pvecs, f_pvecs, g_pvecs = \
@@ -551,7 +591,7 @@ class Worker:
             forces += phi.calc_forces(y)
 
         ni = self.compute_ni(rho_pvecs, f_pvecs, g_pvecs)
-        uprimes = self.evaluate_uprimes(ni, u_pvecs)
+        uprimes = self.evaluate_uprimes(ni, u_pvecs, u_ranges)
 
         # Electron density embedding (rho)
 
@@ -665,9 +705,20 @@ class Worker:
         return ffg_indices
 
     # @profile
-    def energy_gradient_wrt_pvec(self, pvec):
-        parameters = np.atleast_2d(pvec)
+    def energy_gradient_wrt_pvec(self, pvec, u_ranges):
+        pvec = np.atleast_2d(pvec)
 
+        # # assumption: U additional params look like (lhs_knot, rhs_knot, nknots)
+        # u_additional_params = pvec[:, -2*self.ntypes:]
+        #
+        # u_ranges = []
+        #
+        # for params in np.split(u_additional_params, self.ntypes, axis=1):
+        #     u_ranges.append(params[:, :2])
+        #
+        # parameters = pvec[:, :-2*self.ntypes]
+
+        parameters = np.atleast_2d(pvec)
         gradient = np.zeros(parameters.shape)
 
         phi_pvecs, rho_pvecs, u_pvecs, f_pvecs, g_pvecs = \
@@ -685,7 +736,7 @@ class Worker:
 
         # chain rule on U functions means dU/dn values are needed
         ni = self.compute_ni(rho_pvecs, f_pvecs, g_pvecs)
-        uprimes = self.evaluate_uprimes(ni, u_pvecs)
+        uprimes = self.evaluate_uprimes(ni, u_pvecs, u_ranges)
 
         for y, rho in zip(rho_pvecs, self.rhos):
 
@@ -698,14 +749,20 @@ class Worker:
 
         # add in first term of chain rule
         for i,(y,u) in enumerate(zip(u_pvecs, self.us)):
-            u.structure_vectors['energy'] = np.zeros((self.n_pots, u.knots.shape[0]+2))
+            new_range = u_ranges[i]
 
             ni_sublist = ni[:, self.type_of_each_atom - 1 == i]
+
+            u.update_knot_positions(
+                new_range[0], new_range[1], y.shape[0]
+                )
 
             num_embedded = ni_sublist.shape[1]
 
             if num_embedded > 0:
-                u.add_to_energy_struct_vec(ni_sublist)
+                u.add_to_energy_struct_vec(
+                    ni_sublist, new_range[0], new_range[1]
+                    )
 
                 gradient[:, grad_index:grad_index + y.shape[1]] += \
                     u.structure_vectors['energy']
@@ -794,7 +851,17 @@ class Worker:
         return gradient
 
     # @profile
-    def forces_gradient_wrt_pvec(self, pvec):
+    def forces_gradient_wrt_pvec(self, pvec, u_ranges):
+        # assumption: U additional params look like (lhs_knot, rhs_knot, nknots)
+        # u_additional_params = pvec[:, -2*self.ntypes:]
+        #
+        # u_ranges = []
+        #
+        # for params in np.split(u_additional_params, self.ntypes, axis=1):
+        #     u_ranges.append(params[:, :2])
+        #
+        # parameters = pvec[:, :-2*self.ntypes]
+
         parameters = np.atleast_2d(pvec)
         self.n_pots = parameters.shape[0]
 
@@ -817,7 +884,9 @@ class Worker:
 
         N = self.natoms
 
-        uprimes, uprimes_2 = self.evaluate_uprimes(ni, u_pvecs, second=True)
+        uprimes, uprimes_2 = self.evaluate_uprimes(
+            ni, u_pvecs, u_ranges, second=True
+            )
 
         embedding_forces = np.zeros((self.n_pots, 3, self.natoms, self.natoms))
 

@@ -9,7 +9,7 @@ from src.meam import MEAM
 
 class Template:
     def __init__(self,
-                 pvec_len, active_mask=None, spline_indices=None,
+                 pvec_len, u_ranges, active_mask=None, spline_indices=None,
                  spline_ranges=None, load_file_path=None, seed=None):
         """
         A tool for generating new potentials based off a given template. For
@@ -18,6 +18,7 @@ class Template:
 
         Args:
             pvec_len(int): size of parameter vector
+            u_ranges (np.arr): 2 params for each USpline specifying knot ranges
             active_mask (np.arr): 1 where parameter is 'active'
             spline_indices (list): list of (start, stop) tuples for each spline
             spline_ranges (list): list of (low, high) tuples for each spline
@@ -31,6 +32,7 @@ class Template:
             self.active_mask = np.ones(pvec_len)
 
         self.pvec_len = pvec_len
+        self.u_ranges = u_ranges
         self.spline_ranges = spline_ranges
         self.spline_indices = spline_indices
 

@@ -5,7 +5,7 @@ import numpy as np
 import src.lammpsTools
 
 class Database:
-    def __init__(self, structure_folder_name, info_folder_name, atom_types):
+    def __init__(self, structure_folder_name="", info_folder_name=""):
 
         self.structures_folder_path = os.path.abspath(structure_folder_name)
         self.true_values_folder_path = os.path.abspath(info_folder_name)
@@ -16,12 +16,31 @@ class Database:
         self.structures = {}
         self.true_energies = {}
         self.true_forces = {}
+        self.reference_struct = None
+        self.reference_energy = None
 
         self.weights = {}
 
-        self.load_structures()
-        self.load_true_values()
+        if structure_folder_name != "":
+            self.load_structures()
 
+        if info_folder_name != "":
+            self.load_true_values()
+
+    @classmethod
+    def manual_init(cls, structures, energies, forces, weights, ref_struct,
+                    ref_eng):
+
+        new_db = Database()
+
+        new_db.structures = structures
+        new_db.true_energies = energies
+        new_db.true_forces = forces
+        new_db.true_weights = weights
+        new_db.reference_struct = ref_struct
+        new_db.reference_energy = ref_eng
+
+        return new_db
 
     def load_structures(self):
         for file_name in glob.glob(self.structures_folder_path + "/*"):
@@ -44,7 +63,6 @@ class Database:
 
     def load_true_values(self):
         min_energy = None
-        self.reference_struct = ""
 
         for file_name in glob.glob(self.true_values_folder_path + "/*"):
             if "metadata" not in file_name:
@@ -59,6 +77,7 @@ class Database:
                 if (min_energy == None) or (eng < min_energy):
                     min_energy = eng
                     self.reference_struct = short_name
+                    self.reference_energy = min_energy
 
                 # assumes the next N lines are the forces on the N atoms
                 fcs = np.genfromtxt(open(file_name, 'rb'), skip_header=1)

@@ -88,12 +88,12 @@ class WorkerSpline:
         mn = np.min(x)
         mx = np.max(x)
 
-        lhs_extrap_dist = max(self.extrap_dist, self.knots[0] - mn)
-        rhs_extrap_dist = max(self.extrap_dist, mx - self.knots[-1])
+        lhs_extrap_dist = max(float(self.extrap_dist), self.knots[0] - mn)
+        rhs_extrap_dist = max(float(self.extrap_dist), mx - self.knots[-1])
 
         # add ghost knots
-        knots = [self.knots[0] - lhs_extrap_dist] + self.knots.tolist() + \
-                [self.knots[-1] + rhs_extrap_dist]
+        knots = list([self.knots[0] - lhs_extrap_dist]) + self.knots.tolist() +\
+                list([self.knots[-1] + rhs_extrap_dist])
 
         knots = np.array(knots)
 
@@ -612,7 +612,7 @@ class USpline(WorkerSpline):
         elif self.knots[-1] < 0:
             self.zero_extrap_dist = abs(self.knots[-1])
 
-        self.zero_abcd = self.get_abcd([0])
+        # self.zero_abcd = self.get_abcd([0])
         self.atoms_embedded = 0
 
     @classmethod
@@ -651,14 +651,23 @@ class USpline(WorkerSpline):
         uspline_group.create_dataset('zero_abcd', data=self.zero_abcd)
         uspline_group.attrs['atoms_embedded'] = self.atoms_embedded
 
+    def update_knot_positions(self, lhs_knot, rhs_knot, npots):
+        self.knots = np.linspace(lhs_knot, rhs_knot, self.n_knots)
+        self.M = build_M(self.n_knots, self.knots[1] - self.knots[0], self.bc_type)
+        self.extrap_dist = (rhs_knot - lhs_knot) / 2
+
+        self.structure_vectors['energy'] = np.zeros((npots, self.n_knots + 2))
+
     def reset(self):
         self.atoms_embedded = 0
         self.structure_vectors['energy'][:] = 0
         self.structure_vectors['deriv'][:] = 0
         self.structure_vectors['2nd_deriv'][:] = 0
 
-    def add_to_energy_struct_vec(self, values):
+    def add_to_energy_struct_vec(self, values, lhs_knot, rhs_knot):
         num_new_atoms = values.shape[1]
+
+        self.update_knot_positions(lhs_knot, rhs_knot, values.shape[0])
 
         if num_new_atoms > 0:
             self.atoms_embedded += num_new_atoms
@@ -667,13 +676,16 @@ class USpline(WorkerSpline):
             org_shape = values.shape
             flat_values = values.ravel()
 
-            abcd = self.get_abcd(flat_values, 0)
+            # abcd = self.get_abcd(flat_values, lhs_knot, rhs_knot, nknots)
+            abcd = self.get_abcd(flat_values)
             abcd = abcd.reshape(list(org_shape) + [abcd.shape[1]])
 
             self.structure_vectors['energy'] += np.sum(abcd, axis=1)
             # self.structure_vectors['energy'] -= self.zero_abcd * num_new_atoms
 
-    def add_to_deriv_struct_vec(self, values, indices):
+    def add_to_deriv_struct_vec(self, values, indices, lhs_knot, rhs_knot):
+        self.update_knot_positions(lhs_knot, rhs_knot, values.shape[0])
+
         if values.shape[0] > 0:
 
             values = np.atleast_1d(values)
@@ -685,7 +697,9 @@ class USpline(WorkerSpline):
 
             self.structure_vectors['deriv'][:, indices, :] = abcd
 
-    def add_to_2nd_deriv_struct_vec(self, values, indices):
+    def add_to_2nd_deriv_struct_vec(self, values, indices, lhs_knot, rhs_knot):
+        self.update_knot_positions(lhs_knot, rhs_knot, values.shape[0])
+
         if values.shape[0] > 0:
 
             values = np.atleast_1d(values)
