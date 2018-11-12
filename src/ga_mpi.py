@@ -1,6 +1,6 @@
 import os
 # TODO: BW settings
-os.chdir("/home/jvita/scripts/s-meam/project/")
+# os.chdir("/home/jvita/scripts/s-meam/project/")
 import sys
 
 sys.path.append('./')
@@ -21,6 +21,7 @@ import matplotlib.animation as animation
 from scipy.optimize import fmin_powell, fmin_cg, least_squares
 from scipy.interpolate import CubicSpline
 from mpi4py import MPI
+from multiprocessing.managers import BaseManager
 
 from deap import base, creator, tools, algorithms
 
@@ -97,7 +98,7 @@ if os.path.isdir(SAVE_DIRECTORY):
     SAVE_DIRECTORY = SAVE_DIRECTORY + '-' + str(np.random.randint(100000))
 
 DB_PATH = LOAD_PATH + 'structures'
-DB_INFO_FILE_NAME = LOAD_PATH + 'full/info'
+DB_INFO_FILE_NAME = LOAD_PATH + 'rhophi/info'
 POP_FILE_NAME = SAVE_DIRECTORY + "/pop.dat"
 LOG_FILE_NAME = SAVE_DIRECTORY + "/ga.log"
 TRACE_FILE_NAME = SAVE_DIRECTORY + "/trace.dat"
@@ -140,13 +141,15 @@ def main():
 
         # TODO: each structure should READ the worker, not get passed it
         # currently, this will probably require twice as much mem (during scat)
-        grouped_databases = group_for_mpi_scatter(database, mpi_size)
+        # grouped_databases = group_for_mpi_scatter(database, mpi_size)
 
     else:
-        grouped_databases = None
+        # grouped_databases = None
+        database = None
         potential_template = None
 
-    database = comm.scatter(grouped_databases, root=0)
+    # database = comm.scatter(grouped_databases, root=0)
+    database = comm.bcast(database, root=0)
     potential_template = comm.bcast(potential_template, root=0)
 
     # Have every process build the toolbox
@@ -159,8 +162,40 @@ def main():
     toolbox.register("evaluate_population", eval_fxn)
     toolbox.register("gradient", grad_fxn)
 
+    class DatabaseManager(BaseManager):
+        pass
+
+    class DatabaseWrapper:
+        def __init__(self, database):
+            self.database = database
+
+        def get_structures(self):
+            return self.database.structures
+
+        def get_energies(self):
+            return self.database.true_energies
+
+        def get_forces(self):
+            return self.database.true_forces
+
+        def get_weights(self):
+            return self.database.weights
+
+        def get_ref_struct(self):
+            return self.database.reference_struct
+
+        def get_ref_energy(self):
+            return self.database.reference_energy
+
+    wrapper = DatabaseWrapper(database)
+
+    manager = DatabaseManager()
+    manager.register('get_database', callable=lambda:wrapper)
+    manager.start()
+
     # construct node for MPI task
-    middle_man = Node(database, potential_template, 6)
+    # middle_man = Node(manager, potential_template, 1)
+    middle_man = Node(database, potential_template, 1)
 
     if is_master_node:
         pop = toolbox.population(n=POP_SIZE)
@@ -175,6 +210,9 @@ def main():
     # print("SLAVE: Rank", rank, "performing initial LMIN ...", flush=True)
 
     pop = comm.bcast(pop, root=0)
+
+    middle_man.evaluate_f(pop)
+
     # my_indivs = comm.scatter(pop, root=0)
 
     # print("SLAVE: Rank", rank, "received", len(my_indivs), "potentials",

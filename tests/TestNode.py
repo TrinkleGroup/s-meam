@@ -52,6 +52,8 @@ class NodeTests(unittest.TestCase):
             structures, energies, forces, weights, ref_struct, ref_energy
         )
 
+        self.database = database
+
         template = build_template()
         procs_per_mpi = 1
 
@@ -59,7 +61,7 @@ class NodeTests(unittest.TestCase):
 
     def test_weighting_basic(self):
         np.testing.assert_equal(
-            np.ones(len(self.node.database.structures)),
+            np.ones(len(self.database.structures)),
             self.node.compute_relative_weights()[0]
         )
 

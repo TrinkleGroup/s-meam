@@ -1,11 +1,13 @@
+import sys
+sys.path.append('./')
 import numpy as np
 np.random.seed(42)
 
 import pickle
 
-import src.lammpsTools
-from tests.testStructs import allstructs
-from tests.testPotentials import get_random_pots
+# import src.lammpsTools
+# from tests.testStructs import allstructs
+# from tests.testPotentials import get_random_pots
 from src.worker import Worker
 
 pot = get_random_pots(1)['meams'][0]
@@ -13,6 +15,7 @@ pot = get_random_pots(1)['meams'][0]
 pot.write_to_file('data/fitting_databases/seed_42/seed_42.meam')
 
 x_pvec, y_pvec, indices = src.meam.splines_to_pvec(pot.splines)
+print(x_pvec, indices)
 
 for name in allstructs.keys():
 #for name in ['4_atoms']:
