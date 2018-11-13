@@ -2,9 +2,6 @@
 
 import numpy as np
 import logging
-import multiprocessing
-from multiprocessing import Pool, Process, Array
-from multiprocessing.managers import BaseManager
 from scipy.optimize import least_squares
 from src.database import Database
 
@@ -14,60 +11,31 @@ logging.basicConfig(filename='node.log',
                             datefmt='%H:%M:%S',
                             level=logging.DEBUG)
 
-class EvaluationManager(BaseManager):
-    pass
-
 class Node:
 
-    def __init__(self, database, potential_template, procs_per_mpi):
-    # def __init__(self, manager, potential_template, procs_per_mpi):
+    def __init__(self, database, potential_template, comm):
         """
+        An object for organizing jobs on a single compute node (e.g. a
+        32-core node on Blue Waters)
+
         Args:
-            procs_per_mpi: number of processors available to the Node
-            """
+            database (Database): subset of full database stored on node
+            potential_template (Template): stores potential form information
+            comm (MPI.Communicator): communicator for all procs on node
+        """
 
-        # self.database = manager.get_database().get_database()
+        # TODO: how do you ensure all node procs are physically ON the node?
 
-        # manager = manager.get_database()
-        #
-        # self.database = Database.manual_init(
-        #     manager.get_structures(), manager.get_energies(),
-        #     manager.get_forces(), manager.get_weights(),
-        #     manager.get_ref_struct(), manager.get_ref_energy()
-        # )
-        #
-        # rzm: what the heck does an AutoProxy object look like...
-        # print("Typecheck", type(self.database), flush=True)
+        self.comm = comm
+        self.mpi_size = comm.Get_size()
+        self.database = self.group_database_subset(database, mpi_size)
+
         self.potential_template = potential_template
-        self.procs_per_mpi = procs_per_mpi
+        self.num_structs = len(self.database.structures)
 
-        self.assignments, _ , _ = self.partition_work(database)
-        self.num_structs = len(database.structures)
-
-        # functions_list = []
-        #
-        # for db in assignments:
-        #     functions_list.append(self.build_evaluation_functions(db))
-        #
-        # self.manager = EvaluationManager()
-        #
-        # def f_wrapper(idx):
-        #     return functions_list[idx][0]()
-        #
-        # def g_wrapper(idx):
-        #     return functions_list[idx][1]()
-        #
-        # self.manager.register('eval_f', callable=f_wrapper)
-        # self.manager.register('eval_g', callable=g_wrapper)
-        #
-        # self.assignments = manager.list(assignments)
-
-        # self.pool = Pool(processes=procs_per_mpi, args=self.database)
+        self.fxn, self.grad = self.build_functions()
 
     def evaluate_f(self, x):
-
-        # results = Array('f', np.zeros((2*self.num_structs, x.shape[0])))
-        results = Array('f', 2*self.num_structs*x.shape[0])
 
         f_pool = [
             Process(
@@ -76,31 +44,7 @@ class Node:
             ) for task in self.assignments
         ]
 
-        for p in f_pool:
-            p.start()
-
-        # [p.start() for p in f_pool]
-        # results = [p.join() for p in f_pool]
-
-        # results = []
-        for p in f_pool:
-            p.join()
-            # print(p.join())
-            # results.append(p.join())
-
-        print('here', results)
         return np.array(results)
-
-        # TODO: sort according to some given order
-        # TODO: should only pass names, not full database
-        # return np.concatenate(
-        #     self.pool.starmap(
-        #         # self.manager.eval_f,
-        #         # range(self.procs_per_mpi)
-        #         fxn,
-        #         [(db, x, self.potential_template) for db in self.assignments]
-        #     )
-        # )
 
     def evaluate_grad(self, x):
         return np.vstack(
@@ -140,7 +84,7 @@ class Node:
 
         return work_weights, name_list
 
-    def partition_work(self, database):
+    def partition_work(self, database, mpi_size):
         """Groups workers based on evaluation time to help with load balancing.
 
         Returns:
@@ -191,128 +135,120 @@ class Node:
 
     # def build_evaluation_functions(self, database):
 
-def fxn(database, pot, potential_template, fitnesses):
+    def build_functions(self):
 
-    pot = np.atleast_2d(pot)
+        def fxn(pot):
 
-    full = potential_template.insert_active_splines(pot)
+            pot = np.atleast_2d(pot)
 
-    w_energies = np.zeros((len(database.structures), full.shape[0]))
-    t_energies = np.zeros(len(database.structures))
-    # w_energies = np.zeros((len(database), full.shape[0]))
-    # t_energies = np.zeros(len(database))
+            full = self.potential_template.insert_active_splines(pot)
 
-    fcs_fitnesses = np.zeros((len(database.structures), full.shape[0]))
-    # fcs_fitnesses = np.zeros((len(database), full.shape[0]))
+            w_energies = np.zeros((self.num_structs,full.shape[0]))
+            t_energies = np.zeros(self.num_structs)
 
-    ref_energy = np.zeros(full.shape[0])
+            fcs_fitnesses = np.zeros((self.num_structs, full.shape[0]))
 
-    for j,name in enumerate(database.structures.keys()):
-    # for j,name in enumerate(database):
+            ref_energy = np.zeros(full.shape[0])
 
-        w = database.structures[name]
-        # w = self.database.structures[name]
+            for j, name in enumerate(self.database.structures.keys()):
 
-        w_energies[j, :] = w.compute_energy(
-            full, potential_template.u_ranges
-        )
+                w = self.database.structures[name]
 
-        t_energies[j] = database.true_energies[name]
-        # t_energies[j] = self.database.true_energies[name]
+                w_energies[j, :] = w.compute_energy(
+                    full, self.potential_template.u_ranges
+                )
 
-        if name == database.reference_struct:
-        # if name == self.database.reference_struct:
-            ref_energy = w_energies[j, :]
+                t_energies[j] = self.database.true_energies[name]
 
-        w_fcs = w.compute_forces(full, potential_template.u_ranges)
-        true_fcs = database.true_forces[name]
-        # true_fcs = self.database.true_forces[name]
+                if name == self.database.reference_struct:
+                    ref_energy = w_energies[j, :]
 
-        fcs_err = ((w_fcs - true_fcs) / np.sqrt(10)) ** 2
-        fcs_err = np.linalg.norm(fcs_err, axis=(1, 2)) / np.sqrt(10)
+                w_fcs = w.compute_forces(full, self.potential_template.u_ranges)
+                true_fcs = self.database.true_forces[name]
 
-        fcs_fitnesses[j, :] = fcs_err
+                fcs_err = ((w_fcs - true_fcs) / np.sqrt(10)) ** 2
+                fcs_err = np.linalg.norm(fcs_err, axis=(1, 2)) / np.sqrt(10)
 
-    w_energies = (w_energies - ref_energy)
-    t_energies -= database.reference_energy
-    # t_energies -= self.database.reference_energy
+                fcs_fitnesses[j, :] = fcs_err
 
-    eng_fitnesses = np.zeros((len(database.structures), pot.shape[0]))
-    # eng_fitnesses = np.zeros((len(self.database.structures), pot.shape[0]))
+            w_energies = (w_energies - ref_energy)
+            t_energies -= self.database.reference_energy
 
-    for j, (w_eng, t_eng) in enumerate(zip(w_energies, t_energies)):
-        eng_fitnesses[j, :] = (w_eng - t_eng) ** 2
+            eng_fitnesses = np.zeros(
+                (self.num_structs, pot.shape[0])
+            )
 
-    fitnesses = np.frombuffer(fitnesses)
-    fitnesses = fitnesses.reshape((2*len(database.structures), pot.shape[0]))
-    fitnesses += np.concatenate([eng_fitnesses, fcs_fitnesses])
+            for j, (w_eng, t_eng) in enumerate(zip(w_energies, t_energies)):
+                eng_fitnesses[j, :] = (w_eng - t_eng) ** 2
 
-    return fitnesses
+            fitnesses = np.concatenate([eng_fitnesses, fcs_fitnesses])
 
-def grad(database, pot, potential_template):
-    pot = np.atleast_2d(pot)
+            return fitnesses
 
-    full = potential_template.insert_active_splines(pot)
+        def grad(pot):
+            pot = np.atleast_2d(pot)
 
-    fcs_grad_vec = np.zeros(
-        (len(database.structures), full.shape[0], full.shape[1])
-        # (len(database), full.shape[0], full.shape[1])
-    )
+            full = self.potential_template.insert_active_splines(pot)
 
-    w_energies = np.zeros((len(database.structures), full.shape[0]))
-    t_energies = np.zeros(len(database.structures))
-    # w_energies = np.zeros((len(database), full.shape[0]))
-    # t_energies = np.zeros(len(database))
+            fcs_grad_vec = np.zeros(
+                (self.num_structs, full.shape[0], full.shape[1])
+            )
 
-    ref_energy = 0
+            w_energies = np.zeros((self.num_structs, full.shape[0]))
+            t_energies = np.zeros(self.num_structs)
 
-    for j,name in enumerate(database.structures.keys()):
-    # for j,name in enumerate(database):
-        w = database.structures[name]
-        # w = self.database.structures[name]
+            ref_energy = 0
 
-        w_energies[j, :] = w.compute_energy(
-            full, potential_template.u_ranges
-        )
+            names = self.database.structures.keys()
 
-        t_energies[j] = database.true_energies[name]
-        # t_energies[j] = self.database.true_energies[name]
+            for j,name in enumerate(names):
+                w = self.database.structures[name]
 
-        if name == database.reference_struct:
-        # if name == self.database.reference_struct:
-            ref_energy = w_energies[j, :]
+                w_energies[j, :] = w.compute_energy(
+                    full, self.potential_template.u_ranges
+                )
 
-        w_fcs = w.compute_forces(full, potential_template.u_ranges)
-        true_fcs = database.true_forces[name]
-        # true_fcs = self.database.true_forces[name]
+                t_energies[j] = self.database.true_energies[name]
 
-        fcs_err = ((w_fcs - true_fcs) / np.sqrt(10))
+                if name == self.database.reference_struct:
+                    ref_energy = w_energies[j, :]
 
-        fcs_grad = w.forces_gradient_wrt_pvec(
-            full, potential_template.u_ranges
-        )
+                w_fcs = w.compute_forces(full, self.potential_template.u_ranges)
+                true_fcs = self.database.true_forces[name]
 
-        scaled = np.einsum('pna,pnak->pnak', fcs_err, fcs_grad)
-        summed = scaled.sum(axis=1).sum(axis=1)
+                fcs_err = ((w_fcs - true_fcs) / np.sqrt(10))
 
-        fcs_grad_vec[j, :] += (2 * summed / 10)
+                fcs_grad = w.forces_gradient_wrt_pvec(
+                    full, self.potential_template.u_ranges
+                )
 
-    w_energies = (w_energies - ref_energy)
-    t_energies -= database.reference_energy
-    # t_energies -= self.database.reference_energy
+                scaled = np.einsum('pna,pnak->pnak', fcs_err, fcs_grad)
+                summed = scaled.sum(axis=1).sum(axis=1)
 
-    eng_grad_vec = np.zeros(
-        (len(database.structures), full.shape[0], full.shape[1])
-        # (len(database), full.shape[0], full.shape[1])
-    )
+                fcs_grad_vec[j, :] += (2 * summed / 10)
 
-    for j, (w_eng, t_eng) in enumerate(zip(w_energies, t_energies)):
-        eng_err = (w_eng - t_eng)
-        eng_grad = w.energy_gradient_wrt_pvec(
-            full, potential_template.u_ranges
-        )
+            w_energies = (w_energies - ref_energy)
+            t_energies -= self.database.reference_energy
 
-        eng_grad_vec[j, :] += (eng_err * eng_grad.T * 2).T
+            eng_grad_vec = np.zeros(
+                (self.num_structs, full.shape[0], full.shape[1])
+            )
 
-    grad_vec = np.vstack([eng_grad_vec, fcs_grad_vec])
-    return grad_vec[:, :, np.where(potential_template.active_mask)[0]]
+            for j, (name, w_eng, t_eng) in enumerate(
+                    zip(names, w_energies, t_energies)):
+
+                w = self.database.structures[name]
+
+                eng_err = (w_eng - t_eng)
+                eng_grad = w.energy_gradient_wrt_pvec(
+                    full, self.potential_template.u_ranges
+                )
+
+                eng_grad_vec[j, :] += (eng_err * eng_grad.T * 2).T
+
+            grad_vec = np.vstack([eng_grad_vec, fcs_grad_vec])
+
+            return grad_vec[:, :, np.where(
+                self.potential_template.active_mask)[0]]
+
+        return fxn, grad

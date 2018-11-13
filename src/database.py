@@ -74,7 +74,7 @@ class Database:
                 # assumes the first line of the file is the energy
                 eng = np.genfromtxt(open(file_name, 'rb'), max_rows=1)
 
-                if (min_energy == None) or (eng < min_energy):
+                if (min_energy is None) or (eng < min_energy):
                     min_energy = eng
                     self.reference_struct = short_name
                     self.reference_energy = min_energy
