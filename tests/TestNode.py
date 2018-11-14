@@ -92,6 +92,12 @@ class NodeTests(unittest.TestCase):
     def test_lm_doesnt_crash(self):
         self.node.local_minimization(np.random.random(39), 4)
 
+    def test_f_matches_serial(self):
+        pass
+
+    def test_grad_matches_serial(self):
+        pass
+
 def build_template():
 
     potential_template = Template(

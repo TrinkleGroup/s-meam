@@ -43,7 +43,8 @@ class Database:
         return new_db
 
     def load_structures(self):
-        for file_name in glob.glob(self.structures_folder_path + "/*"):
+        sorted_names = sorted(glob.glob(self.structures_folder_path + "/*"))
+        for file_name in sorted_names:
             if "metadata" not in file_name:
                 struct = pickle.load(open(file_name, 'rb'))
 
@@ -64,7 +65,9 @@ class Database:
     def load_true_values(self):
         min_energy = None
 
-        for file_name in glob.glob(self.true_values_folder_path + "/*"):
+        # for file_name in glob.glob(self.true_values_folder_path + "/*")[:4]:
+        for short_name in self.structures.keys():
+            file_name = self.true_values_folder_path + "/info." + short_name
             if "metadata" not in file_name:
 
                 # assumes file_name is of form "*/info.[struct_name]"

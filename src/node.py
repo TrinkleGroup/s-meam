@@ -36,38 +36,13 @@ class Node:
         self.fxn, self.grad = self.build_functions()
 
     def evaluate_f(self, x):
-
-        f_pool = [
-            Process(
-                target=fxn,
-                args=(task, x, self.potential_template, results)
-            ) for task in self.assignments
-        ]
-
-        return np.array(results)
+        pass
 
     def evaluate_grad(self, x):
-        return np.vstack(
-            self.pool.starmap(
-                grad,
-                [(db, x, self.potential_template) for db in self.assignments]
-            )
-        )
+        pass
 
     def local_minimization(self, x, max_nsteps):
-
-        # Need to reshape returns for use in LM
-        def wrap_f(x):
-            return self.evaluate_f(x)[:, 0]
-
-        def wrap_g(x):
-            return self.evaluate_grad(x)[:, 0]
-
-        opt_results = least_squares(
-            wrap_f, x, wrap_g, method='lm', max_nfev=max_nsteps
-        )
-
-        return opt_results
+        pass
 
     def compute_relative_weights(self, database):
         work_weights = []
