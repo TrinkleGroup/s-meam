@@ -1,6 +1,6 @@
 import os
 # TODO: BW settings
-# os.chdir("/home/jvita/scripts/s-meam/project/")
+os.chdir("/mnt/c/Users/jvita/scripts/s-meam/")
 import sys
 
 sys.path.append('./')
@@ -18,10 +18,9 @@ import time
 import datetime
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
-from scipy.optimize import fmin_powell, fmin_cg, least_squares
+from scipy.optimize import least_squares
 from scipy.interpolate import CubicSpline
 from mpi4py import MPI
-from multiprocessing.managers import BaseManager
 
 from deap import base, creator, tools, algorithms
 
@@ -39,6 +38,17 @@ from src.node import Node
 
 MASTER_RANK = 0
 
+if len(sys.argv) > 1:
+    num_managers = int(sys.argv[1]) # how many subsets to break the database into
+    nodes_per_manager = int(sys.argv[2]) # number of available compute nodes
+    procs_per_node = int(sys.argv[3])
+else:
+    num_managers = 2
+    nodes_per_manager = 2
+    procs_per_node = 2
+
+num_nodes = nodes_per_manager * num_managers
+
 ################################################################################
 """MEAM potential settings"""
 
@@ -49,19 +59,16 @@ NTYPES = 2
 ################################################################################
 """GA settings"""
 
-comm = MPI.COMM_WORLD
-mpi_size = comm.Get_size()
-
-if len(sys.argv) > 1:
-    POP_SIZE = int(sys.argv[1])
+if len(sys.argv) > 4:
+    POP_SIZE = int(sys.argv[4])
 else:
     POP_SIZE = 4
 
 NUM_GENS = 1
 CXPB = 1.0
 
-if len(sys.argv) > 2:
-    MUTPB = float(sys.argv[2])
+if len(sys.argv) > 5:
+    MUTPB = float(sys.argv[5])
 else:
     MUTPB = 0.5
 
@@ -87,9 +94,9 @@ CHECK_BEFORE_OVERWRITE = False
 # TODO: BW settings
 
 # LOAD_PATH = "data/fitting_databases/fixU/"
-LOAD_PATH = "data/fitting_databases/leno-redo/"
+LOAD_PATH = "../data/fitting_databases/leno-redo/"
 # LOAD_PATH = "/projects/sciteam/baot/fixU-clean/"
-SAVE_PATH = "data/results/"
+SAVE_PATH = "../data/results/"
 
 SAVE_DIRECTORY = SAVE_PATH + date_str + "-" + "meam" + "{}-{}".format(NUM_GENS,
                                                                       MUTPB)
@@ -108,15 +115,13 @@ TRACE_FILE_NAME = SAVE_DIRECTORY + "/trace.dat"
 
 def main():
     # Record MPI settings
-    comm = MPI.COMM_WORLD
-    rank = comm.Get_rank()
-    mpi_size = comm.Get_size()
+    world_comm = MPI.COMM_WORLD
+    world_rank = world_comm.Get_rank()
+    world_size = world_comm.Get_size()
 
-    # POP_SIZE = mpi_size
+    is_master = (world_rank == 0)
 
-    is_master_node = (rank == MASTER_RANK)
-
-    if is_master_node:
+    if is_master:
         # Prepare directories and files
         print_settings()
 
@@ -135,22 +140,80 @@ def main():
         potential_template.print_statistics()
         print()
 
-        database = Database(DB_PATH, DB_INFO_FILE_NAME)
-        database.print_metadata()
-        print()
+        # TODO: have each manager read in its subset
+        master_database = Database(DB_PATH, DB_INFO_FILE_NAME)
+        master_database.print_metadata()
+
+        manager_subsets, _, _ = group_database_subsets(
+            master_database, num_managers
+        )
 
         # TODO: each structure should READ the worker, not get passed it
         # currently, this will probably require twice as much mem (during scat)
-        # grouped_databases = group_for_mpi_scatter(database, mpi_size)
 
     else:
-        # grouped_databases = None
-        database = None
+        manager_subsets = None
         potential_template = None
 
-    # database = comm.scatter(grouped_databases, root=0)
-    database = comm.bcast(database, root=0)
-    potential_template = comm.bcast(potential_template, root=0)
+    potential_template = world_comm.bcast(potential_template, root=0)
+
+    rank_list = np.arange(world_size, dtype=int)
+
+    manager_ranks = rank_list[::procs_per_node*nodes_per_manager]
+
+    world_group = world_comm.Get_group()
+
+    # manager_comm connects all manager processes
+    manager_group = world_group.Incl(manager_ranks)
+    manager_comm = world_comm.Create(manager_group)
+
+    manager_color = world_rank // (procs_per_node * nodes_per_manager)
+
+    # head_comm communicates with all node heads of ONE manager
+    start = manager_color * procs_per_node * nodes_per_manager
+    stop = start + (procs_per_node * nodes_per_manager)
+
+    head_ranks = rank_list[start:stop:procs_per_node]
+    head_group = world_group.Incl(head_ranks)
+    head_comm = world_comm.Create(head_group)
+
+    # node comm links all processes corresponding to a single node
+    node_color = world_rank // procs_per_node
+    node_comm = world_comm.Split(node_color, world_rank)
+
+    node_rank = node_comm.Get_rank()
+
+    is_manager = (manager_comm != MPI.COMM_NULL)
+
+    if is_manager:
+        manager_rank = manager_comm.Get_rank()
+        manager_subset = manager_comm.scatter(manager_subsets, root=0)
+
+        print(
+            "Manager", manager_rank, "received",
+            len(manager_subset.structures), "structures", flush=True
+        )
+    else:
+        manager_subset = None
+
+    is_node_head = (head_comm != MPI.COMM_NULL)
+
+    if is_node_head:
+        head_rank = head_comm.Get_rank()
+        head_copy = head_comm.bcast(manager_subset, root=0)
+
+        print(
+            "Node", head_rank, "received", len(head_copy.structures),
+            "structures", flush=True
+        )
+
+        proc_subset, _, _ = group_database_subsets(head_copy, procs_per_node)
+    else:
+        proc_subset = None
+
+    database = node_comm.scatter(proc_subset, root=0)
+
+    # TODO: number of managers s.t. subset size fits on one node
 
     # Have every process build the toolbox
     toolbox, creator = build_ga_toolbox(potential_template)
@@ -159,93 +222,169 @@ def main():
         database, potential_template
     )
 
-    toolbox.register("evaluate_population", eval_fxn)
-    toolbox.register("gradient", grad_fxn)
+    # TODO: have multiple "minimizer" processes doing LM over multiple pots?
+    # TODO: managers and head nodes may have some duplicate structs
 
-    class DatabaseManager(BaseManager):
-        pass
+    def fxn_wrap(inp):
+        """
+        Evaluates the function and gathers the results at every level of
+        parallelization.
 
-    class DatabaseWrapper:
-        def __init__(self, database):
-            self.database = database
+        Process -- evaluates on subset of subset of database with subset of pop
+        Node -- gathers full population for subset of subset of database
+        Manager -- gathers full population for subset of database
+        Master -- gathers full population for full database
+        """
 
-        def get_structures(self):
-            return self.database.structures
+        # evaluate subset of population on subset OF SUBSET of database
+        cost_eng, cost_fcs = eval_fxn(inp)
 
-        def get_energies(self):
-            return self.database.true_energies
+        # subset of population on node's subset of database
+        node_eng_costs = node_comm.gather(cost_eng, root=0)
+        node_fcs_costs = node_comm.gather(cost_fcs, root=0)
 
-        def get_forces(self):
-            return self.database.true_forces
+        if is_node_head:
+            node_eng_costs = np.concatenate(node_eng_costs, axis=1)
+            node_fcs_costs = np.concatenate(node_fcs_costs, axis=1)
 
-        def get_weights(self):
-            return self.database.weights
+            # full population on manager's subset of database
+            head_nodes_eng = head_comm.gather(node_eng_costs, root=0)
+            head_nodes_fcs = head_comm.gather(node_fcs_costs, root=0)
 
-        def get_ref_struct(self):
-            return self.database.reference_struct
+        if is_manager:
+            head_nodes_eng = np.vstack(head_nodes_eng)
+            head_nodes_fcs = np.vstack(head_nodes_fcs)
 
-        def get_ref_energy(self):
-            return self.database.reference_energy
+            # full population on full database
+            all_eng_costs = manager_comm.gather(head_nodes_eng, root=0)
+            all_fcs_costs = manager_comm.gather(head_nodes_fcs, root=0)
 
-    wrapper = DatabaseWrapper(database)
+        if is_master:
+            all_eng_costs = np.concatenate(all_eng_costs, axis=1)
+            all_fcs_costs = np.concatenate(all_fcs_costs, axis=1)
 
-    manager = DatabaseManager()
-    manager.register('get_database', callable=lambda:wrapper)
-    manager.start()
+            all_costs = all_eng_costs + all_fcs_costs # list join
 
-    # construct node for MPI task
-    # middle_man = Node(manager, potential_template, 1)
-    middle_man = Node(database, potential_template, 1)
+            value = np.concatenate(all_costs)
+        else:
+            value = None
 
-    if is_master_node:
+        if is_manager:
+            value = manager_comm.bcast(value, root=0)
+
+        if is_node_head:
+            value = head_comm.bcast(value, root=0)
+
+        value = node_comm.bcast(value, root=0)
+
+        return value
+
+    def grad_wrap(inp):
+
+        eng_grad_val, fcs_grad_val = grad_fxn(inp)
+        # eng_grad_val = eng_grad_val.T
+        # fcs_grad_val = fcs_grad_val.T
+
+        # evaluate subset of population on subset OF SUBSET of database
+        node_eng_grad = node_comm.gather(eng_grad_val, root=0)
+        node_fcs_grad = node_comm.gather(fcs_grad_val, root=0)
+
+        if is_node_head:
+            print([el.shape for el in node_eng_grad], flush=True)
+            node_eng_grad = np.dstack(node_eng_grad)
+            node_fcs_grad = np.dstack(node_fcs_grad)
+
+            print('node_eng_grad.shape', node_eng_grad.shape, flush=True)
+
+            # full population on manager's subset of database
+            head_nodes_eng_grad = head_comm.gather(node_eng_grad, root=0)
+            head_nodes_fcs_grad = head_comm.gather(node_fcs_grad, root=0)
+
+        if is_manager:
+            # print([el.shape for el in head_nodes_eng_grad], flush=True)
+            head_nodes_eng_grad = np.vstack(head_nodes_eng_grad)
+            head_nodes_fcs_grad = np.vstack(head_nodes_fcs_grad)
+
+            print('head_nodes_eng_grad.shape', head_nodes_eng_grad.shape, flush=True)
+
+            # full population on full database
+            all_eng_grad = manager_comm.gather(head_nodes_eng_grad, root=0)
+            all_fcs_grad = manager_comm.gather(head_nodes_fcs_grad, root=0)
+
+        # TODO: should all of these should be concatenates?
+        # TODO: need some kind of ordering?
+
+        if is_master:
+            # print([el.shape for el in all_eng_grad], flush=True)
+            all_eng_grad = np.concatenate(all_eng_grad, axis=1)
+            all_fcs_grad = np.concatenate(all_fcs_grad, axis=1)
+
+            print('all_eng_grad.shape', all_eng_grad.shape, flush=True)
+
+            all_grads = all_eng_grad + all_fcs_grad # list join
+
+            grad = np.concatenate(all_grads)
+
+            print('grad.shape', grad.shape, flush=True)
+        else:
+            grad = None
+
+        if is_manager:
+            grad = manager_comm.bcast(grad, root=0)
+
+        if is_node_head:
+            grad = head_comm.bcast(grad, root=0)
+
+        grad = node_comm.bcast(grad, root=0)
+        print('grad.shape', grad.shape, flush=True)
+
+        return grad
+
+    toolbox.register("evaluate_population", fxn_wrap)
+    toolbox.register("gradient", grad_wrap)
+
+    # Create the original population
+    if is_master:
         pop = toolbox.population(n=POP_SIZE)
-        # pop = np.array_split(pop, mpi_size)
-
-        # TODO: currently parallel over structs; need to par over pot too
-        # structures, potentials = partition_work(database, pop, mpi_size)
     else:
         pop = None
 
-    # Compute initial minimization
-    # print("SLAVE: Rank", rank, "performing initial LMIN ...", flush=True)
+    # Send full population to managers
+    if is_manager:
+        pop = manager_comm.bcast(pop, root=0)
+        pop = np.array_split(np.array(pop), procs_per_node)
+    else:
+        pop = None
 
-    pop = comm.bcast(pop, root=0)
+    # Managers split population across their nodes
+    if is_node_head:
+        pop = head_comm.scatter(pop, root=0)
+        print(
+            "Head node", head_rank, "received", pop.shape[0], "potentials",
+            flush=True
+        )
+    else:
+        pop = None
 
-    middle_man.evaluate_f(pop)
+    # Nodes broadcast population subset to all of their processes
+    pop = node_comm.bcast(pop, root=0)
 
-    # my_indivs = comm.scatter(pop, root=0)
-
-    # print("SLAVE: Rank", rank, "received", len(my_indivs), "potentials",
-    #     flush=True)
-
-    # pop = minimize_population(
-    #     pop, toolbox, comm, mpi_size, INIT_NSTEPS
-    # )
-
-    minimized_fitnesses = np.zeros(len(pop))
+    minimized_fitnesses = fxn_wrap(pop)
 
     for ind_num, indiv in enumerate(pop):
-
-        if is_master_node:
+        if is_master:
             print(
-                "MASTER: minimizing potential %d/%d" % (ind_num, len(pop)),
-                flush=True
+                "Minimizing potential %d/%d" % (ind_num, len(pop)), flush=True
             )
 
-        opt_results = local_minimization(
-            indiv, toolbox, is_master_node, comm, num_steps=INIT_NSTEPS
+        opt_results = least_squares(
+            fxn_wrap, indiv, grad_wrap, method='lm', max_nfev=INTER_NSTEPS * 2
         )
-
-        # opt_results = least_squares(toolbox.evaluate_population, indiv,
-        #                             toolbox.gradient, method='lm',
-        #                             max_nfev=INTER_NSTEPS * 2)
 
         opt_indiv = creator.Individual(opt_results)
 
-        subset_fitness = toolbox.evaluate_population(opt_indiv)
-
-        opt_fitness = np.sum(toolbox.evaluate_population(opt_indiv))
-        prev_fitness = np.sum(toolbox.evaluate_population(indiv))
+        opt_fitness = np.sum(fxn_wrap(opt_indiv))
+        prev_fitness = np.sum(fxn_wrap(indiv))
 
         if opt_fitness < prev_fitness:
             pop[ind_num] = opt_indiv
@@ -253,11 +392,8 @@ def main():
         else:
             minimized_fitnesses[ind_num] = prev_fitness
 
-    # Compute fitnesses with mated/mutated/optimized population
-    fitnesses = np.sum(toolbox.evaluate_population(indiv))
-
     # Have master gather fitnesses and update individuals
-    if is_master_node:
+    if is_master:
         all_fitnesses = np.vstack(all_fitnesses)
         all_fitnesses = all_fitnesses.ravel()
         print("MASTER: initial fitnesses:", all_fitnesses, flush=True)
@@ -284,7 +420,7 @@ def main():
     if RUN_NEW_GA:
         i = 1
         while (i < NUM_GENS):
-            if is_master_node:
+            if is_master:
 
                 # TODO: currently using crossover; used to use blend
 
@@ -322,7 +458,7 @@ def main():
 
                 for indiv in my_indivs:
                     opt_results = local_minimization(
-                        indiv, toolbox, is_master_node, comm, num_steps=None
+                        indiv, toolbox, is_master, comm, num_steps=None
                     )
 
                     # opt_results = least_squares(toolbox.evaluate_population, indiv,
@@ -348,7 +484,7 @@ def main():
             pop = comm.gather(my_indivs, root=0)
 
             # Update individuals with new fitnesses
-            if is_master_node:
+            if is_master:
                 all_fitnesses = np.vstack(all_fitnesses)
                 all_fitnesses = all_fitnesses.ravel()
 
@@ -380,7 +516,7 @@ def main():
         best_guess = creator.Individual(pop[0])
 
     # Perform a final local optimization on the final results of the GA
-    if is_master_node:
+    if is_master:
         ga_runtime = time.time() - ga_start
 
         print("MASTER: GA runtime = {:.2f} (s)".format(ga_runtime), flush=True)
@@ -393,7 +529,7 @@ def main():
     for indiv in my_indivs:
         print("SLAVE: Rank", rank, "performing final minimization ... ", flush=True)
         opt_results = local_minimization(
-            indiv, toolbox, is_master_node, comm, num_steps=None
+            indiv, toolbox, is_master, comm, num_steps=None
         )
 
         # opt_results = least_squares(toolbox.evaluate_population, indiv,
@@ -413,7 +549,7 @@ def main():
     pop = comm.gather(final, root=0)
 
     # Save final results
-    if is_master_node:
+    if is_master:
         print("MASTER: final fitnesses:", all_fitnesses, flush=True)
         all_fitnesses = np.vstack(all_fitnesses)
         all_fitnesses = all_fitnesses.ravel()
@@ -626,24 +762,27 @@ def build_evaluation_functions(database, potential_template):
     of main code."""
 
     def fxn(pot):
-        full = potential_template.insert_active_splines(pot)
+        full = np.atleast_2d(pot)
+        full = potential_template.insert_active_splines(full)
 
-        w_energies = np.zeros(len(database.structures))
+        w_energies = np.zeros((full.shape[0], len(database.structures)))
         t_energies = np.zeros(len(database.structures))
 
-        fcs_fitnesses = np.zeros(len(database.structures))
+        fcs_fitnesses = np.zeros((full.shape[0], len(database.structures)))
 
-        ref_energy = 0
+        # TODO: reference energy needs to be sent from master
+        # ref_energy = 0
 
-        for j,name in enumerate(database.structures.keys()):
+        keys = sorted(list(database.structures.keys()))
+        for j, name in enumerate(keys):
 
             w = database.structures[name]
 
-            w_energies[j] = w.compute_energy(full, potential_template.u_ranges)
+            w_energies[:, j] = w.compute_energy(full, potential_template.u_ranges)
             t_energies[j] = database.true_energies[name]
 
-            if name == database.reference_struct:
-                ref_energy = w_energies[j]
+            # if name == database.reference_struct:
+            #     ref_energy = w_energies[j]
 
             w_fcs = w.compute_forces(full, potential_template.u_ranges)
             true_fcs = database.true_forces[name]
@@ -651,39 +790,45 @@ def build_evaluation_functions(database, potential_template):
             fcs_err = ((w_fcs - true_fcs) / np.sqrt(10)) ** 2
             fcs_err = np.linalg.norm(fcs_err, axis=(1, 2)) / np.sqrt(10)
 
-            fcs_fitnesses[j] = fcs_err
+            fcs_fitnesses[:, j] = fcs_err
 
-        w_energies -= ref_energy
-        t_energies -= database.reference_energy
+        # w_energies -= ref_energy
+        # t_energies -= database.reference_energy
 
-        eng_fitnesses = np.zeros(len(database.structures))
+        eng_fitnesses = np.zeros((full.shape[0], len(database.structures)))
 
-        for j, (w_eng, t_eng) in enumerate(zip(w_energies, t_energies)):
-            eng_fitnesses[j] = (w_eng - t_eng) ** 2
+        for j, (w_eng, t_eng) in enumerate(zip(w_energies.T, t_energies)):
+            eng_fitnesses[:, j] = (w_eng - t_eng) ** 2
 
         fitnesses = np.concatenate([eng_fitnesses, fcs_fitnesses])
 
-        # print(np.sum(fitnesses), flush=True)
-        return fitnesses
+        # print("Fitness shape:", fitnesses.shape, flush=True)
+
+        return eng_fitnesses, fcs_fitnesses
 
     def grad(pot):
-        full = potential_template.insert_active_splines(pot)
+        full = np.atleast_2d(pot)
+        full = potential_template.insert_active_splines(full)
 
-        fcs_grad_vec = np.zeros((len(database.structures), 137))
+        fcs_grad_vec = np.zeros(
+            (full.shape[0], len(database.structures),
+            len(potential_template.pvec))
+        )
 
-        w_energies = np.zeros(len(database.structures))
+        w_energies = np.zeros((full.shape[0], len(database.structures)))
         t_energies = np.zeros(len(database.structures))
 
-        ref_energy = 0
+        # ref_energy = 0
 
-        for j,name in enumerate(database.structures.keys()):
+        keys = sorted(list(database.structures.keys()))
+        for j, name in enumerate(keys):
             w = database.structures[name]
 
-            w_energies[j] = w.compute_energy(full, potential_template.u_ranges)
+            w_energies[:, j] = w.compute_energy(full, potential_template.u_ranges)
             t_energies[j] = database.true_energies[name]
 
-            if name == database.reference_struct:
-                ref_energy = w_energies[j]
+            # if name == database.reference_struct:
+            #     ref_energy = w_energies[j]
 
             w_fcs = w.compute_forces(full, potential_template.u_ranges)
             true_fcs = database.true_forces[name]
@@ -695,170 +840,33 @@ def build_evaluation_functions(database, potential_template):
             scaled = np.einsum('pna,pnak->pnak', fcs_err, fcs_grad)
             summed = scaled.sum(axis=1).sum(axis=1)
 
-            fcs_grad_vec[j] += (2 * summed / 10).ravel()
+            fcs_grad_vec[:, j] += (2 * summed / 10).ravel()
 
-        w_energies -= ref_energy
-        t_energies -= database.reference_energy
+        # w_energies -= ref_energy
+        # t_energies -= database.reference_energy
 
-        eng_grad_vec = np.zeros((len(database.structures), 137))
-        for j, (w_eng, t_eng) in enumerate(zip(w_energies, t_energies)):
+        eng_grad_vec = np.zeros(
+            (full.shape[0], len(database.structures),
+            len(potential_template.pvec))
+        )
+
+        for j, (name, w_eng, t_eng) in enumerate(
+                zip(keys, w_energies, t_energies)):
+
+            w = database.structures[name]
+
             eng_err = (w_eng - t_eng)
             eng_grad = w.energy_gradient_wrt_pvec(full, potential_template.u_ranges)
 
-            # eng_grad_vec[j] += (eng_err[:, np.newaxis] * eng_grad * 2).ravel()
-            eng_grad_vec[j] += (eng_err * eng_grad * 2).ravel()
+            print(j, eng_grad_vec.shape, eng_grad.shape, flush=True)
+            eng_grad_vec[:, j, :] += (eng_err * eng_grad * 2)
 
-        grad_vec = np.vstack([eng_grad_vec, fcs_grad_vec])
-        tmp = grad_vec[:, np.where(potential_template.active_mask)[0]]
+        tmp_eng = eng_grad_vec[:, :, np.where(potential_template.active_mask)[0]]
+        tmp_fcs = fcs_grad_vec[:, :, np.where(potential_template.active_mask)[0]]
 
-        return tmp
-
-    # def fxn(pot):
-    #     # "pot" should be a of potential Template objects
-    #     # u_params = pot[-2*NTYPES:]
-    #     # pot = pot[:-2*NTYPES]
-    #
-    #     full = potential_template.insert_active_splines(pot)
-    #     # full = np.concatenate([full, u_params])
-    #
-    #     fitness = np.zeros(2 * len(database.structures))
-    #
-    #     all_worker_energies = []
-    #     all_worker_forces = []
-    #
-    #     all_true_energies = []
-    #     all_true_forces = []
-    #
-    #     ref_struct_idx = None
-    #
-    #     # Compute error for each worker on MPI node
-    #     for j, name in enumerate(database.structures.keys()):
-    #         w = database.structures[name]
-    #
-    #         if name == database.reference_struct:
-    #             ref_struct_idx = j
-    #
-    #         all_worker_energies.append(w.compute_energy(full))
-    #         all_worker_forces.append(w.compute_forces(full))
-    #
-    #         all_true_energies.append(database.true_energies[name])
-    #         all_true_forces.append(database.true_forces[name])
-    #
-    #     # subtract off reference energies
-    #     # all_worker_energies = np.array(all_worker_energies)
-    #     # all_worker_energies -= all_worker_energies[ref_struct_idx]
-    #     #
-    #     # all_true_energies = np.array(all_true_energies)
-    #     # all_true_energies -= all_true_energies[ref_struct_idx]
-    #     #
-    #     i = 0
-    #     for i in range(len(database.structures)):
-    #         eng_err = all_worker_energies[i] - all_true_energies[i]
-    #         fcs_err = all_worker_forces[i] - all_true_forces[i]
-    #         fcs_err = np.linalg.norm(fcs_err, axis=(1, 2)) / np.sqrt(10)
-    #
-    #         fitness[i] += eng_err * eng_err
-    #         fitness[i + 1] += fcs_err * fcs_err
-    #
-    #         i += 2
-    #
-    #     # all_worker_energies = np.array(all_worker_energies)
-    #     # all_true_energies = np.array(all_true_forces)
-    #     #
-    #     # all_true_energies = np.array(all_true_energies)
-    #     # all_true_energies -= database.true_energies[database.reference_struct]
-    #     #
-    #     # eng_err = (all_worker_energies - all_true_energies)**2
-    #     # fcs_err = ((all_worker_forces - all_true_forces) / np.sqrt(10))**2
-    #
-    #     # return np.vstack([eng_err, fcs_err])
-    #     return fitness
-    #
-    # def grad(pot):
-    #     # full = np.atleast_2d(pot[np.where(potential_template.active_mask)])
-    #     full = potential_template.insert_active_splines(pot)
-    #
-    #     # grad_vec = np.zeros((2*len(database.structures), full.shape[0] + 2*NTYPES))
-    #     # grad_vec = np.zeros((2*len(database.structures), full.shape[0] - 2*NTYPES))
-    #
-    #     all_worker_energies = []
-    #     all_worker_forces = []
-    #
-    #     all_true_energies = []
-    #     all_true_forces = []
-    #
-    #     all_eng_grads = []
-    #     all_fcs_grads = []
-    #
-    #     all_worker_energies = []
-    #     all_worker_forces = []
-    #
-    #     all_true_energies = []
-    #     all_true_forces = []
-    #
-    #     ref_struct_idx = None
-    #
-    #     grad_vec = np.zeros((2 * len(database.structures), 137))
-    #
-    #     # Compute error for each worker on MPI node
-    #     for j, name in enumerate(database.structures.keys()):
-    #         w = database.structures[name]
-    #
-    #         if name == database.reference_struct:
-    #             ref_struct_idx = j
-    #
-    #         all_worker_energies.append(w.compute_energy(full))
-    #         all_worker_forces.append(w.compute_forces(full))
-    #
-    #         all_true_energies.append(database.true_energies[name])
-    #         all_true_forces.append(database.true_forces[name])
-    #
-    #     # subtract off reference energies
-    #     # all_worker_energies = np.array(all_worker_energies)
-    #     # all_worker_energies -= all_worker_energies[ref_struct_idx]
-    #     #
-    #     # all_true_energies = np.array(all_true_energies)
-    #     # all_true_energies -= all_true_energies[ref_struct_idx]
-    #     #
-    #     i = 0
-    #     for name in database.structures.keys():
-    #         w = database.structures[name]
-    #
-    #         eng_err = (all_worker_energies[i] - all_true_energies[i])
-    #         fcs_err = ((all_worker_forces[i] - all_true_forces[i]) / np.sqrt(
-    #             10)) ** 2
-    #
-    #         eng_grad = w.energy_gradient_wrt_pvec(full)
-    #         fcs_grad = w.forces_gradient_wrt_pvec(full)
-    #
-    #         scaled = np.einsum('pna,pnak->pnak', fcs_err, fcs_grad)
-    #         summed = scaled.sum(axis=1).sum(axis=1)
-    #
-    #         grad_vec[i] += (eng_err[:, np.newaxis] * eng_grad * 2).ravel()
-    #         grad_vec[i + 1] += (2 * summed / 10).ravel()
-    #
-    #         i += 2
-    #
-    #     # return grad_vec[:,:83]
-    #     tmp = grad_vec[:, np.where(potential_template.active_mask)[0]]
-    #     # return np.hstack([tmp, np.zeros((tmp.shape[0], 2*NTYPES))])
-    #     return tmp
-
-    def minimized_fxn(pot):
-
-        pot = np.atleast_2d(pot)
-        full = pot.copy()
-
-        for i, indiv in enumerate(full):
-            opt_results = least_squares(fxn, indiv, grad, method='lm',
-                                        max_nfev=INTER_NSTEPS)
-
-            full[i] = opt_results['x']
-
-        return fxn(full)
+        return tmp_eng, tmp_fcs
 
     return fxn, grad
-    # return fxn, minimized_fxn, grad
 
 
 def build_stats_and_log():
@@ -885,7 +893,7 @@ def print_statistics(pop, gen_num, stats, logbook):
     print(logbook.stream, flush=True)
 
 
-def local_minimization(guess, toolbox, is_master_node, comm, num_steps=None,):
+def local_minimization(guess, toolbox, is_master, comm, num_steps=None,):
     """Wrapper for local minimization function"""
 
     def parallel_wrapper(x, stop):
@@ -904,7 +912,7 @@ def local_minimization(guess, toolbox, is_master_node, comm, num_steps=None,):
             cost = toolbox.evaluate_population([x])
             all_costs = comm.gather(cost, root=0)
 
-            if is_master_node:
+            if is_master:
                 print('costs', [x.shape for x in all_costs], flush=True)
                 value = np.concatenate(all_costs)
 
@@ -922,7 +930,7 @@ def local_minimization(guess, toolbox, is_master_node, comm, num_steps=None,):
             grad = toolbox.gradient([x])
             all_grads = comm.gather(grad, root=0)
 
-            if is_master_node:
+            if is_master:
                 print('grads', [x.shape for x in all_grads], flush=True)
                 value = np.vstack(all_grads)
 
@@ -939,13 +947,13 @@ def local_minimization(guess, toolbox, is_master_node, comm, num_steps=None,):
             grad = toolbox.gradient([x])
             all_grads = comm.gather(grad, root=0)
 
-            if is_master_node:
+            if is_master:
                 print('grads', [x.shape for x in all_grads], flush=True)
                 value = np.vstack(all_grads)
 
         return value
 
-    if is_master_node:
+    if is_master:
         stop = [0]
 
         # opt_pot = fmin_cg(parallel_wrapper, guess,
@@ -1103,6 +1111,66 @@ def minimize_population(pop, toolbox, comm, mpi_size, max_nsteps):
 
     return np.vstack(comm.gather(pop, root=0)),\
            np.concatenate(comm.gather(my_fitnesses, root=0))
+
+def compute_relative_weights(database):
+    work_weights = []
+
+    name_list = list(database.structures.keys())
+    name_list = sorted(name_list)
+
+    for name in name_list:
+        work_weights.append(database.structures[name].natoms)
+
+    work_weights = np.array(work_weights)
+    work_weights = work_weights / np.min(work_weights)
+    work_weights = work_weights*work_weights # cost assumed to scale as N^2
+
+    return work_weights, name_list
+
+
+def group_database_subsets(database, mpi_size):
+    """Groups workers based on evaluation time to help with load balancing.
+
+    Returns:
+        distributed_work (list): the partitioned work
+        work_per_proc (float): approximate work done by each processor
+    """
+    # TODO: record scaling on first run, then redistribute to load balance
+
+    unassigned_structs = sorted(list(database.structures.keys()))
+
+    work_weights, name_list = compute_relative_weights(database)
+
+    work_per_proc = np.sum(work_weights) / mpi_size
+
+    work_weights = work_weights.tolist()
+
+    assignments = []
+    grouped_work = []
+
+    for _ in range(mpi_size):
+        cumulated_work = 0
+
+        names = []
+
+        while unassigned_structs and (cumulated_work < work_per_proc):
+            names.append(unassigned_structs.pop())
+            cumulated_work += work_weights.pop()
+
+        mini_database = Database.manual_init(
+            {name: database.structures[name] for name in names},
+            {name: database.true_energies[name] for name in names},
+            {name: database.true_forces[name] for name in names},
+            {name: database.weights[name] for name in names},
+            database.reference_struct,
+            database.reference_energy
+        )
+
+        assignments.append(mini_database)
+        grouped_work.append(cumulated_work)
+
+    return assignments, grouped_work, work_per_proc
+
 
 ################################################################################
 
