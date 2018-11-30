@@ -1,6 +1,6 @@
 import os
 # TODO: BW settings
-os.chdir("/mnt/c/Users/jvita/scripts/s-meam/")
+# os.chdir("/mnt/c/Users/jvita/scripts/s-meam/")
 import sys
 
 sys.path.append('./')
@@ -25,6 +25,7 @@ from mpi4py import MPI
 from deap import base, creator, tools, algorithms
 
 import src.meam
+import src.partools as partools
 from src.meam import MEAM
 from src.worker import Worker
 from src.meam import MEAM
@@ -43,9 +44,9 @@ if len(sys.argv) > 1:
     nodes_per_manager = int(sys.argv[2]) # number of available compute nodes
     procs_per_node = int(sys.argv[3])
 else:
-    num_managers = 2
-    nodes_per_manager = 2
-    procs_per_node = 2
+    num_managers = 1
+    nodes_per_manager = 1
+    procs_per_node = 1
 
 num_nodes = nodes_per_manager * num_managers
 
@@ -62,7 +63,7 @@ NTYPES = 2
 if len(sys.argv) > 4:
     POP_SIZE = int(sys.argv[4])
 else:
-    POP_SIZE = 4
+    POP_SIZE = 7
 
 NUM_GENS = 1
 CXPB = 1.0
@@ -93,10 +94,12 @@ CHECK_BEFORE_OVERWRITE = False
 
 # TODO: BW settings
 
+BASE_PATH = "/home/jvita/scripts/s-meam/"
+
 # LOAD_PATH = "data/fitting_databases/fixU/"
-LOAD_PATH = "../data/fitting_databases/leno-redo/"
+LOAD_PATH = BASE_PATH + "data/fitting_databases/mini/"
 # LOAD_PATH = "/projects/sciteam/baot/fixU-clean/"
-SAVE_PATH = "../data/results/"
+SAVE_PATH = BASE_PATH + "data/results/"
 
 SAVE_DIRECTORY = SAVE_PATH + date_str + "-" + "meam" + "{}-{}".format(NUM_GENS,
                                                                       MUTPB)
@@ -105,11 +108,10 @@ if os.path.isdir(SAVE_DIRECTORY):
     SAVE_DIRECTORY = SAVE_DIRECTORY + '-' + str(np.random.randint(100000))
 
 DB_PATH = LOAD_PATH + 'structures'
-DB_INFO_FILE_NAME = LOAD_PATH + 'rhophi/info'
+DB_INFO_FILE_NAME = LOAD_PATH + 'info'
 POP_FILE_NAME = SAVE_DIRECTORY + "/pop.dat"
 LOG_FILE_NAME = SAVE_DIRECTORY + "/ga.log"
 TRACE_FILE_NAME = SAVE_DIRECTORY + "/trace.dat"
-
 
 ################################################################################
 
@@ -135,31 +137,49 @@ def main():
         # GA tools
         stats, logbook = build_stats_and_log()
 
-        # Prepare database and potential template
+        # Prepare database and potentiar template
         potential_template = initialize_potential_template()
         potential_template.print_statistics()
         print()
+
+        struct_files = glob.glob(DB_PATH + "/*")
 
         # TODO: have each manager read in its subset
         master_database = Database(DB_PATH, DB_INFO_FILE_NAME)
         master_database.print_metadata()
 
-        manager_subsets, _, _ = group_database_subsets(
-            master_database, num_managers
+        # manager_subsets, _, _ = group_database_subsets(
+        #     master_database, len(master_database.structures)
+        # )
+
+        struct_names, structures = zip(*master_database.structures.items())
+        num_structs = len(structures)
+
+        rank_lists = partools.compute_procs_per_subset(
+            structures, world_size
         )
 
+        print("rank_lists", len(rank_lists))
         # TODO: each structure should READ the worker, not get passed it
         # currently, this will probably require twice as much mem (during scat)
 
     else:
+        structures = None
         manager_subsets = None
         potential_template = None
-
-    potential_template = world_comm.bcast(potential_template, root=0)
+        num_structs = None
+        rank_lists = None
+        struct_names = None
 
     rank_list = np.arange(world_size, dtype=int)
 
-    manager_ranks = rank_list[::procs_per_node*nodes_per_manager]
+    potential_template = world_comm.bcast(potential_template, root=0)
+    num_structs = world_comm.bcast(num_structs, root=0)
+
+    # manager_ranks = rank_list[::procs_per_node*nodes_per_manager]
+
+    # each "manager" is in charge of a single structure
+    manager_ranks = rank_list[:num_structs]
 
     world_group = world_comm.Get_group()
 
@@ -167,53 +187,57 @@ def main():
     manager_group = world_group.Incl(manager_ranks)
     manager_comm = world_comm.Create(manager_group)
 
-    manager_color = world_rank // (procs_per_node * nodes_per_manager)
-
-    # head_comm communicates with all node heads of ONE manager
-    start = manager_color * procs_per_node * nodes_per_manager
-    stop = start + (procs_per_node * nodes_per_manager)
-
-    head_ranks = rank_list[start:stop:procs_per_node]
-    head_group = world_group.Incl(head_ranks)
-    head_comm = world_comm.Create(head_group)
-
-    # node comm links all processes corresponding to a single node
-    node_color = world_rank // procs_per_node
-    node_comm = world_comm.Split(node_color, world_rank)
-
-    node_rank = node_comm.Get_rank()
+    # manager_color = world_rank // (procs_per_node * nodes_per_manager)
+    #
+    # # head_comm communicates with all node heads of ONE manager
+    # start = manager_color * procs_per_node * nodes_per_manager
+    # stop = start + (procs_per_node * nodes_per_manager)
+    #
+    # head_ranks = rank_list[start:stop:procs_per_node]
+    # head_group = world_group.Incl(head_ranks)
+    # head_comm = world_comm.Create(head_group)
+    #
+    # # node comm links all processes corresponding to a single node
+    # node_color = world_rank // procs_per_node
+    # node_comm = world_comm.Split(node_color, world_rank)
+    #
+    # node_rank = node_comm.Get_rank()
 
     is_manager = (manager_comm != MPI.COMM_NULL)
 
+    # One manager per structure
     if is_manager:
         manager_rank = manager_comm.Get_rank()
-        manager_subset = manager_comm.scatter(manager_subsets, root=0)
+        # manager_subset = manager_comm.scatter(manager_subsets, root=0)
+
+        rank_list = manager_comm.scatter(rank_lists, root=0)
+
+        struct_name = manager_comm.scatter(struct_names, root=0)
+        structure = manager_comm.scatter(structures, root=0)
 
         print(
-            "Manager", manager_rank, "received",
-            len(manager_subset.structures), "structures", flush=True
+            "Manager", manager_rank, "received structure", struct_name, "plus",
+            len(rank_list), "processors for evaluation", flush=True
         )
     else:
         manager_subset = None
 
-    is_node_head = (head_comm != MPI.COMM_NULL)
+    # is_node_head = (head_comm != MPI.COMM_NULL)
+    #
+    # if is_node_head:
+    #     head_rank = head_comm.Get_rank()
+    #     head_copy = head_comm.bcast(manager_subset, root=0)
+    #
+    #     print(
+    #         "Node", head_rank, "received", len(head_copy.structures),
+    #         "structures", flush=True
+    #     )
+    #
+    #     proc_subset, _, _ = group_database_subsets(head_copy, procs_per_node)
+    # else:
+    #     proc_subset = None
 
-    if is_node_head:
-        head_rank = head_comm.Get_rank()
-        head_copy = head_comm.bcast(manager_subset, root=0)
-
-        print(
-            "Node", head_rank, "received", len(head_copy.structures),
-            "structures", flush=True
-        )
-
-        proc_subset, _, _ = group_database_subsets(head_copy, procs_per_node)
-    else:
-        proc_subset = None
-
-    database = node_comm.scatter(proc_subset, root=0)
-
-    # TODO: number of managers s.t. subset size fits on one node
+    # database = node_comm.scatter(proc_subset, root=0)
 
     # Have every process build the toolbox
     toolbox, creator = build_ga_toolbox(potential_template)
@@ -222,123 +246,12 @@ def main():
         database, potential_template
     )
 
+    # TODO: number of managers s.t. subset size fits on one node
     # TODO: have multiple "minimizer" processes doing LM over multiple pots?
     # TODO: managers and head nodes may have some duplicate structs
 
-    def fxn_wrap(inp):
-        """
-        Evaluates the function and gathers the results at every level of
-        parallelization.
-
-        Process -- evaluates on subset of subset of database with subset of pop
-        Node -- gathers full population for subset of subset of database
-        Manager -- gathers full population for subset of database
-        Master -- gathers full population for full database
-        """
-
-        # evaluate subset of population on subset OF SUBSET of database
-        cost_eng, cost_fcs = eval_fxn(inp)
-
-        # subset of population on node's subset of database
-        node_eng_costs = node_comm.gather(cost_eng, root=0)
-        node_fcs_costs = node_comm.gather(cost_fcs, root=0)
-
-        if is_node_head:
-            node_eng_costs = np.concatenate(node_eng_costs, axis=1)
-            node_fcs_costs = np.concatenate(node_fcs_costs, axis=1)
-
-            # full population on manager's subset of database
-            head_nodes_eng = head_comm.gather(node_eng_costs, root=0)
-            head_nodes_fcs = head_comm.gather(node_fcs_costs, root=0)
-
-        if is_manager:
-            head_nodes_eng = np.vstack(head_nodes_eng)
-            head_nodes_fcs = np.vstack(head_nodes_fcs)
-
-            # full population on full database
-            all_eng_costs = manager_comm.gather(head_nodes_eng, root=0)
-            all_fcs_costs = manager_comm.gather(head_nodes_fcs, root=0)
-
-        if is_master:
-            all_eng_costs = np.concatenate(all_eng_costs, axis=1)
-            all_fcs_costs = np.concatenate(all_fcs_costs, axis=1)
-
-            all_costs = all_eng_costs + all_fcs_costs # list join
-
-            value = np.concatenate(all_costs)
-        else:
-            value = None
-
-        if is_manager:
-            value = manager_comm.bcast(value, root=0)
-
-        if is_node_head:
-            value = head_comm.bcast(value, root=0)
-
-        value = node_comm.bcast(value, root=0)
-
-        return value
-
-    def grad_wrap(inp):
-
-        eng_grad_val, fcs_grad_val = grad_fxn(inp)
-        # eng_grad_val = eng_grad_val.T
-        # fcs_grad_val = fcs_grad_val.T
-
-        # evaluate subset of population on subset OF SUBSET of database
-        node_eng_grad = node_comm.gather(eng_grad_val, root=0)
-        node_fcs_grad = node_comm.gather(fcs_grad_val, root=0)
-
-        if is_node_head:
-            print([el.shape for el in node_eng_grad], flush=True)
-            node_eng_grad = np.dstack(node_eng_grad)
-            node_fcs_grad = np.dstack(node_fcs_grad)
-
-            print('node_eng_grad.shape', node_eng_grad.shape, flush=True)
-
-            # full population on manager's subset of database
-            head_nodes_eng_grad = head_comm.gather(node_eng_grad, root=0)
-            head_nodes_fcs_grad = head_comm.gather(node_fcs_grad, root=0)
-
-        if is_manager:
-            # print([el.shape for el in head_nodes_eng_grad], flush=True)
-            head_nodes_eng_grad = np.vstack(head_nodes_eng_grad)
-            head_nodes_fcs_grad = np.vstack(head_nodes_fcs_grad)
-
-            print('head_nodes_eng_grad.shape', head_nodes_eng_grad.shape, flush=True)
-
-            # full population on full database
-            all_eng_grad = manager_comm.gather(head_nodes_eng_grad, root=0)
-            all_fcs_grad = manager_comm.gather(head_nodes_fcs_grad, root=0)
-
-        # TODO: should all of these should be concatenates?
-        # TODO: need some kind of ordering?
-
-        if is_master:
-            # print([el.shape for el in all_eng_grad], flush=True)
-            all_eng_grad = np.concatenate(all_eng_grad, axis=1)
-            all_fcs_grad = np.concatenate(all_fcs_grad, axis=1)
-
-            print('all_eng_grad.shape', all_eng_grad.shape, flush=True)
-
-            all_grads = all_eng_grad + all_fcs_grad # list join
-
-            grad = np.concatenate(all_grads)
-
-            print('grad.shape', grad.shape, flush=True)
-        else:
-            grad = None
-
-        if is_manager:
-            grad = manager_comm.bcast(grad, root=0)
-
-        if is_node_head:
-            grad = head_comm.bcast(grad, root=0)
-
-        grad = node_comm.bcast(grad, root=0)
-        print('grad.shape', grad.shape, flush=True)
-
-        return grad
+    lm_fxn_wrap = lambda x: fxn_wrap(x, world_rank, procs_get_same_pop=True).ravel()
+    lm_grad_wrap = lambda x: grad_wrap(x, procs_get_same_pop=True)[:, :, 0]
 
     toolbox.register("evaluate_population", fxn_wrap)
     toolbox.register("gradient", grad_wrap)
@@ -346,13 +259,15 @@ def main():
     # Create the original population
     if is_master:
         pop = toolbox.population(n=POP_SIZE)
+        master_pop = list(pop)
     else:
         pop = None
+        master_pop = None
 
     # Send full population to managers
     if is_manager:
-        pop = manager_comm.bcast(pop, root=0)
-        pop = np.array_split(np.array(pop), procs_per_node)
+        pop = manager_comm.bcast    (pop, root=0)
+        pop = split_population(pop, nodes_per_manager)
     else:
         pop = None
 
@@ -360,7 +275,7 @@ def main():
     if is_node_head:
         pop = head_comm.scatter(pop, root=0)
         print(
-            "Head node", head_rank, "received", pop.shape[0], "potentials",
+            "Head node", head_rank, "received", len(pop), "potentials",
             flush=True
         )
     else:
@@ -368,42 +283,57 @@ def main():
 
     # Nodes broadcast population subset to all of their processes
     pop = node_comm.bcast(pop, root=0)
+    master_pop = world_comm.bcast(master_pop, root=0)
 
-    minimized_fitnesses = fxn_wrap(pop)
+    init_fit = fxn_wrap(master_pop)
 
-    for ind_num, indiv in enumerate(pop):
+    if is_master:
+        init_fit = np.sum(init_fit, axis=1)
+        print("MASTER: initial (UN-minimized) fitnesses:", init_fit, flush=True)
+
+    init_fit = np.zeros(POP_SIZE)
+
+    for ind_num, indiv in enumerate(master_pop):
         if is_master:
             print(
-                "Minimizing potential %d/%d" % (ind_num, len(pop)), flush=True
+                "Minimizing potential %d/%d" % (ind_num + 1, len(master_pop)),
+                flush=True
             )
 
         opt_results = least_squares(
-            fxn_wrap, indiv, grad_wrap, method='lm', max_nfev=INTER_NSTEPS * 2
+            lm_fxn_wrap, indiv, lm_grad_wrap, method='lm', max_nfev=1
         )
 
-        opt_indiv = creator.Individual(opt_results)
+        opt_indiv = creator.Individual(opt_results['x'])
 
-        opt_fitness = np.sum(fxn_wrap(opt_indiv))
-        prev_fitness = np.sum(fxn_wrap(indiv))
+        opt_indiv = world_comm.bcast(opt_indiv, root=0)
 
-        if opt_fitness < prev_fitness:
-            pop[ind_num] = opt_indiv
-            minimized_fitnesses[ind_num] = opt_fitness
-        else:
-            minimized_fitnesses[ind_num] = prev_fitness
+        if (len(opt_indiv) == 0) or (opt_indiv is None):
+            print("Rank", world_rank, "has an outer problem ...", was_split, flush=True)
+
+        # print(len(opt_indiv), flush=True)
+        # print("Rank", world_rank, "opt_indiv:", opt_indiv, flush=True)
+
+        opt_fitness = np.sum(lm_fxn_wrap(opt_indiv))
+        prev_fitness = np.sum(lm_fxn_wrap(indiv))
+
+        if is_master:
+            if opt_fitness < prev_fitness:
+                master_pop[ind_num] = opt_indiv
+                init_fit[ind_num] = opt_fitness
+            else:
+                init_fit[ind_num] = prev_fitness
+
+    if is_master:
+        print("MASTER: initial (minimized) fitnesses:", init_fit, flush=True)
+        print("MASTER: double check:", fxn_wrap(master_pop))
+
+    # TODO: who has the updated potentials?
 
     # Have master gather fitnesses and update individuals
     if is_master:
-        all_fitnesses = np.vstack(all_fitnesses)
-        all_fitnesses = all_fitnesses.ravel()
+        all_fitnesses = init_fit
         print("MASTER: initial fitnesses:", all_fitnesses, flush=True)
-
-        join_pop = []
-        for slave_pop in pop:
-            for ind in slave_pop:
-                join_pop.append(ind)
-
-        pop = join_pop
 
         for ind, fit in zip(pop, all_fitnesses):
             ind.fitness.values = fit,
@@ -418,14 +348,14 @@ def main():
 
     # Begin GA
     if RUN_NEW_GA:
-        i = 1
-        while (i < NUM_GENS):
+        generation_number = 1
+        while (generation_number < NUM_GENS):
             if is_master:
 
                 # TODO: currently using crossover; used to use blend
 
                 # Preserve top 50%, breed survivors
-                for j in range(len(pop) // 2, len(pop)):
+                for pot_num in range(len(pop) // 2, len(pop)):
                     mom_idx = np.random.randint(len(pop) // 2)
 
                     dad_idx = mom_idx
@@ -437,7 +367,7 @@ def main():
 
                     kid, _ = toolbox.mate(toolbox.clone(mom),
                                           toolbox.clone(dad))
-                    pop[j] = kid
+                    pop[pot_num] = kid
 
                 # TODO: debug to make sure pop is always sorted here
 
@@ -445,55 +375,39 @@ def main():
                 for mut_ind in pop[max(2, int(POP_SIZE / 10)):]:
                     if np.random.random() >= MUTPB: toolbox.mutate(mut_ind)
 
-                pop = np.array_split(pop, mpi_size)
+                pop = split_population(pop, mpi_size)
             else:
                 pop = None
 
             # Send out updated population
-            my_indivs = comm.scatter(pop, root=0)
+            pop = comm.scatter(pop, root=0)
 
             # Run local minimization on best individual if desired
-            if DO_LMIN and (i % LMIN_FREQUENCY == 0):
-                new_indivs = []
+            if DO_LMIN and (generation_number % LMIN_FREQUENCY == 0):
 
-                for indiv in my_indivs:
-                    opt_results = local_minimization(
-                        indiv, toolbox, is_master, comm, num_steps=None
+                for pot_num, indiv in enumerate(pop):
+
+                    opt_results = least_squares(
+                        lm_fxn_wrap, indiv, lm_grad_wrap, method='lm', max_nfev=INTER_NSTEPS * 2
                     )
 
-                    # opt_results = least_squares(toolbox.evaluate_population, indiv,
-                    #                             toolbox.gradient, method='lm',
-                    #                             max_nfev=INTER_NSTEPS * 2)
-
-                    opt_indiv = creator.Individual(opt_results)
+                    opt_indiv = creator.Individual(opt_results['x'])
 
                     opt_fitness = np.sum(toolbox.evaluate_population(opt_indiv))
                     prev_fitness = np.sum(toolbox.evaluate_population(indiv))
 
                     if opt_fitness < prev_fitness:
-                        indiv = opt_indiv
-
-                    new_indivs.append(creator.Individual(indiv))
-
-                my_indivs = new_indivs
+                        pop[pot_num] = opt_indiv
 
             # Compute fitnesses with mated/mutated/optimized population
-            fitnesses = np.sum(toolbox.evaluate_population(indiv))
+            fitnesses = np.sum(toolbox.evaluate_population(pop))
 
             all_fitnesses = comm.gather(fitnesses, root=0)
-            pop = comm.gather(my_indivs, root=0)
 
             # Update individuals with new fitnesses
             if is_master:
                 all_fitnesses = np.vstack(all_fitnesses)
                 all_fitnesses = all_fitnesses.ravel()
-
-                join_pop = []
-                for slave_pop in pop:
-                    for ind in slave_pop:
-                        join_pop.append(creator.Individual(ind))
-
-                pop = join_pop
 
                 for ind, fit in zip(pop, all_fitnesses):
                     ind.fitness.values = fit,
@@ -525,20 +439,19 @@ def main():
 
         # best_fitness = np.sum(toolbox.evaluate_population(best_guess))
 
-    new_indivs = []
-    for indiv in my_indivs:
-        print("SLAVE: Rank", rank, "performing final minimization ... ", flush=True)
-        opt_results = local_minimization(
-            indiv, toolbox, is_master, comm, num_steps=None
+    for i, indiv in enumerate(pop):
+        print(
+            "SLAVE: Rank", world_rank, "performing final minimization ... ",
+            flush=True
         )
 
-        # opt_results = least_squares(toolbox.evaluate_population, indiv,
-        #                             toolbox.gradient, method='lm',
-        #                             max_nfev=INTER_NSTEPS * 2)
+        opt_results = least_squares(
+            lm_fxn_wrap, indiv, lm_grad_wrap, method='lm', max_nfev=INTER_NSTEPS * 2
+        )
 
-        final = creator.Individual(opt_results)
+        final = creator.Individual(opt_results['x'])
 
-        new_indivs.append(final)
+        pop[i] = final
 
     print("SLAVE: Rank", rank, "minimized fitness:",
           np.sum(toolbox.evaluate_population(final)))
@@ -755,118 +668,6 @@ def load_true_values(all_names):
         true_energies[name] = eng
 
     return true_forces, true_energies
-
-
-def build_evaluation_functions(database, potential_template):
-    """Builds the function to evaluate populations. Wrapped here for readability
-    of main code."""
-
-    def fxn(pot):
-        full = np.atleast_2d(pot)
-        full = potential_template.insert_active_splines(full)
-
-        w_energies = np.zeros((full.shape[0], len(database.structures)))
-        t_energies = np.zeros(len(database.structures))
-
-        fcs_fitnesses = np.zeros((full.shape[0], len(database.structures)))
-
-        # TODO: reference energy needs to be sent from master
-        # ref_energy = 0
-
-        keys = sorted(list(database.structures.keys()))
-        for j, name in enumerate(keys):
-
-            w = database.structures[name]
-
-            w_energies[:, j] = w.compute_energy(full, potential_template.u_ranges)
-            t_energies[j] = database.true_energies[name]
-
-            # if name == database.reference_struct:
-            #     ref_energy = w_energies[j]
-
-            w_fcs = w.compute_forces(full, potential_template.u_ranges)
-            true_fcs = database.true_forces[name]
-
-            fcs_err = ((w_fcs - true_fcs) / np.sqrt(10)) ** 2
-            fcs_err = np.linalg.norm(fcs_err, axis=(1, 2)) / np.sqrt(10)
-
-            fcs_fitnesses[:, j] = fcs_err
-
-        # w_energies -= ref_energy
-        # t_energies -= database.reference_energy
-
-        eng_fitnesses = np.zeros((full.shape[0], len(database.structures)))
-
-        for j, (w_eng, t_eng) in enumerate(zip(w_energies.T, t_energies)):
-            eng_fitnesses[:, j] = (w_eng - t_eng) ** 2
-
-        fitnesses = np.concatenate([eng_fitnesses, fcs_fitnesses])
-
-        # print("Fitness shape:", fitnesses.shape, flush=True)
-
-        return eng_fitnesses, fcs_fitnesses
-
-    def grad(pot):
-        full = np.atleast_2d(pot)
-        full = potential_template.insert_active_splines(full)
-
-        fcs_grad_vec = np.zeros(
-            (full.shape[0], len(database.structures),
-            len(potential_template.pvec))
-        )
-
-        w_energies = np.zeros((full.shape[0], len(database.structures)))
-        t_energies = np.zeros(len(database.structures))
-
-        # ref_energy = 0
-
-        keys = sorted(list(database.structures.keys()))
-        for j, name in enumerate(keys):
-            w = database.structures[name]
-
-            w_energies[:, j] = w.compute_energy(full, potential_template.u_ranges)
-            t_energies[j] = database.true_energies[name]
-
-            # if name == database.reference_struct:
-            #     ref_energy = w_energies[j]
-
-            w_fcs = w.compute_forces(full, potential_template.u_ranges)
-            true_fcs = database.true_forces[name]
-
-            fcs_err = ((w_fcs - true_fcs) / np.sqrt(10))
-
-            fcs_grad = w.forces_gradient_wrt_pvec(full, potential_template.u_ranges)
-
-            scaled = np.einsum('pna,pnak->pnak', fcs_err, fcs_grad)
-            summed = scaled.sum(axis=1).sum(axis=1)
-
-            fcs_grad_vec[:, j] += (2 * summed / 10).ravel()
-
-        # w_energies -= ref_energy
-        # t_energies -= database.reference_energy
-
-        eng_grad_vec = np.zeros(
-            (full.shape[0], len(database.structures),
-            len(potential_template.pvec))
-        )
-
-        for j, (name, w_eng, t_eng) in enumerate(
-                zip(keys, w_energies, t_energies)):
-
-            w = database.structures[name]
-
-            eng_err = (w_eng - t_eng)
-            eng_grad = w.energy_gradient_wrt_pvec(full, potential_template.u_ranges)
-
-            print(j, eng_grad_vec.shape, eng_grad.shape, flush=True)
-            eng_grad_vec[:, j, :] += (eng_err * eng_grad * 2)
-
-        tmp_eng = eng_grad_vec[:, :, np.where(potential_template.active_mask)[0]]
-        tmp_fcs = fcs_grad_vec[:, :, np.where(potential_template.active_mask)[0]]
-
-        return tmp_eng, tmp_fcs
-
-    return fxn, grad
 
 
 def build_stats_and_log():
@@ -1112,65 +913,175 @@ def minimize_population(pop, toolbox, comm, mpi_size, max_nsteps):
     return np.vstack(comm.gather(pop, root=0)),\
            np.concatenate(comm.gather(my_fitnesses, root=0))
 
-def compute_relative_weights(database):
-    work_weights = []
 
-    name_list = list(database.structures.keys())
-    name_list = sorted(name_list)
-
-    for name in name_list:
-        work_weights.append(database.structures[name].natoms)
-
-    work_weights = np.array(work_weights)
-    work_weights = work_weights / np.min(work_weights)
-    work_weights = work_weights*work_weights # cost assumed to scale as N^2
-
-    return work_weights, name_list
-
-
-def group_database_subsets(database, mpi_size):
-    """Groups workers based on evaluation time to help with load balancing.
-
-    Returns:
-        distributed_work (list): the partitioned work
-        work_per_proc (float): approximate work done by each processor
+def split_population(a, n):
     """
-    # TODO: record scaling on first run, then redistribute to load balance
+    Stackoverflow credits (User = "tixxit"):
+    https://stackoverflow.com/questions/2130016/splitting-a-list-into-n-parts-of-approximately-equal-length/37414115
+    """
+    k, m = divmod(len(a), n)
+    return list(a[i * k + min(i, m):(i + 1) * k + min(i + 1, m)] for i in range(n))
 
-    unassigned_structs = sorted(list(database.structures.keys()))
 
-    work_weights, name_list = compute_relative_weights(database)
+def build_fxn_wrapper(eval_fxn, is_master, is_manager, is_node_head,
+    world_comm, manager_comm, head_comm, node_comm):
 
-    work_per_proc = np.sum(work_weights) / mpi_size
+    def fxn_wrap(full, world_rank=None, procs_get_same_pop=False):
+        """
+        Args:
+            full (list[Individual]): all potential_templates
+            procs_get_same_pop (bool): True if population NOT scattered
 
-    work_weights = work_weights.tolist()
+        Notes:
+        Evaluates the function and gathers the results at every level of
+        parallelization.
 
-    assignments = []
-    grouped_work = []
+        Process -- evaluates on subset of subset of database with subset of pop
+        Node -- gathers full population for subset of subset of database
+        Manager -- gathers full population for subset of database
+        Master -- gathers full population for full database
+        """
 
-    for _ in range(mpi_size):
-        cumulated_work = 0
+        full = np.atleast_2d(full)
 
-        names = []
+        was_split = False
+        if is_node_head:
+            if procs_get_same_pop:
+                inp = head_comm.bcast(full, root=0)
+            else:
+                split_full = split_population(full, nodes_per_manager)
+                inp = head_comm.scatter(split_full, root=0)
+                was_split = True
+        else:
+            inp = None
 
-        while unassigned_structs and (cumulated_work < work_per_proc):
-            names.append(unassigned_structs.pop())
-            cumulated_work += work_weights.pop()
+        inp = node_comm.bcast(inp, root=0)
 
-        mini_database = Database.manual_init(
-            {name: database.structures[name] for name in names},
-            {name: database.true_energies[name] for name in names},
-            {name: database.true_forces[name] for name in names},
-            {name: database.weights[name] for name in names},
-            database.reference_struct,
-            database.reference_energy
-        )
+        # evaluate subset of population on subset OF SUBSET of database
+        cost_eng, cost_fcs = eval_fxn(inp)
 
-        assignments.append(mini_database)
-        grouped_work.append(cumulated_work)
+        # subset of population on node's subset of database
+        node_eng_costs = node_comm.gather(cost_eng, root=0)
+        node_fcs_costs = node_comm.gather(cost_fcs, root=0)
 
-    return assignments, grouped_work, work_per_proc
+        if is_node_head:
+            node_eng_costs = np.concatenate(node_eng_costs, axis=1)
+            node_fcs_costs = np.concatenate(node_fcs_costs, axis=1)
 
+            # full population on manager's subset of database
+            head_nodes_eng = head_comm.gather(node_eng_costs, root=0)
+            head_nodes_fcs = head_comm.gather(node_fcs_costs, root=0)
+
+        if is_manager:
+            if procs_get_same_pop:
+                head_nodes_eng = np.array(head_nodes_eng)
+                head_nodes_fcs = np.array(head_nodes_fcs)
+
+                head_nodes_eng = np.sum(head_nodes_eng, axis=0)
+                head_nodes_fcs = np.sum(head_nodes_fcs, axis=0)
+
+            else:
+                head_nodes_eng = np.vstack(head_nodes_eng)
+                head_nodes_fcs = np.vstack(head_nodes_fcs)
+
+                # full population on full database
+            all_eng_costs = manager_comm.gather(head_nodes_eng, root=0)
+            all_fcs_costs = manager_comm.gather(head_nodes_fcs, root=0)
+
+        if is_master:
+            all_eng_costs = np.concatenate(all_eng_costs, axis=1)
+            all_fcs_costs = np.concatenate(all_fcs_costs, axis=1)
+
+            value = np.concatenate([all_eng_costs, all_fcs_costs], axis=1)
+        else:
+            value = None
+
+        if is_manager:
+            value = manager_comm.bcast(value, root=0)
+
+        if is_node_head:
+            value = head_comm.bcast(value, root=0)
+
+        value = world_comm.bcast(value, root=0)
+
+        if is_master:
+            print(np.sum(value), flush=True)
+
+        return value
+
+def build_grad_wrapper(grad_fxn, is_master, is_manager, is_node_head,
+    world_comm, manager_comm, head_comm, node_comm):
+
+    def grad_wrap(full, procs_get_same_pop=False):
+
+        full = np.atleast_2d(full)
+
+        if is_node_head:
+            if procs_get_same_pop:
+                inp = full
+            else:
+                split_full = split_population(full, nodes_per_manager)
+                inp = head_comm.scatter(split_full, root=0)
+        else:
+            inp = None
+
+        inp = node_comm.bcast(inp, root=0)
+
+        eng_grad_val, fcs_grad_val = grad_fxn(inp)
+
+        # evaluate subset of population on subset OF SUBSET of database
+        node_eng_grad = node_comm.gather(eng_grad_val, root=0)
+        node_fcs_grad = node_comm.gather(fcs_grad_val, root=0)
+
+        if is_node_head:
+            node_eng_grad = np.dstack(node_eng_grad)
+            node_fcs_grad = np.dstack(node_fcs_grad)
+
+            # print('node_eng_grad.shape', node_eng_grad.shape, flush=True)
+
+            # full population on manager's subset of database
+            head_nodes_eng_grad = head_comm.gather(node_eng_grad, root=0)
+            head_nodes_fcs_grad = head_comm.gather(node_fcs_grad, root=0)
+
+        if is_manager:
+            if procs_get_same_pop:
+                head_nodes_eng_grad = np.array(head_nodes_eng_grad)
+                head_nodes_fcs_grad = np.array(head_nodes_fcs_grad)
+
+                head_nodes_eng_grad = np.sum(head_nodes_eng_grad, axis=0)
+                head_nodes_fcs_grad = np.sum(head_nodes_fcs_grad, axis=0)
+            else:
+                head_nodes_eng_grad = np.dstack(head_nodes_eng_grad)
+                head_nodes_fcs_grad = np.dstack(head_nodes_fcs_grad)
+
+            # full population on full database
+            all_eng_grad = manager_comm.gather(head_nodes_eng_grad, root=0)
+            all_fcs_grad = manager_comm.gather(head_nodes_fcs_grad, root=0)
+
+        if is_master:
+            all_eng_grad = np.dstack(all_eng_grad)
+            all_fcs_grad = np.dstack(all_fcs_grad)
+
+            # print('all_eng_grad.shape', all_eng_grad.shape, flush=True)
+
+            # all_grads = all_eng_grad + all_fcs_grad # list join
+
+            grad = np.dstack([all_eng_grad, all_fcs_grad])
+
+            # print('grad.shape', grad.shape, flush=True)
+        else:
+            grad = None
+
+        if is_manager:
+            grad = manager_comm.bcast(grad, root=0)
+
+        if is_node_head:
+            grad = head_comm.bcast(grad, root=0)
+
+        grad = node_comm.bcast(grad, root=0)
+        # print('grad.shape', grad.shape, flush=True)
+
+        return grad.T
 
 ################################################################################
 

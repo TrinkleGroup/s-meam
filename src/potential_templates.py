@@ -26,7 +26,7 @@ class Template:
             seed (np.arr): starting format for pvec
         """
 
-        if active_mask:
+        if active_mask is not None:
             self.active_mask = active_mask
         else:
             self.active_mask = np.ones(pvec_len)

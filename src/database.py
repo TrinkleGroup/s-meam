@@ -46,7 +46,9 @@ class Database:
         sorted_names = sorted(glob.glob(self.structures_folder_path + "/*"))
         for file_name in sorted_names:
             if "metadata" not in file_name:
-                struct = pickle.load(open(file_name, 'rb'))
+                f = open(file_name, 'rb')
+                struct = pickle.load(f)
+                f.close()
 
                 # assumes file_name is of form "*/[struct_name].pkl"
                 short_name = os.path.split(file_name)[-1]
@@ -75,7 +77,7 @@ class Database:
                 short_name = '.'.join(short_name.split('.')[1:])
 
                 # assumes the first line of the file is the energy
-                eng = np.genfromtxt(open(file_name, 'rb'), max_rows=1)
+                eng = np.genfromtxt(file_name, max_rows=1)
 
                 if (min_energy is None) or (eng < min_energy):
                     min_energy = eng
@@ -83,7 +85,7 @@ class Database:
                     self.reference_energy = min_energy
 
                 # assumes the next N lines are the forces on the N atoms
-                fcs = np.genfromtxt(open(file_name, 'rb'), skip_header=1)
+                fcs = np.genfromtxt(file_name, skip_header=1)
 
                 self.true_energies[short_name] = eng
                 self.true_forces[short_name] = fcs
@@ -101,11 +103,9 @@ class Database:
         for tag, info in self.structures_metadata.items():
             print(tag + ":", " ".join(info))
 
-        print()
         print("Metadata (true values):")
         for tag, info in self.true_values_metadata.items():
             print(tag + ":", " ".join(info))
-        print(flush=True)
 
     def __len__(self):
         return len(self.structures)
