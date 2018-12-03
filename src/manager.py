@@ -1,6 +1,7 @@
 import pickle
 import logging
 import numpy as np
+import src.partools as partools
 from mpi4py import MPI
 
 LOGGING = False
@@ -36,21 +37,16 @@ class Manager:
     def load_structure(self, struct_name, db_path):
 
         if self.proc_rank == 0:
-            if self.struct is None:
-                print(
-                    "Manager " + str(self.id) + " is loading " + struct_name,
-                    end=""
-                )
-            else:
-                print(
-                    "Manager " + str(self.id) + " is overwriting " + \
-                    self.struct_name + " with " + struct_name,
-                    end=""
-                )
-
-            print(" ... ", end="", flush=True)
+            # if self.struct is None:
+            #     print(
+            #         "Manager " + str(self.id) + " is loading " + struct_name,
+            #     )
+            # else:
+            #     print(
+            #         "Manager " + str(self.id) + " is overwriting " + \
+            #         self.struct_name + " with " + struct_name,
+            #     )
             struct = pickle.load(open(db_path + struct_name + '.pkl', 'rb'))
-            print("done", flush=True)
         else:
             struct = None
 
@@ -59,7 +55,7 @@ class Manager:
         return struct
 
     def compute_energy(self, master_pop):
-        """Evaluates the structure for the whole population"""
+        """Evaluates the structure energy for the whole population"""
 
         if self.proc_rank == 0:
             full = np.atleast_2d(master_pop)
@@ -80,7 +76,7 @@ class Manager:
         return all_eng
 
     def compute_forces(self, master_pop):
-        """Evaluates the structure for the whole population"""
+        """Evaluates the structure forces for the whole population"""
 
         if self.proc_rank == 0:
             full = np.atleast_2d(master_pop)
@@ -99,3 +95,50 @@ class Manager:
             all_fcs = np.vstack(all_fcs)
 
         return all_fcs
+
+
+    def compute_energy_grad(self, master_pop):
+        """Evaluates the structure energy gradient for the whole population"""
+
+        if self.proc_rank == 0:
+            full = np.atleast_2d(master_pop)
+            full = self.pot_template.insert_active_splines(full)
+            full = np.array_split(full, self.num_procs)
+        else:
+            full = None
+
+        pop = self.comm.scatter(full, root=0)
+
+        eng_grad = self.struct.energy_gradient_wrt_pvec(
+            pop, self.pot_template.u_ranges
+        )
+
+        all_eng_grad = self.comm.gather(eng_grad, root=0)
+
+        if self.proc_rank == 0:
+            all_eng_grad = np.vstack(all_eng_grad)
+
+        return all_eng_grad
+
+    def compute_forces_grad(self, master_pop):
+        """Evaluates the structure for the whole population"""
+
+        if self.proc_rank == 0:
+            full = np.atleast_2d(master_pop)
+            full = self.pot_template.insert_active_splines(full)
+            full = np.array_split(full, self.num_procs)
+        else:
+            full = None
+
+        pop = self.comm.scatter(full, root=0)
+
+        fcs_grad = self.struct.forces_gradient_wrt_pvec(
+            pop, self.pot_template.u_ranges
+        )
+
+        all_fcs_grad = self.comm.gather(fcs_grad, root=0)
+
+        if self.proc_rank == 0:
+            all_fcs_grad = np.vstack(all_fcs_grad)
+
+        return all_fcs_grad

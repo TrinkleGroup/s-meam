@@ -8,7 +8,7 @@ sys.path.append('./')
 import numpy as np
 import random
 
-np.set_printoptions(precision=8, linewidth=np.inf, suppress=True)
+np.set_printoptions(precision=8, suppress=True)
 
 import pickle
 import glob
@@ -33,22 +33,12 @@ from src.spline import Spline
 from src.database import Database
 from src.potential_templates import Template
 from src.node import Node
+from src.manager import Manager
 
 ################################################################################
 """MPI settings"""
 
 MASTER_RANK = 0
-
-if len(sys.argv) > 1:
-    num_managers = int(sys.argv[1]) # how many subsets to break the database into
-    nodes_per_manager = int(sys.argv[2]) # number of available compute nodes
-    procs_per_node = int(sys.argv[3])
-else:
-    num_managers = 1
-    nodes_per_manager = 1
-    procs_per_node = 1
-
-num_nodes = nodes_per_manager * num_managers
 
 ################################################################################
 """MEAM potential settings"""
@@ -60,16 +50,16 @@ NTYPES = 2
 ################################################################################
 """GA settings"""
 
-if len(sys.argv) > 4:
-    POP_SIZE = int(sys.argv[4])
+if len(sys.argv) > 1:
+    POP_SIZE = int(sys.argv[1])
 else:
     POP_SIZE = 7
 
-NUM_GENS = 1
+NUM_GENS = 10
 CXPB = 1.0
 
-if len(sys.argv) > 5:
-    MUTPB = float(sys.argv[5])
+if len(sys.argv) > 2:
+    MUTPB = float(sys.argv[2])
 else:
     MUTPB = 0.5
 
@@ -77,9 +67,9 @@ RUN_NEW_GA = True
 
 DO_LMIN = False
 LMIN_FREQUENCY = 1
-INIT_NSTEPS = 30
-INTER_NSTEPS = 10
-FINAL_NSTEPS = 4
+INIT_NSTEPS = 10
+INTER_NSTEPS = 5
+FINAL_NSTEPS = 30
 
 CHECKPOINT_FREQUENCY = 1
 
@@ -152,14 +142,15 @@ def main():
         #     master_database, len(master_database.structures)
         # )
 
-        struct_names, structures = zip(*master_database.structures.items())
+        all_struct_names, structures = zip(*master_database.structures.items())
         num_structs = len(structures)
 
-        rank_lists = partools.compute_procs_per_subset(
+        worker_ranks = partools.compute_procs_per_subset(
             structures, world_size
         )
 
-        print("rank_lists", len(rank_lists))
+        print("worker_ranks:", worker_ranks)
+
         # TODO: each structure should READ the worker, not get passed it
         # currently, this will probably require twice as much mem (during scat)
 
@@ -168,182 +159,243 @@ def main():
         manager_subsets = None
         potential_template = None
         num_structs = None
-        rank_lists = None
-        struct_names = None
-
-    rank_list = np.arange(world_size, dtype=int)
+        worker_ranks = None
+        all_struct_names = None
 
     potential_template = world_comm.bcast(potential_template, root=0)
     num_structs = world_comm.bcast(num_structs, root=0)
 
-    # manager_ranks = rank_list[::procs_per_node*nodes_per_manager]
-
-    # each "manager" is in charge of a single structure
-    manager_ranks = rank_list[:num_structs]
-
+    # each Manager is in charge of a single structure
     world_group = world_comm.Get_group()
+
+    all_rank_lists = world_comm.bcast(worker_ranks, root=0)
+
+    # Tell workers which manager they are a part of
+    worker_ranks = None
+    manager_ranks = []
+    for per_manager_ranks in all_rank_lists:
+        manager_ranks.append(per_manager_ranks[0])
+
+        if world_rank in per_manager_ranks:
+            worker_ranks = per_manager_ranks
 
     # manager_comm connects all manager processes
     manager_group = world_group.Incl(manager_ranks)
     manager_comm = world_comm.Create(manager_group)
-
-    # manager_color = world_rank // (procs_per_node * nodes_per_manager)
-    #
-    # # head_comm communicates with all node heads of ONE manager
-    # start = manager_color * procs_per_node * nodes_per_manager
-    # stop = start + (procs_per_node * nodes_per_manager)
-    #
-    # head_ranks = rank_list[start:stop:procs_per_node]
-    # head_group = world_group.Incl(head_ranks)
-    # head_comm = world_comm.Create(head_group)
-    #
-    # # node comm links all processes corresponding to a single node
-    # node_color = world_rank // procs_per_node
-    # node_comm = world_comm.Split(node_color, world_rank)
-    #
-    # node_rank = node_comm.Get_rank()
 
     is_manager = (manager_comm != MPI.COMM_NULL)
 
     # One manager per structure
     if is_manager:
         manager_rank = manager_comm.Get_rank()
-        # manager_subset = manager_comm.scatter(manager_subsets, root=0)
 
-        rank_list = manager_comm.scatter(rank_lists, root=0)
-
-        struct_name = manager_comm.scatter(struct_names, root=0)
-        structure = manager_comm.scatter(structures, root=0)
+        struct_name = manager_comm.scatter(all_struct_names, root=0)
 
         print(
             "Manager", manager_rank, "received structure", struct_name, "plus",
-            len(rank_list), "processors for evaluation", flush=True
+            len(worker_ranks), "processors for evaluation", flush=True
         )
+
     else:
-        manager_subset = None
+        struct_name = None
+        manager_rank = None
 
-    # is_node_head = (head_comm != MPI.COMM_NULL)
-    #
-    # if is_node_head:
-    #     head_rank = head_comm.Get_rank()
-    #     head_copy = head_comm.bcast(manager_subset, root=0)
-    #
-    #     print(
-    #         "Node", head_rank, "received", len(head_copy.structures),
-    #         "structures", flush=True
-    #     )
-    #
-    #     proc_subset, _, _ = group_database_subsets(head_copy, procs_per_node)
-    # else:
-    #     proc_subset = None
+    worker_group = world_group.Incl(worker_ranks)
+    worker_comm = world_comm.Create(worker_group)
 
-    # database = node_comm.scatter(proc_subset, root=0)
+    struct_name = worker_comm.bcast(struct_name, root=0)
+    manager_rank = worker_comm.bcast(manager_rank, root=0)
+
+    manager = Manager(manager_rank, worker_comm, potential_template)
+
+    manager.struct_name = struct_name
+    manager.struct = manager.load_structure(
+        manager.struct_name, DB_PATH + "/"
+    )
+
+    def fxn_wrap(master_pop):
+        """Master: returns all potentials for all structures"""
+        if is_manager:
+            pop = manager_comm.bcast(master_pop, root=0)
+        else:
+            pop = None
+
+        pop = worker_comm.bcast(pop, root=0)
+
+        eng = manager.compute_energy(pop)
+        fcs = manager.compute_forces(pop)
+
+        fitnesses = 0
+
+        if is_manager:
+            mgr_eng = manager_comm.gather(eng, root=0)
+            mgr_fcs = manager_comm.gather(fcs, root=0)
+
+            if is_master:
+                # note: can't stack mgr_fcs b/c different dimensions per struct
+                all_eng = np.vstack(mgr_eng)
+                all_fcs = mgr_fcs
+
+                w_energies = np.zeros((len(pop), num_structs))
+                t_energies = np.zeros(num_structs)
+
+                fcs_fitnesses = np.zeros((len(pop), num_structs))
+
+                for s_id, name in enumerate(all_struct_names):
+                    w_energies[:, s_id] = all_eng[s_id]
+                    t_energies[s_id] = master_database.true_energies[name]
+
+                    if name == master_database.reference_struct:
+                        ref_energy = w_energies[:, s_id]
+
+                    w_fcs = all_fcs[s_id]
+                    true_fcs = master_database.true_forces[name]
+
+                    fcs_err = ((w_fcs - true_fcs) / np.sqrt(10)) ** 2
+                    fcs_err = np.linalg.norm(fcs_err, axis=(1, 2)) / np.sqrt(10)
+
+                    fcs_fitnesses[:, s_id] = fcs_err
+
+                # w_energies -= ref_energy
+                # t_energies -= master_database.reference_energy
+
+                eng_fitnesses = np.zeros((len(pop), num_structs))
+
+                for s_id, (w_eng,t_eng) in enumerate(
+                    zip(w_energies.T, t_energies)):
+                    eng_fitnesses[:, s_id] = (w_eng - t_eng) ** 2
+
+                fitnesses = np.hstack([eng_fitnesses, fcs_fitnesses])
+
+        return fitnesses
+
+    def grad_wrap(master_pop):
+        """Evalautes the gradient for all potentials in the population"""
+
+        if is_manager:
+            pop = manager_comm.bcast(master_pop, root=0)
+        else:
+            pop = None
+
+        pop = worker_comm.bcast(pop, root=0)
+
+        eng = manager.compute_energy(pop)
+        fcs = manager.compute_forces(pop)
+
+        eng_grad = manager.compute_energy_grad(pop)
+        fcs_grad = manager.compute_forces_grad(pop)
+
+        gradient = 0
+
+        if is_manager:
+            mgr_eng = manager_comm.gather(eng, root=0)
+            mgr_fcs = manager_comm.gather(fcs, root=0)
+
+            mgr_eng_grad = manager_comm.gather(eng_grad, root=0)
+            mgr_fcs_grad = manager_comm.gather(fcs_grad, root=0)
+
+            if is_master:
+                # note: can't stack mgr_fcs b/c different dimensions per struct
+                all_eng = np.vstack(mgr_eng)
+                all_fcs = mgr_fcs
+
+                w_energies = np.zeros((len(pop), num_structs))
+                t_energies = np.zeros(num_structs)
+
+                fcs_grad_vec = np.zeros(
+                    (len(pop), potential_template.pvec_len, num_structs)
+                )
+
+                ref_energy = 0
+
+                for s_id, name in enumerate(all_struct_names):
+                    w_energies[:, s_id] = all_eng[s_id]
+                    t_energies[s_id] = master_database.true_energies[name]
+
+                    if name == master_database.reference_struct:
+                        ref_energy = w_energies[:, s_id]
+
+                    w_fcs = all_fcs[s_id]
+                    true_fcs = master_database.true_forces[name]
+
+                    fcs_err = ((w_fcs - true_fcs) / np.sqrt(10)) ** 2
+
+                    fcs_grad = mgr_fcs_grad[s_id]
+
+                    scaled = np.einsum('pna,pnak->pnak', fcs_err, fcs_grad)
+                    summed = scaled.sum(axis=1).sum(axis=1)
+
+                    fcs_grad_vec[:, :, s_id] += (2 * summed / 10)
+
+                # w_energies -= ref_energy
+                # t_energies -= database.reference_energy
+
+                eng_grad_vec = np.zeros(
+                    (len(pop), potential_template.pvec_len, num_structs)
+                )
+
+                for s_id, (name, w_eng, t_eng), in enumerate(
+                    zip(all_struct_names, w_energies.T, t_energies)):
+
+                    eng_err = (w_eng - t_eng)
+                    eng_grad = mgr_eng_grad[s_id]
+
+                    eng_grad_vec[:, :, s_id] += (
+                        eng_err[:, np.newaxis] * eng_grad * 2
+                    )
+
+                indices = np.where(potential_template.active_mask)[0]
+                tmp_eng = eng_grad_vec[:, indices,:]
+                tmp_fcs = fcs_grad_vec[:, indices,:]
+
+                gradient = np.dstack([tmp_eng, tmp_fcs]).swapaxes(1, 2)
+
+        return gradient
 
     # Have every process build the toolbox
     toolbox, creator = build_ga_toolbox(potential_template)
-
-    eval_fxn, grad_fxn = build_evaluation_functions(
-        database, potential_template
-    )
-
-    # TODO: number of managers s.t. subset size fits on one node
-    # TODO: have multiple "minimizer" processes doing LM over multiple pots?
-    # TODO: managers and head nodes may have some duplicate structs
-
-    lm_fxn_wrap = lambda x: fxn_wrap(x, world_rank, procs_get_same_pop=True).ravel()
-    lm_grad_wrap = lambda x: grad_wrap(x, procs_get_same_pop=True)[:, :, 0]
 
     toolbox.register("evaluate_population", fxn_wrap)
     toolbox.register("gradient", grad_wrap)
 
     # Create the original population
     if is_master:
-        pop = toolbox.population(n=POP_SIZE)
-        master_pop = list(pop)
+        master_pop = toolbox.population(n=POP_SIZE)
     else:
-        pop = None
         master_pop = None
 
-    # Send full population to managers
-    if is_manager:
-        pop = manager_comm.bcast    (pop, root=0)
-        pop = split_population(pop, nodes_per_manager)
-    else:
-        pop = None
-
-    # Managers split population across their nodes
-    if is_node_head:
-        pop = head_comm.scatter(pop, root=0)
-        print(
-            "Head node", head_rank, "received", len(pop), "potentials",
-            flush=True
-        )
-    else:
-        pop = None
-
-    # Nodes broadcast population subset to all of their processes
-    pop = node_comm.bcast(pop, root=0)
     master_pop = world_comm.bcast(master_pop, root=0)
 
-    init_fit = fxn_wrap(master_pop)
+    init_fit = toolbox.evaluate_population(master_pop)
 
     if is_master:
         init_fit = np.sum(init_fit, axis=1)
         print("MASTER: initial (UN-minimized) fitnesses:", init_fit, flush=True)
 
-    init_fit = np.zeros(POP_SIZE)
+    master_pop = local_minimization(
+        master_pop, toolbox, world_comm, is_master, nsteps=INIT_NSTEPS
+    )
 
-    for ind_num, indiv in enumerate(master_pop):
-        if is_master:
-            print(
-                "Minimizing potential %d/%d" % (ind_num + 1, len(master_pop)),
-                flush=True
-            )
-
-        opt_results = least_squares(
-            lm_fxn_wrap, indiv, lm_grad_wrap, method='lm', max_nfev=1
-        )
-
-        opt_indiv = creator.Individual(opt_results['x'])
-
-        opt_indiv = world_comm.bcast(opt_indiv, root=0)
-
-        if (len(opt_indiv) == 0) or (opt_indiv is None):
-            print("Rank", world_rank, "has an outer problem ...", was_split, flush=True)
-
-        # print(len(opt_indiv), flush=True)
-        # print("Rank", world_rank, "opt_indiv:", opt_indiv, flush=True)
-
-        opt_fitness = np.sum(lm_fxn_wrap(opt_indiv))
-        prev_fitness = np.sum(lm_fxn_wrap(indiv))
-
-        if is_master:
-            if opt_fitness < prev_fitness:
-                master_pop[ind_num] = opt_indiv
-                init_fit[ind_num] = opt_fitness
-            else:
-                init_fit[ind_num] = prev_fitness
+    # new_pop = world_comm.bcast(new_pop, root=0)
+    new_fit = toolbox.evaluate_population(master_pop)
 
     if is_master:
-        print("MASTER: initial (minimized) fitnesses:", init_fit, flush=True)
-        print("MASTER: double check:", fxn_wrap(master_pop))
+        new_fit = np.sum(new_fit, axis=1)
+        print("MASTER: initial (minimized) fitnesses:", new_fit, flush=True)
 
     # TODO: who has the updated potentials?
 
     # Have master gather fitnesses and update individuals
     if is_master:
-        all_fitnesses = init_fit
-        print("MASTER: initial fitnesses:", all_fitnesses, flush=True)
-
-        for ind, fit in zip(pop, all_fitnesses):
+        for ind, fit in zip(master_pop, new_fit):
             ind.fitness.values = fit,
 
         # Sort population; best on top
-        pop = tools.selBest(pop, len(pop))
+        master_pop = tools.selBest(master_pop, len(master_pop))
 
-        print_statistics(pop, 0, stats, logbook)
+        print_statistics(master_pop, 0, stats, logbook)
 
-        checkpoint(pop, logbook, pop[0], 0)
+        checkpoint(master_pop, logbook, master_pop[0], 0)
         ga_start = time.time()
 
     # Begin GA
@@ -355,79 +407,61 @@ def main():
                 # TODO: currently using crossover; used to use blend
 
                 # Preserve top 50%, breed survivors
-                for pot_num in range(len(pop) // 2, len(pop)):
-                    mom_idx = np.random.randint(len(pop) // 2)
+                for pot_num in range(len(master_pop) // 2, len(master_pop)):
+                    mom_idx = np.random.randint(len(master_pop) // 2)
 
                     dad_idx = mom_idx
                     while dad_idx == mom_idx:
-                        dad_idx = np.random.randint(len(pop) // 2)
+                        dad_idx = np.random.randint(len(master_pop) // 2)
 
-                    mom = pop[mom_idx]
-                    dad = pop[dad_idx]
+                    mom = master_pop[mom_idx]
+                    dad = master_pop[dad_idx]
 
                     kid, _ = toolbox.mate(toolbox.clone(mom),
                                           toolbox.clone(dad))
-                    pop[pot_num] = kid
+                    master_pop[pot_num] = kid
 
                 # TODO: debug to make sure pop is always sorted here
 
                 # Mutate randomly everyone except top 10% (or top 2)
-                for mut_ind in pop[max(2, int(POP_SIZE / 10)):]:
+                for mut_ind in master_pop[max(2, int(POP_SIZE / 10)):]:
                     if np.random.random() >= MUTPB: toolbox.mutate(mut_ind)
-
-                pop = split_population(pop, mpi_size)
-            else:
-                pop = None
-
-            # Send out updated population
-            pop = comm.scatter(pop, root=0)
+            # else:
+            #     master_pop = None
 
             # Run local minimization on best individual if desired
             if DO_LMIN and (generation_number % LMIN_FREQUENCY == 0):
-
-                for pot_num, indiv in enumerate(pop):
-
-                    opt_results = least_squares(
-                        lm_fxn_wrap, indiv, lm_grad_wrap, method='lm', max_nfev=INTER_NSTEPS * 2
-                    )
-
-                    opt_indiv = creator.Individual(opt_results['x'])
-
-                    opt_fitness = np.sum(toolbox.evaluate_population(opt_indiv))
-                    prev_fitness = np.sum(toolbox.evaluate_population(indiv))
-
-                    if opt_fitness < prev_fitness:
-                        pop[pot_num] = opt_indiv
+                master_pop = local_minimization(
+                    master_pop, toolbox, world_comm, is_master,
+                    nsteps=INTER_NSTEPS
+                )
 
             # Compute fitnesses with mated/mutated/optimized population
-            fitnesses = np.sum(toolbox.evaluate_population(pop))
-
-            all_fitnesses = comm.gather(fitnesses, root=0)
+            fitnesses = toolbox.evaluate_population(master_pop)
 
             # Update individuals with new fitnesses
             if is_master:
-                all_fitnesses = np.vstack(all_fitnesses)
-                all_fitnesses = all_fitnesses.ravel()
+                new_fit = np.sum(fitnesses, axis=1)
 
-                for ind, fit in zip(pop, all_fitnesses):
+                for ind, fit in zip(master_pop, new_fit):
                     ind.fitness.values = fit,
 
                 # Sort
-                pop = tools.selBest(pop, len(pop))
+                master_pop = tools.selBest(master_pop, len(master_pop))
 
                 # Print statistics to screen and checkpoint
-                print_statistics(pop, i, stats, logbook)
+                print_statistics(master_pop, generation_number, stats, logbook)
 
-                if (i % CHECKPOINT_FREQUENCY == 0):
-                    best = np.array(tools.selBest(pop, 1)[0])
-                    checkpoint(pop, logbook, best, i)
+                if (generation_number % CHECKPOINT_FREQUENCY == 0):
+                    best = np.array(tools.selBest(master_pop, 1)[0])
+                    checkpoint(master_pop, logbook, best, generation_number)
 
-                best_guess = pop[0]
+                best_guess = master_pop[0]
 
-            i += 1
+            generation_number += 1
     else:
-        pop = np.genfromtxt(POP_FILE_NAME)
-        best_guess = creator.Individual(pop[0])
+        master_pop = np.genfromtxt(POP_FILE_NAME)
+        best_guess = creator.Individual(master_pop[0])
 
     # Perform a final local optimization on the final results of the GA
     if is_master:
@@ -436,67 +470,6 @@ def main():
         print("MASTER: GA runtime = {:.2f} (s)".format(ga_runtime), flush=True)
         print("MASTER: Average time per step = {:.2f}"
               " (s)".format(ga_runtime / NUM_GENS), flush=True)
-
-        # best_fitness = np.sum(toolbox.evaluate_population(best_guess))
-
-    for i, indiv in enumerate(pop):
-        print(
-            "SLAVE: Rank", world_rank, "performing final minimization ... ",
-            flush=True
-        )
-
-        opt_results = least_squares(
-            lm_fxn_wrap, indiv, lm_grad_wrap, method='lm', max_nfev=INTER_NSTEPS * 2
-        )
-
-        final = creator.Individual(opt_results['x'])
-
-        pop[i] = final
-
-    print("SLAVE: Rank", rank, "minimized fitness:",
-          np.sum(toolbox.evaluate_population(final)))
-
-    fitnesses = np.sum(toolbox.evaluate_population(final))
-
-    all_fitnesses = comm.gather(fitnesses, root=0)
-    pop = comm.gather(final, root=0)
-
-    # Save final results
-    if is_master:
-        print("MASTER: final fitnesses:", all_fitnesses, flush=True)
-        all_fitnesses = np.vstack(all_fitnesses)
-        all_fitnesses = all_fitnesses.ravel()
-
-        join_pop = []
-        for slave_pop in pop:
-            for ind in slave_pop:
-                join_pop.append(creator.Individual(ind))
-
-        pop = join_pop
-
-        for ind, fit in zip(pop, all_fitnesses):
-            ind.fitness.values = fit,
-
-        # Sort
-        pop = tools.selBest(pop, len(pop))
-
-        # Print statistics to screen and checkpoint
-        print_statistics(pop, i, stats, logbook)
-
-        best = np.array(tools.selBest(pop, 1)[0])
-
-        recheck = np.sum(toolbox.evaluate_population(best))
-
-        print("MASTER: confirming best fitness:", recheck)
-
-        final_arr = np.array(best)
-
-        checkpoint(pop, logbook, final_arr, i)
-        np.savetxt(SAVE_DIRECTORY + '/final_potential.dat', final_arr)
-
-        # plot_best_individual()
-
-
 ################################################################################
 
 def build_ga_toolbox(potential_template):
@@ -694,7 +667,60 @@ def print_statistics(pop, gen_num, stats, logbook):
     print(logbook.stream, flush=True)
 
 
-def local_minimization(guess, toolbox, is_master, comm, num_steps=None,):
+def local_minimization(master_pop, toolbox, world_comm, is_master, nsteps=20):
+
+    def lm_fxn_wrap(raveled_pop, original_shape):
+        val = toolbox.evaluate_population(
+            raveled_pop.reshape(original_shape)
+        )
+
+        val = world_comm.bcast(val, root=0)
+
+        # if is_master:
+        #     print(np.sum(val, axis=1), flush=True)
+
+        return val.ravel()
+
+    def lm_grad_wrap(raveled_pop, original_shape):
+        # shape: (num_pots, num_structs*2, num_params)
+        grads = toolbox.gradient(
+            raveled_pop.reshape(original_shape)
+        )
+
+        grads = world_comm.bcast(grads, root=0)
+
+        num_pots, num_structs_2, num_params = grads.shape
+
+        padded_grad = np.zeros(
+            (num_pots, num_structs_2, num_pots, num_params)
+        )
+
+        for pot_id, g in enumerate(grads):
+            padded_grad[pot_id, :, pot_id, :] =  g
+
+        return padded_grad.reshape(
+            (num_pots * num_structs_2, num_pots * num_params)
+        )
+
+
+    master_pop = np.array(master_pop)
+
+    opt_results = least_squares(
+        lm_fxn_wrap, master_pop.ravel(), lm_grad_wrap,
+        method='lm', max_nfev=nsteps, args=(master_pop.shape,)
+    )
+
+    if is_master:
+        new_pop = opt_results['x'].reshape(master_pop.shape)
+        master_pop = []
+
+        for ind in new_pop:
+            master_pop.append(creator.Individual(ind))
+
+    return master_pop
+
+
+def old_local_minimization(guess, toolbox, is_master, comm, num_steps=None,):
     """Wrapper for local minimization function"""
 
     def parallel_wrapper(x, stop):
@@ -885,7 +911,8 @@ def initialize_potential_template():
     potential_template.pvec[106] = 0; mask[106] = 0 # rhs f_B deriv
 
     # potential_template.pvec[83:] = 0; mask[83:] = 0 # EAM params only
-    potential_template.pvec[45:] = 0; mask[45:] = 0 # EAM params only
+    # potential_template.pvec[45:] = 0; mask[45:] = 0 # EAM params only
+    potential_template.pvec[5:] = 0; mask[5:] = 0 # mini params only
 
     potential_template.active_mask = mask
 

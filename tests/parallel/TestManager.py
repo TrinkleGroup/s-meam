@@ -8,6 +8,8 @@ from mpi4py import MPI
 from src.manager import Manager
 from src.potential_templates import Template
 
+# TODO: look into using mpinoseutils or pytest
+
 # @mpitest(4)
 class ManagerTests(unittest.TestCase):
     def test_main(self):
@@ -26,9 +28,6 @@ class ManagerTests(unittest.TestCase):
             '/home/jvita/scripts/s-meam/data/fitting_databases/leno-redo/structures/'
         )
 
-        if rank == 0:
-            print("Evaluating energy ...", flush=True)
-
         num_pots = 100
 
         energies = manager.compute_energy(
@@ -36,8 +35,7 @@ class ManagerTests(unittest.TestCase):
         )
 
         if rank == 0:
-            print(energies, flush=True)
-            print("Evaluating forces ...", flush=True)
+            # print("energies.shape:", energies.shape, flush=True)
 
             self.assertEqual(energies.shape, (num_pots,))
 
@@ -46,11 +44,36 @@ class ManagerTests(unittest.TestCase):
             )
 
         if rank == 0:
-            print(forces.shape, flush=True)
+            # print("forces.shape:", forces.shape, flush=True)
 
             self.assertEqual(
                 forces.shape, (num_pots, manager.struct.natoms, 3)
             )
+
+        energy_grad = manager.compute_energy_grad(
+            np.ones((num_pots, len(np.where(pot_template.active_mask)[0]))),
+        )
+
+        if rank == 0:
+            # print("energy_grad.shape:", energy_grad.shape, flush=True)
+
+            self.assertEqual(
+                energy_grad.shape, (num_pots, pot_template.pvec_len)
+            )
+
+        forces_grad = manager.compute_forces_grad(
+            np.ones((num_pots, len(np.where(pot_template.active_mask)[0]))),
+        )
+
+        if rank == 0:
+            # print("forces_grad.shape:", forces_grad.shape, flush=True)
+
+            self.assertEqual(
+                forces_grad.shape, (
+                    num_pots, manager.struct.natoms, 3, pot_template.pvec_len
+                )
+            )
+
 
 def initialize_potential_template():
 

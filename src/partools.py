@@ -227,6 +227,7 @@ def compute_procs_per_subset(structures, total_num_procs, method='natoms'):
         )
 
     # TODO: possible problem where too many large structs get passed to one node
+    # TODO: dimer got more workers than a trimer
 
     # Sort weights and structs s.t. least expensive is last
     sort = np.argsort(weights)[::-1]
