@@ -189,7 +189,7 @@ def group_database_subsets(database, num_managers):
     return subsets, grouped_work
 
 
-def compute_procs_per_subset(structures, total_num_procs, method='natoms'):
+def compute_procs_per_subset(struct_natoms, total_num_procs, method='natoms'):
     """
     Should split the number of processors into groups based on the relative
     evaluation costs of each Database subset.
@@ -199,7 +199,7 @@ def compute_procs_per_subset(structures, total_num_procs, method='natoms'):
         'time': running tests to see how long each one takes
 
     Args:
-        structures (list[Worker]): all structures
+        struct_natoms (list[int]): number of atoms in each structure
         total_num_procs (int): total number of processors available
         method (str): 'natoms' or 'time' (default is 'natoms')
 
@@ -207,17 +207,17 @@ def compute_procs_per_subset(structures, total_num_procs, method='natoms'):
         ranks_per_struct (list[list]): processor ranks for each struct
     """
 
-    structures = list(structures)
-    num_structs = len(structures)
+    structures = list(struct_natoms)
+    num_structs = len(struct_natoms)
 
     # Note: ideally, should have at least as many cores as struct   s
     supported_methods = ['natoms', 'time']
 
-    natoms = [worker.natoms for worker in structures]
+    # natoms = [worker.natoms for worker in struct_natoms]
 
     # Error checking on  desired method
     if method == 'natoms':
-        weights = [n*n for n in natoms]
+        weights = [n*n for n in struct_natoms]
         weights /= np.sum(weights)
     elif method == 'time':
         raise NotImplementedError("Oops ...")
@@ -233,7 +233,7 @@ def compute_procs_per_subset(structures, total_num_procs, method='natoms'):
     sort = np.argsort(weights)[::-1]
 
     weights = weights[sort]
-    structures = [s for _, s in sorted(zip(sort, structures))]
+    struct_natoms = [s for _, s in sorted(zip(sort, struct_natoms))]
 
     # Compute how many processors would "ideally" be needed for each struct
     num_procs_needed_per_struct = weights * total_num_procs

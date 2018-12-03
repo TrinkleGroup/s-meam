@@ -13,7 +13,8 @@ class Database:
         self.structures_metadata = {}
         self.true_values_metadata = {}
 
-        self.structures = {}
+        # self.structures = {}
+        self.natoms = {}
         self.true_energies = {}
         self.true_forces = {}
         self.reference_struct = None
@@ -21,8 +22,8 @@ class Database:
 
         self.weights = {}
 
-        if structure_folder_name != "":
-            self.load_structures()
+        # if structure_folder_name != "":
+        #     self.load_structures()
 
         if info_folder_name != "":
             self.load_true_values()
@@ -67,9 +68,9 @@ class Database:
     def load_true_values(self):
         min_energy = None
 
-        # for file_name in glob.glob(self.true_values_folder_path + "/*")[:4]:
-        for short_name in self.structures.keys():
-            file_name = self.true_values_folder_path + "/info." + short_name
+        # for short_name in self.structures.keys():
+        for file_name in glob.glob(self.true_values_folder_path + "/*")[:2]:
+            # file_name = self.true_values_folder_path + "/info." + short_name
             if "metadata" not in file_name:
 
                 # assumes file_name is of form "*/info.[struct_name]"
@@ -89,6 +90,7 @@ class Database:
 
                 self.true_energies[short_name] = eng
                 self.true_forces[short_name] = fcs
+                self.natoms[short_name] = fcs.shape[0]
             else:
                 # each line should be of the form "[data_name] [data]"
                 for line in open(file_name):

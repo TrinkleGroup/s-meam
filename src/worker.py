@@ -706,18 +706,6 @@ class Worker:
 
     # @profile
     def energy_gradient_wrt_pvec(self, pvec, u_ranges):
-        pvec = np.atleast_2d(pvec)
-
-        # # assumption: U additional params look like (lhs_knot, rhs_knot, nknots)
-        # u_additional_params = pvec[:, -2*self.ntypes:]
-        #
-        # u_ranges = []
-        #
-        # for params in np.split(u_additional_params, self.ntypes, axis=1):
-        #     u_ranges.append(params[:, :2])
-        #
-        # parameters = pvec[:, :-2*self.ntypes]
-
         parameters = np.atleast_2d(pvec)
         gradient = np.zeros(parameters.shape)
 
@@ -830,9 +818,9 @@ class Worker:
 
                     stack[:, l, :] = scaled_sv[:, sample_indices]
 
-                # stack = stack @ coeffs_for_fk
                 stack = np.einsum('pzk,pk->pz', stack, coeffs_for_fk)
-                gradient[:, ffg_indices[k]:ffg_indices[k] + n_fj] += stack
+
+                gradient[:, ffg_indices[k]:ffg_indices[k] + n_fk] += stack
 
                 stack = np.zeros((self.n_pots, n_g, n_fj*n_fk))
 
@@ -1038,8 +1026,8 @@ class Worker:
                 stack_upp = np.einsum('pzakt,pt->pzak', stack_upp,coeffs_for_fk)
 
                 tmp_ind = ffg_indices[k]
-                gradient[:, :, :, tmp_ind:tmp_ind + n_fj] += stack_up
-                gradient[:, :, :, tmp_ind:tmp_ind + n_fj] += stack_upp
+                gradient[:, :, :, tmp_ind:tmp_ind + n_fk] += stack_up
+                gradient[:, :, :, tmp_ind:tmp_ind + n_fk] += stack_upp
 
                 stack_up = np.zeros((self.n_pots, self.natoms, 3, n_g,
                                      n_fj*n_fk))

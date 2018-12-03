@@ -53,7 +53,7 @@ NTYPES = 2
 if len(sys.argv) > 1:
     POP_SIZE = int(sys.argv[1])
 else:
-    POP_SIZE = 7
+    POP_SIZE = 1
 
 NUM_GENS = 10
 CXPB = 1.0
@@ -87,7 +87,7 @@ CHECK_BEFORE_OVERWRITE = False
 BASE_PATH = "/home/jvita/scripts/s-meam/"
 
 # LOAD_PATH = "data/fitting_databases/fixU/"
-LOAD_PATH = BASE_PATH + "data/fitting_databases/mini/"
+LOAD_PATH = BASE_PATH + "data/fitting_databases/pinchao/"
 # LOAD_PATH = "/projects/sciteam/baot/fixU-clean/"
 SAVE_PATH = BASE_PATH + "data/results/"
 
@@ -98,7 +98,7 @@ if os.path.isdir(SAVE_DIRECTORY):
     SAVE_DIRECTORY = SAVE_DIRECTORY + '-' + str(np.random.randint(100000))
 
 DB_PATH = LOAD_PATH + 'structures'
-DB_INFO_FILE_NAME = LOAD_PATH + 'info'
+DB_INFO_FILE_NAME = LOAD_PATH + 'rhophi/info'
 POP_FILE_NAME = SAVE_DIRECTORY + "/pop.dat"
 LOG_FILE_NAME = SAVE_DIRECTORY + "/ga.log"
 TRACE_FILE_NAME = SAVE_DIRECTORY + "/trace.dat"
@@ -135,6 +135,7 @@ def main():
         struct_files = glob.glob(DB_PATH + "/*")
 
         # TODO: have each manager read in its subset
+        # TODO: master_node should only store info, not workers
         master_database = Database(DB_PATH, DB_INFO_FILE_NAME)
         master_database.print_metadata()
 
@@ -142,12 +143,15 @@ def main():
         #     master_database, len(master_database.structures)
         # )
 
-        all_struct_names, structures = zip(*master_database.structures.items())
-        num_structs = len(structures)
+        # all_struct_names, structures = zip(*master_database.structures.items())
+        all_struct_names, struct_natoms = zip(*master_database.natoms.items())
+        num_structs = len(struct_natoms)
 
         worker_ranks = partools.compute_procs_per_subset(
-            structures, world_size
+            struct_natoms, world_size
         )
+
+        # del master_database.structures
 
         print("worker_ranks:", worker_ranks)
 
@@ -217,6 +221,7 @@ def main():
         """Master: returns all potentials for all structures"""
         if is_manager:
             pop = manager_comm.bcast(master_pop, root=0)
+            # pop = np.ones((POP_SIZE, 5))
         else:
             pop = None
 
@@ -361,6 +366,7 @@ def main():
     # Create the original population
     if is_master:
         master_pop = toolbox.population(n=POP_SIZE)
+        # TODO: create a ones() and ones()*2, then make sure work separately
     else:
         master_pop = None
 
@@ -715,7 +721,7 @@ def local_minimization(master_pop, toolbox, world_comm, is_master, nsteps=20):
         master_pop = []
 
         for ind in new_pop:
-            master_pop.append(creator.Individual(ind))
+            master_pop.insert(0, creator.Individual(ind))
 
     return master_pop
 
@@ -876,43 +882,84 @@ def find_spline_type_deliminating_indices(worker):
 def initialize_potential_template():
 
     # TODO: BW settings
+    # potential_template = Template(
+    #     pvec_len=137,
+    #     u_ranges = [(-1, 1), (-1, 1)],
+    #     spline_ranges=[(-1, 4), (-1, 4), (-1, 4), (-9, 3), (-9, 3),
+    #                    (-0.5, 1), (-0.5, 1), (-2, 3), (-2, 3), (-7, 2),
+    #                    (-7, 2), (-7, 2)],
+    #     spline_indices=[(0, 15), (15, 30), (30, 45), (45, 58), (58, 71),
+    #                      (71, 77), (77, 83), (83, 95), (95, 107),
+    #                      (107, 117), (117, 127), (127, 137)]
+    # )
+    #
+    # mask = np.ones(potential_template.pvec.shape)
+    #
+    # potential_template.pvec[12] = 0; mask[12] = 0 # rhs phi_A knot
+    # potential_template.pvec[14] = 0; mask[14] = 0 # rhs phi_A deriv
+    #
+    # potential_template.pvec[27] = 0; mask[27] = 0 # rhs phi_B knot
+    # potential_template.pvec[29] = 0; mask[29] = 0 # rhs phi_B deriv
+    #
+    # potential_template.pvec[42] = 0; mask[42] = 0 # rhs phi_B knot
+    # potential_template.pvec[44] = 0; mask[44] = 0 # rhs phi_B deriv
+    #
+    # potential_template.pvec[55] = 0; mask[55] = 0 # rhs rho_A knot
+    # potential_template.pvec[57] = 0; mask[57] = 0 # rhs rho_A deriv
+    #
+    # potential_template.pvec[68] = 0; mask[68] = 0 # rhs rho_B knot
+    # potential_template.pvec[70] = 0; mask[70] = 0 # rhs rho_B deriv
+    #
+    # potential_template.pvec[92] = 0; mask[92] = 0 # rhs f_A knot
+    # potential_template.pvec[94] = 0; mask[94] = 0 # rhs f_A deriv
+    #
+    # potential_template.pvec[104] = 0; mask[104] = 0 # rhs f_B knot
+    # potential_template.pvec[106] = 0; mask[106] = 0 # rhs f_B deriv
+    #
+    # # potential_template.pvec[83:] = 0; mask[83:] = 0 # EAM params only
+    # # potential_template.pvec[45:] = 0; mask[45:] = 0 # EAM params only
+    # potential_template.pvec[5:] = 0; mask[5:] = 0 # mini params only
+    #
+    # potential_template.active_mask = mask
+
+
+    potential = MEAM.from_file(LOAD_PATH + 'TiO.meam.spline')
+
+    x_pvec, seed_pvec, indices = src.meam.splines_to_pvec(
+        potential.splines)
+
     potential_template = Template(
-        pvec_len=137,
+        pvec_len=116,
         u_ranges = [(-1, 1), (-1, 1)],
-        spline_ranges=[(-1, 4), (-1, 4), (-1, 4), (-9, 3), (-9, 3),
-                       (-0.5, 1), (-0.5, 1), (-2, 3), (-2, 3), (-7, 2),
-                       (-7, 2), (-7, 2)],
-        spline_indices=[(0, 15), (15, 30), (30, 45), (45, 58), (58, 71),
-                         (71, 77), (77, 83), (83, 95), (95, 107),
-                         (107, 117), (117, 127), (127, 137)]
+        spline_ranges=[(-1, 4), (-0.5, 0.5), (-1, 1), (-9, 3), (-30, 15),
+                       (-0.5, 1), (-0.2, -0.4), (-2, 3), (-7.5, 12.5),
+                       (-8, 2), (-1, 1), (-1, 0.2)],
+        spline_indices=[(0, 15), (15, 22), (22, 37), (37, 50), (50, 57),
+                         (57, 63), (63, 70), (70, 82), (82, 89),
+                         (89, 99), (99, 106), (106, 116)]
     )
 
-    mask = np.ones(potential_template.pvec.shape)
+    mask = np.ones(potential_template.pvec_len)
 
-    potential_template.pvec[12] = 0; mask[12] = 0 # rhs phi_A knot
-    potential_template.pvec[14] = 0; mask[14] = 0 # rhs phi_A deriv
+    mask[:15] = 0 # phi_Ti
 
-    potential_template.pvec[27] = 0; mask[27] = 0 # rhs phi_B knot
-    potential_template.pvec[29] = 0; mask[29] = 0 # rhs phi_B deriv
+    potential_template.pvec[19] = 0; mask[19] = 0 # rhs phi_TiO knot
+    potential_template.pvec[21] = 0; mask[21] = 0 # rhs phi_TiO deriv
 
-    potential_template.pvec[42] = 0; mask[42] = 0 # rhs phi_B knot
-    potential_template.pvec[44] = 0; mask[44] = 0 # rhs phi_B deriv
+    mask[22:37] = 0 # phi_O
+    mask[37:50] = 0 # rho_Ti
 
-    potential_template.pvec[55] = 0; mask[55] = 0 # rhs rho_A knot
-    potential_template.pvec[57] = 0; mask[57] = 0 # rhs rho_A deriv
+    potential_template.pvec[54] = 0; mask[54] = 0 # rhs rho_O knot
+    potential_template.pvec[56] = 0; mask[56] = 0 # rhs rho_O deriv
 
-    potential_template.pvec[68] = 0; mask[68] = 0 # rhs rho_B knot
-    potential_template.pvec[70] = 0; mask[70] = 0 # rhs rho_B deriv
+    mask[57:63] = 0 # U_Ti
+    mask[70:82] = 0 # f_Ti
 
-    potential_template.pvec[92] = 0; mask[92] = 0 # rhs f_A knot
-    potential_template.pvec[94] = 0; mask[94] = 0 # rhs f_A deriv
+    potential_template.pvec[86] = 0; mask[86] = 0 # rhs f_O knot
+    potential_template.pvec[88] = 0; mask[88] = 0 # rhs f_O deriv
 
-    potential_template.pvec[104] = 0; mask[104] = 0 # rhs f_B knot
-    potential_template.pvec[106] = 0; mask[106] = 0 # rhs f_B deriv
-
-    # potential_template.pvec[83:] = 0; mask[83:] = 0 # EAM params only
-    # potential_template.pvec[45:] = 0; mask[45:] = 0 # EAM params only
-    potential_template.pvec[5:] = 0; mask[5:] = 0 # mini params only
+    mask[89:99] = 0 # g_Ti
+    mask[106:116] = 0 # g_O
 
     potential_template.active_mask = mask
 
