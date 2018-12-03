@@ -69,7 +69,7 @@ class Database:
         min_energy = None
 
         # for short_name in self.structures.keys():
-        for file_name in glob.glob(self.true_values_folder_path + "/*")[:2]:
+        for file_name in glob.glob(self.true_values_folder_path + "/*"):
             # file_name = self.true_values_folder_path + "/info." + short_name
             if "metadata" not in file_name:
 

@@ -961,6 +961,8 @@ def initialize_potential_template():
     mask[89:99] = 0 # g_Ti
     mask[106:116] = 0 # g_O
 
+    # potential_template.pvec[2:] = 0; mask[2:] = 0 # mini params only
+
     potential_template.active_mask = mask
 
     return potential_template

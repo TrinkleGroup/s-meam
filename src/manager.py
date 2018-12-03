@@ -57,6 +57,8 @@ class Manager:
     def compute_energy(self, master_pop):
         """Evaluates the structure energy for the whole population"""
 
+        # TODO: handle evaluating one potential at a time
+
         if self.proc_rank == 0:
             full = np.atleast_2d(master_pop)
             full = self.pot_template.insert_active_splines(full)
@@ -109,9 +111,12 @@ class Manager:
 
         pop = self.comm.scatter(full, root=0)
 
+        print("pop.shape", pop.shape)
         eng_grad = self.struct.energy_gradient_wrt_pvec(
             pop, self.pot_template.u_ranges
         )
+
+        print("eng_grad.shape", eng_grad.shape)
 
         all_eng_grad = self.comm.gather(eng_grad, root=0)
 
