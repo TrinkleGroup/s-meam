@@ -98,7 +98,7 @@ BASE_PATH = "/home/jvita/scripts/s-meam/"
 
 # LOAD_PATH = "data/fitting_databases/fixU/"
 LOAD_PATH = BASE_PATH + "data/fitting_databases/pinchao/"
-# LOAD_PATH = "/projects/sciteam/baot/fixU-clean/"
+# LOAD_PATH = "/projects/sciteam/baot/pz-unfx-cln/"
 SAVE_PATH = BASE_PATH + "data/results/"
 
 SAVE_DIRECTORY = SAVE_PATH + date_str + "-" + "meam" + "{}-{}".format(NUM_GENS,
@@ -1064,6 +1064,7 @@ def initialize_potential_template():
                         (89, 99), (99, 106), (106, 116)]
     )
 
+    potential_template.pvec = seed_pvec.copy()
     mask = np.ones(potential_template.pvec_len)
 
     mask[:15] = 0 # phi_Ti
@@ -1091,8 +1092,6 @@ def initialize_potential_template():
 
     mask[89:99] = 0  # g_Ti
     mask[106:116] = 0  # g_O
-
-    # potential_template.pvec[2:] = 0; mask[2:] = 0
 
     potential_template.active_mask = mask
 
