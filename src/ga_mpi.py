@@ -108,7 +108,7 @@ if os.path.isdir(SAVE_DIRECTORY):
     SAVE_DIRECTORY = SAVE_DIRECTORY + '-' + str(np.random.randint(100000))
 
 DB_PATH = LOAD_PATH + 'mini_structures'
-DB_INFO_FILE_NAME = LOAD_PATH + 'rhophi/info'
+DB_INFO_FILE_NAME = LOAD_PATH + 'mini/info'
 POP_FILE_NAME = SAVE_DIRECTORY + "/pop.dat"
 LOG_FILE_NAME = SAVE_DIRECTORY + "/ga.log"
 TRACE_FILE_NAME = SAVE_DIRECTORY + "/trace.dat"
@@ -143,7 +143,7 @@ def main():
         potential_template.print_statistics()
         print()
 
-        # rzm: nnatoms is reading from true values
+        # rzm: natoms is reading from true values
 
         struct_files = glob.glob(DB_PATH + "/*")
 
@@ -160,7 +160,6 @@ def main():
         all_struct_names, struct_natoms = zip(*master_database.natoms.items())
         num_structs = len(struct_natoms)
 
-        print("num_structs", num_structs)
         worker_ranks = partools.compute_procs_per_subset(
             struct_natoms, world_size
         )
@@ -308,7 +307,8 @@ def main():
                     s_id = all_struct_names.index(s_name)
                     r_id = all_struct_names.index(r_name)
 
-                    comp_ediff = w_energies[s_id] - w_energies[r_id]
+                    comp_ediff = w_energies[:, s_id] - w_energies[:, r_id]
+                    # comp_ediff = 0
 
                     eng_fitnesses[:, fit_id] = (comp_ediff - true_ediff) ** 2
 
@@ -407,7 +407,7 @@ def main():
                     s_id = all_struct_names.index(s_name)
                     r_id = all_struct_names.index(r_name)
 
-                    comp_ediff = w_energies[s_id] - w_energies[r_id]
+                    comp_ediff = w_energies[:, s_id] - w_energies[:, r_id]
 
                     eng_err = comp_ediff - true_ediff
                     s_grad = mgr_eng_grad[s_id]
@@ -444,10 +444,10 @@ def main():
     master_pop_shape = world_comm.bcast(master_pop.shape, root=0)
 
     # @profile
-    def call_grad():
-        return toolbox.gradient(master_pop)
+    # def call_grad():
+    #     return toolbox.gradient(master_pop)
 
-    init_fit = call_grad()
+    init_fit = toolbox.evaluate_population(master_pop)
 
     if is_master:
         init_fit = np.sum(init_fit, axis=1)
@@ -1018,7 +1018,7 @@ def initialize_potential_template():
 
     mask = np.ones(potential_template.pvec_len)
 
-    # mask[:15] = 0 # phi_Ti
+    mask[:15] = 0 # phi_Ti
 
     potential_template.pvec[19] = 0;
     mask[19] = 0  # rhs phi_TiO knot
@@ -1045,7 +1045,6 @@ def initialize_potential_template():
     mask[106:116] = 0  # g_O
 
     potential_template.pvec[2:] = 0;
-    mask[2:] = 0  # mini params only
 
     potential_template.active_mask = mask
 

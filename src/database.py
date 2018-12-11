@@ -131,6 +131,7 @@ class Database:
 
             for line in f:
                 struct_name, _, _, ref_name = line.split(" ")
+                ref_name = ref_name.strip()
 
                 eng = float(f.readline().strip())
                 self.reference_structs[struct_name] = reference(ref_name, eng)
