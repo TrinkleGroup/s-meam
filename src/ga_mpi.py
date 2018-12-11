@@ -77,7 +77,7 @@ FLAT_NSTEPS = 5
 
 DO_LMIN = False
 LMIN_FREQUENCY = 1
-INIT_NSTEPS = 30
+INIT_NSTEPS = 5
 INTER_NSTEPS = 5
 FINAL_NSTEPS = 30
 
@@ -287,7 +287,7 @@ def main():
                 # t_energies -= master_database.reference_energy
 
                 # eng_fitnesses = np.zeros((len(pop), num_structs))
-
+                #
                 # for s_id, (w_eng,t_eng) in enumerate(
                 #     zip(w_energies.T, t_energies)):
                 #     eng_fitnesses[:, s_id] = (w_eng - t_eng) ** 2
@@ -313,6 +313,8 @@ def main():
                     eng_fitnesses[:, fit_id] = (comp_ediff - true_ediff) ** 2
 
                 fitnesses = np.hstack([eng_fitnesses, fcs_fitnesses])
+
+                # print(np.sum(fitnesses, axis=1), flush=True)
 
         return fitnesses
 
@@ -425,11 +427,37 @@ def main():
 
         return gradient
 
+    # def fd_grad(pop):
+    #     h = 1e-4
+    #     pop = np.array(pop)
+    #     N = pop.shape[0]
+    #     cd_points = np.array([pop]*N*2)
+    #
+    #     for l in range(N):
+    #         cd_points[2*l, l] += h
+    #         cd_points[2*l+1, l] -= h
+    #
+    #     cd_evaluated = fxn_wrap(cd_points)
+    #     fx = fxn_wrap(np.atleast_2d(pop))
+    #
+    #     gradient = np.zeros((2, 13))
+    #     if is_master:
+    #         print(cd_evaluated)
+    #         print(cd_evaluated.shape)
+    #         for l in range(N):
+    #             # gradient[l] = (cd_evaluated[l] - fx) / h
+    #             gradient[l] = (cd_evaluated[l] - cd_evaluated[l+1]) / h / 2
+    #
+    #         gradient = gradient.T
+    #
+    #     return gradient
+
     # Have every process build the toolbox
     toolbox, creator = build_ga_toolbox(potential_template)
 
     toolbox.register("evaluate_population", fxn_wrap)
     toolbox.register("gradient", grad_wrap)
+    # toolbox.register("fd_gradient", fd_grad)
 
     # Create the original population
     if is_master:
@@ -448,13 +476,20 @@ def main():
     #     return toolbox.gradient(master_pop)
 
     init_fit = toolbox.evaluate_population(master_pop)
-
+    # seed = potential_template.pvec.copy()[np.where(potential_template.active_mask)[0]]
+    # my_init_grad = toolbox.gradient(np.atleast_2d(seed))
+    # fd_init_grad = fd_grad(seed)
+    #
     if is_master:
         init_fit = np.sum(init_fit, axis=1)
-        # print("MASTER: initial (UN-minimized) fitnesses:", init_fit, flush=True)
+        print("MASTER: initial (UN-minimized) fitnesses:", init_fit, flush=True)
         print("Average value:", np.average(init_fit), flush=True)
+        # print("my_init_grad:", my_init_grad, flush=True)
+        # print("fd_init_grad:", fd_init_grad, flush=True)
+        #
+        # print("my_init_grad.shape:", my_init_grad.shape, flush=True)
+        # print("fd_init_grad.shape:", fd_init_grad.shape, flush=True)
 
-    # return
 
     master_pop = local_minimization(
         master_pop, toolbox, world_comm, is_master, nsteps=INIT_NSTEPS
@@ -765,6 +800,7 @@ def local_minimization(master_pop, toolbox, world_comm, is_master, nsteps=20):
 
     def lm_grad_wrap(raveled_pop, original_shape):
         # shape: (num_pots, num_structs*2, num_params)
+
         grads = toolbox.gradient(
             raveled_pop.reshape(original_shape)
         )
@@ -786,6 +822,8 @@ def local_minimization(master_pop, toolbox, world_comm, is_master, nsteps=20):
 
         return padded_grad
 
+    # lm_grad_wrap = '2-point'
+
     master_pop = world_comm.bcast(master_pop, root=0)
     master_pop = np.array(master_pop)
 
@@ -796,10 +834,20 @@ def local_minimization(master_pop, toolbox, world_comm, is_master, nsteps=20):
 
     if is_master:
         new_pop = opt_results['x'].reshape(master_pop.shape)
-        master_pop = []
+    else:
+        new_pop = None
 
-        for ind in new_pop:
-            master_pop.insert(0, creator.Individual(ind))
+    org_fits = toolbox.evaluate_population(master_pop)
+    new_fits = toolbox.evaluate_population(new_pop)
+
+    if is_master:
+        updated_master_pop = list(master_pop)
+
+        for i, ind in enumerate(new_pop):
+            if np.sum(new_fits[i]) < np.sum(org_fits[i]):
+                updated_master_pop[i] = creator.Individual(new_pop[i])
+
+        master_pop = updated_master_pop
 
     return master_pop
 
@@ -1044,7 +1092,7 @@ def initialize_potential_template():
     mask[89:99] = 0  # g_Ti
     mask[106:116] = 0  # g_O
 
-    potential_template.pvec[2:] = 0;
+    # potential_template.pvec[2:] = 0; mask[2:] = 0
 
     potential_template.active_mask = mask
 
