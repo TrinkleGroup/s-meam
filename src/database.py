@@ -2,7 +2,7 @@ import os
 import glob
 import pickle
 import numpy as np
-import src.lammpsTools
+from collections import namedtuple
 
 class Database:
     def __init__(self, structure_folder_name="", info_folder_name=""):
@@ -17,7 +17,8 @@ class Database:
         self.natoms = {}
         self.true_energies = {}
         self.true_forces = {}
-        self.reference_struct = None
+        # self.reference_struct = None
+        self.reference_structs = {}
         self.reference_energy = None
 
         self.weights = {}
@@ -69,7 +70,7 @@ class Database:
         min_energy = None
 
         # for short_name in self.structures.keys():
-        for file_name in glob.glob(self.true_values_folder_path + "/*")[:8]:
+        for file_name in glob.glob(self.true_values_folder_path + "/*"):
             # file_name = self.true_values_folder_path + "/info." + short_name
             if "metadata" not in file_name:
 
@@ -110,13 +111,35 @@ class Database:
             print(tag + ":", " ".join(info))
 
     def __len__(self):
-        return len(self.structures)
+        return len(self.natoms)
+
+    def read_pinchao_formatting(self, directory_path):
+        reference = namedtuple('reference', 'ref_struct energy_difference')
+
+        for file_name in glob.glob(os.path.join(directory_path, 'force_*')):
+            with open(file_name) as f:
+                struct_name = f.readline().strip()
+
+            full = np.genfromtxt(file_name, skip_header=1)
+
+            self.true_forces[struct_name] = full[:, 1:] * full[:, 0, np.newaxis]
+
+        with open(os.path.join(directory_path, 'FittingDataEnergy.dat')) as f:
+
+            for _ in range(3):
+                _ = f.readline() # remove headers
+
+            for line in f:
+                struct_name, _, _, ref_name = line.split(" ")
+
+                eng = float(f.readline().strip())
+                self.reference_structs[struct_name] = reference(ref_name, eng)
+
 
 if __name__ == "__main__":
     db = Database(
         "data/fitting_databases/fixU-clean/structures",
         "data/fitting_databases/fixU-clean/rhophi/info",
-        ['H','He']
         )
 
     print("Database length:", len(db))
