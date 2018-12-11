@@ -20,7 +20,9 @@ import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 from scipy.optimize import least_squares
 from scipy.interpolate import CubicSpline
+# from scipy.sparse import csr_matrix
 from mpi4py import MPI
+# from memory_profiler import profile
 
 from deap import base, creator, tools, algorithms
 
@@ -55,19 +57,27 @@ if len(sys.argv) > 1:
 else:
     POP_SIZE = 1
 
-NUM_GENS = 10
-CXPB = 1.0
-
+# TODO: BW settings
 if len(sys.argv) > 2:
-    MUTPB = float(sys.argv[2])
+    NUM_GENS = int(sys.argv[2])
+else:
+    NUM_GENS = 10
+
+if len(sys.argv) > 3:
+    MUTPB = float(sys.argv[3])
 else:
     MUTPB = 0.5
 
+CXPB = 1.0
+
 RUN_NEW_GA = True
+
+FLATTEN_LANDSCAPE = False # define fitness as fitness of partially-minimized pot
+FLAT_NSTEPS = 5
 
 DO_LMIN = False
 LMIN_FREQUENCY = 1
-INIT_NSTEPS = 10
+INIT_NSTEPS = 30
 INTER_NSTEPS = 5
 FINAL_NSTEPS = 30
 
@@ -83,7 +93,7 @@ date_str = datetime.datetime.now().strftime("%Y-%m-%d")
 CHECK_BEFORE_OVERWRITE = False
 
 # TODO: BW settings
-
+BASE_PATH = ""
 BASE_PATH = "/home/jvita/scripts/s-meam/"
 
 # LOAD_PATH = "data/fitting_databases/fixU/"
@@ -134,14 +144,8 @@ def main():
 
         struct_files = glob.glob(DB_PATH + "/*")
 
-        # TODO: have each manager read in its subset
-        # TODO: master_node should only store info, not workers
         master_database = Database(DB_PATH, DB_INFO_FILE_NAME)
         master_database.print_metadata()
-
-        # manager_subsets, _, _ = group_database_subsets(
-        #     master_database, len(master_database.structures)
-        # )
 
         # all_struct_names, structures = zip(*master_database.structures.items())
         all_struct_names, struct_natoms = zip(*master_database.natoms.items())
@@ -151,13 +155,7 @@ def main():
             struct_natoms, world_size
         )
 
-        # del master_database.structures
-
         print("worker_ranks:", worker_ranks)
-
-        # TODO: each structure should READ the worker, not get passed it
-        # currently, this will probably require twice as much mem (during scat)
-
     else:
         structures = None
         manager_subsets = None
@@ -217,6 +215,14 @@ def main():
         manager.struct_name, DB_PATH + "/"
     )
 
+    # manager.struct = manager.broadcast_struct(tmp_struct)
+
+    for rank_id in range(1, worker_comm.Get_size()):
+        if manager_rank == 0:
+            worker_comm.send(tmp_struct, dest=rank_id, tag=1)
+        elif manager_rank == rank_id:
+            manager.struct = worker_comm.recv(tmp_struct, source=0, tag=1)
+
     def fxn_wrap(master_pop):
         """Master: returns all potentials for all structures"""
         if is_manager:
@@ -225,11 +231,18 @@ def main():
         else:
             pop = None
 
-        pop = worker_comm.bcast(pop, root=0)
+        if FLATTEN_LANDSCAPE:
+            master_pop = local_minimization(
+                master_pop, toolbox, world_comm, is_master, nsteps=FLAT_NSTEPS
+            )
 
+            pop = manager_comm.bcast(master_pop, root=0)
+
+        # pop = worker_comm.bcast(pop, root=0)
         eng = manager.compute_energy(pop)
         fcs = manager.compute_forces(pop)
 
+        # fitnesses = csr_matrix((pop.shape[0], 2 * num_structs))
         fitnesses = 0
 
         if is_manager:
@@ -274,6 +287,7 @@ def main():
 
         return fitnesses
 
+    # @profile
     def grad_wrap(master_pop):
         """Evalautes the gradient for all potentials in the population"""
 
@@ -282,7 +296,7 @@ def main():
         else:
             pop = None
 
-        pop = worker_comm.bcast(pop, root=0)
+        # pop = worker_comm.bcast(pop, root=0)
 
         eng = manager.compute_energy(pop)
         fcs = manager.compute_forces(pop)
@@ -290,6 +304,7 @@ def main():
         eng_grad = manager.compute_energy_grad(pop)
         fcs_grad = manager.compute_forces_grad(pop)
 
+        # gradient = csr_matrix((pop.shape[0], 2 * num_structs, pop.shape[1]))
         gradient = 0
 
         if is_manager:
@@ -366,17 +381,27 @@ def main():
     # Create the original population
     if is_master:
         master_pop = toolbox.population(n=POP_SIZE)
-        # TODO: create a ones() and ones()*2, then make sure work separately
+        # master_pop = np.ones(np.array(master_pop).shape)
     else:
-        master_pop = None
+        master_pop = 0
 
-    master_pop = world_comm.bcast(master_pop, root=0)
+    # TODO: making array probably destroys Individuals
+    master_pop = np.array(master_pop)
 
-    init_fit = toolbox.evaluate_population(master_pop)
+    master_pop_shape = world_comm.bcast(master_pop.shape, root=0)
+
+    # @profile
+    def call_grad():
+        return toolbox.gradient(master_pop)
+
+    init_fit = call_grad()
 
     if is_master:
         init_fit = np.sum(init_fit, axis=1)
-        print("MASTER: initial (UN-minimized) fitnesses:", init_fit, flush=True)
+        # print("MASTER: initial (UN-minimized) fitnesses:", init_fit, flush=True)
+        print("Average value:", np.average(init_fit), flush=True)
+
+    # return
 
     master_pop = local_minimization(
         master_pop, toolbox, world_comm, is_master, nsteps=INIT_NSTEPS
@@ -673,6 +698,7 @@ def print_statistics(pop, gen_num, stats, logbook):
     print(logbook.stream, flush=True)
 
 
+# @profile
 def local_minimization(master_pop, toolbox, world_comm, is_master, nsteps=20):
 
     def lm_fxn_wrap(raveled_pop, original_shape):
@@ -681,10 +707,6 @@ def local_minimization(master_pop, toolbox, world_comm, is_master, nsteps=20):
         )
 
         val = world_comm.bcast(val, root=0)
-
-        # if is_master:
-        #     print(np.sum(val, axis=1), flush=True)
-
         return val.ravel()
 
     def lm_grad_wrap(raveled_pop, original_shape):
@@ -704,11 +726,13 @@ def local_minimization(master_pop, toolbox, world_comm, is_master, nsteps=20):
         for pot_id, g in enumerate(grads):
             padded_grad[pot_id, :, pot_id, :] =  g
 
-        return padded_grad.reshape(
+        padded_grad = padded_grad.reshape(
             (num_pots * num_structs_2, num_pots * num_params)
         )
 
+        return padded_grad
 
+    master_pop = world_comm.bcast(master_pop, root=0)
     master_pop = np.array(master_pop)
 
     opt_results = least_squares(
@@ -941,7 +965,7 @@ def initialize_potential_template():
 
     mask = np.ones(potential_template.pvec_len)
 
-    mask[:15] = 0 # phi_Ti
+    # mask[:15] = 0 # phi_Ti
 
     potential_template.pvec[19] = 0; mask[19] = 0 # rhs phi_TiO knot
     potential_template.pvec[21] = 0; mask[21] = 0 # rhs phi_TiO deriv
@@ -961,7 +985,7 @@ def initialize_potential_template():
     mask[89:99] = 0 # g_Ti
     mask[106:116] = 0 # g_O
 
-    # potential_template.pvec[2:] = 0; mask[2:] = 0 # mini params only
+    potential_template.pvec[2:] = 0; mask[2:] = 0 # mini params only
 
     potential_template.active_mask = mask
 

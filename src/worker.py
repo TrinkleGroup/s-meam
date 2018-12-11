@@ -9,6 +9,7 @@ import scipy.sparse
 from scipy.sparse import lil_matrix
 import itertools
 from operator import itemgetter
+# from memory_profiler import profile
 import collections
 
 from ase.neighborlist import NeighborList
@@ -36,7 +37,6 @@ class Worker:
 
     # TODO: in general, need more descriptive variable/function names
 
-    # @profile
     def __init__(self, atoms, knot_xcoords, x_indices, types, load_file=False):
         """Organizes data structures and pre-computes structure information.
 
@@ -223,18 +223,6 @@ class Worker:
         # convert arrays to avoid having to convert on call
         self.type_of_each_atom = np.array(self.type_of_each_atom)
 
-        # outfile1 = open("rij.dat", 'ab')
-#         outfile2 = open("cos_theta.dat", 'ab')
-
-        # np.savetxt(outfile1, all_rij)
-        # np.savetxt(outfile2, all_costheta)
-
-        # outfile1.close()
-        # outfile2.close()
-
-        # self.all_rijj = all_rij
-        # self.all_costheta = all_costheta
-
     @classmethod
     def from_hdf5(cls, hdf5_file, name):
         worker_data = hdf5_file[name]
@@ -307,7 +295,6 @@ class Worker:
             for j,sp in enumerate(ffg_list):
                 sp.add_to_hdf5(mini_group, str(j))
 
-    # @profile
     def build_spline_lists(self, knot_xcoords, x_indices):
         """
         Builds lists of phi, rho, u, f, and g WorkerSpline objects
@@ -374,7 +361,6 @@ class Worker:
 
         return ffg_list
 
-    # @profile
     def compute_energy(self, parameters, u_ranges):
         """Calculates energies for all potentials using information
         pre-computed during initialization.
@@ -389,19 +375,6 @@ class Worker:
         """
         parameters = np.array(parameters)
         parameters = np.atleast_2d(parameters)
-
-        # TODO: u_params needs to be able to handle multiple pots at once
-
-        # assumption: U additional params look like (lhs_knot, rhs_knot)
-        # u_additional_params = parameters[:, -2*self.ntypes:]
-        #
-        # u_ranges = []
-        #
-        # # print('u_params', u_additional_params.shape)
-        # for params in np.split(u_additional_params, self.ntypes, axis=1):
-        #     u_ranges.append(params[:, :2])
-        #
-        # parameters = parameters[:, :-2*self.ntypes]
 
         self.n_pots = parameters.shape[0]
 
@@ -422,7 +395,6 @@ class Worker:
 
         return energy#, ni_sorted
 
-    # @profile
     def compute_ni(self, rho_pvecs, f_pvecs, g_pvecs):
         """
         Computes ni values for all atoms
@@ -449,15 +421,10 @@ class Worker:
 
                 ni += ffg.calc_energy(y_fj, y_fk, y_g)
 
-        # outfile = open("ni.dat", 'ab')
-        # np.savetxt(outfile, ni.ravel())
-        # outfile.close()
-
         self.all_ni = ni
 
         return ni
 
-    # @profile
     def embedding_energy(self, ni, u_pvecs, new_range):
         """
         Computes embedding energy
@@ -473,9 +440,6 @@ class Worker:
         u_energy = np.zeros(self.n_pots)
 
         ni_sorted = np.zeros(len(u_pvecs))
-
-        # TODO: this splitting may not be working properly
-        # TODO: confirm potential accuracy (make tests????)
 
         # Evaluate U, U', and compute zero-point energies
         for i,(y,u) in enumerate(zip(u_pvecs, self.us)):
@@ -500,7 +464,6 @@ class Worker:
 
         return u_energy, ni_sorted
 
-    # @profile
     def evaluate_uprimes(self, ni, u_pvecs, u_ranges, second=False):
         """
         Computes U' values for every atom
@@ -557,7 +520,6 @@ class Worker:
         if second: return uprimes, uprimes_2
         else: return uprimes
 
-    # @profile
     def compute_forces(self, parameters, u_ranges):
         """Calculates the force vectors on each atom using the given spline
         parameters.
@@ -568,17 +530,6 @@ class Worker:
             u_ranges (list): list of tuples of (lhs_knot, rhs_knot)
         """
         parameters = np.atleast_2d(parameters)
-
-        # # assumption: U additional params look like (lhs_knot, rhs_knot, nknots)
-        # u_additional_params = parameters[:, -2*self.ntypes:]
-        #
-        # u_ranges = []
-        #
-        # for params in np.split(u_additional_params, self.ntypes, axis=1):
-        #     u_ranges.append(params[:, :2])
-        #
-        # parameters = parameters[:, :-2*self.ntypes]
-
         self.n_pots = parameters.shape[0]
 
         phi_pvecs, rho_pvecs, u_pvecs, f_pvecs, g_pvecs = \
@@ -598,10 +549,7 @@ class Worker:
         embedding_forces = np.zeros((self.n_pots, 3*self.natoms*self.natoms))
 
         for rho_idx, (rho, y) in enumerate(zip(self.rhos, rho_pvecs)):
-
-            rho_forces = rho.calc_forces(y)
-
-            embedding_forces += rho_forces
+            embedding_forces += rho.calc_forces(y)
 
         # Angular terms (ffg)
         for j, ffg_list in enumerate(self.ffgs):
@@ -611,9 +559,7 @@ class Worker:
                 y_fk = f_pvecs[k]
                 y_g = g_pvecs[src.meam.ij_to_potl(j+1, k+1, self.ntypes)]
 
-                ffg_forces = ffg.calc_forces(y_fj, y_fk, y_g)
-
-                embedding_forces += ffg_forces
+                embedding_forces += ffg.calc_forces(y_fj, y_fk, y_g)
 
         N = self.natoms
 
@@ -622,7 +568,6 @@ class Worker:
 
         return forces + embedding_forces
 
-    # @profile
     def parse_parameters(self, parameters):
         """Separates the pre-ordered array of vectors of all spline parameters
         into groups.
@@ -781,17 +726,17 @@ class Worker:
                 coeffs_for_fk = np.einsum("pi,pk->pik", y_fj, y_g)
                 coeffs_for_g = np.einsum("pi,pk->pik", y_fj, y_fk)
 
-                coeffs_for_fj = coeffs_for_fj.reshape((self.n_pots,
-                                                       y_fk.shape[1]*
-                                                       y_g.shape[1]))
+                coeffs_for_fj = coeffs_for_fj.reshape(
+                    (self.n_pots, y_fk.shape[1] * y_g.shape[1])
+                )
 
-                coeffs_for_fk = coeffs_for_fk.reshape((self.n_pots,
-                                                       y_fj.shape[1]*
-                                                       y_g.shape[1]))
+                coeffs_for_fk = coeffs_for_fk.reshape(
+                    (self.n_pots, y_fj.shape[1] * y_g.shape[1])
+                )
 
-                coeffs_for_g = coeffs_for_g.reshape((self.n_pots,
-                                                     y_fj.shape[1]*
-                                                     y_fk.shape[1]))
+                coeffs_for_g = coeffs_for_g.reshape(
+                    (self.n_pots, y_fj.shape[1] * y_fk.shape[1])
+                )
 
                 # every ffgSpline affects grad(f_j), grad(f_k), and grad(g)
 
@@ -830,7 +775,6 @@ class Worker:
 
                     stack[:, l, :] = scaled_sv[:, sample_indices]
 
-                # stack = stack @ coeffs_for_g
                 stack = np.einsum('pzk,pk->pz', stack, coeffs_for_g)
 
                 tmp_idx = ffg_indices[self.ntypes + g_idx]
@@ -839,21 +783,14 @@ class Worker:
         return gradient
 
     # @profile
-    def forces_gradient_wrt_pvec(self, pvec, u_ranges):
-        # assumption: U additional params look like (lhs_knot, rhs_knot, nknots)
-        # u_additional_params = pvec[:, -2*self.ntypes:]
-        #
-        # u_ranges = []
-        #
-        # for params in np.split(u_additional_params, self.ntypes, axis=1):
-        #     u_ranges.append(params[:, :2])
-        #
-        # parameters = pvec[:, :-2*self.ntypes]
-
+    def forces_gradient_wrt_pvec(self, pvec, u_ranges, sparse=False):
         parameters = np.atleast_2d(pvec)
         self.n_pots = parameters.shape[0]
 
-        gradient = np.zeros((self.n_pots, self.natoms, 3, self.len_param_vec))
+        if sparse:
+            raise NotImplementedError("Sparsity for gradients needs to be done")
+        else:
+            gradient = np.zeros((self.n_pots, self.natoms, 3, self.len_param_vec))
 
         phi_pvecs, rho_pvecs, u_pvecs, f_pvecs, g_pvecs = \
             self.parse_parameters(np.atleast_2d(parameters))
@@ -956,6 +893,7 @@ class Worker:
 
                 ffg_e_sv = ffg.structure_vectors['energy']
 
+                # TODO: this gets huge if evaluating lots of pots on many atoms
                 upp_contrib = np.zeros((self.n_pots, N, 3, full_len))
 
                 scaled_by_upp = np.einsum('pz,zk->pzk', uprimes_2, ffg_e_sv)
@@ -968,7 +906,7 @@ class Worker:
                 scaled_sv = ffg_sv
                 up_contrib = np.einsum('pz,aizk->paik', uprimes, scaled_sv)
 
-                up_contrib = np.transpose(up_contrib, axes=(0,2,1,3))
+                up_contrib = np.transpose(up_contrib, axes=(0, 2, 1, 3))
 
                 # Group terms and add to gradient
 
@@ -976,31 +914,34 @@ class Worker:
                 coeffs_for_fk = np.einsum("pi,pk->pik", y_fj, y_g)
                 coeffs_for_g = np.einsum("pi,pk->pik", y_fj, y_fk)
 
-                coeffs_for_fj = coeffs_for_fj.reshape((self.n_pots,
-                                                       y_fk.shape[1]*
-                                                       y_g.shape[1]))
+                coeffs_for_fj = coeffs_for_fj.reshape(
+                    (self.n_pots, y_fk.shape[1] * y_g.shape[1])
+                )
 
-                coeffs_for_fk = coeffs_for_fk.reshape((self.n_pots,
-                                                       y_fj.shape[1]*
-                                                       y_g.shape[1]))
+                coeffs_for_fk = coeffs_for_fk.reshape(
+                    (self.n_pots, y_fj.shape[1] * y_g.shape[1])
+                )
 
-                coeffs_for_g = coeffs_for_g.reshape((self.n_pots,
-                                                     y_fj.shape[1]*
-                                                     y_fk.shape[1]))
+                coeffs_for_g = coeffs_for_g.reshape(
+                    (self.n_pots, y_fj.shape[1] * y_fk.shape[1])
+                )
 
                 # pre-computed indices for outer product indexing
                 indices_tuple = self.ffg_grad_indices[j][k]
 
-                stack_up = np.zeros((self.n_pots, self.natoms, 3, n_fj,
-                                     n_fk*n_g))
-                stack_upp = np.zeros((self.n_pots, self.natoms, 3, n_fj,
-                                      n_fk*n_g))
+                stack_up = np.zeros(
+                    (self.n_pots, self.natoms, 3, n_fj, n_fk*n_g)
+                )
+
+                stack_upp = np.zeros(
+                    (self.n_pots, self.natoms, 3, n_fj, n_fk*n_g)
+                )
 
                 for l in range(n_fj):
                     sample_indices = indices_tuple['fj_indices'][l]
 
                     stack_up[:, :, :, l, :] = up_contrib[:, :, :,sample_indices]
-                    stack_upp[:, :, :, l, :] = upp_contrib[:, :,:,sample_indices]
+                    stack_upp[:, :, :, l, :] = upp_contrib[:,:,:,sample_indices]
 
                 stack_up = np.einsum('pzakt,pt->pzak', stack_up, coeffs_for_fj)
                 stack_upp = np.einsum('pzakt,pt->pzak', stack_upp,coeffs_for_fj)
@@ -1009,10 +950,13 @@ class Worker:
                 gradient[:, :, :, tmp_ind:tmp_ind + n_fj] += stack_up
                 gradient[:, :, :, tmp_ind:tmp_ind + n_fj] += stack_upp
 
-                stack_up = np.zeros((self.n_pots, self.natoms, 3, n_fk,
-                                     n_fj*n_g))
-                stack_upp = np.zeros((self.n_pots, self.natoms, 3, n_fk,
-                                      n_fj*n_g))
+                stack_up = np.zeros(
+                    (self.n_pots, self.natoms, 3, n_fk, n_fj*n_g)
+                )
+
+                stack_upp = np.zeros(
+                    (self.n_pots, self.natoms, 3, n_fk, n_fj*n_g)
+                )
 
                 for l in range(n_fk):
                     sample_indices = indices_tuple['fk_indices'][l]
@@ -1029,10 +973,13 @@ class Worker:
                 gradient[:, :, :, tmp_ind:tmp_ind + n_fk] += stack_up
                 gradient[:, :, :, tmp_ind:tmp_ind + n_fk] += stack_upp
 
-                stack_up = np.zeros((self.n_pots, self.natoms, 3, n_g,
-                                     n_fj*n_fk))
-                stack_upp = np.zeros((self.n_pots, self.natoms, 3, n_g,
-                                      n_fj*n_fk))
+                stack_up = np.zeros(
+                    (self.n_pots, self.natoms, 3, n_g, n_fj*n_fk)
+                )
+
+                stack_upp = np.zeros(
+                    (self.n_pots, self.natoms, 3, n_g, n_fj*n_fk)
+                )
 
                 for l in range(n_g):
                     sample_indices = indices_tuple['g_indices'][l]

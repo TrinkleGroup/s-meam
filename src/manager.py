@@ -3,6 +3,7 @@ import logging
 import numpy as np
 import src.partools as partools
 from mpi4py import MPI
+# from memory_profiler import profile
 
 LOGGING = False
 
@@ -34,25 +35,19 @@ class Manager:
         self.struct_name = None
         self.struct = None
 
+    # @profile
     def load_structure(self, struct_name, db_path):
 
         if self.proc_rank == 0:
-            # if self.struct is None:
-            #     print(
-            #         "Manager " + str(self.id) + " is loading " + struct_name,
-            #     )
-            # else:
-            #     print(
-            #         "Manager " + str(self.id) + " is overwriting " + \
-            #         self.struct_name + " with " + struct_name,
-            #     )
             struct = pickle.load(open(db_path + struct_name + '.pkl', 'rb'))
         else:
             struct = None
 
-        struct = self.comm.bcast(struct, root=0)
-
         return struct
+
+    # @profile
+    def broadcast_struct(self, struct):
+        return self.comm.bcast(struct, root=0)
 
     def compute_energy(self, master_pop):
         """Evaluates the structure energy for the whole population"""
@@ -111,12 +106,9 @@ class Manager:
 
         pop = self.comm.scatter(full, root=0)
 
-        print("pop.shape", pop.shape)
         eng_grad = self.struct.energy_gradient_wrt_pvec(
             pop, self.pot_template.u_ranges
         )
-
-        print("eng_grad.shape", eng_grad.shape)
 
         all_eng_grad = self.comm.gather(eng_grad, root=0)
 
