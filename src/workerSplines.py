@@ -414,22 +414,8 @@ class ffgSpline:
 
         ffg = cls(fj, fk, g, natoms)
 
-        # e_sv_data = ffg_data['e_sv.data']
-        # e_sv_indices = ffg_data['e_sv.indices']
-        # e_sv_indptr = ffg_data['e_sv.indptr']
-        # e_sv_shape = ffg_data['e_sv.shape']
-
-        # ffg.structure_vectors['energy'] = csr_matrix(
-        #         (e_sv_data, e_sv_indices, e_sv_indptr), shape=e_sv_shape)
         ffg.structure_vectors['energy'] = ffg_data['e_sv']
 
-        # f_sv_data = ffg_data['f_sv.data']
-        # f_sv_indices = ffg_data['f_sv.indices']
-        # f_sv_indptr = ffg_data['f_sv.indptr']
-        # f_sv_shape = ffg_data['f_sv.shape']
-        #
-        # ffg.structure_vectors['forces'] = csr_matrix(
-        #         (f_sv_data, f_sv_indices, f_sv_indptr), shape=f_sv_shape)
         ffg.structure_vectors['forces'] = ffg_data['f_sv']
 
         return ffg
@@ -439,17 +425,8 @@ class ffgSpline:
 
         new_group.attrs['natoms'] = self.natoms
 
-        # assumes scipy sparse CSR
-        # new_group.create_dataset('e_sv.data', data=self.structure_vectors['energy'].data)
-        # new_group.create_dataset('e_sv.indices', data=self.structure_vectors['energy'].indices)
-        # new_group.create_dataset('e_sv.indptr', data=self.structure_vectors['energy'].indptr)
-        # new_group.create_dataset('e_sv.shape', data=self.structure_vectors['energy'].shape)
         new_group.create_dataset('e_sv', data=self.structure_vectors['energy'])
 
-        # new_group.create_dataset('f_sv.data', data=self.structure_vectors['forces'].data)
-        # new_group.create_dataset('f_sv.indices', data=self.structure_vectors['forces'].indices)
-        # new_group.create_dataset('f_sv.indptr', data=self.structure_vectors['forces'].indptr)
-        # new_group.create_dataset('f_sv.shape', data=self.structure_vectors['forces'].shape)
         new_group.create_dataset('f_sv', data=self.structure_vectors['forces'])
 
         self.fj.add_to_hdf5(new_group, 'fj', save_sv=False)

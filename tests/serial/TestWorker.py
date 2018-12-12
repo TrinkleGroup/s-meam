@@ -1,4 +1,6 @@
 import os
+import sys
+sys.path.append('/home/jvita/scripts/s-meam/project/')
 import numpy as np
 np.random.seed(42)
 
@@ -16,6 +18,7 @@ from src.worker import Worker
 #np.random.seed(237907459)
 
 import tests.testPotentials
+from tests.serial.testVars import a0
 
 from tests.testStructs import dimers, trimers, bulk_vac_ortho, \
     bulk_periodic_ortho, bulk_vac_rhombo, bulk_periodic_rhombo, extra
@@ -57,15 +60,8 @@ if bulk_flag:
     allstructs = {**allstructs, **bulk_vac_ortho, **bulk_periodic_ortho,
                   **bulk_vac_rhombo, **bulk_periodic_rhombo, **extra}
 
-
-# allstructs = {'bulk_vac_ortho_type1':bulk_vac_ortho['bulk_vac_ortho_type1'],}
-#               'bulk_vac_ortho_type1_v2':bulk_vac_ortho['bulk_vac_ortho_type1']}
-# allstructs = {'aa':dimers['aa']}
-# allstructs = {'4_atom':extra['4_atoms']}
-# import lammpsTools
-# lammpsTools.atoms_to_LAMMPS_file('../data/structs/data.4atoms',
-#                                  allstructs['4_atom'])
 allstructs = {**allstructs, '8_atoms':extra['8_atoms']}
+# allstructs = {'aa':allstructs['aa']}
 
 full_start = time.time()
 
@@ -82,8 +78,6 @@ def loader_energy(group_name, calculated, lammps):
 
         np.set_printoptions(precision=16)
 
-        # logging.info("LAMMPS = {0}".format(lammps[name][0]))
-        # logging.info("WORKER = {0}".format(calculated[name]))
         test_name = group_name + '_' + name + '_energy'
         load_tests.append((test_name, calculated[name], lammps[name]))
 
@@ -99,8 +93,6 @@ def loader_forces(group_name, calculated, lammps):
     for name in calculated.keys():
         test_name = group_name + '_' + name + '_forces'
         np.set_printoptions(precision=16)
-        # logging.info("LAMMPS =\n{0}".format(lammps[name][0]))
-        # logging.info("WORKER =\n{0}".format(calculated[name]))
         load_tests.append((test_name, calculated[name], lammps[name][0]))
 
     return load_tests
@@ -125,25 +117,22 @@ def get_lammps_results(pots, structs):
         for name in structs.keys():
             atoms = structs[name]
 
-            # lmp_p.compute_energy(atoms)
-            # lmp_p.compute_forces(atoms)
-
             results = lmp_p.get_lammps_results(atoms)
-            lmp_energies[name][pnum] = results['energy'] / len(atoms)
-            # lmp_energies[name][pnum] = lmp_p.compute_energy(atoms) / len(atoms)
-            # print("ASE results = {:.16f}\n".format(results['energy']))
-            lmp_forces[name].append(results['forces'] / len(atoms))
-            # lmp_forces[name].append(lmp_p.compute_forces(atoms) / len(atoms))
+            # lmp_energies[name][pnum] = results['energy'] / len(atoms)
+            # lmp_forces[name].append(results['forces'] / len(atoms))
 
-            # TODO: LAMMPS runtimes are inflated due to ASE internal read/write
-            # TODO: need to create shell script to get actual runtimes
+            lmp_energies[name][pnum] = lmp_p.compute_energy(atoms) / len(atoms)
+            lmp_forces[name].append(lmp_p.compute_forces(atoms) / len(atoms))
 
     return lmp_energies, lmp_forces
 
 
 # @profile
-def runner_energy(pots, structs):
+def runner_energy(pots, structs, u_ranges):
     x_pvec, y_pvec, indices = src.meam.splines_to_pvec(pots[0].splines)
+    # logging.info("x_pvec.shape: {0}".format(x_pvec.shape))
+    # logging.info("x_pvec: {0}".format(x_pvec))
+    # logging.info("a0: {0}".format(a0))
 
     wrk_energies = {}
     for name in structs.keys():
@@ -152,12 +141,12 @@ def runner_energy(pots, structs):
         logging.info("COMPUTING: {0}".format(name))
         w = Worker(atoms, x_pvec, indices, pots[0].types)
         # TODO: to optimize, preserve workers for each struct
-        wrk_energies[name] = w.compute_energy(y_pvec) / len(atoms)
+        wrk_energies[name] = w.compute_energy(y_pvec, u_ranges) / len(atoms)
 
     return wrk_energies
 
 # @profile
-def runner_forces(pots, structs):
+def runner_forces(pots, structs, u_ranges):
     x_pvec, y_pvec, indices = src.meam.splines_to_pvec(pots[0].splines)
 
     wrk_forces = {}
@@ -166,7 +155,7 @@ def runner_forces(pots, structs):
         atoms = structs[name]
 
         w = Worker(atoms, x_pvec, indices, pots[0].types)
-        wrk_forces[name] = np.array(w.compute_forces(y_pvec) / len(atoms))
+        wrk_forces[name] = np.array(w.compute_forces(y_pvec, u_ranges) / len(atoms))
     logging.info(" ...... {0} second(s)".format(time.time() - start))
 
     return wrk_forces
@@ -209,7 +198,7 @@ if const_pots_flag:
         energies, forces = get_lammps_results([p], allstructs)
 
         if energy_flag:
-            calc_energies = runner_energy([p], allstructs)
+            calc_energies = runner_energy([p], allstructs, [(1, a0 + 1)]*2)
 
 
             @parameterized.expand(loader_energy('', calc_energies, energies))
@@ -218,7 +207,7 @@ if const_pots_flag:
                 np.testing.assert_almost_equal(diff, 0.0, decimal=DECIMAL)
 
         if forces_flag:
-            calc_forces = runner_forces([p], allstructs)
+            calc_forces = runner_forces([p], allstructs, [(1, a0 + 1)]*2)
 
 
             @parameterized.expand(loader_forces('', calc_forces, forces))
@@ -370,16 +359,18 @@ if rand_pots_flag:
         energies, forces = get_lammps_results(p, allstructs)
 
         if energy_flag:
-            calc_energies = runner_energy(p, allstructs)
+            calc_energies = runner_energy(p, allstructs, [(0, a0)]*2)
 
 
             @parameterized.expand(loader_energy('', calc_energies, energies))
             def test_random_potential_meam_energy(name, a, b):
+                logging.info("a: {0}".format(a))
+                logging.info("b: {0}".format(b))
                 diff = np.abs(a - b)
                 np.testing.assert_almost_equal(diff, 0.0, decimal=DECIMAL)
 
         if forces_flag:
-            calc_forces = runner_forces(p, allstructs)
+            calc_forces = runner_forces(p, allstructs, [(0, a0)]*2)
 
 
             @parameterized.expand(loader_forces('', calc_forces, forces))
@@ -533,30 +524,30 @@ if rand_pots_flag:
                 max_diff = np.max(np.abs(a - b))
                 np.testing.assert_almost_equal(max_diff, 0.0, decimal=DECIMAL)
 
-def test_hdf5():
-    import h5py
-    from tests.testStructs import allstructs
-
-    p = tests.testPotentials.get_random_pots(1)['meams'][0]
-    x_pvec, y_pvec, indices = src.meam.splines_to_pvec(p.splines)
-    y_pvec = np.atleast_2d(y_pvec)
-
-    atoms = allstructs['8_atoms']
-
-    w1 = Worker(atoms, x_pvec, indices, ['H', 'He'])
-
-    hdf5_file = h5py.File("test.hdf5", 'w')
-
-    w1.add_to_hdf5(hdf5_file, 'worker')
-    w2 = Worker.from_hdf5(hdf5_file, 'worker')
-
-    np.testing.assert_almost_equal(w1.compute_energy(y_pvec),
-            w2.compute_energy(y_pvec), decimal=DECIMAL)
-
-    np.testing.assert_almost_equal(w1.compute_forces(y_pvec),
-            w2.compute_forces(y_pvec), decimal=DECIMAL)
-
-    os.remove("test.hdf5")
+# def test_hdf5():
+#     import h5py
+#     from tests.testStructs import allstructs
+#
+#     p = tests.testPotentials.get_random_pots(1)['meams'][0]
+#     x_pvec, y_pvec, indices = src.meam.splines_to_pvec(p.splines)
+#     y_pvec = np.atleast_2d(y_pvec)
+#
+#     atoms = allstructs['8_atoms']
+#
+#     w1 = Worker(atoms, x_pvec, indices, ['H', 'He'])
+#
+#     hdf5_file = h5py.File("test.hdf5", 'w')
+#
+#     w1.add_to_hdf5(hdf5_file, 'worker')
+#     w2 = Worker.from_hdf5(hdf5_file, 'worker')
+#
+#     np.testing.assert_almost_equal(w1.compute_energy(y_pvec),
+#             w2.compute_energy(y_pvec), decimal=DECIMAL)
+#
+#     np.testing.assert_almost_equal(w1.compute_forces(y_pvec),
+#             w2.compute_forces(y_pvec), decimal=DECIMAL)
+#
+#     os.remove("test.hdf5")
 
 class GradientTests(unittest.TestCase):
 
@@ -585,10 +576,10 @@ class GradientTests(unittest.TestCase):
                 cd_points[2*l+1, l] -= h
 
             if type == 'energy':
-                cd_evaluated = worker.compute_energy(np.array(cd_points))
+                cd_evaluated = worker.compute_energy(np.array(cd_points), [(0, a0)]*2)
                 fd_gradient = np.zeros(N)
             elif type == 'forces':
-                cd_evaluated = worker.compute_forces(np.array(cd_points))
+                cd_evaluated = worker.compute_forces(np.array(cd_points), [(0, a0)]*2)
                 fd_gradient = np.zeros((worker.natoms, 3, worker.len_param_vec))
 
             for l in range(N):
@@ -615,8 +606,8 @@ class GradientTests(unittest.TestCase):
             fd_grad_e = self.fd_gradient_eval(pot.y_pvec, worker, 'energy')
             fd_grad_f = self.fd_gradient_eval(pot.y_pvec, worker, 'forces')
 
-            w_grad_e = worker.energy_gradient_wrt_pvec(pot.y_pvec)
-            w_grad_f = worker.forces_gradient_wrt_pvec(pot.y_pvec)
+            w_grad_e = worker.energy_gradient_wrt_pvec(pot.y_pvec, [(0, a0)]*2)
+            w_grad_f = worker.forces_gradient_wrt_pvec(pot.y_pvec, [(0, a0)]*2)
 
             fd_grad_e = fd_grad_e.reshape(w_grad_e.shape)
             fd_grad_f = fd_grad_f.reshape(w_grad_f.shape)
@@ -636,8 +627,8 @@ class GradientTests(unittest.TestCase):
             fd_grad_e = self.fd_gradient_eval(pot.y_pvec, worker, 'energy')
             fd_grad_f = self.fd_gradient_eval(pot.y_pvec, worker, 'forces')
 
-            w_grad_e = worker.energy_gradient_wrt_pvec(pot.y_pvec)
-            w_grad_f = worker.forces_gradient_wrt_pvec(pot.y_pvec)
+            w_grad_e = worker.energy_gradient_wrt_pvec(pot.y_pvec, [(0, a0)]*2)
+            w_grad_f = worker.forces_gradient_wrt_pvec(pot.y_pvec, [(0, a0)]*2)
 
             fd_grad_e = fd_grad_e.reshape(w_grad_e.shape)
             fd_grad_f = fd_grad_f.reshape(w_grad_f.shape)
@@ -657,8 +648,8 @@ class GradientTests(unittest.TestCase):
             fd_grad_e = self.fd_gradient_eval(pot.y_pvec, worker, 'energy')
             fd_grad_f = self.fd_gradient_eval(pot.y_pvec, worker, 'forces')
 
-            w_grad_e = worker.energy_gradient_wrt_pvec(pot.y_pvec)
-            w_grad_f = worker.forces_gradient_wrt_pvec(pot.y_pvec)
+            w_grad_e = worker.energy_gradient_wrt_pvec(pot.y_pvec, [(0, a0)]*2)
+            w_grad_f = worker.forces_gradient_wrt_pvec(pot.y_pvec, [(0, a0)]*2)
 
             fd_grad_e = fd_grad_e.reshape(w_grad_e.shape)
             fd_grad_f = fd_grad_f.reshape(w_grad_f.shape)
@@ -679,8 +670,8 @@ class GradientTests(unittest.TestCase):
             fd_grad_e = self.fd_gradient_eval(pot.y_pvec, worker, 'energy')
             fd_grad_f = self.fd_gradient_eval(pot.y_pvec, worker, 'forces')
 
-            w_grad_e = worker.energy_gradient_wrt_pvec(pot.y_pvec)
-            w_grad_f = worker.forces_gradient_wrt_pvec(pot.y_pvec)
+            w_grad_e = worker.energy_gradient_wrt_pvec(pot.y_pvec, [(0, a0)]*2)
+            w_grad_f = worker.forces_gradient_wrt_pvec(pot.y_pvec, [(0, a0)]*2)
 
             fd_grad_e = fd_grad_e.reshape(w_grad_e.shape)
             fd_grad_f = fd_grad_f.reshape(w_grad_f.shape)
@@ -700,8 +691,8 @@ class GradientTests(unittest.TestCase):
             fd_grad_e = self.fd_gradient_eval(pot.y_pvec, worker, 'energy')
             fd_grad_f = self.fd_gradient_eval(pot.y_pvec, worker, 'forces')
 
-            w_grad_e = worker.energy_gradient_wrt_pvec(pot.y_pvec)
-            w_grad_f = worker.forces_gradient_wrt_pvec(pot.y_pvec)
+            w_grad_e = worker.energy_gradient_wrt_pvec(pot.y_pvec, [(0, a0)]*2)
+            w_grad_f = worker.forces_gradient_wrt_pvec(pot.y_pvec, [(0, a0)]*2)
 
             fd_grad_e = fd_grad_e.reshape(w_grad_e.shape)
             fd_grad_f = fd_grad_f.reshape(w_grad_f.shape)
@@ -722,8 +713,8 @@ class GradientTests(unittest.TestCase):
                 fd_grad_e = self.fd_gradient_eval(pot.y_pvec, worker, 'energy')
                 fd_grad_f = self.fd_gradient_eval(pot.y_pvec, worker, 'forces')
 
-                w_grad_e = worker.energy_gradient_wrt_pvec(pot.y_pvec)
-                w_grad_f = worker.forces_gradient_wrt_pvec(pot.y_pvec)
+                w_grad_e = worker.energy_gradient_wrt_pvec(pot.y_pvec, [(0, a0)]*2)
+                w_grad_f = worker.forces_gradient_wrt_pvec(pot.y_pvec, [(0, a0)]*2)
 
                 fd_grad_e = fd_grad_e.reshape(w_grad_e.shape)
                 fd_grad_f = fd_grad_f.reshape(w_grad_f.shape)

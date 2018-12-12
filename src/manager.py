@@ -94,6 +94,7 @@ class Manager:
         return all_fcs
 
 
+    # @profile
     def compute_energy_grad(self, master_pop):
         """Evaluates the structure energy gradient for the whole population"""
 
@@ -117,6 +118,7 @@ class Manager:
 
         return all_eng_grad
 
+    # @profile
     def compute_forces_grad(self, master_pop):
         """Evaluates the structure for the whole population"""
 

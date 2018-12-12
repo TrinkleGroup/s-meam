@@ -221,13 +221,10 @@ class MEAM:
             num_neighbors = len(neighbors[0])
             num_neighbors_noboth = len(neighbors_noboth[0])
 
-            # logging.info("MEAM: num_noboth = {0}".format(num_neighbors_noboth))
-            # logging.info("MEAM: num = {0}".format(num_neighbors))
-
             # Build the list of shifted positions for atoms outside of unit cell
             neighbor_shifted_positions = []
 
-            #    neighbor_shifted_positions.append(neigh_pos)
+            # neighbor_shifted_positions.append(neigh_pos)
             indices, offsets = nl.get_neighbors(i)
             for idx, offset in zip(indices, offsets):
                 neigh_pos = atoms.positions[idx] + np.dot(offset,
@@ -237,7 +234,6 @@ class MEAM:
 
             # TODO: workaround for this if branch; do we even need it??
             if len(neighbors[0]) > 0:
-                tripcounter = 0
                 total_phi = 0.0
                 total_ni = 0.0
 
@@ -255,7 +251,7 @@ class MEAM:
 
                     phi_idx = ij_to_potl(itype, jtype, self.ntypes)
                     # logging.info("MEAM: phi_idx = {}".format(phi_idx))
-                    # logging.info("MEAM: phi({0}) = {1}".format(r_ij, phi(r_ij)))
+                    logging.info("MEAM: phi({0}) = {1}".format(r_ij, phi(r_ij)))
                     total_phi += phi(r_ij)
                 # end phi loop
 
@@ -302,44 +298,20 @@ class MEAM:
                             g_val = g(cos_theta)
 
                             partialsum += fk_val * g_val
-                            tripcounter += 1
-                            # logging.info("MEAM: ffg_type, i, ffg val = {0}, {1}, "
-                            #              "{2}".format(ij_to_potl(jtype, ktype,
-                            #                                      self.ntypes),
-                            #                           i, fj_val*partialsum))
-
-                            # logging.info("MEAM: cos_theta = {0}".format(cos_theta))
-                            # logging.info("MEAM: ffg = {0}".format(fj_val*partialsum))
-
-                            # logging.info("MEAM: rij, rik, cos = {0}\t{1}\t{"
-                            #              "2}".format(r_ij, r_ik, cos_theta))
-
-                            # logging.info("MEAM: j,i,k = {0},{1},{2}".format(
-                            #     neighbors[0][j], i, neighbors[0][k]))
-                            # logging.info("MEAM: {0}\t{1}\t{2}".format(
-                            #     fj_val, fk_val, g_val))
                     # end triplet loop
 
                     total_ni += fj_val * partialsum
                     total_ni += rho(r_ij)
-                    # logging.info("MEAM: rho({}) = {}".format(r_ij, rho(r_ij)))
-
-                    # logging.info("MEAM: fj_val = {0}".format(fj_val))
                 # end u loop
 
-                # logging.info("MEAM: u({0}) = {1}".format(total_ni,u(total_ni)))
-                # logging.info("MEAM: ni = {0}".format(total_ni))
-                # logging.info("MEAM: zero_point = {0}".format(
-                #     self.zero_atom_energies[i_to_potl(itype)]))
-                atom_e = total_phi + u(total_ni) - self.zero_atom_energies[
-                    i_to_potl(itype)]
+                logging.info("MEAM: u({0}) = {1}".format(total_ni,u(total_ni)))
+                atom_e = total_phi + u(total_ni)
 
                 all_ni.append(total_ni)
 
                 self.energies[i] = atom_e
                 total_pe += atom_e
 
-                # logging.info("MEAM: u' = {0}".format(u(total_ni, 1)))
                 self.uprimes[i] = u(total_ni, 1)
             # end atom loop
 
@@ -347,20 +319,7 @@ class MEAM:
         outfile_rij = open("meam_rij.dat", 'ab')
         outfile_costheta = open("meam_costheta.dat", 'ab')
 
-        # print("ni", len(all_ni))
-        # print("rij", len(all_rij))
-        # # print(len(all_costheta))
-        #
-        # np.savetxt(outfile_ni, all_ni)
-        # np.savetxt(outfile_rij, all_rij)
-        # np.savetxt(outfile_costheta, all_costheta)
-        #
-        # outfile_ni.close()
-        # outfile_rij.close()
-        # outfile_costheta.close()
-
-        # logging.info("MEAM: eng = {0}".format(total_pe))
-        return total_pe, all_ni
+        return total_pe#, all_ni
 
     def compute_forces(self, atoms):
         """Evaluates the energies for the given system using the MEAM potential,
@@ -463,50 +422,8 @@ class MEAM:
 
                             fij = -Uprime_i * g_val * fk_val * fj_prime
                             fik = -Uprime_i * g_val * fj_val * fk_prime
-
-                            # logging.info("MEAM: fij = {0}".format(fij))
-                            # logging.info("MEAM: fik = {0}".format(fik))
-
-                            # logging.info("MEAM: d0 = {0}".format(
-                            #     fj_prime*fk_val*g_val*jdel))
-                            #
-                            # logging.info("MEAM: d1 = {0}".format(
-                            #     fj_val*fk_val*g_prime*jdel*cos_theta))
-                            #
-                            # logging.info("MEAM: d2 = {0}".format(
-                            #     fj_val*fk_val*g_prime*kdel))
-                            #
-                            # logging.info("MEAM: d3 = {0}".format(
-                            #     fj_val*fk_prime*g_val*kdel))
-                            #
-                            # logging.info("MEAM: d4 = {0}".format(
-                            #     fj_val*fk_val*cos_theta*g_prime*kdel))
-                            #
-                            # logging.info("MEAM: d5 = {0}".format(
-                            #     fj_val*fk_val*g_prime*jdel))
-
-                            # logging.info("MEAM: d0 = {0} {1} {2}".format(
-                            #     fj_prime*jdel, fk_val*jdel, g_val*jdel))
-                            #
-                            # logging.info("MEAM: d1 = {0} {1} {2}".format(
-                            #     fj_val*jdel*cos_theta,
-                            #     fk_val*jdel*cos_theta, g_prime*jdel*cos_theta))
-                            #
-                            # logging.info("MEAM: d2 = {0} {1} {2}".format(
-                            #     fj_val*kdel, fk_val*kdel, g_prime*kdel))
-                            #
-                            # logging.info("MEAM: d3 = {0} {1} {2}".format(
-                            #     fj_val*kdel, fk_prime*kdel, g_val*kdel))
-                            #
-                            # logging.info("MEAM: d4 = {0} {1} {2}".format(
-                            #     fj_val*kdel*cos_theta,
-                            #     fk_val*kdel*cos_theta, g_prime*kdel*cos_theta))
-                            #
-                            # logging.info("MEAM: d5 = {0} {1} {2}".format(
-                            #     fj_val*jdel, fk_val*jdel, g_prime*jdel))
-
                             prefactor = Uprime_i * fj_val * fk_val * g_prime
-                            # logging.info("MEAM: prefactor = {0}".format(prefactor))
+
                             prefactor_ij = prefactor / r_ij
                             prefactor_ik = prefactor / r_ik
                             fij += prefactor_ij * cos_theta
@@ -518,19 +435,6 @@ class MEAM:
 
                             fk = kdel * fik - jdel * prefactor_ik
                             forces_i -= fk
-
-                            # logging.info("MEAM: fj/u' = {0}".format(
-                            #     fj/Uprime_i))
-                            # logging.info("MEAM: fk/u' = {0}".format(
-                            #     fk/Uprime_i))
-
-                            # logging.info("MEAM: i, uprime = {0}, {1}".format(
-                            #     i, Uprime_i))
-
-                            # logging.info("MEAM: i, fk = {0} {1}".format(
-                            #     i, fk))
-                            # logging.info("MEAM: i, fj = {0} {1}".format(
-                            #     i, fj))
 
                             self.forces[neighbors[0][k]] += fk
                     # end triplet loop
@@ -558,25 +462,11 @@ class MEAM:
 
                     jt = neighbors_noboth[0][j]
 
-                    # logging.info("MEAM: rho = {1},{2} {0}".format(
-                    #     rho_prime_j*jdel/r_ij, i, neighbors_noboth[0][j]))
-                    # logging.info("MEAM: rho = {1},{2} {0}".format(
-                    #     rho_prime_i*jdel/r_ij, i, neighbors_noboth[0][j]))
-
-                    # logging.info("MEAM: uprime_i = {0}".format(self.uprimes[i]))
-                    # logging.info("MEAM: uprime_j = {0}"\
-                    #              .format(self.uprimes[neighbors_noboth[0][j]]))
-
                     phi_prime = self.phis[ij_to_potl(itype, jtype,
                                                      self.ntypes)](r_ij, 1)
 
                     fpair += phi_prime
                     fpair /= r_ij
-
-                    # logging.info("MEAM: jdel*rho_j = {0}".format(
-                    #     jdel*rho_prime_j/r_ij))
-                    # logging.info("MEAM: jdel*rho_i = {0}".format(
-                    #     jdel*rho_prime_i/r_ij))
 
                     self.forces[i] += jdel * fpair
                     self.forces[neighbors_noboth[0][j]] -= jdel * fpair

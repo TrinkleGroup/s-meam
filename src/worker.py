@@ -385,14 +385,17 @@ class Worker:
 
         # Pair interactions
         for y, phi in zip(phi_pvecs, self.phis, ):
+            logging.info("phi.calc_energy(y): {0}".format(phi.calc_energy(y)))
             energy += phi.calc_energy(y)
 
         # Embedding terms
         ni = self.compute_ni(rho_pvecs, f_pvecs, g_pvecs)
 
         tmp_eng, ni_sorted = self.embedding_energy(ni, u_pvecs, u_ranges)
+        logging.info("embedding: {0}".format(tmp_eng))
         energy += tmp_eng
 
+        logging.info("total energy: {0}".format(energy))
         return energy#, ni_sorted
 
     def compute_ni(self, rho_pvecs, f_pvecs, g_pvecs):
@@ -719,8 +722,9 @@ class Worker:
                 n_fk = y_fk.shape[1]
                 n_g = y_g.shape[1]
 
-                scaled_sv = ffg.structure_vectors['energy']
-                scaled_sv = np.einsum('pz,zk->pk', uprimes, scaled_sv)
+                scaled_sv = np.einsum(
+                    'pz,zk->pk', uprimes, ffg.structure_vectors['energy']
+                )
 
                 coeffs_for_fj = np.einsum("pi,pk->pik", y_fk, y_g)
                 coeffs_for_fk = np.einsum("pi,pk->pik", y_fj, y_g)
@@ -795,6 +799,7 @@ class Worker:
         phi_pvecs, rho_pvecs, u_pvecs, f_pvecs, g_pvecs = \
             self.parse_parameters(np.atleast_2d(parameters))
 
+
         grad_index = 0
 
         # gradients of phi are just their structure vectors
@@ -804,10 +809,10 @@ class Worker:
 
             grad_index += y.shape[1]
 
+        N = self.natoms
+
         # chain rule on U functions means dU/dn values are needed
         ni = self.compute_ni(rho_pvecs, f_pvecs, g_pvecs)
-
-        N = self.natoms
 
         uprimes, uprimes_2 = self.evaluate_uprimes(
             ni, u_pvecs, u_ranges, second=True
@@ -888,25 +893,47 @@ class Worker:
 
                 full_len = n_fj*n_fk*n_g
 
-                ffg_sv = ffg.structure_vectors['forces']
-                ffg_sv = ffg_sv.reshape((3, N, N, full_len))
+                # TODO: uprimes_part() can take large portion of time too
+                # TODO: for inactive splines, wastes lots of time still
 
-                ffg_e_sv = ffg.structure_vectors['energy']
+                # @profile
+                def uprimes_part():
+                    # ffg_sv = ffg.structure_vectors['forces']
+                    # ffg_sv = ffg_sv.reshape((3, N, N, full_len))
 
-                # TODO: this gets huge if evaluating lots of pots on many atoms
-                upp_contrib = np.zeros((self.n_pots, N, 3, full_len))
+                    # ffg_e_sv = ffg.structure_vectors['energy']
 
-                scaled_by_upp = np.einsum('pz,zk->pzk', uprimes_2, ffg_e_sv)
+                    # TODO: this gets huge if evaluating lots of pots on many atoms
+                    # upp_contrib = np.zeros((self.n_pots, N, 3, full_len))
 
-                # U'' term
-                upp_contrib += np.einsum('pzk,paiz->piak', scaled_by_upp,
-                                         embedding_forces)
+                    # scaled_by_upp = np.einsum('pz,zk->pzk', uprimes_2, ffg_e_sv)
 
-                # U' term
-                scaled_sv = ffg_sv
-                up_contrib = np.einsum('pz,aizk->paik', uprimes, scaled_sv)
+                    # U'' term
+                    upp_contrib = np.einsum(
+                        'pzk,paiz->piak',
+                        np.einsum(
+                            'pz,zk->pzk',
+                            uprimes_2,
+                            ffg.structure_vectors['energy']
+                        ),
+                        embedding_forces
+                    )
 
-                up_contrib = np.transpose(up_contrib, axes=(0, 2, 1, 3))
+                    # U' term
+                    # scaled_sv = ffg_sv
+                    up_contrib = np.einsum(
+                        'pz,aizk->paik',
+                        uprimes,
+                        ffg.structure_vectors['forces'].reshape(
+                            (3, N, N, full_len)
+                        )
+                    )
+
+                    up_contrib = np.transpose(up_contrib, axes=(0, 2, 1, 3))
+
+                    return up_contrib, upp_contrib
+
+                up_contrib, upp_contrib = uprimes_part()
 
                 # Group terms and add to gradient
 
@@ -929,70 +956,74 @@ class Worker:
                 # pre-computed indices for outer product indexing
                 indices_tuple = self.ffg_grad_indices[j][k]
 
-                stack_up = np.zeros(
-                    (self.n_pots, self.natoms, 3, n_fj, n_fk*n_g)
-                )
+                # @profile
+                def ffg_gradients():
+                    stack_up = np.zeros(
+                        (self.n_pots, self.natoms, 3, n_fj, n_fk*n_g)
+                    )
 
-                stack_upp = np.zeros(
-                    (self.n_pots, self.natoms, 3, n_fj, n_fk*n_g)
-                )
+                    stack_upp = np.zeros(
+                        (self.n_pots, self.natoms, 3, n_fj, n_fk*n_g)
+                    )
 
-                for l in range(n_fj):
-                    sample_indices = indices_tuple['fj_indices'][l]
+                    for l in range(n_fj):
+                        sample_indices = indices_tuple['fj_indices'][l]
 
-                    stack_up[:, :, :, l, :] = up_contrib[:, :, :,sample_indices]
-                    stack_upp[:, :, :, l, :] = upp_contrib[:,:,:,sample_indices]
+                        stack_up[:, :, :, l, :] = up_contrib[:, :, :,sample_indices]
+                        stack_upp[:, :, :, l, :] = upp_contrib[:,:,:,sample_indices]
 
-                stack_up = np.einsum('pzakt,pt->pzak', stack_up, coeffs_for_fj)
-                stack_upp = np.einsum('pzakt,pt->pzak', stack_upp,coeffs_for_fj)
+                    stack_up = np.einsum('pzakt,pt->pzak', stack_up, coeffs_for_fj)
+                    stack_upp = np.einsum('pzakt,pt->pzak', stack_upp,coeffs_for_fj)
 
-                tmp_ind = ffg_indices[j]
-                gradient[:, :, :, tmp_ind:tmp_ind + n_fj] += stack_up
-                gradient[:, :, :, tmp_ind:tmp_ind + n_fj] += stack_upp
+                    tmp_ind = ffg_indices[j]
+                    gradient[:, :, :, tmp_ind:tmp_ind + n_fj] += stack_up
+                    gradient[:, :, :, tmp_ind:tmp_ind + n_fj] += stack_upp
 
-                stack_up = np.zeros(
-                    (self.n_pots, self.natoms, 3, n_fk, n_fj*n_g)
-                )
+                    stack_up = np.zeros(
+                        (self.n_pots, self.natoms, 3, n_fk, n_fj*n_g)
+                    )
 
-                stack_upp = np.zeros(
-                    (self.n_pots, self.natoms, 3, n_fk, n_fj*n_g)
-                )
+                    stack_upp = np.zeros(
+                        (self.n_pots, self.natoms, 3, n_fk, n_fj*n_g)
+                    )
 
-                for l in range(n_fk):
-                    sample_indices = indices_tuple['fk_indices'][l]
+                    for l in range(n_fk):
+                        sample_indices = indices_tuple['fk_indices'][l]
 
-                    stack_up[:, :, :, l, :] = up_contrib[:, :, :,
-                                              sample_indices]
-                    stack_upp[:, :, :, l, :] = upp_contrib[:, :, :,
-                                               sample_indices]
+                        stack_up[:, :, :, l, :] = up_contrib[:, :, :,
+                                                  sample_indices]
+                        stack_upp[:, :, :, l, :] = upp_contrib[:, :, :,
+                                                   sample_indices]
 
-                stack_up = np.einsum('pzakt,pt->pzak', stack_up, coeffs_for_fk)
-                stack_upp = np.einsum('pzakt,pt->pzak', stack_upp,coeffs_for_fk)
+                    stack_up = np.einsum('pzakt,pt->pzak', stack_up, coeffs_for_fk)
+                    stack_upp = np.einsum('pzakt,pt->pzak', stack_upp,coeffs_for_fk)
 
-                tmp_ind = ffg_indices[k]
-                gradient[:, :, :, tmp_ind:tmp_ind + n_fk] += stack_up
-                gradient[:, :, :, tmp_ind:tmp_ind + n_fk] += stack_upp
+                    tmp_ind = ffg_indices[k]
+                    gradient[:, :, :, tmp_ind:tmp_ind + n_fk] += stack_up
+                    gradient[:, :, :, tmp_ind:tmp_ind + n_fk] += stack_upp
 
-                stack_up = np.zeros(
-                    (self.n_pots, self.natoms, 3, n_g, n_fj*n_fk)
-                )
+                    stack_up = np.zeros(
+                        (self.n_pots, self.natoms, 3, n_g, n_fj*n_fk)
+                    )
 
-                stack_upp = np.zeros(
-                    (self.n_pots, self.natoms, 3, n_g, n_fj*n_fk)
-                )
+                    stack_upp = np.zeros(
+                        (self.n_pots, self.natoms, 3, n_g, n_fj*n_fk)
+                    )
 
-                for l in range(n_g):
-                    sample_indices = indices_tuple['g_indices'][l]
+                    for l in range(n_g):
+                        sample_indices = indices_tuple['g_indices'][l]
 
-                    stack_up[:, :, :, l, :] = up_contrib[:,:,:,sample_indices]
-                    stack_upp[:, :, :, l, :] = upp_contrib[:,:,:,sample_indices]
+                        stack_up[:, :, :, l, :] = up_contrib[:,:,:,sample_indices]
+                        stack_upp[:, :, :, l, :] = upp_contrib[:,:,:,sample_indices]
 
-                stack_up = np.einsum('pzakt,pt->pzak', stack_up, coeffs_for_g)
-                stack_upp = np.einsum('pzakt,pt->pzak', stack_upp,coeffs_for_g)
+                    stack_up = np.einsum('pzakt,pt->pzak', stack_up, coeffs_for_g)
+                    stack_upp = np.einsum('pzakt,pt->pzak', stack_upp,coeffs_for_g)
 
-                tmp_ind = ffg_indices[self.ntypes + g_idx]
-                gradient[:, :, :, tmp_ind:tmp_ind + n_g] += stack_up
-                gradient[:, :, :, tmp_ind:tmp_ind + n_g] += stack_upp
+                    tmp_ind = ffg_indices[self.ntypes + g_idx]
+                    gradient[:, :, :, tmp_ind:tmp_ind + n_g] += stack_up
+                    gradient[:, :, :, tmp_ind:tmp_ind + n_g] += stack_upp
+
+                ffg_gradients()
 
         # U gradient terms
 

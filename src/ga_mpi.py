@@ -147,7 +147,6 @@ def main():
         master_database = Database(DB_PATH, DB_INFO_FILE_NAME)
         master_database.print_metadata()
 
-        # all_struct_names, structures = zip(*master_database.structures.items())
         all_struct_names, struct_natoms = zip(*master_database.natoms.items())
         num_structs = len(struct_natoms)
 
@@ -157,8 +156,6 @@ def main():
 
         print("worker_ranks:", worker_ranks)
     else:
-        structures = None
-        manager_subsets = None
         potential_template = None
         num_structs = None
         worker_ranks = None
@@ -208,14 +205,18 @@ def main():
     struct_name = worker_comm.bcast(struct_name, root=0)
     manager_rank = worker_comm.bcast(manager_rank, root=0)
 
+    # Build manager and have it send the structure to its workers
     manager = Manager(manager_rank, worker_comm, potential_template)
 
     manager.struct_name = struct_name
-    manager.struct = manager.load_structure(
+    tmp_struct = manager.load_structure(
         manager.struct_name, DB_PATH + "/"
     )
 
-    # manager.struct = manager.broadcast_struct(tmp_struct)
+    if is_manager:
+        manager.struct = tmp_struct
+
+    # manager.struct = manager.broadcast_struct(manager.struct)
 
     for rank_id in range(1, worker_comm.Get_size()):
         if manager_rank == 0:
@@ -380,8 +381,7 @@ def main():
 
     # Create the original population
     if is_master:
-        master_pop = toolbox.population(n=POP_SIZE)
-        # master_pop = np.ones(np.array(master_pop).shape)
+        master_pop = toolbox.population(points_per_knot=5)
     else:
         master_pop = 0
 
@@ -394,14 +394,18 @@ def main():
     def call_grad():
         return toolbox.gradient(master_pop)
 
-    init_fit = call_grad()
+    def call_fxn():
+        return toolbox.evaluate_population(master_pop)
+
+    init_fit = call_fxn()
+    init_grad = call_grad()
 
     if is_master:
         init_fit = np.sum(init_fit, axis=1)
         # print("MASTER: initial (UN-minimized) fitnesses:", init_fit, flush=True)
         print("Average value:", np.average(init_fit), flush=True)
 
-    # return
+    return
 
     master_pop = local_minimization(
         master_pop, toolbox, world_comm, is_master, nsteps=INIT_NSTEPS
@@ -510,6 +514,25 @@ def build_ga_toolbox(potential_template):
     creator.create("Individual", np.ndarray,
                    fitness=creator.CostFunctionMinimizer)
 
+    def population(points_per_knot):
+        # spline_ranges=[(-1, 4), (-0.5, 0.5), (-1, 1), (-9, 3), (-30, 15),
+        #                (-0.5, 1), (-0.2, -0.4), (-2, 3), (-7.5, 12.5),
+        #                (-8, 2), (-1, 1), (-1, 0.2)],
+        #
+        # spline_indices=[(0, 15), (15, 22), (22, 37), (37, 50), (50, 57),
+        #                 (57, 63), (63, 70), (70, 82), (82, 89),
+        #                 (89, 99), (99, 106), (106, 116)]
+
+        """Generates a mesh through parameter space with points_per_knot
+        points along each dimension (equivialently, points_per_knot points
+        for each knot point)"""
+
+        return np.mgrid[
+            [slice(s_range[0], s_range[1], complex(points_per_knot))
+                for s_range in potential_template.spline_ranges]
+        ]
+
+
     def ret_pvec(arr_fxn):
         # hard-coded version for pair-pots only
         tmp = arr_fxn(potential_template.generate_random_instance())
@@ -519,8 +542,9 @@ def build_ga_toolbox(potential_template):
     toolbox = base.Toolbox()
     toolbox.register("parameter_set", ret_pvec, creator.Individual, )
     # np.random.random)
-    toolbox.register("population", tools.initRepeat, list,
-                     toolbox.parameter_set, )
+    # toolbox.register("population", tools.initRepeat, list,
+    #                  toolbox.parameter_set, )
+    toolbox.register("population", population)
     toolbox.register("mutate", tools.mutGaussian, mu=0, sigma=1, indpb=0.1)
     # toolbox.register("mate", tools.cxBlend, alpha=MATING_ALPHA)
     toolbox.register("mate", tools.cxTwoPoint)
