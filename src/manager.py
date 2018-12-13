@@ -63,14 +63,16 @@ class Manager:
 
         pop = self.comm.scatter(full, root=0)
 
-        eng = self.struct.compute_energy(pop, self.pot_template.u_ranges)
+        eng, ni = self.struct.compute_energy(pop, self.pot_template.u_ranges)
 
         all_eng = self.comm.gather(eng, root=0)
+        all_ni = self.comm.gather(ni, root=0)
 
         if self.proc_rank == 0:
             all_eng = np.concatenate(all_eng)
+            all_ni = np.vstack(all_ni)
 
-        return all_eng
+        return all_eng, all_ni
 
     def compute_forces(self, master_pop):
         """Evaluates the structure forces for the whole population"""

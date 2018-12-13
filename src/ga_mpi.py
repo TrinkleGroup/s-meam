@@ -75,7 +75,7 @@ RUN_NEW_GA = True
 FLATTEN_LANDSCAPE = False  # define fitness as fitness of partially-minimized pot
 FLAT_NSTEPS = 5
 
-DO_LMIN = False
+DO_LMIN = True
 LMIN_FREQUENCY = 1
 INIT_NSTEPS = 5
 INTER_NSTEPS = 5
@@ -93,12 +93,11 @@ date_str = datetime.datetime.now().strftime("%Y-%m-%d")
 CHECK_BEFORE_OVERWRITE = False
 
 # TODO: BW settings
-BASE_PATH = ""
 BASE_PATH = "/home/jvita/scripts/s-meam/"
+BASE_PATH = ""
 
-# LOAD_PATH = "data/fitting_databases/fixU/"
+LOAD_PATH = "/projects/sciteam/baot/pz-unfx-cln/"
 LOAD_PATH = BASE_PATH + "data/fitting_databases/pinchao/"
-# LOAD_PATH = "/projects/sciteam/baot/pz-unfx-cln/"
 SAVE_PATH = BASE_PATH + "data/results/"
 
 SAVE_DIRECTORY = SAVE_PATH + date_str + "-" + "meam" + "{}-{}".format(NUM_GENS,
@@ -142,8 +141,6 @@ def main():
         potential_template = initialize_potential_template()
         potential_template.print_statistics()
         print()
-
-        # rzm: natoms is reading from true values
 
         struct_files = glob.glob(DB_PATH + "/*")
 
@@ -220,19 +217,20 @@ def main():
     manager = Manager(manager_rank, worker_comm, potential_template)
 
     manager.struct_name = struct_name
-    manager.struct = manager.load_structure(
+    tmp_struct = manager.load_structure(
         manager.struct_name, DB_PATH + "/"
     )
 
     # manager.struct = manager.broadcast_struct(tmp_struct)
+    manager.struct = tmp_struct
 
-    # for rank_id in range(1, worker_comm.Get_size()):
-    #     if manager_rank == 0:
-    #         worker_comm.send(tmp_struct, dest=rank_id, tag=1)
-    #     elif manager_rank == rank_id:
-    #         manager.struct = worker_comm.recv(tmp_struct, source=0, tag=1)
+    for rank_id in range(1, worker_comm.Get_size()):
+        if manager_rank == 0:
+            worker_comm.send(tmp_struct, dest=rank_id, tag=1)
+        elif manager_rank == rank_id:
+            manager.struct = worker_comm.recv(tmp_struct, source=0, tag=1)
 
-    def fxn_wrap(master_pop):
+    def fxn_wrap(master_pop, return_ni=False):
         """Master: returns all potentials for all structures"""
         if is_manager:
             pop = manager_comm.bcast(master_pop, root=0)
@@ -248,14 +246,21 @@ def main():
             pop = manager_comm.bcast(master_pop, root=0)
 
         # pop = worker_comm.bcast(pop, root=0)
-        eng = manager.compute_energy(pop)
+        eng, per_u_max_ni = manager.compute_energy(pop)
         fcs = manager.compute_forces(pop)
 
         # fitnesses = csr_matrix((pop.shape[0], 2 * num_structs))
         fitnesses = 0
 
+        if return_ni:
+            max_ni = 0
+
         if is_manager:
             mgr_eng = manager_comm.gather(eng, root=0)
+
+            if return_ni:
+                mgr_ni = manager_comm.gather(per_u_max_ni, root=0)
+
             mgr_fcs = manager_comm.gather(fcs, root=0)
 
             if is_master:
@@ -316,7 +321,8 @@ def main():
 
                 # print(np.sum(fitnesses, axis=1), flush=True)
 
-        return fitnesses
+        if return_ni: return fitnesses, per_u_max_ni
+        else: return fitnesses
 
     # @profile
     def grad_wrap(master_pop):
@@ -329,7 +335,7 @@ def main():
 
         # pop = worker_comm.bcast(pop, root=0)
 
-        eng = manager.compute_energy(pop)
+        eng, _ = manager.compute_energy(pop)
         fcs = manager.compute_forces(pop)
 
         eng_grad = manager.compute_energy_grad(pop)
@@ -427,75 +433,33 @@ def main():
 
         return gradient
 
-    # def fd_grad(pop):
-    #     h = 1e-4
-    #     pop = np.array(pop)
-    #     N = pop.shape[0]
-    #     cd_points = np.array([pop]*N*2)
-    #
-    #     for l in range(N):
-    #         cd_points[2*l, l] += h
-    #         cd_points[2*l+1, l] -= h
-    #
-    #     cd_evaluated = fxn_wrap(cd_points)
-    #     fx = fxn_wrap(np.atleast_2d(pop))
-    #
-    #     gradient = np.zeros((2, 13))
-    #     if is_master:
-    #         print(cd_evaluated)
-    #         print(cd_evaluated.shape)
-    #         for l in range(N):
-    #             # gradient[l] = (cd_evaluated[l] - fx) / h
-    #             gradient[l] = (cd_evaluated[l] - cd_evaluated[l+1]) / h / 2
-    #
-    #         gradient = gradient.T
-    #
-    #     return gradient
-
     # Have every process build the toolbox
     toolbox, creator = build_ga_toolbox(potential_template)
 
     toolbox.register("evaluate_population", fxn_wrap)
     toolbox.register("gradient", grad_wrap)
-    # toolbox.register("fd_gradient", fd_grad)
 
     # Create the original population
     if is_master:
         master_pop = toolbox.population(n=POP_SIZE)
-        # master_pop = np.ones(np.array(master_pop).shape)
     else:
         master_pop = 0
 
-    # TODO: making array probably destroys Individuals
     master_pop = np.array(master_pop)
 
     master_pop_shape = world_comm.bcast(master_pop.shape, root=0)
 
-    # @profile
-    # def call_grad():
-    #     return toolbox.gradient(master_pop)
-
     init_fit = toolbox.evaluate_population(master_pop)
-    # seed = potential_template.pvec.copy()[np.where(potential_template.active_mask)[0]]
-    # my_init_grad = toolbox.gradient(np.atleast_2d(seed))
-    # fd_init_grad = fd_grad(seed)
-    #
+#
     if is_master:
         init_fit = np.sum(init_fit, axis=1)
         print("MASTER: initial (UN-minimized) fitnesses:", init_fit, flush=True)
         print("Average value:", np.average(init_fit), flush=True)
-        # print("my_init_grad:", my_init_grad, flush=True)
-        # print("fd_init_grad:", fd_init_grad, flush=True)
-        #
-        # print("my_init_grad.shape:", my_init_grad.shape, flush=True)
-        # print("fd_init_grad.shape:", fd_init_grad.shape, flush=True)
-
 
     master_pop = local_minimization(
         master_pop, toolbox, world_comm, is_master, nsteps=INIT_NSTEPS
     )
 
-    # new_pop = world_comm.bcast(new_pop, root=0)
     new_fit = toolbox.evaluate_population(master_pop)
 
     if is_master:
@@ -506,6 +470,13 @@ def main():
 
     # Have master gather fitnesses and update individuals
     if is_master:
+
+        pop_copy = []
+        for ind in master_pop:
+            pop_copy.append(creator.Individual(ind))
+
+        master_pop = pop_copy
+
         for ind, fit in zip(master_pop, new_fit):
             ind.fitness.values = fit,
 
@@ -556,11 +527,19 @@ def main():
                 )
 
             # Compute fitnesses with mated/mutated/optimized population
-            fitnesses = toolbox.evaluate_population(master_pop)
+            fitnesses, max_ni = toolbox.evaluate_population(master_pop, True)
 
             # Update individuals with new fitnesses
             if is_master:
+                master_pop = rescale_rhos(master_pop, max_ni, potential_template)
+
                 new_fit = np.sum(fitnesses, axis=1)
+
+                pop_copy = []
+                for ind in master_pop:
+                    pop_copy.append(creator.Individual(ind))
+
+                master_pop = pop_copy
 
                 for ind, fit in zip(master_pop, new_fit):
                     ind.fitness.values = fit,
@@ -846,6 +825,8 @@ def local_minimization(master_pop, toolbox, world_comm, is_master, nsteps=20):
         for i, ind in enumerate(new_pop):
             if np.sum(new_fits[i]) < np.sum(org_fits[i]):
                 updated_master_pop[i] = creator.Individual(new_pop[i])
+            # else:
+            #     updated_master_pop[i] = creator.Individual(updated_master_pop[i])
 
         master_pop = updated_master_pop
 
@@ -1288,6 +1269,24 @@ def build_grad_wrapper(grad_fxn, is_master, is_manager, is_node_head,
         # print('grad.shape', grad.shape, flush=True)
 
         return grad.T
+
+def rescale_rhos(pop, per_u_max_ni, potential_template):
+    ntypes = len(potential_template.u_ranges)
+    nphi = int(ntypes * (ntypes + 1) / 2)
+
+    rho_indices = potential_template.spline_indices[nphi - 1: nphi - 1 + ntypes]
+
+    pop_arr = np.array(pop)
+
+    for i, r_ind in enumerate(rho_indices):
+        start, stop = r_ind
+
+        # pull scaling factors, only scale if ni fall out of U range
+        scaling = np.clip(per_u_max_ni[:, i], 1, None)
+
+        pop_arr[:, start:stop] /= scaling[:, np.newaxis]
+
+    return pop_arr
 
 
 ################################################################################

@@ -3,7 +3,7 @@ sys.path.append('/home/jvita/scripts/s-meam/project/')
 
 import time
 import numpy as np
-from lmfit import minimize, Parameters
+# from lmfit import minimize, Parameters
 from scipy.optimize import least_squares
 from mpi4py import MPI
 
