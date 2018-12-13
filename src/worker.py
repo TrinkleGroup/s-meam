@@ -18,6 +18,7 @@ from pympler import muppy, summary
 import src.lammpsTools
 import src.meam
 from src.workerSplines import WorkerSpline, RhoSpline, ffgSpline, USpline
+from src.database import Database
 
 # from src.numba_functions import outer_prod_1d, outer_prod_1d_2vecs
 # from numba import jit

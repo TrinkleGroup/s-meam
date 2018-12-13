@@ -93,8 +93,8 @@ date_str = datetime.datetime.now().strftime("%Y-%m-%d")
 CHECK_BEFORE_OVERWRITE = False
 
 # TODO: BW settings
-BASE_PATH = "/home/jvita/scripts/s-meam/"
 BASE_PATH = ""
+BASE_PATH = "/home/jvita/scripts/s-meam/"
 
 LOAD_PATH = "/projects/sciteam/baot/pz-unfx-cln/"
 LOAD_PATH = BASE_PATH + "data/fitting_databases/pinchao/"
@@ -163,8 +163,6 @@ def main():
 
         print("worker_ranks:", worker_ranks)
     else:
-        structures = None
-        manager_subsets = None
         potential_template = None
         num_structs = None
         worker_ranks = None
@@ -450,7 +448,7 @@ def main():
     master_pop_shape = world_comm.bcast(master_pop.shape, root=0)
 
     init_fit = toolbox.evaluate_population(master_pop)
-#
+
     if is_master:
         init_fit = np.sum(init_fit, axis=1)
         print("MASTER: initial (UN-minimized) fitnesses:", init_fit, flush=True)
@@ -465,8 +463,6 @@ def main():
     if is_master:
         new_fit = np.sum(new_fit, axis=1)
         print("MASTER: initial (minimized) fitnesses:", new_fit, flush=True)
-
-    # TODO: who has the updated potentials?
 
     # Have master gather fitnesses and update individuals
     if is_master:
@@ -825,8 +821,8 @@ def local_minimization(master_pop, toolbox, world_comm, is_master, nsteps=20):
         for i, ind in enumerate(new_pop):
             if np.sum(new_fits[i]) < np.sum(org_fits[i]):
                 updated_master_pop[i] = creator.Individual(new_pop[i])
-            # else:
-            #     updated_master_pop[i] = creator.Individual(updated_master_pop[i])
+            else:
+                updated_master_pop[i] = creator.Individual(updated_master_pop[i])
 
         master_pop = updated_master_pop
 
