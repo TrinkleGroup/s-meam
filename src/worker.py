@@ -450,7 +450,8 @@ class Worker:
             # extract ni values for atoms of type i
             ni_sublist = ni[:, self.type_of_each_atom - 1 == i]
 
-            max_ni[:, i] = np.abs(np.max(ni_sublist))
+            if ni_sublist.shape[0] > 0:
+                max_ni[:, i] = np.abs(np.max(ni_sublist))
 
             num_embedded = ni_sublist.shape[1]
 
