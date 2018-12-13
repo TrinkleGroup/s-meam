@@ -228,7 +228,7 @@ def main():
         elif manager_rank == rank_id:
             manager.struct = worker_comm.recv(tmp_struct, source=0, tag=1)
 
-    def fxn_wrap(master_pop, return_ni=False):
+    def fxn_wrap(master_pop):
         """Master: returns all potentials for all structures"""
         if is_manager:
             pop = manager_comm.bcast(master_pop, root=0)
@@ -244,20 +244,21 @@ def main():
             pop = manager_comm.bcast(master_pop, root=0)
 
         # pop = worker_comm.bcast(pop, root=0)
-        eng, per_u_max_ni = manager.compute_energy(pop)
+        # eng, per_u_max_ni = manager.compute_energy(pop)
+        eng = manager.compute_energy(pop)
         fcs = manager.compute_forces(pop)
 
         # fitnesses = csr_matrix((pop.shape[0], 2 * num_structs))
         fitnesses = 0
 
-        if return_ni:
-            max_ni = 0
+        # if return_ni:
+        #     max_ni = 0
 
         if is_manager:
             mgr_eng = manager_comm.gather(eng, root=0)
 
-            if return_ni:
-                mgr_ni = manager_comm.gather(per_u_max_ni, root=0)
+            # if return_ni:
+            #     mgr_ni = manager_comm.gather(per_u_max_ni, root=0)
 
             mgr_fcs = manager_comm.gather(fcs, root=0)
 
@@ -278,7 +279,10 @@ def main():
                     # if name == master_database.reference_struct:
                     #     ref_energy = w_energies[:, s_id]
 
-                    w_fcs = all_fcs[s_id]
+                    # zero forces outside of cutoff (as done by Pinchao)
+                    force_weights = master_database.force_weighting[struct_name]
+                    w_fcs = all_fcs[s_id] * force_weights[:, np.newaxis]
+
                     true_fcs = master_database.true_forces[name]
 
                     fcs_err = ((w_fcs - true_fcs) / np.sqrt(10)) ** 2
@@ -319,8 +323,9 @@ def main():
 
                 # print(np.sum(fitnesses, axis=1), flush=True)
 
-        if return_ni: return fitnesses, per_u_max_ni
-        else: return fitnesses
+        # if return_ni: return fitnesses, per_u_max_ni
+        # else: return fitnesses
+        return fitnesses
 
     # @profile
     def grad_wrap(master_pop):
@@ -370,7 +375,8 @@ def main():
                     if name == master_database.reference_struct:
                         ref_energy = w_energies[:, s_id]
 
-                    w_fcs = all_fcs[s_id]
+                    force_weights = master_database.force_weighting[struct_name]
+                    w_fcs = all_fcs[s_id] * force_weights[:, np.newaxis]
                     true_fcs = master_database.true_forces[name]
 
                     fcs_err = ((w_fcs - true_fcs) / np.sqrt(10)) ** 2

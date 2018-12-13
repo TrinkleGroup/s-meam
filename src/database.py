@@ -17,6 +17,7 @@ class Database:
         self.natoms = {}
         self.true_energies = {}
         self.true_forces = {}
+        self.force_weighting = {}
         # self.reference_struct = None
         self.reference_structs = {}
         self.reference_energy = None
@@ -70,7 +71,7 @@ class Database:
         min_energy = None
 
         # for short_name in self.structures.keys():
-        for file_name in glob.glob(self.true_values_folder_path + "/*"):
+        for file_name in glob.glob(self.true_values_folder_path + "/*")[:6]:
             # file_name = self.true_values_folder_path + "/info." + short_name
             if "metadata" not in file_name:
 
@@ -123,6 +124,7 @@ class Database:
             full = np.genfromtxt(file_name, skip_header=1)
 
             self.true_forces[struct_name] = full[:, 1:] * full[:, 0, np.newaxis]
+            self.force_weighting[struct_name] = full[:, 0]
 
         with open(os.path.join(directory_path, 'FittingDataEnergy.dat')) as f:
 
