@@ -49,18 +49,14 @@ VELOCITY_SCALE = 0.01 # scale for starting velocity
 ################################################################################
 
 # TODO: BW settings
-BASE_PATH = ""
 BASE_PATH = "/home/jvita/scripts/s-meam/"
-
-# LOAD_PATH = "/home/jvita/scripts/s-meam/project/data/fitting_databases/leno-redo/"
-LOAD_PATH = "/mnt/c/Users/jvita/scripts/s-meam/data/fitting_databases/fixU/"
-#/ LOAD_PATH = "/projects/sciteam/baot/leno-redo/"
+BASE_PATH = ""
 
 LOAD_PATH = "/projects/sciteam/baot/pz-unfx-cln/"
 LOAD_PATH = BASE_PATH + "data/fitting_databases/pinchao/"
 
 DB_PATH = LOAD_PATH + 'structures'
-DB_INFO_FILE_NAME = LOAD_PATH + 'rhophi/info'
+DB_INFO_FILE_NAME = LOAD_PATH + 'full/info'
 
 date_str = datetime.datetime.now().strftime("%Y-%m-%d")
 
@@ -107,7 +103,7 @@ def main():
         master_database.print_metadata()
 
         # all_struct_names, structures = zip(*master_database.structures.items())
-        all_struct_names, struct_natoms = zip(*master_database.natoms.items())
+        all_struct_names, struct_natoms = zip(*master_database.force_weighting.items())
         num_structs = len(struct_natoms)
 
         worker_ranks = partools.compute_procs_per_subset(
@@ -202,7 +198,7 @@ def main():
 
         if FLATTEN_LANDSCAPE:
             master_pop = local_minimization(
-                master_pop, fxn, grad, world_comm, is_master,
+                master_pop, fxn_wrap, grad_wrap, world_comm, is_master,
                 num_to_minimize=NMIN, nsteps=FLAT_NSTEPS
             )
 
@@ -416,10 +412,10 @@ def main():
         print("MASTER: initial (UN-minimized) fitnesses:", init_fit, flush=True)
         print("Average value:", np.average(init_fit), flush=True)
 
-    # swarm_positions = local_minimization(
-    #     swarm_positions, fxn, grad, world_comm, is_master,
-    #     num_to_minimize=NMIN, nsteps=INIT_NSTEPS,
-    # )
+    swarm_positions = local_minimization(
+        swarm_positions, fxn_wrap, grad_wrap, world_comm, is_master,
+        num_to_minimize=NMIN, nsteps=NUM_LMIN_STEPS,
+    )
 
     new_fit = fxn_wrap(swarm_positions)
 
@@ -474,8 +470,8 @@ def main():
         # Run local minimizer if desired
         if (i % LMIN_FREQUENCY == 0) and DO_LOCAL_MIN:
             swarm_positions = local_minimization(
-                swarm_positions, fxn, grad, world_comm, is_master,
-                num_to_minimize=NMIN, nsteps=INIT_NSTEPS,
+                swarm_positions, fxn_wrap, grad_wrap, world_comm, is_master,
+                num_to_minimize=NMIN, nsteps=NUM_LMIN_STEPS,
             )
 
         if is_master:

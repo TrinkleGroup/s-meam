@@ -93,11 +93,11 @@ date_str = datetime.datetime.now().strftime("%Y-%m-%d")
 CHECK_BEFORE_OVERWRITE = False
 
 # TODO: BW settings
-BASE_PATH = ""
 BASE_PATH = "/home/jvita/scripts/s-meam/"
+BASE_PATH = ""
 
-LOAD_PATH = "/projects/sciteam/baot/pz-unfx-cln/"
 LOAD_PATH = BASE_PATH + "data/fitting_databases/pinchao/"
+LOAD_PATH = "/projects/sciteam/baot/pz-unfx-cln/"
 SAVE_PATH = BASE_PATH + "data/results/"
 
 SAVE_DIRECTORY = SAVE_PATH + date_str + "-" + "meam" + "{}-{}".format(NUM_GENS,
@@ -106,8 +106,8 @@ SAVE_DIRECTORY = SAVE_PATH + date_str + "-" + "meam" + "{}-{}".format(NUM_GENS,
 if os.path.isdir(SAVE_DIRECTORY):
     SAVE_DIRECTORY = SAVE_DIRECTORY + '-' + str(np.random.randint(100000))
 
-DB_PATH = LOAD_PATH + 'mini_structures'
-DB_INFO_FILE_NAME = LOAD_PATH + 'mini/info'
+DB_PATH = LOAD_PATH + 'structures'
+DB_INFO_FILE_NAME = LOAD_PATH + 'full/info'
 POP_FILE_NAME = SAVE_DIRECTORY + "/pop.dat"
 LOG_FILE_NAME = SAVE_DIRECTORY + "/ga.log"
 TRACE_FILE_NAME = SAVE_DIRECTORY + "/trace.dat"
@@ -154,7 +154,7 @@ def main():
         master_database.print_metadata()
 
         # all_struct_names, structures = zip(*master_database.structures.items())
-        all_struct_names, struct_natoms = zip(*master_database.natoms.items())
+        all_struct_names, struct_natoms = zip(*master_database.force_weighting.items())
         num_structs = len(struct_natoms)
 
         worker_ranks = partools.compute_procs_per_subset(
