@@ -214,18 +214,11 @@ def main():
     manager = Manager(manager_rank, worker_comm, potential_template)
 
     manager.struct_name = struct_name
-    tmp_struct = manager.load_structure(
+    manager.struct = manager.load_structure(
         manager.struct_name, DB_PATH + "/"
     )
 
-    # manager.struct = manager.broadcast_struct(tmp_struct)
-    manager.struct = tmp_struct
-
-    for rank_id in range(1, worker_comm.Get_size()):
-        if manager_rank == 0:
-            worker_comm.send(tmp_struct, dest=rank_id, tag=1)
-        elif manager_rank == rank_id:
-            manager.struct = worker_comm.recv(tmp_struct, source=0, tag=1)
+    manager.struct = manager.broadcast_struct(manager.struct)
 
     def fxn_wrap(master_pop):
         """Master: returns all potentials for all structures"""
