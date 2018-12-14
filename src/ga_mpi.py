@@ -93,11 +93,11 @@ date_str = datetime.datetime.now().strftime("%Y-%m-%d")
 CHECK_BEFORE_OVERWRITE = False
 
 # TODO: BW settings
-BASE_PATH = ""
 BASE_PATH = "/home/jvita/scripts/s-meam/"
+BASE_PATH = ""
 
-LOAD_PATH = "/projects/sciteam/baot/pz-unfx-cln/"
 LOAD_PATH = BASE_PATH + "data/fitting_databases/pinchao/"
+LOAD_PATH = "/projects/sciteam/baot/pz-unfx-cln/"
 SAVE_PATH = BASE_PATH + "data/results/"
 
 SAVE_DIRECTORY = SAVE_PATH + date_str + "-" + "meam" + "{}-{}".format(NUM_GENS,
@@ -150,12 +150,11 @@ def main():
             os.path.join(LOAD_PATH, 'Database-Structures')
         )
 
-        master_database.print_metadata()
+        # master_database.print_metadata()
 
-        # all_struct_names, structures = zip(*master_database.structures.items())
-        _, struct_natoms = zip(*master_database.natoms.items())
-        all_struct_names, _ = zip(*master_database.force_weighting.items())
-        num_structs = len(struct_natoms)
+        # all_struct_names  , structures = zip(*master_database.structures.items())
+        all_struct_names, struct_natoms = zip(*master_database.natoms.items())
+        num_structs = len(all_struct_names)
 
         worker_ranks = partools.compute_procs_per_subset(
             struct_natoms, world_size
@@ -272,15 +271,19 @@ def main():
 
                 fcs_fitnesses = np.zeros((len(pop), num_structs))
 
-                for s_id, name in enumerate(all_struct_names):
-                    w_energies[:, s_id] = all_eng[s_id]
-                    t_energies[s_id] = master_database.true_energies[name]
+                print(master_database.true_forces.keys())
+                print(master_database.force_weighting.keys())
+
+                for name in master_database.true_forces.keys():
+                    s_id = all_struct_names.index(name)
+                    # w_energies[:, s_id] = all_eng[s_id]
+                    # t_energies[s_id] = master_database.true_energies[name]
 
                     # if name == master_database.reference_struct:
                     #     ref_energy = w_energies[:, s_id]
 
                     # zero forces outside of cutoff (as done by Pinchao)
-                    force_weights = master_database.force_weighting[struct_name]
+                    force_weights = master_database.force_weighting[name]
                     w_fcs = all_fcs[s_id] * force_weights[:, np.newaxis]
 
                     true_fcs = master_database.true_forces[name]
@@ -309,6 +312,8 @@ def main():
                         master_database.reference_structs.items()):
                     r_name = ref.ref_struct
                     true_ediff = ref.energy_difference
+
+                    print(all_struct_names, s_name, r_name, flush=True)
 
                     # find index of structures to know which energies to use
                     s_id = all_struct_names.index(s_name)

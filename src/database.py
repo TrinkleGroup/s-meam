@@ -3,6 +3,7 @@ import glob
 import pickle
 import numpy as np
 from collections import namedtuple
+import lammpsTools
 
 class Database:
     def __init__(self, structure_folder_name="", info_folder_name=""):
@@ -27,8 +28,8 @@ class Database:
         # if structure_folder_name != "":
         #     self.load_structures()
 
-        if info_folder_name != "":
-            self.load_true_values()
+        # if info_folder_name != "":
+        #     self.load_true_values()
 
     @classmethod
     def manual_init(cls, structures, energies, forces, weights, ref_struct,
@@ -117,7 +118,7 @@ class Database:
     def read_pinchao_formatting(self, directory_path):
         reference = namedtuple('reference', 'ref_struct energy_difference')
 
-        for file_name in glob.glob(os.path.join(directory_path, 'force_*'))[:6]:
+        for file_name in glob.glob(os.path.join(directory_path, 'force_*')):
             with open(file_name) as f:
                 struct_name = f.readline().strip()
 
@@ -125,6 +126,7 @@ class Database:
 
             self.true_forces[struct_name] = full[:, 1:] * full[:, 0, np.newaxis]
             self.force_weighting[struct_name] = full[:, 0]
+            self.natoms[struct_name] = full.shape[0]
 
         with open(os.path.join(directory_path, 'FittingDataEnergy.dat')) as f:
 
@@ -132,11 +134,20 @@ class Database:
                 _ = f.readline() # remove headers
 
             for line in f:
-                struct_name, _, _, ref_name = line.split(" ")
+                struct_name, natoms, _, ref_name = line.split(" ")
                 ref_name = ref_name.strip()
 
+                print("energy ref:", struct_name)
                 eng = float(f.readline().strip())
                 self.reference_structs[struct_name] = reference(ref_name, eng)
+                self.natoms[struct_name] = int(natoms)
+
+
+                ref_atoms_object = lammpsTools.atoms_from_file(
+                    os.path.join(directory_path, ref_name), ['H', 'He']
+                )
+
+                self.natoms[ref_name] = len(ref_atoms_object)
 
 
 if __name__ == "__main__":
