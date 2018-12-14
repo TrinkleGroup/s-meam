@@ -93,11 +93,11 @@ date_str = datetime.datetime.now().strftime("%Y-%m-%d")
 CHECK_BEFORE_OVERWRITE = False
 
 # TODO: BW settings
-BASE_PATH = "/home/jvita/scripts/s-meam/"
 BASE_PATH = ""
+BASE_PATH = "/home/jvita/scripts/s-meam/"
 
-LOAD_PATH = BASE_PATH + "data/fitting_databases/pinchao/"
 LOAD_PATH = "/projects/sciteam/baot/pz-unfx-cln/"
+LOAD_PATH = BASE_PATH + "data/fitting_databases/pinchao/"
 SAVE_PATH = BASE_PATH + "data/results/"
 
 SAVE_DIRECTORY = SAVE_PATH + date_str + "-" + "meam" + "{}-{}".format(NUM_GENS,
@@ -138,7 +138,7 @@ def main():
         stats, logbook = build_stats_and_log()
 
         # Prepare database and potential template
-        potential_template = initialize_potential_template()
+        potential_template = partools.initialize_potential_template(LOAD_PATH)
         potential_template.print_statistics()
         print()
 
@@ -163,6 +163,7 @@ def main():
         print("worker_ranks:", worker_ranks)
     else:
         potential_template = None
+        master_database = None
         num_structs = None
         worker_ranks = None
         all_struct_names = None
@@ -220,220 +221,10 @@ def main():
 
     manager.struct = manager.broadcast_struct(manager.struct)
 
-    def fxn_wrap(master_pop):
-        """Master: returns all potentials for all structures"""
-        if is_manager:
-            pop = manager_comm.bcast(master_pop, root=0)
-            # pop = np.ones((POP_SIZE, 5))
-        else:
-            pop = None
-
-        if FLATTEN_LANDSCAPE:
-            master_pop = local_minimization(
-                master_pop, toolbox, world_comm, is_master, nsteps=FLAT_NSTEPS
-            )
-
-            pop = manager_comm.bcast(master_pop, root=0)
-
-        # pop = worker_comm.bcast(pop, root=0)
-        # eng, per_u_max_ni = manager.compute_energy(pop)
-        eng = manager.compute_energy(pop)
-        fcs = manager.compute_forces(pop)
-
-        # fitnesses = csr_matrix((pop.shape[0], 2 * num_structs))
-        fitnesses = 0
-
-        # if return_ni:
-        #     max_ni = 0
-
-        if is_manager:
-            mgr_eng = manager_comm.gather(eng, root=0)
-
-            # if return_ni:
-            #     mgr_ni = manager_comm.gather(per_u_max_ni, root=0)
-
-            mgr_fcs = manager_comm.gather(fcs, root=0)
-
-            if is_master:
-                # note: can't stack mgr_fcs b/c different dimensions per struct
-                all_eng = np.vstack(mgr_eng)
-                all_fcs = mgr_fcs
-
-                w_energies = np.zeros((len(pop), num_structs))
-                t_energies = np.zeros(num_structs)
-
-                fcs_fitnesses = np.zeros((len(pop), num_structs))
-
-                print(master_database.true_forces.keys())
-                print(master_database.force_weighting.keys())
-
-                for name in master_database.true_forces.keys():
-                    s_id = all_struct_names.index(name)
-                    # w_energies[:, s_id] = all_eng[s_id]
-                    # t_energies[s_id] = master_database.true_energies[name]
-
-                    # if name == master_database.reference_struct:
-                    #     ref_energy = w_energies[:, s_id]
-
-                    # zero forces outside of cutoff (as done by Pinchao)
-                    force_weights = master_database.force_weighting[name]
-                    w_fcs = all_fcs[s_id] * force_weights[:, np.newaxis]
-
-                    true_fcs = master_database.true_forces[name]
-
-                    fcs_err = ((w_fcs - true_fcs) / np.sqrt(10)) ** 2
-                    fcs_err = np.linalg.norm(fcs_err, axis=(1, 2)) / np.sqrt(10)
-
-                    fcs_fitnesses[:, s_id] = fcs_err
-
-                # w_energies -= ref_energy
-                # t_energies -= master_database.reference_energy
-
-                # eng_fitnesses = np.zeros((len(pop), num_structs))
-                #
-                # for s_id, (w_eng,t_eng) in enumerate(
-                #     zip(w_energies.T, t_energies)):
-                #     eng_fitnesses[:, s_id] = (w_eng - t_eng) ** 2
-
-                # TODO: this only works for how Pinchao's DB is formatted
-
-                eng_fitnesses = np.zeros(
-                    (len(pop), len(master_database.reference_structs))
-                )
-
-                for fit_id, (s_name, ref) in enumerate(
-                        master_database.reference_structs.items()):
-                    r_name = ref.ref_struct
-                    true_ediff = ref.energy_difference
-
-                    print(all_struct_names, s_name, r_name, flush=True)
-
-                    # find index of structures to know which energies to use
-                    s_id = all_struct_names.index(s_name)
-                    r_id = all_struct_names.index(r_name)
-
-                    comp_ediff = w_energies[:, s_id] - w_energies[:, r_id]
-                    # comp_ediff = 0
-
-                    eng_fitnesses[:, fit_id] = (comp_ediff - true_ediff) ** 2
-
-                fitnesses = np.hstack([eng_fitnesses, fcs_fitnesses])
-
-                # print(np.sum(fitnesses, axis=1), flush=True)
-
-        # if return_ni: return fitnesses, per_u_max_ni
-        # else: return fitnesses
-        return fitnesses
-
-    # @profile
-    def grad_wrap(master_pop):
-        """Evalautes the gradient for all potentials in the population"""
-
-        if is_manager:
-            pop = manager_comm.bcast(master_pop, root=0)
-        else:
-            pop = None
-
-        # pop = worker_comm.bcast(pop, root=0)
-
-        eng, _ = manager.compute_energy(pop)
-        fcs = manager.compute_forces(pop)
-
-        eng_grad = manager.compute_energy_grad(pop)
-        fcs_grad = manager.compute_forces_grad(pop)
-
-        # gradient = csr_matrix((pop.shape[0], 2 * num_structs, pop.shape[1]))
-        gradient = 0
-
-        if is_manager:
-            mgr_eng = manager_comm.gather(eng, root=0)
-            mgr_fcs = manager_comm.gather(fcs, root=0)
-
-            mgr_eng_grad = manager_comm.gather(eng_grad, root=0)
-            mgr_fcs_grad = manager_comm.gather(fcs_grad, root=0)
-
-            if is_master:
-                # note: can't stack mgr_fcs b/c different dimensions per struct
-                all_eng = np.vstack(mgr_eng)
-                all_fcs = mgr_fcs
-
-                w_energies = np.zeros((len(pop), num_structs))
-                t_energies = np.zeros(num_structs)
-
-                fcs_grad_vec = np.zeros(
-                    (len(pop), potential_template.pvec_len, num_structs)
-                )
-
-                ref_energy = 0
-
-                for s_id, name in enumerate(all_struct_names):
-                    w_energies[:, s_id] = all_eng[s_id]
-                    t_energies[s_id] = master_database.true_energies[name]
-
-                    if name == master_database.reference_struct:
-                        ref_energy = w_energies[:, s_id]
-
-                    force_weights = master_database.force_weighting[struct_name]
-                    w_fcs = all_fcs[s_id] * force_weights[:, np.newaxis]
-                    true_fcs = master_database.true_forces[name]
-
-                    fcs_err = ((w_fcs - true_fcs) / np.sqrt(10)) ** 2
-
-                    fcs_grad = mgr_fcs_grad[s_id]
-
-                    scaled = np.einsum('pna,pnak->pnak', fcs_err, fcs_grad)
-                    summed = scaled.sum(axis=1).sum(axis=1)
-
-                    fcs_grad_vec[:, :, s_id] += (2 * summed / 10)
-
-                # w_energies -= ref_energy
-                # t_energies -= database.reference_energy
-
-                # eng_grad_vec = np.zeros(
-                #     (len(pop), potential_template.pvec_len, num_structs)
-                # )
-                #
-                # for s_id, (name, w_eng, t_eng), in enumerate(
-                #     zip(all_struct_names, w_energies.T, t_energies)):
-                #
-                #     eng_err = (w_eng - t_eng)
-                #     eng_grad = mgr_eng_grad[s_id]
-                #
-                #     eng_grad_vec[:, :, s_id] += (
-                #         eng_err[:, np.newaxis] * eng_grad * 2
-                #     )
-
-                eng_grad_vec = np.zeros(
-                    (len(pop), potential_template.pvec_len,
-                     len(master_database.reference_structs))
-                )
-
-                for fit_id, (s_name, ref) in enumerate(
-                        master_database.reference_structs.items()):
-                    r_name = ref.ref_struct
-                    true_ediff = ref.energy_difference
-
-                    # find index of structures to know which energies to use
-                    s_id = all_struct_names.index(s_name)
-                    r_id = all_struct_names.index(r_name)
-
-                    comp_ediff = w_energies[:, s_id] - w_energies[:, r_id]
-
-                    eng_err = comp_ediff - true_ediff
-                    s_grad = mgr_eng_grad[s_id]
-                    r_grad = mgr_eng_grad[r_id]
-
-                    eng_grad_vec[:, :, fit_id] += (
-                            eng_err[:, np.newaxis] * (s_grad - r_grad) * 2
-                    )
-
-                indices = np.where(potential_template.active_mask)[0]
-                tmp_eng = eng_grad_vec[:, indices, :]
-                tmp_fcs = fcs_grad_vec[:, indices, :]
-
-                gradient = np.dstack([tmp_eng, tmp_fcs]).swapaxes(1, 2)
-
-        return gradient
+    fxn_wrap, grad_wrap = partools.build_evaluation_functions(
+        potential_template, master_database, all_struct_names, manager,
+        is_master, is_manager, manager_comm, flatten=FLATTEN_LANDSCAPE
+    )
 
     # Have every process build the toolbox
     toolbox, creator = build_ga_toolbox(potential_template)
@@ -458,6 +249,7 @@ def main():
         print("MASTER: initial (UN-minimized) fitnesses:", init_fit, flush=True)
         print("Average value:", np.average(init_fit), flush=True)
 
+    return
     master_pop = local_minimization(
         master_pop, toolbox, world_comm, is_master, nsteps=INIT_NSTEPS
     )
@@ -986,97 +778,6 @@ def find_spline_type_deliminating_indices(worker):
 
     return [phi_range, rho_range, u_range, f_range, g_range], indices
 
-
-def initialize_potential_template():
-    # TODO: BW settings
-    # potential_template = Template(
-    #     pvec_len=137,
-    #     u_ranges = [(-1, 1), (-1, 1)],
-    #     spline_ranges=[(-1, 4), (-1, 4), (-1, 4), (-9, 3), (-9, 3),
-    #                    (-0.5, 1), (-0.5, 1), (-2, 3), (-2, 3), (-7, 2),
-    #                    (-7, 2), (-7, 2)],
-    #     spline_indices=[(0, 15), (15, 30), (30, 45), (45, 58), (58, 71),
-    #                      (71, 77), (77, 83), (83, 95), (95, 107),
-    #                      (107, 117), (117, 127), (127, 137)]
-    # )
-    #
-    # mask = np.ones(potential_template.pvec.shape)
-    #
-    # potential_template.pvec[12] = 0; mask[12] = 0 # rhs phi_A knot
-    # potential_template.pvec[14] = 0; mask[14] = 0 # rhs phi_A deriv
-    #
-    # potential_template.pvec[27] = 0; mask[27] = 0 # rhs phi_B knot
-    # potential_template.pvec[29] = 0; mask[29] = 0 # rhs phi_B deriv
-    #
-    # potential_template.pvec[42] = 0; mask[42] = 0 # rhs phi_B knot
-    # potential_template.pvec[44] = 0; mask[44] = 0 # rhs phi_B deriv
-    #
-    # potential_template.pvec[55] = 0; mask[55] = 0 # rhs rho_A knot
-    # potential_template.pvec[57] = 0; mask[57] = 0 # rhs rho_A deriv
-    #
-    # potential_template.pvec[68] = 0; mask[68] = 0 # rhs rho_B knot
-    # potential_template.pvec[70] = 0; mask[70] = 0 # rhs rho_B deriv
-    #
-    # potential_template.pvec[92] = 0; mask[92] = 0 # rhs f_A knot
-    # potential_template.pvec[94] = 0; mask[94] = 0 # rhs f_A deriv
-    #
-    # potential_template.pvec[104] = 0; mask[104] = 0 # rhs f_B knot
-    # potential_template.pvec[106] = 0; mask[106] = 0 # rhs f_B deriv
-    #
-    # # potential_template.pvec[83:] = 0; mask[83:] = 0 # EAM params only
-    # # potential_template.pvec[45:] = 0; mask[45:] = 0 # EAM params only
-    # potential_template.pvec[5:] = 0; mask[5:] = 0 # mini params only
-    #
-    # potential_template.active_mask = mask
-
-    potential = MEAM.from_file(LOAD_PATH + 'TiO.meam.spline')
-
-    x_pvec, seed_pvec, indices = src.meam.splines_to_pvec(
-        potential.splines)
-
-    potential_template = Template(
-        pvec_len=116,
-        u_ranges=[(-1, 1), (-1, 1)],
-        spline_ranges=[(-1, 4), (-0.5, 0.5), (-1, 1), (-9, 3), (-30, 15),
-                       (-0.5, 1), (-0.2, -0.4), (-2, 3), (-7.5, 12.5),
-                       (-8, 2), (-1, 1), (-1, 0.2)],
-        spline_indices=[(0, 15), (15, 22), (22, 37), (37, 50), (50, 57),
-                        (57, 63), (63, 70), (70, 82), (82, 89),
-                        (89, 99), (99, 106), (106, 116)]
-    )
-
-    potential_template.pvec = seed_pvec.copy()
-    mask = np.ones(potential_template.pvec_len)
-
-    mask[:15] = 0 # phi_Ti
-
-    potential_template.pvec[19] = 0;
-    mask[19] = 0  # rhs phi_TiO knot
-    potential_template.pvec[21] = 0;
-    mask[21] = 0  # rhs phi_TiO deriv
-
-    mask[22:37] = 0  # phi_O
-    mask[37:50] = 0  # rho_Ti
-
-    potential_template.pvec[54] = 0;
-    mask[54] = 0  # rhs rho_O knot
-    potential_template.pvec[56] = 0;
-    mask[56] = 0  # rhs rho_O deriv
-
-    mask[57:63] = 0  # U_Ti
-    mask[70:82] = 0  # f_Ti
-
-    potential_template.pvec[86] = 0;
-    mask[86] = 0  # rhs f_O knot
-    potential_template.pvec[88] = 0;
-    mask[88] = 0  # rhs f_O deriv
-
-    mask[89:99] = 0  # g_Ti
-    mask[106:116] = 0  # g_O
-
-    potential_template.active_mask = mask
-
-    return potential_template
 
 
 def minimize_population(pop, toolbox, comm, mpi_size, max_nsteps):

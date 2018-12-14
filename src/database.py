@@ -3,7 +3,7 @@ import glob
 import pickle
 import numpy as np
 from collections import namedtuple
-import lammpsTools
+import src.lammpsTools
 
 class Database:
     def __init__(self, structure_folder_name="", info_folder_name=""):
@@ -72,7 +72,7 @@ class Database:
         min_energy = None
 
         # for short_name in self.structures.keys():
-        for file_name in glob.glob(self.true_values_folder_path + "/*")[:6]:
+        for file_name in glob.glob(self.true_values_folder_path + "/*"):
             # file_name = self.true_values_folder_path + "/info." + short_name
             if "metadata" not in file_name:
 
@@ -137,13 +137,12 @@ class Database:
                 struct_name, natoms, _, ref_name = line.split(" ")
                 ref_name = ref_name.strip()
 
-                print("energy ref:", struct_name)
                 eng = float(f.readline().strip())
                 self.reference_structs[struct_name] = reference(ref_name, eng)
                 self.natoms[struct_name] = int(natoms)
 
 
-                ref_atoms_object = lammpsTools.atoms_from_file(
+                ref_atoms_object = src.lammpsTools.atoms_from_file(
                     os.path.join(directory_path, ref_name), ['H', 'He']
                 )
 
