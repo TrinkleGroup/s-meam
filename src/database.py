@@ -71,7 +71,7 @@ class Database:
         min_energy = None
 
         # for short_name in self.structures.keys():
-        for file_name in glob.glob(self.true_values_folder_path + "/*"):
+        for file_name in glob.glob(self.true_values_folder_path + "/*")[:6]:
             # file_name = self.true_values_folder_path + "/info." + short_name
             if "metadata" not in file_name:
 
@@ -117,7 +117,7 @@ class Database:
     def read_pinchao_formatting(self, directory_path):
         reference = namedtuple('reference', 'ref_struct energy_difference')
 
-        for file_name in glob.glob(os.path.join(directory_path, 'force_*')):
+        for file_name in glob.glob(os.path.join(directory_path, 'force_*'))[:6]:
             with open(file_name) as f:
                 struct_name = f.readline().strip()
 

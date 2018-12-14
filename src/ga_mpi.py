@@ -93,11 +93,11 @@ date_str = datetime.datetime.now().strftime("%Y-%m-%d")
 CHECK_BEFORE_OVERWRITE = False
 
 # TODO: BW settings
-BASE_PATH = "/home/jvita/scripts/s-meam/"
 BASE_PATH = ""
+BASE_PATH = "/home/jvita/scripts/s-meam/"
 
-LOAD_PATH = BASE_PATH + "data/fitting_databases/pinchao/"
 LOAD_PATH = "/projects/sciteam/baot/pz-unfx-cln/"
+LOAD_PATH = BASE_PATH + "data/fitting_databases/pinchao/"
 SAVE_PATH = BASE_PATH + "data/results/"
 
 SAVE_DIRECTORY = SAVE_PATH + date_str + "-" + "meam" + "{}-{}".format(NUM_GENS,
@@ -146,15 +146,15 @@ def main():
 
         master_database = Database(DB_PATH, DB_INFO_FILE_NAME)
 
-        if 'pinchao' in LOAD_PATH:
-            master_database.read_pinchao_formatting(
-                os.path.join(LOAD_PATH, 'Database-Structures')
-            )
+        master_database.read_pinchao_formatting(
+            os.path.join(LOAD_PATH, 'Database-Structures')
+        )
 
         master_database.print_metadata()
 
         # all_struct_names, structures = zip(*master_database.structures.items())
-        all_struct_names, struct_natoms = zip(*master_database.force_weighting.items())
+        _, struct_natoms = zip(*master_database.natoms.items())
+        all_struct_names, _ = zip(*master_database.force_weighting.items())
         num_structs = len(struct_natoms)
 
         worker_ranks = partools.compute_procs_per_subset(

@@ -49,8 +49,8 @@ VELOCITY_SCALE = 0.01 # scale for starting velocity
 ################################################################################
 
 # TODO: BW settings
-BASE_PATH = "/home/jvita/scripts/s-meam/"
 BASE_PATH = ""
+BASE_PATH = "/home/jvita/scripts/s-meam/"
 
 LOAD_PATH = "/projects/sciteam/baot/pz-unfx-cln/"
 LOAD_PATH = BASE_PATH + "data/fitting_databases/pinchao/"
@@ -95,10 +95,9 @@ def main():
 
         master_database = Database(DB_PATH, DB_INFO_FILE_NAME)
 
-        if 'pinchao' in LOAD_PATH:
-            master_database.read_pinchao_formatting(
-                os.path.join(LOAD_PATH, 'Database-Structures')
-            )
+        master_database.read_pinchao_formatting(
+            os.path.join(LOAD_PATH, 'Database-Structures')
+        )
 
         master_database.print_metadata()
 
