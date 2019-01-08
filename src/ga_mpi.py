@@ -75,7 +75,7 @@ RUN_NEW_GA = True
 FLATTEN_LANDSCAPE = False  # define fitness as fitness of partially-minimized pot
 FLAT_NSTEPS = 5
 
-DO_LMIN = True
+DO_LMIN = False
 LMIN_FREQUENCY = 1
 INIT_NSTEPS = 5
 INTER_NSTEPS = 5
@@ -93,11 +93,11 @@ date_str = datetime.datetime.now().strftime("%Y-%m-%d")
 CHECK_BEFORE_OVERWRITE = False
 
 # TODO: BW settings
-BASE_PATH = ""
 BASE_PATH = "/home/jvita/scripts/s-meam/"
+BASE_PATH = ""
 
-LOAD_PATH = "/projects/sciteam/baot/pz-unfx-cln/"
 LOAD_PATH = BASE_PATH + "data/fitting_databases/pinchao/"
+LOAD_PATH = "/projects/sciteam/baot/pz-unfx-cln/"
 SAVE_PATH = BASE_PATH + "data/results/"
 
 SAVE_DIRECTORY = SAVE_PATH + date_str + "-" + "meam" + "{}-{}".format(NUM_GENS,
@@ -242,23 +242,38 @@ def main():
 
     master_pop_shape = world_comm.bcast(master_pop.shape, root=0)
 
+    forces = manager.compute_forces(
+        np.zeros((1, len(np.where(potential_template.active_mask)[0])))
+    )
+
+    if is_master:
+        print("Before:", master_pop)
+
     init_fit = toolbox.evaluate_population(master_pop)
 
     if is_master:
         init_fit = np.sum(init_fit, axis=1)
         print("MASTER: initial (UN-minimized) fitnesses:", init_fit, flush=True)
-        print("Average value:", np.average(init_fit), flush=True)
+        print(
+            "avg min max:", np.average(init_fit), np.min(init_fit),
+            np.max(init_fit), flush=True
+        )
 
-    return
     master_pop = local_minimization(
         master_pop, toolbox, world_comm, is_master, nsteps=INIT_NSTEPS
     )
+
+    if is_master:
+        print("After:", master_pop)
 
     new_fit = toolbox.evaluate_population(master_pop)
 
     if is_master:
         new_fit = np.sum(new_fit, axis=1)
-        print("MASTER: initial (minimized) fitnesses:", new_fit, flush=True)
+        print(
+            "avg min max:", np.average(init_fit), np.min(init_fit),
+            np.max(init_fit), flush=True
+        )
 
     # Have master gather fitnesses and update individuals
     if is_master:
@@ -319,11 +334,12 @@ def main():
                 )
 
             # Compute fitnesses with mated/mutated/optimized population
-            fitnesses, max_ni = toolbox.evaluate_population(master_pop, True)
+            # fitnesses, max_ni = toolbox.evaluate_population(master_pop, True)
+            fitnesses = toolbox.evaluate_population(master_pop)
 
             # Update individuals with new fitnesses
             if is_master:
-                master_pop = rescale_rhos(master_pop, max_ni, potential_template)
+                # master_pop = rescale_rhos(master_pop, max_ni, potential_template)
 
                 new_fit = np.sum(fitnesses, axis=1)
 
@@ -352,6 +368,11 @@ def main():
     else:
         master_pop = np.genfromtxt(POP_FILE_NAME)
         best_guess = creator.Individual(master_pop[0])
+
+    master_pop = local_minimization(
+        master_pop, toolbox, world_comm, is_master,
+        nsteps=INTER_NSTEPS
+    )
 
     # Perform a final local optimization on the final results of the GA
     if is_master:
@@ -567,7 +588,10 @@ def local_minimization(master_pop, toolbox, world_comm, is_master, nsteps=20):
         )
 
         val = world_comm.bcast(val, root=0)
-        return val.ravel()
+
+        # pad with zeros since num structs is less than num knots
+        tmp = np.concatenate([val.ravel(), np.zeros(16*original_shape[0])])
+        return tmp
 
     def lm_grad_wrap(raveled_pop, original_shape):
         # shape: (num_pots, num_structs*2, num_params)
@@ -591,7 +615,15 @@ def local_minimization(master_pop, toolbox, world_comm, is_master, nsteps=20):
             (num_pots * num_structs_2, num_pots * num_params)
         )
 
-        return padded_grad
+
+        # also pad with zeros since num structs is less than num knots
+
+        tmp = np.vstack([
+            padded_grad,
+            np.zeros((16*num_pots, num_pots * num_params))]
+        )
+
+        return tmp
 
     # lm_grad_wrap = '2-point'
 

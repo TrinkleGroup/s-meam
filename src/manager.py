@@ -2,6 +2,8 @@ import pickle
 import logging
 import numpy as np
 import src.partools as partools
+from src.meam import MEAM
+import src.meam
 from mpi4py import MPI
 # from memory_profiler import profile
 
@@ -87,7 +89,30 @@ class Manager:
 
         pop = self.comm.scatter(full, root=0)
 
+        potential = MEAM.from_file('/projects/sciteam/baot/pz-unfx-cln/TiO.meam.spline')
+
+        x_pvec, true_pvec, indices = src.meam.splines_to_pvec(potential.splines)
+
+        ti_only_pvec = true_pvec.copy()
+
+        mask = np.zeros(self.pot_template.pvec_len, dtype=int)
+
+        mask[15:22] = 1 # phi_TiO
+        mask[22:37] = 1 # phi_O
+        mask[50:57] = 1 # rho_O
+        mask[63:70] = 1 # U_O
+        mask[82:89] = 1 # f_O
+        mask[99:116] = 1 # g_TiO, g_O
+
+        ti_only_pvec[np.where(mask)[0]] = 0
+        ti_only_pvec = np.atleast_2d(ti_only_pvec)
+
+        ti_fcs = self.struct.compute_forces(
+            ti_only_pvec, self.pot_template.u_ranges
+        )
+
         fcs = self.struct.compute_forces(pop, self.pot_template.u_ranges)
+        fcs -= ti_fcs
 
         all_fcs = self.comm.gather(fcs, root=0)
 
@@ -131,6 +156,8 @@ class Manager:
             full = None
 
         pop = self.comm.scatter(full, root=0)
+
+        # TODO: subtract off Ti-only forces from gradient?
 
         fcs_grad = self.struct.forces_gradient_wrt_pvec(
             pop, self.pot_template.u_ranges

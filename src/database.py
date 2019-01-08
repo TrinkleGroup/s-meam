@@ -116,17 +116,19 @@ class Database:
         return len(self.natoms)
 
     def read_pinchao_formatting(self, directory_path):
-        reference = namedtuple('reference', 'ref_struct energy_difference')
+        reference = namedtuple(
+            'reference', 'ref_struct energy_difference weight'
+        )
 
-        for file_name in glob.glob(os.path.join(directory_path, 'force_*')):
-            with open(file_name) as f:
-                struct_name = f.readline().strip()
+        # for file_name in glob.glob(os.path.join(directory_path, 'force_*')):
+        #     with open(file_name) as f:
+        #         struct_name = f.readline().strip()
 
-            full = np.genfromtxt(file_name, skip_header=1)
+        #     full = np.genfromtxt(file_name, skip_header=1)
 
-            self.true_forces[struct_name] = full[:, 1:] * full[:, 0, np.newaxis]
-            self.force_weighting[struct_name] = full[:, 0]
-            self.natoms[struct_name] = full.shape[0]
+        #     self.true_forces[struct_name] = full[:, 1:] * full[:, 0, np.newaxis]
+        #     self.force_weighting[struct_name] = full[:, 0]
+        #     self.natoms[struct_name] = full.shape[0]
 
         with open(os.path.join(directory_path, 'FittingDataEnergy.dat')) as f:
 
@@ -134,17 +136,28 @@ class Database:
                 _ = f.readline() # remove headers
 
             for line in f:
-                struct_name, natoms, _, ref_name = line.split(" ")
+                struct_name, natoms, _, ref_name, weight = line.split(" ")
                 ref_name = ref_name.strip()
 
                 eng = float(f.readline().strip())
-                self.reference_structs[struct_name] = reference(ref_name, eng)
+                weight = float(weight)
+
+                self.reference_structs[struct_name] = reference(
+                    ref_name, eng, weight
+                    )
+
                 self.natoms[struct_name] = int(natoms)
 
 
                 ref_atoms_object = src.lammpsTools.atoms_from_file(
                     os.path.join(directory_path, ref_name), ['H', 'He']
                 )
+
+                file_name = os.path.join(directory_path, 'force_' + struct_name)
+                full = np.genfromtxt(file_name, skip_header=1)
+
+                self.true_forces[struct_name] = full[:, 1:] * full[:, 0, np.newaxis]
+                self.force_weighting[struct_name] = full[:, 0]
 
                 self.natoms[ref_name] = len(ref_atoms_object)
 

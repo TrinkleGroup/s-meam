@@ -55,9 +55,6 @@ def build_evaluation_functions(
 
                 fcs_fitnesses = np.zeros((len(pop), num_structs))
 
-                print(master_database.true_forces.keys())
-                print(master_database.force_weighting.keys())
-
                 for name in master_database.true_forces.keys():
                     s_id = all_struct_names.index(name)
                     # w_energies[:, s_id] = all_eng[s_id]
@@ -67,15 +64,32 @@ def build_evaluation_functions(
                     #     ref_energy = w_energies[:, s_id]
 
                     # zero forces outside of cutoff (as done by Pinchao)
+
+                    if "oct" in name:
+                        weight = 0.0682
+                    elif "hex" in name:
+                        weight = 0.03
+                    elif ("crowd" in name) or ("face" in name):
+                        weight = 0.03
+                    elif "oh.Ti" == name:
+                        weight = 0.0460
+                    elif "oc.Ti" == name:
+                        weight = 0.07665
+                    elif "hc.Ti" == name:
+                        weight = 0.0372
+                    elif "oo.Ti" == name:
+                        weight = 0.0395
+
                     force_weights = master_database.force_weighting[name]
+
                     w_fcs = all_fcs[s_id] * force_weights[:, np.newaxis]
 
                     true_fcs = master_database.true_forces[name]
 
                     fcs_err = ((w_fcs - true_fcs) / np.sqrt(10)) ** 2
-                    fcs_err = np.linalg.norm(fcs_err, axis=(1, 2)) / np.sqrt(10)
+                    fcs_err = np.linalg.norm(fcs_err, axis=(1, 2))# / np.sqrt(10)
 
-                    fcs_fitnesses[:, s_id] = fcs_err
+                    fcs_fitnesses[:, s_id] = fcs_err * weight
 
                 # w_energies -= ref_energy
                 # t_energies -= master_database.reference_energy
@@ -101,10 +115,11 @@ def build_evaluation_functions(
                     s_id = all_struct_names.index(s_name)
                     r_id = all_struct_names.index(r_name)
 
-                    comp_ediff = w_energies[:, s_id] - w_energies[:, r_id]
+                    comp_ediff = all_eng[s_id, :] - all_eng[r_id, :]
                     # comp_ediff = 0
 
-                    eng_fitnesses[:, fit_id] = (comp_ediff - true_ediff) ** 2
+                    tmp = (comp_ediff - true_ediff) ** 2
+                    eng_fitnesses[:, fit_id] = tmp * ref.weight
 
                 fitnesses = np.hstack([eng_fitnesses, fcs_fitnesses])
 
@@ -123,11 +138,12 @@ def build_evaluation_functions(
         else:
             pop = None
 
-        eng, _ = manager.compute_energy(pop)
+        eng = manager.compute_energy(pop)
         fcs = manager.compute_forces(pop)
 
         eng_grad = manager.compute_energy_grad(pop)
         fcs_grad = manager.compute_forces_grad(pop)
+
 
         gradient = 0
 
@@ -372,46 +388,6 @@ def compute_procs_per_subset(struct_natoms, total_num_procs, method='natoms'):
 
 def initialize_potential_template(load_path):
     # TODO: BW settings
-    # potential_template = Template(
-    #     pvec_len=137,
-    #     u_ranges = [(-1, 1), (-1, 1)],
-    #     spline_ranges=[(-1, 4), (-1, 4), (-1, 4), (-9, 3), (-9, 3),
-    #                    (-0.5, 1), (-0.5, 1), (-2, 3), (-2, 3), (-7, 2),
-    #                    (-7, 2), (-7, 2)],
-    #     spline_indices=[(0, 15), (15, 30), (30, 45), (45, 58), (58, 71),
-    #                      (71, 77), (77, 83), (83, 95), (95, 107),
-    #                      (107, 117), (117, 127), (127, 137)]
-    # )
-    #
-    # mask = np.ones(potential_template.pvec.shape)
-    #
-    # potential_template.pvec[12] = 0; mask[12] = 0 # rhs phi_A knot
-    # potential_template.pvec[14] = 0; mask[14] = 0 # rhs phi_A deriv
-    #
-    # potential_template.pvec[27] = 0; mask[27] = 0 # rhs phi_B knot
-    # potential_template.pvec[29] = 0; mask[29] = 0 # rhs phi_B deriv
-    #
-    # potential_template.pvec[42] = 0; mask[42] = 0 # rhs phi_B knot
-    # potential_template.pvec[44] = 0; mask[44] = 0 # rhs phi_B deriv
-    #
-    # potential_template.pvec[55] = 0; mask[55] = 0 # rhs rho_A knot
-    # potential_template.pvec[57] = 0; mask[57] = 0 # rhs rho_A deriv
-    #
-    # potential_template.pvec[68] = 0; mask[68] = 0 # rhs rho_B knot
-    # potential_template.pvec[70] = 0; mask[70] = 0 # rhs rho_B deriv
-    #
-    # potential_template.pvec[92] = 0; mask[92] = 0 # rhs f_A knot
-    # potential_template.pvec[94] = 0; mask[94] = 0 # rhs f_A deriv
-    #
-    # potential_template.pvec[104] = 0; mask[104] = 0 # rhs f_B knot
-    # potential_template.pvec[106] = 0; mask[106] = 0 # rhs f_B deriv
-    #
-    # # potential_template.pvec[83:] = 0; mask[83:] = 0 # EAM params only
-    # # potential_template.pvec[45:] = 0; mask[45:] = 0 # EAM params only
-    # potential_template.pvec[5:] = 0; mask[5:] = 0 # mini params only
-    #
-    # potential_template.active_mask = mask
-
     potential = MEAM.from_file(os.path.join(load_path, 'TiO.meam.spline'))
 
     x_pvec, seed_pvec, indices = src.meam.splines_to_pvec(
@@ -419,7 +395,7 @@ def initialize_potential_template(load_path):
 
     potential_template = Template(
         pvec_len=116,
-        u_ranges=[(-1, 1), (-1, 1)],
+        u_ranges=[(-55, -24), (-24, 8.3)],
         spline_ranges=[(-1, 4), (-0.5, 0.5), (-1, 1), (-9, 3), (-30, 15),
                        (-0.5, 1), (-0.2, -0.4), (-2, 3), (-7.5, 12.5),
                        (-8, 2), (-1, 1), (-1, 0.2)],
@@ -438,7 +414,7 @@ def initialize_potential_template(load_path):
     potential_template.pvec[21] = 0;
     mask[21] = 0  # rhs phi_TiO deriv
 
-    mask[22:37] = 0  # phi_O
+    potential_template.pvec[22:37] = 0; mask[22:37] = 0  # phi_O
     mask[37:50] = 0  # rho_Ti
 
     potential_template.pvec[54] = 0;
