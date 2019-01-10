@@ -89,7 +89,8 @@ class Manager:
 
         pop = self.comm.scatter(full, root=0)
 
-        potential = MEAM.from_file('/projects/sciteam/baot/pz-unfx-cln/TiO.meam.spline')
+        # potential = MEAM.from_file('/projects/sciteam/baot/pz-unfx-cln/TiO.meam.spline')
+        potential = MEAM.from_file('/home/jvita/scripts/s-meam/data/fitting_databases/pinchao/TiO.meam.spline')
 
         x_pvec, true_pvec, indices = src.meam.splines_to_pvec(potential.splines)
 

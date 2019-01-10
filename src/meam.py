@@ -588,15 +588,19 @@ class MEAM:
         return self.forces
 
     # @profile
-    def get_lammps_results(self, struct):
+    def get_lammps_results(self, struct, relax=False):
 
         types = self.types
 
-        params = {'units': 'metal', 'boundary': 'p p p', 'mass': ['1 1.008',
-                                                                  '2 4.0026'],
+        params = {'units': 'metal',
+                  'boundary': 'p p p',
+                  'mass': ['1 1.008', '2 4.0026'],
                   'pair_style': 'meam/spline',
                   'pair_coeff': ['* * test.meam.spline ' + ' '.join(types)],
                   'newton': 'on'}
+
+        if relax:
+            params['minimize'] = '1.0e-12 1.0e-12 100 1000'
 
         self.write_to_file('test.meam.spline')
 
