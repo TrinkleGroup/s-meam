@@ -43,7 +43,7 @@ def build_evaluation_functions(
                 all_fcs = mgr_fcs
 
                 # fcs_fitnesses = np.zeros((len(pop), num_structs))
-                # 
+                #
                 # eng_fitnesses = np.zeros(
                 #     (len(pop), len(master_database.reference_structs))
                 # )
@@ -111,7 +111,7 @@ def build_evaluation_functions(
 
                 # fitnesses = np.hstack([eng_fitnesses, fcs_fitnesses])
 
-                print(np.sum(fitnesses, axis=1), flush=True)
+                # print(np.sum(fitnesses, axis=1), flush=True)
 
         # if return_ni: return fitnesses, per_u_max_ni
         # else: return fitnesses
@@ -150,7 +150,7 @@ def build_evaluation_functions(
                 # fcs_grad_vec = np.zeros(
                 #     (len(pop), potential_template.pvec_len, num_structs)
                 # )
-                # 
+                #
                 # eng_grad_vec = np.zeros(
                 #     (len(pop), potential_template.pvec_len,
                 #      len(master_database.reference_structs))
@@ -237,7 +237,7 @@ def build_evaluation_functions(
                 indices = np.where(potential_template.active_mask)[0]
                 # tmp_eng = eng_grad_vec[:, indices, :]
                 # tmp_fcs = fcs_grad_vec[:, indices, :]
-                # 
+                #
                 # gradient = np.dstack([tmp_eng, tmp_fcs]).swapaxes(1, 2)
                 gradient = gradient[:, indices, :].swapaxes(1, 2)
 
@@ -439,3 +439,43 @@ def initialize_potential_template(load_path):
     potential_template.active_mask = mask
 
     return potential_template
+
+def build_objective_function(testing_database, error_fxn, is_master):
+    """In the first paper, this was the log of the Bayesian estimate of the
+    mean. In the second paper, it was the logistic function C(x, eps) of the
+    Bayesian estimate.
+
+    C(x, eps) = 1 / (1 + exp(-m*(x/eps - 1)))
+
+    Here, x is the error in the estimate of the property
+    eps is the 'decision boundary' (see second paper), and
+    m is the 'stiffness' (chosen as 2 in Pinchao's code)
+
+    Currently, this code applies the logistic function, but replaces the
+    Bayesian estimate of the mean simply with the MLE value.
+    """
+
+    m = 2
+    logistic = lambda x, eps: 1 / (1 + np.exp(-m*(x/eps - 1)))
+
+    def objective_fxn(mle, weights):
+        """Only designed for one MLE at a time (currently)"""
+        errors = error_fxn(mle, weights)
+
+
+        values = 0
+        if is_master:
+            errors = errors.ravel()
+            values = np.zeros(len(errors))
+
+            for entry_id, entry in enumerate(testing_database.entries):
+                if entry.type == 'energy':
+                    values[entry_id] = logistic(errors[entry_id], 0.2)
+                elif entry.type == 'forces':
+                    values[entry_id] = logistic(errors[entry_id], 0.5)
+                else:
+                    raise ValueError("Not a valid entry type")
+
+        return np.sum(values)
+
+    return objective_fxn

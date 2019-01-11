@@ -9,7 +9,6 @@ import numpy as np
 import random
 
 # np.set_printoptions(linewidth=np.inf, precision=3, suppress=True)
-np.set_printoptions(formatter={'float': lambda x: "{0:0.3f}".format(x)})
 
 import pickle
 import glob
@@ -78,9 +77,10 @@ FLAT_NSTEPS = 5
 
 DO_LMIN = False
 LMIN_FREQUENCY = 1
-INIT_NSTEPS = 30
-INTER_NSTEPS = 5
-FINAL_NSTEPS = 30
+NUM_LMIN_STEPS = 20
+# INIT_NSTEPS = 30
+# INTER_NSTEPS = 5
+# FINAL_NSTEPS = 30
 
 CHECKPOINT_FREQUENCY = 1
 
@@ -140,12 +140,13 @@ def main():
 
         # Prepare database and potential template
         potential_template = partools.initialize_potential_template(LOAD_PATH)
-        potential_template.print_statistics()
-        print()
+        # potential_template.print_statistics()
+        # print()
 
         struct_files = glob.glob(DB_PATH + "/*")
 
         fitting_database = Database(DB_PATH, DB_INFO_FILE_NAME)
+        testing_database = Database(DB_PATH, DB_INFO_FILE_NAME)
 
         fitting_database.read_pinchao_formatting(
             os.path.join(LOAD_PATH, 'Database-Structures'), 'fitting'
@@ -166,8 +167,8 @@ def main():
 
         print([(entry.struct_name, entry.ref_struct, entry.type) for entry in fitting_database.entries])
 
-        fitting_num_structs = len(fitting_struct_names)
-        testing_num_structs = len(testing_struct_names)
+        fitting_num_entries = len(fitting_database.entries)
+        testing_num_entries = len(testing_database.entries)
 
         fitting_worker_ranks = partools.compute_procs_per_subset(
             fitting_struct_natoms, world_size
@@ -186,109 +187,126 @@ def main():
     else:
         potential_template = None
         fitting_database = None
-        num_structs = None
+        testing_database = None
+        # num_structs = None
         fitting_worker_ranks = None
         testing_worker_ranks = None
         fitting_struct_names = None
+        testing_struct_names = None
+        fitting_num_entries = None
+        testing_num_entries = None
         pz_weights = None
 
     potential_template = world_comm.bcast(potential_template, root=0)
-    num_structs = world_comm.bcast(num_structs, root=0)
+
+    fitting_struct_names = world_comm.bcast(fitting_struct_names, root=0)
+    testing_struct_names = world_comm.bcast(testing_struct_names, root=0)
+
+    fitting_num_entries = world_comm.bcast(fitting_num_entries, root=0)
+    testing_num_entries = world_comm.bcast(testing_num_entries, root=0)
 
     # Send structs to managers and build communicators
-    fitting_manager_stuff = prepare_managers(world_comm, fitting_worker_ranks)
+    if is_master:
+        print("Preparing Managers for fitting database ...", flush=True)
+
+    fitting_manager_stuff = prepare_managers(
+        world_comm, fitting_worker_ranks, world_rank, fitting_struct_names,
+        potential_template
+    )
+
     fitting_manager = fitting_manager_stuff[0]
     is_fitting_manager = fitting_manager_stuff[1]
     fitting_manager_comm = fitting_manager_stuff[2]
-    fitting_worker_comm = fitting_manager_stuff[3] 
+    fitting_worker_comm = fitting_manager_stuff[3]
 
-    testing_manager_stuff = prepare_managers(world_comm, testing_worker_ranks)
+    if is_master:
+        print("Preparing Managers for testing database ...", flush=True)
+
+    testing_manager_stuff = prepare_managers(
+        world_comm, testing_worker_ranks, world_rank, testing_struct_names,
+        potential_template
+    )
+
     testing_manager = testing_manager_stuff[0]
     is_testing_manager = testing_manager_stuff[1]
     testing_manager_comm = testing_manager_stuff[2]
-    testing_worker_comm = testing_manager_stuff[3] 
+    testing_worker_comm = testing_manager_stuff[3]
 
     # TODO: these should actually be called "error functions" or something
     # Define functions for computing fitnesses and gradients
     fitting_fxn, fitting_grad = partools.build_evaluation_functions(
-        potential_template, fitting_database, fitting_struct_names, manager,
-        is_master, is_fitting_manager, fitting_manager_comm,
+        potential_template, fitting_database, fitting_struct_names,
+        fitting_manager, is_master, is_fitting_manager, fitting_manager_comm,
         flatten=FLATTEN_LANDSCAPE
     )
 
     testing_fxn, testing_grad = partools.build_evaluation_functions(
-        potential_template, testing_database, testing_struct_names, manager,
-        is_master, is_testing_manager, testing_manager_comm,
+        potential_template, testing_database, testing_struct_names,
+        testing_manager, is_master, is_testing_manager, testing_manager_comm,
         flatten=FLATTEN_LANDSCAPE
     )
 
     # Have every process build the toolbox
-    toolbox, creator = build_ga_toolbox(len(master_database.entries))
+    toolbox, creator = build_ga_toolbox(fitting_num_entries)
 
-    toolbox.register("evaluate_population", fxn_wrap)
-    toolbox.register("gradient", grad_wrap)
+    objective_fxn = partools.build_objective_function(
+        testing_database, testing_fxn, is_master
+    )
 
     # Create the original population of weights
     if is_master:
-        master_pop = toolbox.population(n=POP_SIZE)
-        # master_pop = np.ones(np.array(master_pop).shape)
-        # master_pop = np.atleast_2d(potential_template.pvec[np.where(potential_template.active_mask)[0]])
-        # old_size = master_pop.shape[1]
-        # 
-        # master_pop = np.tile(master_pop, POP_SIZE)
-        # master_pop = master_pop.reshape((POP_SIZE, old_size))
+        weight_pop = toolbox.population(n=POP_SIZE)
     else:
-        master_pop = 0
+        weight_pop = 0
 
-    master_pop = np.array(master_pop)
+    weight_pop = np.array(weight_pop)
+    weight_pop = world_comm.bcast(weight_pop, root=0)
 
-    master_pop_shape = world_comm.bcast(master_pop.shape, root=0)
+    weight_pop_shape = world_comm.bcast(weight_pop.shape, root=0)
 
-    init_fit = toolbox.evaluate_population(master_pop, pz_weights)
+    all_mle = []
+    obj_fxn_values = []
+    for weights in weight_pop:
+        init_guess = potential_template.generate_random_instance()[
+            np.where(potential_template.active_mask)[0]
+        ]
+
+        mle = local_minimization(
+            np.atleast_2d(init_guess), fitting_fxn, fitting_grad, weights,
+            world_comm, is_master, nsteps=NUM_LMIN_STEPS
+        )
+        all_mle.append(mle)
+        obj_fxn_values.append(objective_fxn(mle, weights))
 
     if is_master:
-        init_fit = np.sum(init_fit, axis=1)
-        print("MASTER: initial (UN-minimized) fitnesses:", init_fit, flush=True)
+
         print(
-            "avg min max:", np.average(init_fit), np.min(init_fit),
-            np.max(init_fit), flush=True
+            "MASTER: initial objective function values:", obj_fxn_values, flush=True
         )
 
-    master_pop = local_minimization(
-        master_pop, toolbox, pz_weights, world_comm, is_master, nsteps=100
-    )
-
-    # np.savetxt('poop.dat', master_pop)
-    # return
-
-    new_fit = toolbox.evaluate_population(master_pop, pz_weights)
-
-    if is_master:
-        new_fit = np.sum(new_fit, axis=1)
-        print("MASTER: initial (minimized) fitnesses:", new_fit, flush=True)
         print(
-            "avg min max:", np.average(new_fit), np.min(new_fit),
-            np.max(new_fit), flush=True
+            "avg min max:", np.average(obj_fxn_values), np.min(obj_fxn_values),
+            np.max(obj_fxn_values), flush=True
         )
 
     # Have master gather fitnesses and update individuals
     if is_master:
 
         pop_copy = []
-        for ind in master_pop:
+        for ind in weight_pop:
             pop_copy.append(creator.Individual(ind))
 
-        master_pop = pop_copy
+        weight_pop = pop_copy
 
-        for ind, fit in zip(master_pop, new_fit):
+        for ind, fit in zip(weight_pop, obj_fxn_values):
             ind.fitness.values = fit,
 
         # Sort population; best on top
-        master_pop = tools.selBest(master_pop, len(master_pop))
+        weight_pop = tools.selBest(weight_pop, len(weight_pop))
 
-        print_statistics(master_pop, 0, stats, logbook)
+        print_statistics(weight_pop, 0, stats, logbook)
 
-        checkpoint(master_pop, logbook, master_pop[0], 0)
+        checkpoint(weight_pop, logbook, weight_pop[0], 0)
         ga_start = time.time()
 
     # Begin GA
@@ -297,99 +315,103 @@ def main():
         while (generation_number < NUM_GENS):
             if is_master:
 
-                # TODO: currently using crossover; used to use blend
+                # TODO: currently using blend for mutate
 
                 # Preserve top 50%, breed survivors
-                for pot_num in range(len(master_pop) // 2, len(master_pop)):
-                    mom_idx = np.random.randint(len(master_pop) // 2)
+                for pot_num in range(len(weight_pop) // 2, len(weight_pop)):
+                    mom_idx = np.random.randint(len(weight_pop) // 2)
 
                     dad_idx = mom_idx
                     while dad_idx == mom_idx:
-                        dad_idx = np.random.randint(len(master_pop) // 2)
+                        dad_idx = np.random.randint(len(weight_pop) // 2)
 
-                    mom = master_pop[mom_idx]
-                    dad = master_pop[dad_idx]
+                    mom = weight_pop[mom_idx]
+                    dad = weight_pop[dad_idx]
 
                     kid, _ = toolbox.mate(toolbox.clone(mom),
                                           toolbox.clone(dad))
-                    master_pop[pot_num] = kid
+                    weight_pop[pot_num] = kid
 
                 # TODO: debug to make sure pop is always sorted here
 
                 # Mutate randomly everyone except top 10% (or top 2)
-                for mut_ind in master_pop[max(2, int(POP_SIZE / 10)):]:
+                for mut_ind in weight_pop[max(2, int(POP_SIZE / 10)):]:
                     if np.random.random() >= MUTPB: toolbox.mutate(mut_ind)
-            # else:
-            #     master_pop = None
-
-            # Run local minimization on best individual if desired
-            if DO_LMIN and (generation_number % LMIN_FREQUENCY == 0):
-                master_pop = local_minimization(
-                    master_pop, toolbox, pz_weights, world_comm, is_master,
-                    nsteps=INTER_NSTEPS
-                )
 
             # Compute fitnesses with mated/mutated/optimized population
-            # fitnesses, max_ni = toolbox.evaluate_population(master_pop, True)
-            fitnesses = toolbox.evaluate_population(master_pop, pz_weights)
+            # fitnesses, max_ni = toolbox.evaluate_population(weight_pop, True)
+
+            new_mle = []
+            obj_fxn_values = []
+            for old_mle, weights in zip(all_mle, weight_pop):
+                mle = local_minimization(
+                    old_mle, fitting_fxn, fitting_grad, weights, world_comm,
+                    is_master, nsteps=NUM_LMIN_STEPS
+                )
+                obj_fxn_values.append(objective_fxn(mle, weights))
+                new_mle.append(mle)
+            all_mle = new_mle
 
             # Update individuals with new fitnesses
             if is_master:
-                # master_pop = rescale_rhos(master_pop, max_ni, potential_template)
-
-                new_fit = np.sum(fitnesses, axis=1)
-
                 pop_copy = []
-                for ind in master_pop:
+                for ind in weight_pop:
                     pop_copy.append(creator.Individual(ind))
 
-                master_pop = pop_copy
+                weight_pop = pop_copy
 
-                for ind, fit in zip(master_pop, new_fit):
+                for ind, fit in zip(weight_pop, obj_fxn_values):
                     ind.fitness.values = fit,
 
                 # Sort
-                master_pop = tools.selBest(master_pop, len(master_pop))
+                weight_pop = tools.selBest(weight_pop, len(weight_pop))
 
                 # Print statistics to screen and checkpoint
-                print_statistics(master_pop, generation_number, stats, logbook)
+                print_statistics(weight_pop, generation_number, stats, logbook)
 
                 if (generation_number % CHECKPOINT_FREQUENCY == 0):
-                    best = np.array(tools.selBest(master_pop, 1)[0])
-                    checkpoint(master_pop, logbook, best, generation_number)
+                    best = np.array(tools.selBest(weight_pop, 1)[0])
+                    checkpoint(weight_pop, logbook, best, generation_number)
 
-                best_guess = master_pop[0]
+                # best_guess = weight_pop[0]
             else:
-                best_guess = None
+                pass
+                # best_guess = None
 
             generation_number += 1
     else:
-        master_pop = np.genfromtxt(POP_FILE_NAME)
-        best_guess = creator.Individual(master_pop[0])
+        weight_pop = np.genfromtxt(POP_FILE_NAME)
+        # best_guess = creator.Individual(weight_pop[0])
 
-    # if not is_master:
-    #     best_guess = None
+    # best_guess = world_comm.bcast(best_guess, root=0)
 
-    best_guess = world_comm.bcast(best_guess, root=0)
-
-    best_guess = local_minimization(
-        np.atleast_2d(best_guess), toolbox, pz_weights, world_comm, is_master,
-        nsteps=FINAL_NSTEPS
-    )
-
-    final_fit = toolbox.evaluate_population(master_pop, pz_weights)
+    new_mle = []
+    obj_fxn_values = []
+    for old_mle, weights in zip(all_mle, weight_pop):
+        mle = local_minimization(
+            np.atleast_2d(old_mle), fitting_fxn, fitting_grad, weights, world_comm,
+            is_master, nsteps=NUM_LMIN_STEPS
+        )[0]
+        obj_fxn_values.append(objective_fxn(mle, weights))
+        new_mle.append(mle)
+    all_mle = new_mle
 
     # Perform a final local optimization on the final results of the GA
     if is_master:
-        final_fit = np.sum(final_fit, axis=1)
-        print("MASTER: final fitnesses:", final_fit, flush=True)
         print(
-            "avg min max:", np.average(final_fit), np.min(final_fit),
-            np.max(final_fit), flush=True
+            "MASTER: final objective function values:", obj_fxn_values, flush=True
         )
+
+        print(
+            "avg min max:", np.average(obj_fxn_values), np.min(obj_fxn_values),
+            np.max(obj_fxn_values), flush=True
+        )
+
         ga_runtime = time.time() - ga_start
 
-        checkpoint(master_pop, logbook, master_pop[0], 1)
+        checkpoint(weight_pop, logbook, weight_pop[0], 1)
+        print(np.array(all_mle))
+        np.savetxt("final_mle_params.dat", np.array(all_mle))
 
         print("MASTER: GA runtime = {:.2f} (s)".format(ga_runtime), flush=True)
         print("MASTER: Average time per step = {:.2f}"
@@ -398,27 +420,29 @@ def main():
 
 ################################################################################
 
-def build_ga_toolbox(potential_template):
+def build_ga_toolbox(num_fitting_structs):
     """Initializes GA toolbox with desired functions"""
 
     creator.create("CostFunctionMinimizer", base.Fitness, weights=(-1.,))
     creator.create("Individual", np.ndarray,
                    fitness=creator.CostFunctionMinimizer)
 
-    def ret_pvec(arr_fxn):
-        # hard-coded version for pair-pots only
-        tmp = arr_fxn(potential_template.generate_random_instance())
-
-        return tmp[np.where(potential_template.active_mask)[0]]
+    # def ret_pvec(arr_fxn):
+    #     # hard-coded version for pair-pots only
+    #     tmp = arr_fxn(potential_template.generate_random_instance())
+    #
+    #     return tmp[np.where(potential_template.active_mask)[0]]
+    def ret_pvec():
+        return np.random.random(num_fitting_structs)
 
     toolbox = base.Toolbox()
-    toolbox.register("parameter_set", ret_pvec, creator.Individual, )
-    # np.random.random)
+    toolbox.register("parameter_set", ret_pvec)
     toolbox.register("population", tools.initRepeat, list,
                      toolbox.parameter_set, )
+
     toolbox.register("mutate", tools.mutGaussian, mu=0, sigma=1, indpb=0.1)
-    # toolbox.register("mate", tools.cxBlend, alpha=MATING_ALPHA)
-    toolbox.register("mate", tools.cxTwoPoint)
+    toolbox.register("mate", tools.cxBlend, alpha=MATING_ALPHA)
+    # toolbox.register("mate", tools.cxTwoPoint)
 
     return toolbox, creator
 
@@ -594,24 +618,28 @@ def print_statistics(pop, gen_num, stats, logbook):
 
 
 # @profile
-def local_minimization(master_pop, toolbox, pz_weights, world_comm, is_master, nsteps=20):
-    def lm_fxn_wrap(raveled_pop, original_shape):
-        val = toolbox.evaluate_population(
-            raveled_pop.reshape(original_shape), pz_weights
+def local_minimization(
+    parameters, eval_fxn, grad_fxn, weights, world_comm, is_master, nsteps=20
+    ):
+
+    pad = 26
+
+    def lm_fxn_wrap(parameters_raveled, original_shape):
+        val = eval_fxn(
+            parameters_raveled.reshape(original_shape), weights
         )
 
         val = world_comm.bcast(val, root=0)
         # TODO: add optional padding in input file for LM
 
         # pad with zeros since num structs is less than num knots
-        tmp = np.concatenate([val.ravel(), np.zeros(16*original_shape[0])])
-        return tmp
+        return np.concatenate([val.ravel(), np.zeros(pad*original_shape[0])])
 
-    def lm_grad_wrap(raveled_pop, original_shape):
+    def lm_grad_wrap(parameters_raveled, original_shape):
         # shape: (num_pots, num_structs*2, num_params)
 
-        grads = toolbox.gradient(
-            raveled_pop.reshape(original_shape), pz_weights
+        grads = grad_fxn(
+            parameters_raveled.reshape(original_shape), weights
         )
 
         grads = world_comm.bcast(grads, root=0)
@@ -632,28 +660,24 @@ def local_minimization(master_pop, toolbox, pz_weights, world_comm, is_master, n
 
         # also pad with zeros since num structs is less than num knots
 
-        tmp = np.vstack([
+        return np.vstack([
             padded_grad,
-            np.zeros((16*num_pots, num_pots * num_params))]
+            np.zeros((pad*num_pots, num_pots * num_params))]
         )
 
-        return tmp
-
-    # lm_grad_wrap = '2-point'
-
-    master_pop = world_comm.bcast(master_pop, root=0)
-    master_pop = np.array(master_pop)
+    parameters = world_comm.bcast(parameters, root=0)
+    parameters = np.array(parameters)
 
     opt_results = least_squares(
-        lm_fxn_wrap, master_pop.ravel(), lm_grad_wrap,
-        method='lm', max_nfev=nsteps, args=(master_pop.shape,)
+        lm_fxn_wrap, parameters.ravel(), lm_grad_wrap,
+        method='lm', max_nfev=nsteps, args=(parameters.shape,)
     )
 
     # def wrap(x):
     #     val = np.sum(lm_fxn_wrap(x, master_pop.shape))
     #     val = world_comm.bcast(val, root=0)
     #     return val
-    # 
+    #
     # # write_count = 0
     # import time
     # def cb(x):
@@ -661,34 +685,33 @@ def local_minimization(master_pop, toolbox, pz_weights, world_comm, is_master, n
     #         # write_count += 1
     #         np.savetxt("poop_" + str(time.time()) + ".dat", x)
     #     print(wrap(x), flush=True)
-    # 
+    #
     # # opt_results = fmin_cg(wrap, master_pop, callback=cb)
     # opt_results = fmin_bfgs(wrap, master_pop, callback=cb)
 
     if is_master:
-        # print("Finished CG!", flush=True)
-        new_pop = opt_results['x'].reshape(master_pop.shape)
+        new_pop = opt_results['x'].reshape(parameters.shape)
         # new_pop = opt_results
     else:
         new_pop = None
 
-    org_fits = toolbox.evaluate_population(master_pop, pz_weights)
-    new_fits = toolbox.evaluate_population(new_pop, pz_weights)
+    org_fits = eval_fxn(parameters, weights)
+    new_fits = eval_fxn(new_pop, weights)
 
     if is_master:
-        updated_master_pop = list(master_pop)
+        updated_params = list(parameters)
 
         for i, ind in enumerate(new_pop):
             if np.sum(new_fits[i]) < np.sum(org_fits[i]):
-                updated_master_pop[i] = creator.Individual(new_pop[i])
+                updated_params[i] = creator.Individual(new_pop[i])
             else:
-                updated_master_pop[i] = creator.Individual(updated_master_pop[i])
+                updated_params[i] = creator.Individual(updated_params[i])
 
-        master_pop = updated_master_pop
+        parameters = updated_params
 
-    final_fit = toolbox.evaluate_population(master_pop, pz_weights)
+    obj_fxn_values = eval_fxn(parameters, weights)
 
-    return master_pop
+    return parameters
 
 
 def old_local_minimization(guess, toolbox, is_master, comm, num_steps=None, ):
@@ -873,7 +896,10 @@ def rescale_rhos(pop, per_u_max_ni, potential_template):
 
     return pop_arr
 
-def prepare_managers(world_comm, worker_ranks):
+def prepare_managers(
+    world_comm, worker_ranks, world_rank, struct_names, potential_template
+    ):
+
     # each Manager is in charge of a single structure
     world_group = world_comm.Get_group()
 

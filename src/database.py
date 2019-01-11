@@ -29,7 +29,7 @@ class Database:
         self.force_weighting = {}
         # self.reference_structs = {}
         # self.reference_energy = None
-        # 
+        #
         # self.weights = {}
 
         # if structure_folder_name != "":
@@ -122,7 +122,7 @@ class Database:
     def __len__(self):
         return len(self.natoms)
 
-    def read_pinchao_formatting(self, directory_path):
+    def read_pinchao_formatting(self, directory_path, db_type):
         # for file_name in glob.glob(os.path.join(directory_path, 'force_*')):
         #     with open(file_name) as f:
         #         struct_name = f.readline().strip()
@@ -133,15 +133,29 @@ class Database:
         #     self.force_weighting[struct_name] = full[:, 0]
         #     self.natoms[struct_name] = full.shape[0]
 
+        if db_type == 'fitting':
+            load_file = 'FittingDataEnergy.dat'
+        elif db_type == 'testing':
+            load_file = 'TestingDataEnergy.dat'
+        else:
+            raise ValueError(
+                "Invalid database type: must be 'fitting' or 'testing'"
+            )
+
         already_added = []
 
-        with open(os.path.join(directory_path, 'FittingDataEnergy.dat')) as f:
+        with open(os.path.join(directory_path, load_file)) as f:
 
             for _ in range(3):
                 _ = f.readline() # remove headers
 
             for line in f:
-                struct_name, natoms, _, ref_name, weight = line.split(" ")
+                if db_type == 'fitting':
+                    struct_name, natoms, _, ref_name, weight = line.split(" ")
+                else:
+                    struct_name, natoms, _, ref_name = line.split(" ")
+                    weight = 1
+
                 natoms = int(natoms)
                 ref_name = ref_name.strip()
 
@@ -186,8 +200,6 @@ class Database:
 
 
                 # 'entry', 'struct_name value natoms type ref_struct'
-
-
                 check_entry = entry(struct_name, None, None, 'forces', None)
 
                 if check_entry not in already_added:
