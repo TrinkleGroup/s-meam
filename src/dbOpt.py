@@ -385,6 +385,8 @@ def main():
 
     # best_guess = world_comm.bcast(best_guess, root=0)
 
+    # TODO: figure out how to still use parallel LM, even when each has diff weight
+
     new_mle = []
     obj_fxn_values = []
     for old_mle, weights in zip(all_mle, weight_pop):
