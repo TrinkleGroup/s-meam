@@ -18,6 +18,7 @@ from pympler import muppy, summary
 import src.lammpsTools
 import src.meam
 from src.workerSplines import WorkerSpline, RhoSpline, ffgSpline, USpline
+from src.database import Database
 
 # from src.numba_functions import outer_prod_1d, outer_prod_1d_2vecs
 # from numba import jit
@@ -390,7 +391,8 @@ class Worker:
         # Embedding terms
         ni = self.compute_ni(rho_pvecs, f_pvecs, g_pvecs)
 
-        tmp_eng, ni_sorted = self.embedding_energy(ni, u_pvecs, u_ranges)
+        # tmp_eng, ni_sorted = self.embedding_energy(ni, u_pvecs, u_ranges)
+        tmp_eng = self.embedding_energy(ni, u_pvecs, u_ranges)
         energy += tmp_eng
 
         return energy#, ni_sorted
@@ -405,7 +407,7 @@ class Worker:
             g_pvecs: parameter vectors for g splines
 
         Returns:
-            ni: potential energy
+            ni: embedding values for each potential for each atom
         """
         ni = np.zeros((self.n_pots, self.natoms))
 
@@ -435,19 +437,22 @@ class Worker:
 
         Returns:
             u_energy: total embedding energy
+            ni_sorted: maximum magnitude ni values for each atom *type*
         """
 
         u_energy = np.zeros(self.n_pots)
 
-        ni_sorted = np.zeros(len(u_pvecs))
+        # max_ni = np.zeros((self.n_pots, len(u_pvecs)))
 
-        # Evaluate U, U', and compute zero-point energies
-        for i,(y,u) in enumerate(zip(u_pvecs, self.us)):
+        # Evaluate U, U'
+        for i, (y, u) in enumerate(zip(u_pvecs, self.us)):
             u.structure_vectors['energy'] = np.zeros((self.n_pots, u.knots.shape[0]+2))
 
+            # extract ni values for atoms of type i
             ni_sublist = ni[:, self.type_of_each_atom - 1 == i]
 
-            ni_sorted[i] += np.sum(ni_sublist)
+            # if ni_sublist.shape[1] > 0:
+                # max_ni[:, i] = np.abs(np.max(ni_sublist))
 
             num_embedded = ni_sublist.shape[1]
 
@@ -462,7 +467,7 @@ class Worker:
 
             u.reset()
 
-        return u_energy, ni_sorted
+        return u_energy#, max_ni
 
     def evaluate_uprimes(self, ni, u_pvecs, u_ranges, second=False):
         """

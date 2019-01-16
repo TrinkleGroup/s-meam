@@ -18,10 +18,12 @@ from mpi4py import MPI
 from scipy.optimize import least_squares
 
 import src.meam
+import src.partools as partools
 from src.meam import MEAM
 from src.worker import Worker
 from src.database import Database
 from src.potential_templates import Template
+from src.manager import Manager
 
 ################################################################################
 
@@ -29,9 +31,12 @@ COGNITIVE_WEIGHT = 0.75  # relative importance of individual best
 SOCIAL_WEIGHT = 1     # relative importance of global best
 MOMENTUM_WEIGHT = 0.5   # relative importance of particle momentum
 
+SWARM_SIZE = int(sys.argv[1])  # number of particles to create
 MAX_NUM_PSO_STEPS = int(sys.argv[2])  # maximum number of PSO steps
 
 DO_LOCAL_MIN = False
+FLATTEN_LANDSCAPE = False
+NMIN = 1 # how many particles to do LM on during local_minimization() calls
 NUM_LMIN_STEPS = 30     # maximum number of LM steps
 LMIN_FREQUENCY = 20
 
@@ -44,14 +49,14 @@ VELOCITY_SCALE = 0.01 # scale for starting velocity
 ################################################################################
 
 # TODO: BW settings
+BASE_PATH = ""
+BASE_PATH = "/home/jvita/scripts/s-meam/"
 
-# LOAD_PATH = "/home/jvita/scripts/s-meam/project/data/fitting_databases/leno-redo/"
-LOAD_PATH = "/mnt/c/Users/jvita/scripts/s-meam/data/fitting_databases/fixU/"
-#/ LOAD_PATH = "/projects/sciteam/baot/leno-redo/"
+LOAD_PATH = "/projects/sciteam/baot/pz-unfx-cln/"
+LOAD_PATH = BASE_PATH + "data/fitting_databases/pinchao/"
 
-# DB_PATH = './structures/'
-DB_PATH = LOAD_PATH + 'structures/'
-DB_INFO_FILE_NAME = LOAD_PATH + 'rhophi/info'
+DB_PATH = LOAD_PATH + 'structures'
+DB_INFO_FILE_NAME = LOAD_PATH + 'full/info'
 
 date_str = datetime.datetime.now().strftime("%Y-%m-%d")
 
@@ -61,140 +66,171 @@ FINAL_FILENAME = "final_pot.dat"
 
 ################################################################################
 
-MASTER_RANK = 0
-
-comm = MPI.COMM_WORLD
-mpi_size = comm.Get_size()
-rank = comm.Get_rank()
-
-is_master_node = (rank == MASTER_RANK)
-
-# SWARM_SIZE = mpi_size*PARTICLES_PER_MPI_TASK
-SWARM_SIZE = int(sys.argv[1])
-
-################################################################################
-
 def main():
-    if is_master_node:
+    # Record MPI settings
+    world_comm = MPI.COMM_WORLD
+    world_rank = world_comm.Get_rank()
+    world_size = world_comm.Get_size()
+
+    is_master = (world_rank == 0)
+
+    if is_master:
+
+        # Prepare directories and files
+        # print_settings()
 
         # print("MASTER: Preparing save directory/files ... ", flush=True)
         # prepare_save_directory()
 
-        # load database of structures and true values
-        database = Database(DB_PATH, DB_INFO_FILE_NAME, ['H', 'He'])
-        # database.print_metadata()
+        # Trace file to be appended to later
+        f = open(BEST_TRACE_FILENAME, 'ab')
+        f.close()
 
-        # build potential template
+        # Prepare database and potential template
+        potential_template = partools.initialize_potential_template(LOAD_PATH)
+        potential_template.print_statistics()
+        print()
 
-        potential_template = Template(
-            pvec_len=137,
-            spline_ranges=[(-1, 4), (-1, 4), (-1, 4), (-9, 3), (-9, 3),
-                           (-0.5, 1), (-0.5, 1), (-2, 3), (-2, 3), (-7, 2),
-                           (-7, 2), (-7, 2)],
-            spline_indices=[(0, 15), (15, 30), (30, 45), (45, 58), (58, 71),
-                             (71, 77), (77, 83), (83, 95), (95, 107),
-                             (107, 117), (117, 127), (127, 137)]
+        struct_files = glob.glob(DB_PATH + "/*")
+
+        master_database = Database(DB_PATH, DB_INFO_FILE_NAME)
+
+        master_database.read_pinchao_formatting(
+            os.path.join(LOAD_PATH, 'Database-Structures')
         )
 
-        mask = np.ones(potential_template.pvec.shape)
+        all_struct_names, struct_natoms = zip(*master_database.natoms.items())
+        num_structs = len(all_struct_names)
 
-        potential_template.pvec[12] = 0; mask[12] = 0 # rhs phi_A knot
-        potential_template.pvec[14] = 0; mask[14] = 0 # rhs phi_A deriv
+        worker_ranks = partools.compute_procs_per_subset(
+            struct_natoms, world_size
+        )
 
-        potential_template.pvec[27] = 0; mask[27] = 0 # rhs phi_B knot
-        potential_template.pvec[29] = 0; mask[29] = 0 # rhs phi_B deriv
+        print("worker_ranks:", worker_ranks)
 
-        potential_template.pvec[42] = 0; mask[42] = 0 # rhs phi_B knot
-        potential_template.pvec[44] = 0; mask[44] = 0 # rhs phi_B deriv
-
-        potential_template.pvec[55] = 0; mask[55] = 0 # rhs rho_A knot
-        potential_template.pvec[57] = 0; mask[57] = 0 # rhs rho_A deriv
-
-        potential_template.pvec[68] = 0; mask[68] = 0 # rhs rho_B knot
-        potential_template.pvec[70] = 0; mask[70] = 0 # rhs rho_B deriv
-
-        potential_template.pvec[92] = 0; mask[92] = 0 # rhs f_A knot
-        potential_template.pvec[94] = 0; mask[94] = 0 # rhs f_A deriv
-
-        potential_template.pvec[104] = 0; mask[104] = 0 # rhs f_B knot
-        potential_template.pvec[106] = 0; mask[106] = 0 # rhs f_B deriv
-
-        potential_template.pvec[83:] = 0; mask[83:] = 0 # EAM params only
-
-        potential_template.active_mask = mask
-
-        # potential_template.print_statistics()
-
-        # initialize swarm
-        swarm_positions = np.array_split(
-            init_positions(SWARM_SIZE, potential_template),
-            mpi_size
-            )
-
-        swarm_velocities = np.array_split(
-            init_velocities(SWARM_SIZE, potential_template),
-            mpi_size
-            )
     else:
+        master_database = None
         potential_template = None
-        database = None
+        num_structs = None
+        worker_ranks = None
+        all_struct_names = None
+
+    # Send all information necessary to building evaluation functions
+    potential_template = world_comm.bcast(potential_template, root=0)
+    num_structs = world_comm.bcast(num_structs, root=0)
+
+    # each Manager is in charge of a single structure
+    world_group = world_comm.Get_group()
+
+    all_rank_lists = world_comm.bcast(worker_ranks, root=0)
+
+    # Tell workers which manager they are a part of
+    worker_ranks = None
+    manager_ranks = []
+    for per_manager_ranks in all_rank_lists:
+        manager_ranks.append(per_manager_ranks[0])
+
+        if world_rank in per_manager_ranks:
+            worker_ranks = per_manager_ranks
+
+    # manager_comm connects all manager processes
+    manager_group = world_group.Incl(manager_ranks)
+    manager_comm = world_comm.Create(manager_group)
+
+    is_manager = (manager_comm != MPI.COMM_NULL)
+
+    # One manager per structure
+    if is_manager:
+        manager_rank = manager_comm.Get_rank()
+
+        struct_name = manager_comm.scatter(all_struct_names, root=0)
+
+        print(
+            "Manager", manager_rank, "received structure", struct_name, "plus",
+            len(worker_ranks), "processors for evaluation", flush=True
+        )
+
+    else:
+        struct_name = None
+        manager_rank = None
+
+    worker_group = world_group.Incl(worker_ranks)
+    worker_comm = world_comm.Create(worker_group)
+
+    struct_name = worker_comm.bcast(struct_name, root=0)
+    manager_rank = worker_comm.bcast(manager_rank, root=0)
+
+    manager = Manager(manager_rank, worker_comm, potential_template)
+
+    manager.struct_name = struct_name
+    manager.struct = manager.load_structure(
+        manager.struct_name, DB_PATH + "/"
+    )
+
+    manager.struct = manager.broadcast_struct(manager.struct)
+
+    """
+    pseudo-code:
+
+    master creates swarm
+    run LM on a portion of the swarm
+    loop:
+        evaluate swarm:
+            bcast pop to managers
+            evaluate on workers
+            gather results on master
+            compute fitnesses
+        master updates positions/velocities
+        if desired, run LM again on portion of swarm
+
+    """
+
+    # initialize swarm -- 'positions' are the potentials
+    if is_master:
+        swarm_positions = init_positions(SWARM_SIZE, potential_template)
+        swarm_velocities = init_velocities(SWARM_SIZE, potential_template)
+    else:
         swarm_positions = None
         swarm_velocities = None
 
-        # TODO: define fitness as minimized
+    swarm_positions = np.array(swarm_positions)
 
-    # Send all information necessary to building evaluation functions
-    potential_template = comm.bcast(potential_template, root=0)
-    database = comm.bcast(database, root=0)
-
-    eval_fxn, grad_fxn = build_evaluation_functions(
-        database,
-        potential_template
+    fxn_wrap, grad_wrap = partools.build_evaluation_functions(
+        potential_template, master_database, all_struct_names, manager,
+        is_master, is_manager, manager_comm, flatten=FLATTEN_LANDSCAPE
     )
 
-    # send individual particle information to each process
-    positions = comm.scatter(swarm_positions, root=0)
-    velocities = comm.scatter(swarm_velocities, root=0)
+    init_fit = fxn_wrap(swarm_positions)
 
-    fitnesses = np.zeros(positions.shape[0])
-    personal_best_fitnesses = np.zeros(positions.shape[0])
+    if is_master:
+        init_fit = np.sum(init_fit, axis=1)
+        print("MASTER: initial (UN-minimized) fitnesses:", init_fit, flush=True)
+        print("Average value:", np.average(init_fit), flush=True)
 
-    # print("SLAVE: Rank", rank, "performing initial LMIN ...", flush=True)
-    for p,particle in enumerate(positions):
-        if DO_LOCAL_MIN:
-            opt_best = least_squares(eval_fxn, particle, grad_fxn, method='lm',
-                    max_nfev=NUM_LMIN_STEPS)
+    swarm_positions = local_minimization(
+        swarm_positions, fxn_wrap, grad_wrap, world_comm, is_master,
+        num_to_minimize=NMIN, nsteps=NUM_LMIN_STEPS,
+    )
 
-            positions[p] = opt_best['x']
+    new_fit = fxn_wrap(swarm_positions)
 
-        fitnesses[p] = np.sum(eval_fxn(positions[p]))
-        personal_best_fitnesses[p] = fitnesses[p]
+    if is_master:
+        all_fitnesses = np.sum(new_fit, axis=1)
+        print(
+            "MASTER: initial (minimized) fitnesses:", all_fitnesses, flush=True
+        )
 
-    personal_best_positions = np.copy(positions)
+        # record initial personal bests
+        personal_best_fitnesses = all_fitnesses
+        personal_best_positions = np.copy(swarm_positions)
 
-    # print("SLAVE: Rank", rank, "minimized fitnesses:", fitnesses, flush=True)
-
-    new_positions = comm.gather(positions, root=0)
-    all_fitnesses = comm.gather(fitnesses, root=0)
-
-    # record global best
-    if is_master_node:
-        new_positions = np.vstack(new_positions)
-        all_fitnesses = np.vstack(all_fitnesses)
-        all_fitnesses = np.ravel(all_fitnesses)
-
+        # record initial global best
         min_idx = np.argmin(all_fitnesses)
 
-        global_best_pos = new_positions[min_idx]
+        global_best_pos = swarm_positions[min_idx]
         global_best_fit = all_fitnesses[min_idx]
-    else:
-        global_best_pos = None
-        global_best_fit = None
 
-    global_best_pos = comm.bcast(global_best_pos, root=0)
-    global_best_fit = comm.bcast(global_best_fit, root=0)
-
-    if is_master_node:
+        # prepare logging
         global_best_pos_trace = []
         global_best_fit_trace = []
 
@@ -204,12 +240,17 @@ def main():
 
         start = time.time()
         print("MASTER: step g_best max avg std avg_vel_mag", flush=True)
+    else:
+        global_best_fit = None
+
+    global_best_fit = world_comm.bcast(global_best_fit, root=0)
+
 
     i = 0
     while (i < MAX_NUM_PSO_STEPS) and (global_best_fit > FITNESS_THRESH):
-        if is_master_node:
+        if is_master:
 
-            avg_vel = np.average(np.linalg.norm(velocities, axis=1))
+            avg_vel = np.average(np.linalg.norm(swarm_velocities, axis=1))
 
             print("STEP: {} {:5.2f} {:5.2f} {:5.2f} {:5.2f} {:5.2f}".format(
                 i,
@@ -221,66 +262,42 @@ def main():
                 flush=True
                 )
 
-        for p,(particle,velocity) in enumerate(zip(positions, velocities)):
-            rp = np.random.random(particle.shape)
-            rg = np.random.random(particle.shape)
+        # Run local minimizer if desired
+        if (i % LMIN_FREQUENCY == 0) and DO_LOCAL_MIN:
+            swarm_positions = local_minimization(
+                swarm_positions, fxn_wrap, grad_wrap, world_comm, is_master,
+                num_to_minimize=NMIN, nsteps=NUM_LMIN_STEPS,
+            )
 
-            if (i % LMIN_FREQUENCY == 0) and DO_LOCAL_MIN:
-                opt_best = least_squares(eval_fxn, particle, grad_fxn, method='lm',
-                        max_nfev=NUM_LMIN_STEPS)
-
-                positions[p] = opt_best['x']
-
-                particle = positions[p]
+        if is_master:
+            # Generate random step directions using PSO algorithm
+            rp = np.random.random(swarm_positions.shape)
+            rg = np.random.random(swarm_positions.shape)
 
             new_velocity = \
-                MOMENTUM_WEIGHT*velocity + \
-                COGNITIVE_WEIGHT*rp*(personal_best_positions[p] - particle) +\
-                SOCIAL_WEIGHT * rg * (global_best_pos - particle)
+                MOMENTUM_WEIGHT*swarm_velocities + \
+                COGNITIVE_WEIGHT*rp*(personal_best_positions - swarm_positions) +\
+                SOCIAL_WEIGHT*rg*(global_best_pos - swarm_positions)
 
-            positions[p] = particle + new_velocity
-            velocities[p] = new_velocity
+            swarm_positions += new_velocity
+            swarm_velocities = new_velocity
 
-            # particle = check_bounds(particle, potential_template)
+        fitnesses = fxn_wrap(swarm_positions)
 
-            # opt_best = least_squares(eval_fxn, particle, grad_fxn, method='lm',
-            #         max_nfev=10)
-            #
-            # fitnesses[p] = np.sum(eval_fxn(opt_best['x']))
+        # update personal bests
+        if is_master:
+            all_fitnesses = np.sum(fitnesses, axis=1)
 
-            fitnesses[p] = np.sum(eval_fxn(positions[p]))
-
-            # update personal bests
-            if fitnesses[p] < personal_best_fitnesses[p]:
-                personal_best_fitnesses[p] = fitnesses[p]
-                personal_best_positions[p] = particle
-
-        # update global bests
-        new_positions = comm.gather(positions, root=0)
-        new_velocities = comm.gather(velocities, root=0)
-        all_fitnesses = comm.gather(fitnesses[p], root=0)
-
-        if is_master_node:
-            new_positions = np.vstack(new_positions)
-            new_velocities = np.vstack(new_velocities)
-            all_fitnesses = np.vstack(all_fitnesses).ravel()
+            found_better = np.where(all_fitnesses < personal_best_fitnesses)[0]
+            personal_best_fitnesses[found_better] = all_fitnesses[found_better]
+            personal_best_positions[found_better] = swarm_positions[found_better]
 
             min_idx = np.argmin(all_fitnesses)
 
             if all_fitnesses[min_idx] < global_best_fit:
-                global_best_pos = new_positions[min_idx]
+                global_best_pos = swarm_positions[min_idx]
                 global_best_fit = all_fitnesses[min_idx]
 
-        global_best_pos = comm.bcast(global_best_pos, root=0)
-        global_best_fit = comm.bcast(global_best_fit, root=0)
-
-        # positions = np.array_split(new_positions, mpi_size)
-        # velocities = np.array_split(new_velocities, mpi_size)
-        #
-        # positions = comm.scatter(positions, root=0)
-        # velocities = comm.scatter(velocities, root=0)
-
-        if is_master_node:
             log_f = open(LOG_FILENAME, 'ab')
             np.savetxt(log_f, [np.concatenate([[i], all_fitnesses.ravel()])])
             log_f.close()
@@ -290,9 +307,11 @@ def main():
                                            global_best_pos.ravel()])])
             f.close()
 
+        global_best_fit = world_comm.bcast(global_best_fit, root=0)
+
         i += 1
 
-    if is_master_node:
+    if is_master:
         runtime = time.time() - start
         print("MASTER: Average time per step:",
             runtime / MAX_NUM_PSO_STEPS, '(s)',
@@ -604,6 +623,74 @@ def build_evaluation_functions(database, potential_template):
     #     return tmp
 
     return fxn, grad
+
+def local_minimization(
+    swarm_positions, fxn, grad, world_comm, is_master, num_to_minimize, nsteps=20
+):
+
+    def lm_fxn_wrap(raveled_pop, original_shape):
+        val = fxn(
+            raveled_pop.reshape(original_shape)
+        )
+
+        val = world_comm.bcast(val, root=0)
+
+        return val.ravel()
+
+    def lm_grad_wrap(raveled_pop, original_shape):
+        grads = grad(
+            raveled_pop.reshape(original_shape)
+        )
+
+        grads = world_comm.bcast(grads, root=0)
+
+        num_pots, num_structs_2, num_params = grads.shape
+
+        padded_grad = np.zeros(
+            (num_pots, num_structs_2, num_pots, num_params)
+        )
+
+        for pot_id, g in enumerate(grads):
+            padded_grad[pot_id, :, pot_id, :] = g
+
+        padded_grad = padded_grad.reshape(
+            (num_pots * num_structs_2, num_pots * num_params)
+        )
+
+        return padded_grad
+
+    swarm_positions = world_comm.bcast(swarm_positions, root=0)
+    swarm_positions = np.array(swarm_positions)
+
+    opt_results = least_squares(
+        lm_fxn_wrap, swarm_positions[:num_to_minimize].ravel(), lm_grad_wrap,
+        method='lm', max_nfev=nsteps,
+        args=(swarm_positions[:num_to_minimize].shape,)
+    )
+
+    if is_master:
+        new_pop = opt_results['x'].reshape(
+            swarm_positions[:num_to_minimize].shape
+        )
+    else:
+        new_pop = None
+
+    org_fits = fxn(swarm_positions)
+    new_fits = fxn(new_pop)
+
+    if is_master:
+        updated_swarm_positions = list(swarm_positions)
+
+        for i, ind in enumerate(new_pop):
+            if np.sum(new_fits[i]) < np.sum(org_fits[i]):
+                updated_swarm_positions[i] = creator.Individual(new_pop[i])
+            else:
+                updated_swarm_positions[i] = creator.Individual(updated_swarm_positions[i])
+
+        swarm_positions = updated_swarm_positions
+
+    return swarm_positions
+
 
 def check_bounds(positions, template):
 

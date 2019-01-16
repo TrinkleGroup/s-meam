@@ -2,6 +2,7 @@ import os
 import glob
 import pickle
 import numpy as np
+from collections import namedtuple
 import src.lammpsTools
 
 class Database:
@@ -17,7 +18,9 @@ class Database:
         self.natoms = {}
         self.true_energies = {}
         self.true_forces = {}
-        self.reference_struct = None
+        self.force_weighting = {}
+        # self.reference_struct = None
+        self.reference_structs = {}
         self.reference_energy = None
 
         self.weights = {}
@@ -25,8 +28,8 @@ class Database:
         # if structure_folder_name != "":
         #     self.load_structures()
 
-        if info_folder_name != "":
-            self.load_true_values()
+        # if info_folder_name != "":
+        #     self.load_true_values()
 
     @classmethod
     def manual_init(cls, structures, energies, forces, weights, ref_struct,
@@ -69,7 +72,7 @@ class Database:
         min_energy = None
 
         # for short_name in self.structures.keys():
-        for file_name in glob.glob(self.true_values_folder_path + "/*")[:8]:
+        for file_name in glob.glob(self.true_values_folder_path + "/*"):
             # file_name = self.true_values_folder_path + "/info." + short_name
             if "metadata" not in file_name:
 
@@ -110,13 +113,59 @@ class Database:
             print(tag + ":", " ".join(info))
 
     def __len__(self):
-        return len(self.structures)
+        return len(self.natoms)
+
+    def read_pinchao_formatting(self, directory_path):
+        reference = namedtuple(
+            'reference', 'ref_struct energy_difference weight'
+        )
+
+        # for file_name in glob.glob(os.path.join(directory_path, 'force_*')):
+        #     with open(file_name) as f:
+        #         struct_name = f.readline().strip()
+
+        #     full = np.genfromtxt(file_name, skip_header=1)
+
+        #     self.true_forces[struct_name] = full[:, 1:] * full[:, 0, np.newaxis]
+        #     self.force_weighting[struct_name] = full[:, 0]
+        #     self.natoms[struct_name] = full.shape[0]
+
+        with open(os.path.join(directory_path, 'FittingDataEnergy.dat')) as f:
+
+            for _ in range(3):
+                _ = f.readline() # remove headers
+
+            for line in f:
+                struct_name, natoms, _, ref_name, weight = line.split(" ")
+                ref_name = ref_name.strip()
+
+                eng = float(f.readline().strip())
+                weight = float(weight)
+
+                self.reference_structs[struct_name] = reference(
+                    ref_name, eng, weight
+                    )
+
+                self.natoms[struct_name] = int(natoms)
+
+
+                ref_atoms_object = src.lammpsTools.atoms_from_file(
+                    os.path.join(directory_path, ref_name), ['H', 'He']
+                )
+
+                file_name = os.path.join(directory_path, 'force_' + struct_name)
+                full = np.genfromtxt(file_name, skip_header=1)
+
+                self.true_forces[struct_name] = full[:, 1:] * full[:, 0, np.newaxis]
+                self.force_weighting[struct_name] = full[:, 0]
+
+                self.natoms[ref_name] = len(ref_atoms_object)
+
 
 if __name__ == "__main__":
     db = Database(
         "data/fitting_databases/fixU-clean/structures",
         "data/fitting_databases/fixU-clean/rhophi/info",
-        ['H','He']
         )
 
     print("Database length:", len(db))
