@@ -5,6 +5,11 @@ import numpy as np
 from collections import namedtuple
 import src.lammpsTools
 
+# allowed 'types': 'energy' or 'forces'
+entry = namedtuple(
+    'entry', 'struct_name value natoms type ref_struct'
+)
+
 class Database:
     def __init__(self, structure_folder_name="", info_folder_name=""):
 
@@ -14,16 +19,18 @@ class Database:
         self.structures_metadata = {}
         self.true_values_metadata = {}
 
-        # self.structures = {}
-        self.natoms = {}
-        self.true_energies = {}
-        self.true_forces = {}
-        self.force_weighting = {}
-        # self.reference_struct = None
-        self.reference_structs = {}
-        self.reference_energy = None
+        self.unique_structs = []
+        self.unique_natoms = []
+        self.entries = []
 
-        self.weights = {}
+        # self.natoms = {}
+        # self.true_energies = {}
+        # self.true_forces = {}
+        self.force_weighting = {}
+        # self.reference_structs = {}
+        # self.reference_energy = None
+        #
+        # self.weights = {}
 
         # if structure_folder_name != "":
         #     self.load_structures()
@@ -115,11 +122,7 @@ class Database:
     def __len__(self):
         return len(self.natoms)
 
-    def read_pinchao_formatting(self, directory_path):
-        reference = namedtuple(
-            'reference', 'ref_struct energy_difference weight'
-        )
-
+    def read_pinchao_formatting(self, directory_path, db_type):
         # for file_name in glob.glob(os.path.join(directory_path, 'force_*')):
         #     with open(file_name) as f:
         #         struct_name = f.readline().strip()
@@ -130,36 +133,94 @@ class Database:
         #     self.force_weighting[struct_name] = full[:, 0]
         #     self.natoms[struct_name] = full.shape[0]
 
-        with open(os.path.join(directory_path, 'FittingDataEnergy.dat')) as f:
+        if db_type == 'fitting':
+            load_file = 'FittingDataEnergy.dat'
+        elif db_type == 'testing':
+            load_file = 'TestingDataEnergy.dat'
+        else:
+            raise ValueError(
+                "Invalid database type: must be 'fitting' or 'testing'"
+            )
+
+        already_added = []
+
+        with open(os.path.join(directory_path, load_file)) as f:
 
             for _ in range(3):
                 _ = f.readline() # remove headers
 
             for line in f:
-                struct_name, natoms, _, ref_name, weight = line.split(" ")
+                if db_type == 'fitting':
+                    struct_name, natoms, _, ref_name, weight = line.split(" ")
+                else:
+                    struct_name, natoms, _, ref_name = line.split(" ")
+                    weight = 1
+
+                natoms = int(natoms)
                 ref_name = ref_name.strip()
 
                 eng = float(f.readline().strip())
                 weight = float(weight)
 
-                self.reference_structs[struct_name] = reference(
-                    ref_name, eng, weight
+                # 'entry', 'struct_name value natoms type ref_struct'
+                check_entry = entry(struct_name, None, None, 'energy', ref_name)
+
+                if check_entry not in already_added:
+                    already_added.append(check_entry)
+                    self.entries.append(
+                        entry(struct_name, eng, natoms, 'energy', ref_name)
                     )
 
-                self.natoms[struct_name] = int(natoms)
-
+                if struct_name not in self.unique_structs:
+                    self.unique_structs.append(struct_name)
+                    self.unique_natoms.append(natoms)
 
                 ref_atoms_object = src.lammpsTools.atoms_from_file(
                     os.path.join(directory_path, ref_name), ['H', 'He']
                 )
 
+                ref_natoms = len(ref_atoms_object)
+
+                if ref_name not in self.unique_structs:
+                    self.unique_structs.append(ref_name)
+                    self.unique_natoms.append(ref_natoms)
+
+
                 file_name = os.path.join(directory_path, 'force_' + struct_name)
                 full = np.genfromtxt(file_name, skip_header=1)
 
-                self.true_forces[struct_name] = full[:, 1:] * full[:, 0, np.newaxis]
+                struct_forces = full[:, 1:] * full[:, 0, np.newaxis]
                 self.force_weighting[struct_name] = full[:, 0]
 
-                self.natoms[ref_name] = len(ref_atoms_object)
+                file_name = os.path.join(directory_path, 'force_' + ref_name)
+                full = np.genfromtxt(file_name, skip_header=1)
+
+                ref_forces = full[:, 1:] * full[:, 0, np.newaxis]
+                self.force_weighting[ref_name] = full[:, 0]
+
+
+                # 'entry', 'struct_name value natoms type ref_struct'
+                check_entry = entry(struct_name, None, None, 'forces', None)
+
+                if check_entry not in already_added:
+                    already_added.append(check_entry)
+
+                    self.entries.append(
+                        entry(
+                            struct_name, struct_forces, natoms, 'forces', None
+                        )
+                    )
+
+                check_entry = entry(ref_name, None, None, 'forces', None)
+
+                if check_entry not in already_added:
+                    already_added.append(check_entry)
+
+                    self.entries.append(
+                        entry(
+                            ref_name, ref_forces, ref_natoms, 'forces', None
+                        )
+                    )
 
 
 if __name__ == "__main__":
