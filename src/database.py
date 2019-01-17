@@ -11,8 +11,10 @@ entry = namedtuple(
 )
 
 class Database:
-    def __init__(self, structure_folder_name="", info_folder_name=""):
+    def __init__(self, structure_folder_name="", info_folder_name="",
+                 ref_name=None):
 
+        self.ref_name = ref_name
         self.structures_folder_path = os.path.abspath(structure_folder_name)
         self.true_values_folder_path = os.path.abspath(info_folder_name)
 
@@ -23,20 +25,7 @@ class Database:
         self.unique_natoms = []
         self.entries = []
 
-        # self.natoms = {}
-        # self.true_energies = {}
-        # self.true_forces = {}
         self.force_weighting = {}
-        # self.reference_structs = {}
-        # self.reference_energy = None
-        #
-        # self.weights = {}
-
-        # if structure_folder_name != "":
-        #     self.load_structures()
-
-        # if info_folder_name != "":
-        #     self.load_true_values()
 
     @classmethod
     def manual_init(cls, structures, energies, forces, weights, ref_struct,
@@ -54,19 +43,50 @@ class Database:
         return new_db
 
     def load_structures(self):
-        sorted_names = sorted(glob.glob(self.structures_folder_path + "/*"))
+        sorted_names = sorted(glob.glob(self.true_values_folder_path + "/*"))
+
+        already_added = []
         for file_name in sorted_names:
             if "metadata" not in file_name:
                 f = open(file_name, 'rb')
-                struct = pickle.load(f)
                 f.close()
 
                 # assumes file_name is of form "*/[struct_name].pkl"
-                short_name = os.path.split(file_name)[-1]
-                short_name = os.path.splitext(short_name)[0]
+                # file_name = os.path.splitext(file_name)[1][1:]
+                struct_name = os.path.split(file_name)[-1]
+                struct_name = os.path.splitext(struct_name)[1][1:]
+                print(struct_name)
 
-                self.structures[short_name] = struct
-                self.weights[short_name] = 1
+                # 'entry', 'struct_name value natoms type ref_struct'
+                check_entry = entry(
+                    struct_name, None, None, 'energy', self.ref_name
+                )
+
+                eng = np.genfromtxt(file_name, max_rows=1)
+                fcs = np.genfromtxt(file_name, skip_header=1)
+                natoms = fcs.shape[0]
+
+                if check_entry not in already_added:
+                    already_added.append(check_entry)
+                    self.entries.append(
+                        entry(struct_name, eng, natoms, 'energy', self.ref_name)
+                    )
+
+                if struct_name not in self.unique_structs:
+                    self.unique_structs.append(struct_name)
+                    self.unique_natoms.append(natoms)
+
+                # 'entry', 'struct_name value natoms type ref_struct'
+                check_entry = entry(struct_name, None, None, 'forces', None)
+
+                if check_entry not in already_added:
+                    already_added.append(check_entry)
+
+                    self.entries.append(
+                        entry(struct_name, fcs, natoms, 'forces', None)
+                    )
+
+
             else:
                 # each line should be of the form "[data_name] [data]"
                 for line in open(file_name):
@@ -74,40 +94,6 @@ class Database:
                     tag = line.split(" ")[0]
                     info = line.split(" ")[1:]
                     self.structures_metadata[tag] = info
-
-    def load_true_values(self):
-        min_energy = None
-
-        # for short_name in self.structures.keys():
-        for file_name in glob.glob(self.true_values_folder_path + "/*"):
-            # file_name = self.true_values_folder_path + "/info." + short_name
-            if "metadata" not in file_name:
-
-                # assumes file_name is of form "*/info.[struct_name]"
-                short_name = os.path.split(file_name)[-1]
-                short_name = '.'.join(short_name.split('.')[1:])
-
-                # assumes the first line of the file is the energy
-                eng = np.genfromtxt(file_name, max_rows=1)
-
-                if (min_energy is None) or (eng < min_energy):
-                    min_energy = eng
-                    self.reference_struct = short_name
-                    self.reference_energy = min_energy
-
-                # assumes the next N lines are the forces on the N atoms
-                fcs = np.genfromtxt(file_name, skip_header=1)
-
-                self.true_energies[short_name] = eng
-                self.true_forces[short_name] = fcs
-                self.natoms[short_name] = fcs.shape[0]
-            else:
-                # each line should be of the form "[data_name] [data]"
-                for line in open(file_name):
-                    line = line.strip()
-                    tag = line.split(" ")[0]
-                    info = line.split(" ")[1:]
-                    self.true_values_metadata[tag] = info
 
     def print_metadata(self):
         print("Reference structure:", self.reference_struct)
@@ -123,15 +109,6 @@ class Database:
         return len(self.natoms)
 
     def read_pinchao_formatting(self, directory_path, db_type):
-        # for file_name in glob.glob(os.path.join(directory_path, 'force_*')):
-        #     with open(file_name) as f:
-        #         struct_name = f.readline().strip()
-
-        #     full = np.genfromtxt(file_name, skip_header=1)
-
-        #     self.true_forces[struct_name] = full[:, 1:] * full[:, 0, np.newaxis]
-        #     self.force_weighting[struct_name] = full[:, 0]
-        #     self.natoms[struct_name] = full.shape[0]
 
         if db_type == 'fitting':
             load_file = 'FittingDataEnergy.dat'

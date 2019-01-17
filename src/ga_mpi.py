@@ -8,8 +8,7 @@ sys.path.append('./')
 import numpy as np
 import random
 
-# np.set_printoptions(linewidth=np.inf, precision=3, suppress=True)
-np.set_printoptions(formatter={'float': lambda x: "{0:0.3f}".format(x)})
+np.set_printoptions(precision=8, suppress=True)
 
 import pickle
 import glob
@@ -19,7 +18,7 @@ import time
 import datetime
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
-from scipy.optimize import least_squares, fmin_cg, fmin_bfgs
+from scipy.optimize import least_squares
 from scipy.interpolate import CubicSpline
 # from scipy.sparse import csr_matrix
 from mpi4py import MPI
@@ -78,7 +77,7 @@ FLAT_NSTEPS = 5
 
 DO_LMIN = False
 LMIN_FREQUENCY = 1
-INIT_NSTEPS = 30
+INIT_NSTEPS = 5
 INTER_NSTEPS = 5
 FINAL_NSTEPS = 30
 
@@ -97,8 +96,8 @@ CHECK_BEFORE_OVERWRITE = False
 BASE_PATH = ""
 BASE_PATH = "/home/jvita/scripts/s-meam/"
 
-LOAD_PATH = "/projects/sciteam/baot/pz-unfx-cln/"
-LOAD_PATH = BASE_PATH + "data/fitting_databases/pinchao/"
+LOAD_PATH = "/u/sciteam/vita/hyojung/"
+LOAD_PATH = BASE_PATH + "data/fitting_databases/hyojung/"
 SAVE_PATH = BASE_PATH + "data/results/"
 
 SAVE_DIRECTORY = SAVE_PATH + date_str + "-" + "meam" + "{}-{}".format(NUM_GENS,
@@ -107,8 +106,8 @@ SAVE_DIRECTORY = SAVE_PATH + date_str + "-" + "meam" + "{}-{}".format(NUM_GENS,
 if os.path.isdir(SAVE_DIRECTORY):
     SAVE_DIRECTORY = SAVE_DIRECTORY + '-' + str(np.random.randint(100000))
 
-DB_PATH = LOAD_PATH + 'structures'
-DB_INFO_FILE_NAME = LOAD_PATH + 'full/info'
+DB_PATH = LOAD_PATH + 'mini_structs'
+DB_INFO_FILE_NAME = LOAD_PATH + 'mini_info'
 POP_FILE_NAME = SAVE_DIRECTORY + "/pop.dat"
 LOG_FILE_NAME = SAVE_DIRECTORY + "/ga.log"
 TRACE_FILE_NAME = SAVE_DIRECTORY + "/trace.dat"
@@ -143,92 +142,114 @@ def main():
         potential_template.print_statistics()
         print()
 
-        struct_files = glob.glob(DB_PATH + "/*")
+        print(DB_PATH, DB_INFO_FILE_NAME)
 
-        fitting_database = Database(DB_PATH, DB_INFO_FILE_NAME)
-
-        fitting_database.read_pinchao_formatting(
-            os.path.join(LOAD_PATH, 'Database-Structures'), 'fitting'
+        master_database = Database(
+            DB_PATH, DB_INFO_FILE_NAME, "Ti48Mo80_type1_c18"
         )
 
-        testing_database.read_pinchao_formatting(
-            os.path.join(LOAD_PATH, 'Database-Structures'), 'testing'
+        master_database.load_structures()
+
+        # master_database.print_metadata()
+
+        # all_struct_names  , structures = zip(*master_database.structures.items())
+        all_struct_names = master_database.unique_structs
+        struct_natoms = master_database.unique_natoms
+        num_structs = len(all_struct_names)
+
+        print(all_struct_names)
+
+        worker_ranks = partools.compute_procs_per_subset(
+            struct_natoms, world_size
         )
 
-        # fitting_database.print_metadata()
-
-        # all_struct_names  , structures = zip(*fitting_database.structures.items())
-        fitting_struct_names = fitting_database.unique_structs
-        testing_struct_names = testing_database.unique_structs
-
-        fitting_struct_natoms = fitting_database.unique_natoms
-        testing_struct_natoms = testing_database.unique_natoms
-
-        print([(entry.struct_name, entry.ref_struct, entry.type) for entry in fitting_database.entries])
-
-        fitting_num_structs = len(fitting_struct_names)
-        testing_num_structs = len(testing_struct_names)
-
-        fitting_worker_ranks = partools.compute_procs_per_subset(
-            fitting_struct_natoms, world_size
-        )
-
-        testing_worker_ranks = partools.compute_procs_per_subset(
-            testing_struct_natoms, world_size
-        )
-
-        pz_weights = [
-           0.283, 0.03, 0.0682, 0.152, 0.00362, 0.0101, 0.0460, 0.0948, 0.07665,
-           0.0898, 0.0372, 0.0689, 0.0395
-        ]
-
-        print("fitting_worker_ranks:", fitting_worker_ranks)
+        print("worker_ranks:", worker_ranks)
     else:
         potential_template = None
-        fitting_database = None
+        master_database = None
         num_structs = None
-        fitting_worker_ranks = None
-        testing_worker_ranks = None
-        fitting_struct_names = None
-        pz_weights = None
+        worker_ranks = None
+        all_struct_names = None
 
-    # Build manager and have it send the structure to its workers
+    potential_template = world_comm.bcast(potential_template, root=0)
+    num_structs = world_comm.bcast(num_structs, root=0)
+
+    # each Manager is in charge of a single structure
+    world_group = world_comm.Get_group()
+
+    all_rank_lists = world_comm.bcast(worker_ranks, root=0)
+
+    # Tell workers which manager they are a part of
+    worker_ranks = None
+    manager_ranks = []
+    for per_manager_ranks in all_rank_lists:
+        manager_ranks.append(per_manager_ranks[0])
+
+        if world_rank in per_manager_ranks:
+            worker_ranks = per_manager_ranks
+
+    # manager_comm connects all manager processes
+    manager_group = world_group.Incl(manager_ranks)
+    manager_comm = world_comm.Create(manager_group)
+
+    is_manager = (manager_comm != MPI.COMM_NULL)
+
+    # One manager per structure
+    if is_manager:
+        manager_rank = manager_comm.Get_rank()
+
+        struct_name = manager_comm.scatter(all_struct_names, root=0)
+
+        print(
+            "Manager", manager_rank, "received structure", struct_name, "plus",
+            len(worker_ranks), "processors for evaluation", flush=True
+        )
+
+    else:
+        struct_name = None
+        manager_rank = None
+
+    worker_group = world_group.Incl(worker_ranks)
+    worker_comm = world_comm.Create(worker_group)
+
+    struct_name = worker_comm.bcast(struct_name, root=0)
+    manager_rank = worker_comm.bcast(manager_rank, root=0)
+
     manager = Manager(manager_rank, worker_comm, potential_template)
 
     manager.struct_name = struct_name
-    tmp_struct = manager.load_structure(
+    manager.struct = manager.load_structure(
         manager.struct_name, DB_PATH + "/"
     )
 
-    testing_fxn, testing_grad = partools.build_evaluation_functions(
-        potential_template, testing_database, testing_struct_names, manager,
-        is_master, is_testing_manager, testing_manager_comm,
-        flatten=FLATTEN_LANDSCAPE
+    manager.struct = manager.broadcast_struct(manager.struct)
+
+    fxn_wrap, grad_wrap = partools.build_evaluation_functions(
+        potential_template, master_database, all_struct_names, manager,
+        is_master, is_manager, manager_comm, "Ti48Mo80_type1_c18"
     )
 
     # Have every process build the toolbox
-    toolbox, creator = build_ga_toolbox(len(master_database.entries))
+    toolbox, creator = build_ga_toolbox(potential_template)
 
     toolbox.register("evaluate_population", fxn_wrap)
     toolbox.register("gradient", grad_wrap)
 
-    # Create the original population of weights
+    # Create the original population
     if is_master:
         master_pop = toolbox.population(n=POP_SIZE)
-        # master_pop = np.ones(np.array(master_pop).shape)
-        # master_pop = np.atleast_2d(potential_template.pvec[np.where(potential_template.active_mask)[0]])
-        # old_size = master_pop.shape[1]
-        # 
-        # master_pop = np.tile(master_pop, POP_SIZE)
-        # master_pop = master_pop.reshape((POP_SIZE, old_size))
+        print("master_pop.shape", len(master_pop[0]))
     else:
         master_pop = 0
 
     master_pop = np.array(master_pop)
 
-    master_pop_shape = world_comm.bcast(master_pop.shape, root=0)
+    if is_master:
+        print("Before:", master_pop)
 
-    init_fit = toolbox.evaluate_population(master_pop, pz_weights)
+    weights = np.ones(num_structs)
+
+    init_fit = toolbox.evaluate_population(master_pop, weights)
 
     if is_master:
         init_fit = np.sum(init_fit, axis=1)
@@ -239,20 +260,19 @@ def main():
         )
 
     master_pop = local_minimization(
-        master_pop, toolbox, pz_weights, world_comm, is_master, nsteps=100
+        master_pop, toolbox, weights, world_comm, is_master, nsteps=INIT_NSTEPS
     )
 
-    # np.savetxt('poop.dat', master_pop)
-    # return
+    if is_master:
+        print("After:", master_pop)
 
-    new_fit = toolbox.evaluate_population(master_pop, pz_weights)
+    new_fit = toolbox.evaluate_population(master_pop, weights)
 
     if is_master:
         new_fit = np.sum(new_fit, axis=1)
-        print("MASTER: initial (minimized) fitnesses:", new_fit, flush=True)
         print(
-            "avg min max:", np.average(new_fit), np.min(new_fit),
-            np.max(new_fit), flush=True
+            "avg min max:", np.average(init_fit), np.min(init_fit),
+            np.max(init_fit), flush=True
         )
 
     # Have master gather fitnesses and update individuals
@@ -309,13 +329,13 @@ def main():
             # Run local minimization on best individual if desired
             if DO_LMIN and (generation_number % LMIN_FREQUENCY == 0):
                 master_pop = local_minimization(
-                    master_pop, toolbox, pz_weights, world_comm, is_master,
+                    master_pop, toolbox, weights, world_comm, is_master,
                     nsteps=INTER_NSTEPS
                 )
 
             # Compute fitnesses with mated/mutated/optimized population
             # fitnesses, max_ni = toolbox.evaluate_population(master_pop, True)
-            fitnesses = toolbox.evaluate_population(master_pop, pz_weights)
+            fitnesses = toolbox.evaluate_population(master_pop, weights)
 
             # Update individuals with new fitnesses
             if is_master:
@@ -343,37 +363,22 @@ def main():
                     checkpoint(master_pop, logbook, best, generation_number)
 
                 best_guess = master_pop[0]
-            else:
-                best_guess = None
 
             generation_number += 1
     else:
         master_pop = np.genfromtxt(POP_FILE_NAME)
         best_guess = creator.Individual(master_pop[0])
 
-    # if not is_master:
-    #     best_guess = None
-
-    best_guess = world_comm.bcast(best_guess, root=0)
-
-    best_guess = local_minimization(
-        np.atleast_2d(best_guess), toolbox, pz_weights, world_comm, is_master,
-        nsteps=FINAL_NSTEPS
+    master_pop = local_minimization(
+        master_pop, toolbox, weights, world_comm, is_master,
+        nsteps=INTER_NSTEPS
     )
-
-    final_fit = toolbox.evaluate_population(master_pop, pz_weights)
 
     # Perform a final local optimization on the final results of the GA
     if is_master:
-        final_fit = np.sum(final_fit, axis=1)
-        print("MASTER: final fitnesses:", final_fit, flush=True)
-        print(
-            "avg min max:", np.average(final_fit), np.min(final_fit),
-            np.max(final_fit), flush=True
-        )
         ga_runtime = time.time() - ga_start
 
-        checkpoint(master_pop, logbook, master_pop[0], 1)
+        checkpoint(master_pop, logbook, best_guess, generation_number)
 
         print("MASTER: GA runtime = {:.2f} (s)".format(ga_runtime), flush=True)
         print("MASTER: Average time per step = {:.2f}"
@@ -389,25 +394,6 @@ def build_ga_toolbox(potential_template):
     creator.create("Individual", np.ndarray,
                    fitness=creator.CostFunctionMinimizer)
 
-    def population(points_per_knot):
-        # spline_ranges=[(-1, 4), (-0.5, 0.5), (-1, 1), (-9, 3), (-30, 15),
-        #                (-0.5, 1), (-0.2, -0.4), (-2, 3), (-7.5, 12.5),
-        #                (-8, 2), (-1, 1), (-1, 0.2)],
-        #
-        # spline_indices=[(0, 15), (15, 22), (22, 37), (37, 50), (50, 57),
-        #                 (57, 63), (63, 70), (70, 82), (82, 89),
-        #                 (89, 99), (99, 106), (106, 116)]
-
-        """Generates a mesh through parameter space with points_per_knot
-        points along each dimension (equivialently, points_per_knot points
-        for each knot point)"""
-
-        return np.mgrid[
-            [slice(s_range[0], s_range[1], complex(points_per_knot))
-                for s_range in potential_template.spline_ranges]
-        ]
-
-
     def ret_pvec(arr_fxn):
         # hard-coded version for pair-pots only
         tmp = arr_fxn(potential_template.generate_random_instance())
@@ -417,9 +403,8 @@ def build_ga_toolbox(potential_template):
     toolbox = base.Toolbox()
     toolbox.register("parameter_set", ret_pvec, creator.Individual, )
     # np.random.random)
-    # toolbox.register("population", tools.initRepeat, list,
-    #                  toolbox.parameter_set, )
-    toolbox.register("population", population)
+    toolbox.register("population", tools.initRepeat, list,
+                     toolbox.parameter_set, )
     toolbox.register("mutate", tools.mutGaussian, mu=0, sigma=1, indpb=0.1)
     # toolbox.register("mate", tools.cxBlend, alpha=MATING_ALPHA)
     toolbox.register("mate", tools.cxTwoPoint)
@@ -598,24 +583,25 @@ def print_statistics(pop, gen_num, stats, logbook):
 
 
 # @profile
-def local_minimization(master_pop, toolbox, pz_weights, world_comm, is_master, nsteps=20):
+def local_minimization(master_pop, toolbox, weights, world_comm, is_master, nsteps=20):
+    pad = 100
+
     def lm_fxn_wrap(raveled_pop, original_shape):
         val = toolbox.evaluate_population(
-            raveled_pop.reshape(original_shape), pz_weights
+            raveled_pop.reshape(original_shape), weights
         )
 
         val = world_comm.bcast(val, root=0)
-        # TODO: add optional padding in input file for LM
 
         # pad with zeros since num structs is less than num knots
-        tmp = np.concatenate([val.ravel(), np.zeros(16*original_shape[0])])
+        tmp = np.concatenate([val.ravel(), np.zeros(pad*original_shape[0])])
         return tmp
 
     def lm_grad_wrap(raveled_pop, original_shape):
         # shape: (num_pots, num_structs*2, num_params)
 
         grads = toolbox.gradient(
-            raveled_pop.reshape(original_shape), pz_weights
+            raveled_pop.reshape(original_shape), weights
         )
 
         grads = world_comm.bcast(grads, root=0)
@@ -638,7 +624,7 @@ def local_minimization(master_pop, toolbox, pz_weights, world_comm, is_master, n
 
         tmp = np.vstack([
             padded_grad,
-            np.zeros((16*num_pots, num_pots * num_params))]
+            np.zeros((pad*num_pots, num_pots * num_params))]
         )
 
         return tmp
@@ -653,31 +639,13 @@ def local_minimization(master_pop, toolbox, pz_weights, world_comm, is_master, n
         method='lm', max_nfev=nsteps, args=(master_pop.shape,)
     )
 
-    # def wrap(x):
-    #     val = np.sum(lm_fxn_wrap(x, master_pop.shape))
-    #     val = world_comm.bcast(val, root=0)
-    #     return val
-    # 
-    # # write_count = 0
-    # import time
-    # def cb(x):
-    #     if is_master:
-    #         # write_count += 1
-    #         np.savetxt("poop_" + str(time.time()) + ".dat", x)
-    #     print(wrap(x), flush=True)
-    # 
-    # # opt_results = fmin_cg(wrap, master_pop, callback=cb)
-    # opt_results = fmin_bfgs(wrap, master_pop, callback=cb)
-
     if is_master:
-        # print("Finished CG!", flush=True)
         new_pop = opt_results['x'].reshape(master_pop.shape)
-        # new_pop = opt_results
     else:
         new_pop = None
 
-    org_fits = toolbox.evaluate_population(master_pop, pz_weights)
-    new_fits = toolbox.evaluate_population(new_pop, pz_weights)
+    org_fits = toolbox.evaluate_population(master_pop, weights)
+    new_fits = toolbox.evaluate_population(new_pop, weights)
 
     if is_master:
         updated_master_pop = list(master_pop)
@@ -689,8 +657,6 @@ def local_minimization(master_pop, toolbox, pz_weights, world_comm, is_master, n
                 updated_master_pop[i] = creator.Individual(updated_master_pop[i])
 
         master_pop = updated_master_pop
-
-    final_fit = toolbox.evaluate_population(master_pop, pz_weights)
 
     return master_pop
 
@@ -850,6 +816,28 @@ def find_spline_type_deliminating_indices(worker):
 
 
 
+def minimize_population(pop, toolbox, comm, mpi_size, max_nsteps):
+    my_indivs = comm.scatter(np.array_split(pop, mpi_size))
+
+    new_indivs = []
+    my_fitnesses = []
+
+    for indiv in my_indivs:
+        opt_results = least_squares(toolbox.evaluate_population, indiv,
+                                    toolbox.gradient, method='lm',
+                                    max_nfev=max_nsteps)
+
+        indiv = creator.Individual(opt_results['x'])
+
+        new_indivs.append(creator.Individual(indiv))
+
+        fitnesses = np.sum(toolbox.evaluate_population(indiv))
+        my_fitnesses.append(fitnesses)
+
+    return np.vstack(comm.gather(pop, root=0)), \
+           np.concatenate(comm.gather(my_fitnesses, root=0))
+
+
 def split_population(a, n):
     """
     Stackoverflow credits (User = "tixxit"):
@@ -858,6 +846,166 @@ def split_population(a, n):
     k, m = divmod(len(a), n)
     return list(
         a[i * k + min(i, m):(i + 1) * k + min(i + 1, m)] for i in range(n))
+
+
+def build_fxn_wrapper(eval_fxn, is_master, is_manager, is_node_head,
+                      world_comm, manager_comm, head_comm, node_comm):
+    def fxn_wrap(full, world_rank=None, procs_get_same_pop=False):
+        """
+        Args:
+            full (list[Individual]): all potential_templates
+            procs_get_same_pop (bool): True if population NOT scattered
+
+        Notes:
+        Evaluates the function and gathers the results at every level of
+        parallelization.
+
+        Process -- evaluates on subset of subset of database with subset of pop
+        Node -- gathers full population for subset of subset of database
+        Manager -- gathers full population for subset of database
+        Master -- gathers full population for full database
+        """
+
+        full = np.atleast_2d(full)
+
+        was_split = False
+        if is_node_head:
+            if procs_get_same_pop:
+                inp = head_comm.bcast(full, root=0)
+            else:
+                split_full = split_population(full, nodes_per_manager)
+                inp = head_comm.scatter(split_full, root=0)
+                was_split = True
+        else:
+            inp = None
+
+        inp = node_comm.bcast(inp, root=0)
+
+        # evaluate subset of population on subset OF SUBSET of database
+        cost_eng, cost_fcs = eval_fxn(inp)
+
+        # subset of population on node's subset of database
+        node_eng_costs = node_comm.gather(cost_eng, root=0)
+        node_fcs_costs = node_comm.gather(cost_fcs, root=0)
+
+        if is_node_head:
+            node_eng_costs = np.concatenate(node_eng_costs, axis=1)
+            node_fcs_costs = np.concatenate(node_fcs_costs, axis=1)
+
+            # full population on manager's subset of database
+            head_nodes_eng = head_comm.gather(node_eng_costs, root=0)
+            head_nodes_fcs = head_comm.gather(node_fcs_costs, root=0)
+
+        if is_manager:
+            if procs_get_same_pop:
+                head_nodes_eng = np.array(head_nodes_eng)
+                head_nodes_fcs = np.array(head_nodes_fcs)
+
+                head_nodes_eng = np.sum(head_nodes_eng, axis=0)
+                head_nodes_fcs = np.sum(head_nodes_fcs, axis=0)
+
+            else:
+                head_nodes_eng = np.vstack(head_nodes_eng)
+                head_nodes_fcs = np.vstack(head_nodes_fcs)
+
+                # full population on full database
+            all_eng_costs = manager_comm.gather(head_nodes_eng, root=0)
+            all_fcs_costs = manager_comm.gather(head_nodes_fcs, root=0)
+
+        if is_master:
+            all_eng_costs = np.concatenate(all_eng_costs, axis=1)
+            all_fcs_costs = np.concatenate(all_fcs_costs, axis=1)
+
+            value = np.concatenate([all_eng_costs, all_fcs_costs], axis=1)
+        else:
+            value = None
+
+        if is_manager:
+            value = manager_comm.bcast(value, root=0)
+
+        if is_node_head:
+            value = head_comm.bcast(value, root=0)
+
+        value = world_comm.bcast(value, root=0)
+
+        if is_master:
+            print(np.sum(value), flush=True)
+
+        return value
+
+
+def build_grad_wrapper(grad_fxn, is_master, is_manager, is_node_head,
+                       world_comm, manager_comm, head_comm, node_comm):
+    def grad_wrap(full, procs_get_same_pop=False):
+
+        full = np.atleast_2d(full)
+
+        if is_node_head:
+            if procs_get_same_pop:
+                inp = full
+            else:
+                split_full = split_population(full, nodes_per_manager)
+                inp = head_comm.scatter(split_full, root=0)
+        else:
+            inp = None
+
+        inp = node_comm.bcast(inp, root=0)
+
+        eng_grad_val, fcs_grad_val = grad_fxn(inp)
+
+        # evaluate subset of population on subset OF SUBSET of database
+        node_eng_grad = node_comm.gather(eng_grad_val, root=0)
+        node_fcs_grad = node_comm.gather(fcs_grad_val, root=0)
+
+        if is_node_head:
+            node_eng_grad = np.dstack(node_eng_grad)
+            node_fcs_grad = np.dstack(node_fcs_grad)
+
+            # print('node_eng_grad.shape', node_eng_grad.shape, flush=True)
+
+            # full population on manager's subset of database
+            head_nodes_eng_grad = head_comm.gather(node_eng_grad, root=0)
+            head_nodes_fcs_grad = head_comm.gather(node_fcs_grad, root=0)
+
+        if is_manager:
+            if procs_get_same_pop:
+                head_nodes_eng_grad = np.array(head_nodes_eng_grad)
+                head_nodes_fcs_grad = np.array(head_nodes_fcs_grad)
+
+                head_nodes_eng_grad = np.sum(head_nodes_eng_grad, axis=0)
+                head_nodes_fcs_grad = np.sum(head_nodes_fcs_grad, axis=0)
+            else:
+                head_nodes_eng_grad = np.dstack(head_nodes_eng_grad)
+                head_nodes_fcs_grad = np.dstack(head_nodes_fcs_grad)
+
+            # full population on full database
+            all_eng_grad = manager_comm.gather(head_nodes_eng_grad, root=0)
+            all_fcs_grad = manager_comm.gather(head_nodes_fcs_grad, root=0)
+
+        if is_master:
+            all_eng_grad = np.dstack(all_eng_grad)
+            all_fcs_grad = np.dstack(all_fcs_grad)
+
+            # print('all_eng_grad.shape', all_eng_grad.shape, flush=True)
+
+            # all_grads = all_eng_grad + all_fcs_grad # list join
+
+            grad = np.dstack([all_eng_grad, all_fcs_grad])
+
+            # print('grad.shape', grad.shape, flush=True)
+        else:
+            grad = None
+
+        if is_manager:
+            grad = manager_comm.bcast(grad, root=0)
+
+        if is_node_head:
+            grad = head_comm.bcast(grad, root=0)
+
+        grad = node_comm.bcast(grad, root=0)
+        # print('grad.shape', grad.shape, flush=True)
+
+        return grad.T
 
 def rescale_rhos(pop, per_u_max_ni, potential_template):
     ntypes = len(potential_template.u_ranges)
@@ -877,58 +1025,6 @@ def rescale_rhos(pop, per_u_max_ni, potential_template):
 
     return pop_arr
 
-def prepare_managers(world_comm, worker_ranks):
-    # each Manager is in charge of a single structure
-    world_group = world_comm.Get_group()
-
-    rank_lists = world_comm.bcast(worker_ranks, root=0)
-
-    # Tell workers which manager they are a part of
-    worker_ranks = None
-    manager_ranks = []
-    for per_manager_ranks in rank_lists:
-        manager_ranks.append(per_manager_ranks[0])
-
-        if world_rank in per_manager_ranks:
-            worker_ranks = per_manager_ranks
-
-    # manager_comm connects all manager processes
-    manager_group = world_group.Incl(manager_ranks)
-    manager_comm = world_comm.Create(manager_group)
-
-    is_manager = (manager_comm != MPI.COMM_NULL)
-
-    # One manager per structure
-    if is_manager:
-        manager_rank = manager_comm.Get_rank()
-
-        struct_name = manager_comm.scatter(struct_names, root=0)
-
-        print(
-            "Manager", manager_rank, "received structure", struct_name, "plus",
-            len(worker_ranks), "processors for evaluation", flush=True
-        )
-
-    else:
-        struct_name = None
-        manager_rank = None
-
-    worker_group = world_group.Incl(worker_ranks)
-    worker_comm = world_comm.Create(worker_group)
-
-    struct_name = worker_comm.bcast(struct_name, root=0)
-    manager_rank = worker_comm.bcast(manager_rank, root=0)
-
-    manager = Manager(manager_rank, worker_comm, potential_template)
-
-    manager.struct_name = struct_name
-    manager.struct = manager.load_structure(
-        manager.struct_name, DB_PATH + "/"
-    )
-
-    manager.struct = manager.broadcast_struct(manager.struct)
-
-    return manager, is_manager, manager_comm, worker_comm
 
 ################################################################################
 
