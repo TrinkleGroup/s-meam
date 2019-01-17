@@ -42,11 +42,23 @@ class Database:
 
         return new_db
 
-    def load_structures(self):
-        sorted_names = sorted(glob.glob(self.true_values_folder_path + "/*"))
+    def load_structures(self, max_num_structs=None):
+        sorted_names = glob.glob(self.true_values_folder_path + "/*")
+
+        if max_num_structs is None:
+            load_num = len(sorted_names)
+        else:
+            load_num = max_num_structs
+
+        additional_names = np.random.choice(
+            sorted_names, load_num, replace=False
+        )
+
+        to_add = set([os.path.join(self.true_values_folder_path,
+                       "info." + self.ref_name)] + additional_names.tolist())
 
         already_added = []
-        for file_name in sorted_names:
+        for file_name in to_add:
             if "metadata" not in file_name:
                 f = open(file_name, 'rb')
                 f.close()
@@ -55,7 +67,6 @@ class Database:
                 # file_name = os.path.splitext(file_name)[1][1:]
                 struct_name = os.path.split(file_name)[-1]
                 struct_name = os.path.splitext(struct_name)[1][1:]
-                print(struct_name)
 
                 # 'entry', 'struct_name value natoms type ref_struct'
                 check_entry = entry(

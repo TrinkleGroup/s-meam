@@ -52,6 +52,8 @@ NTYPES = 2
 ################################################################################
 """GA settings"""
 
+NUM_STRUCTS = 10
+
 if len(sys.argv) > 1:
     POP_SIZE = int(sys.argv[1])
 else:
@@ -148,7 +150,7 @@ def main():
             DB_PATH, DB_INFO_FILE_NAME, "Ti48Mo80_type1_c18"
         )
 
-        master_database.load_structures()
+        master_database.load_structures(NUM_STRUCTS)
 
         # master_database.print_metadata()
 
