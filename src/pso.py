@@ -27,6 +27,8 @@ from src.manager import Manager
 
 ################################################################################
 
+NUM_STRUCTS = 4
+
 COGNITIVE_WEIGHT = 0.75  # relative importance of individual best
 SOCIAL_WEIGHT = 1     # relative importance of global best
 MOMENTUM_WEIGHT = 0.5   # relative importance of particle momentum
@@ -37,7 +39,7 @@ MAX_NUM_PSO_STEPS = int(sys.argv[2])  # maximum number of PSO steps
 DO_LOCAL_MIN = False
 FLATTEN_LANDSCAPE = False
 NMIN = 1 # how many particles to do LM on during local_minimization() calls
-NUM_LMIN_STEPS = 30     # maximum number of LM steps
+NUM_LMIN_STEPS = 20     # maximum number of LM steps
 LMIN_FREQUENCY = 20
 
 FITNESS_THRESH = 1
@@ -53,10 +55,10 @@ BASE_PATH = ""
 BASE_PATH = "/home/jvita/scripts/s-meam/"
 
 LOAD_PATH = "/projects/sciteam/baot/pz-unfx-cln/"
-LOAD_PATH = BASE_PATH + "data/fitting_databases/pinchao/"
+LOAD_PATH = BASE_PATH + "data/fitting_databases/hyojung/"
 
-DB_PATH = LOAD_PATH + 'structures'
-DB_INFO_FILE_NAME = LOAD_PATH + 'full/info'
+DB_PATH = LOAD_PATH + 'mini_structs'
+DB_INFO_FILE_NAME = LOAD_PATH + 'mini_info'
 
 date_str = datetime.datetime.now().strftime("%Y-%m-%d")
 
@@ -93,14 +95,17 @@ def main():
 
         struct_files = glob.glob(DB_PATH + "/*")
 
-        master_database = Database(DB_PATH, DB_INFO_FILE_NAME)
-
-        master_database.read_pinchao_formatting(
-            os.path.join(LOAD_PATH, 'Database-Structures')
+        master_database = Database(
+            DB_PATH, DB_INFO_FILE_NAME, "Ti48Mo80_type1_c18"
         )
 
-        all_struct_names, struct_natoms = zip(*master_database.natoms.items())
+        master_database.load_structures(NUM_STRUCTS)
+
+        all_struct_names = master_database.unique_structs
+        struct_natoms = master_database.unique_natoms
         num_structs = len(all_struct_names)
+
+        print(all_struct_names)
 
         worker_ranks = partools.compute_procs_per_subset(
             struct_natoms, world_size
@@ -115,7 +120,6 @@ def main():
         worker_ranks = None
         all_struct_names = None
 
-    # Send all information necessary to building evaluation functions
     potential_template = world_comm.bcast(potential_template, root=0)
     num_structs = world_comm.bcast(num_structs, root=0)
 
@@ -169,21 +173,10 @@ def main():
 
     manager.struct = manager.broadcast_struct(manager.struct)
 
-    """
-    pseudo-code:
-
-    master creates swarm
-    run LM on a portion of the swarm
-    loop:
-        evaluate swarm:
-            bcast pop to managers
-            evaluate on workers
-            gather results on master
-            compute fitnesses
-        master updates positions/velocities
-        if desired, run LM again on portion of swarm
-
-    """
+    fxn_wrap, grad_wrap = partools.build_evaluation_functions(
+        potential_template, master_database, all_struct_names, manager,
+        is_master, is_manager, manager_comm, "Ti48Mo80_type1_c18"
+    )
 
     # initialize swarm -- 'positions' are the potentials
     if is_master:
@@ -195,12 +188,9 @@ def main():
 
     swarm_positions = np.array(swarm_positions)
 
-    fxn_wrap, grad_wrap = partools.build_evaluation_functions(
-        potential_template, master_database, all_struct_names, manager,
-        is_master, is_manager, manager_comm, flatten=FLATTEN_LANDSCAPE
-    )
+    weights = np.ones(num_structs)
 
-    init_fit = fxn_wrap(swarm_positions)
+    init_fit = fxn_wrap(swarm_positions, weights)
 
     if is_master:
         init_fit = np.sum(init_fit, axis=1)
@@ -208,11 +198,10 @@ def main():
         print("Average value:", np.average(init_fit), flush=True)
 
     swarm_positions = local_minimization(
-        swarm_positions, fxn_wrap, grad_wrap, world_comm, is_master,
-        num_to_minimize=NMIN, nsteps=NUM_LMIN_STEPS,
+        swarm_positions, fxn_wrap, grad_wrap, weights, world_comm, is_master, nsteps=NUM_LMIN_STEPS
     )
 
-    new_fit = fxn_wrap(swarm_positions)
+    new_fit = fxn_wrap(swarm_positions, weights)
 
     if is_master:
         all_fitnesses = np.sum(new_fit, axis=1)
@@ -265,8 +254,7 @@ def main():
         # Run local minimizer if desired
         if (i % LMIN_FREQUENCY == 0) and DO_LOCAL_MIN:
             swarm_positions = local_minimization(
-                swarm_positions, fxn_wrap, grad_wrap, world_comm, is_master,
-                num_to_minimize=NMIN, nsteps=NUM_LMIN_STEPS,
+                swarm_positions, fxn_wrap, grad_wrap, weights, world_comm, is_master, nsteps=NUM_LMIN_STEPS
             )
 
         if is_master:
@@ -282,7 +270,7 @@ def main():
             swarm_positions += new_velocity
             swarm_velocities = new_velocity
 
-        fitnesses = fxn_wrap(swarm_positions)
+        fitnesses = fxn_wrap(swarm_positions, weights)
 
         # update personal bests
         if is_master:
@@ -624,22 +612,27 @@ def build_evaluation_functions(database, potential_template):
 
     return fxn, grad
 
-def local_minimization(
-    swarm_positions, fxn, grad, world_comm, is_master, num_to_minimize, nsteps=20
-):
+
+def local_minimization(master_pop, fxn_wrap, grad_wrap, weights, world_comm,
+is_master, nsteps=20):
+    pad = 100
 
     def lm_fxn_wrap(raveled_pop, original_shape):
-        val = fxn(
-            raveled_pop.reshape(original_shape)
+        val = fxn_wrap(
+            raveled_pop.reshape(original_shape), weights
         )
 
         val = world_comm.bcast(val, root=0)
 
-        return val.ravel()
+        # pad with zeros since num structs is less than num knots
+        tmp = np.concatenate([val.ravel(), np.zeros(pad*original_shape[0])])
+        return tmp
 
     def lm_grad_wrap(raveled_pop, original_shape):
-        grads = grad(
-            raveled_pop.reshape(original_shape)
+        # shape: (num_pots, num_structs*2, num_params)
+
+        grads = grad_wrap(
+            raveled_pop.reshape(original_shape), weights
         )
 
         grads = world_comm.bcast(grads, root=0)
@@ -657,40 +650,46 @@ def local_minimization(
             (num_pots * num_structs_2, num_pots * num_params)
         )
 
-        return padded_grad
 
-    swarm_positions = world_comm.bcast(swarm_positions, root=0)
-    swarm_positions = np.array(swarm_positions)
+        # also pad with zeros since num structs is less than num knots
+
+        tmp = np.vstack([
+            padded_grad,
+            np.zeros((pad*num_pots, num_pots * num_params))]
+        )
+
+        return tmp
+
+    # lm_grad_wrap = '2-point'
+
+    master_pop = world_comm.bcast(master_pop, root=0)
+    master_pop = np.array(master_pop)
 
     opt_results = least_squares(
-        lm_fxn_wrap, swarm_positions[:num_to_minimize].ravel(), lm_grad_wrap,
-        method='lm', max_nfev=nsteps,
-        args=(swarm_positions[:num_to_minimize].shape,)
+        lm_fxn_wrap, master_pop.ravel(), lm_grad_wrap,
+        method='lm', max_nfev=nsteps, args=(master_pop.shape,)
     )
 
     if is_master:
-        new_pop = opt_results['x'].reshape(
-            swarm_positions[:num_to_minimize].shape
-        )
+        new_pop = opt_results['x'].reshape(master_pop.shape)
     else:
         new_pop = None
 
-    org_fits = fxn(swarm_positions)
-    new_fits = fxn(new_pop)
+    org_fits = fxn_wrap(master_pop, weights)
+    new_fits = fxn_wrap(new_pop, weights)
 
     if is_master:
-        updated_swarm_positions = list(swarm_positions)
+        updated_master_pop = list(master_pop)
 
         for i, ind in enumerate(new_pop):
             if np.sum(new_fits[i]) < np.sum(org_fits[i]):
-                updated_swarm_positions[i] = creator.Individual(new_pop[i])
+                updated_master_pop[i] = new_pop[i]
             else:
-                updated_swarm_positions[i] = creator.Individual(updated_swarm_positions[i])
+                updated_master_pop[i] = updated_master_pop[i]
 
-        swarm_positions = updated_swarm_positions
+        master_pop = np.array(updated_master_pop)
 
-    return swarm_positions
-
+    return master_pop
 
 def check_bounds(positions, template):
 
