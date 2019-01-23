@@ -1,12 +1,13 @@
 import os
-# TODO: BW settings
-# os.chdir("/mnt/c/Users/jvita/scripts/s-meam/")
 import sys
 
 sys.path.append('./')
 
 import numpy as np
 import random
+
+np.random.seed(42)
+random.seed(42)
 
 np.set_printoptions(precision=8, suppress=True)
 
@@ -52,14 +53,13 @@ NTYPES = 2
 ################################################################################
 """GA settings"""
 
-NUM_STRUCTS = 10
+NUM_STRUCTS = 30
 
 if len(sys.argv) > 1:
     POP_SIZE = int(sys.argv[1])
 else:
     POP_SIZE = 1
 
-# TODO: BW settings
 if len(sys.argv) > 2:
     NUM_GENS = int(sys.argv[2])
 else:
@@ -95,11 +95,11 @@ date_str = datetime.datetime.now().strftime("%Y-%m-%d")
 CHECK_BEFORE_OVERWRITE = False
 
 # TODO: BW settings
-BASE_PATH = ""
 BASE_PATH = "/home/jvita/scripts/s-meam/"
+BASE_PATH = ""
 
-LOAD_PATH = "/u/sciteam/vita/hyojung/"
 LOAD_PATH = BASE_PATH + "data/fitting_databases/hyojung/"
+LOAD_PATH = "/u/sciteam/vita/hyojung/"
 SAVE_PATH = BASE_PATH + "data/results/"
 
 SAVE_DIRECTORY = SAVE_PATH + date_str + "-" + "meam" + "{}-{}".format(NUM_GENS,
@@ -108,8 +108,8 @@ SAVE_DIRECTORY = SAVE_PATH + date_str + "-" + "meam" + "{}-{}".format(NUM_GENS,
 if os.path.isdir(SAVE_DIRECTORY):
     SAVE_DIRECTORY = SAVE_DIRECTORY + '-' + str(np.random.randint(100000))
 
-DB_PATH = LOAD_PATH + 'mini_structs'
-DB_INFO_FILE_NAME = LOAD_PATH + 'mini_info'
+DB_PATH = LOAD_PATH + 'structures'
+DB_INFO_FILE_NAME = LOAD_PATH + 'info_ref'
 POP_FILE_NAME = SAVE_DIRECTORY + "/pop.dat"
 LOG_FILE_NAME = SAVE_DIRECTORY + "/ga.log"
 TRACE_FILE_NAME = SAVE_DIRECTORY + "/trace.dat"
@@ -155,11 +155,15 @@ def main():
         # master_database.print_metadata()
 
         # all_struct_names  , structures = zip(*master_database.structures.items())
-        all_struct_names = master_database.unique_structs
+        all_struct_names = [s.encode('utf-8').strip().decode('utf-8') for s in
+                master_database.unique_structs]
+
         struct_natoms = master_database.unique_natoms
         num_structs = len(all_struct_names)
 
         print(all_struct_names)
+
+        old_copy_names = list(all_struct_names)
 
         worker_ranks = partools.compute_procs_per_subset(
             struct_natoms, world_size
@@ -180,6 +184,7 @@ def main():
     world_group = world_comm.Get_group()
 
     all_rank_lists = world_comm.bcast(worker_ranks, root=0)
+    all_struct_names = world_comm.bcast(all_struct_names, root=0)
 
     # Tell workers which manager they are a part of
     worker_ranks = None
@@ -200,7 +205,7 @@ def main():
     if is_manager:
         manager_rank = manager_comm.Get_rank()
 
-        struct_name = manager_comm.scatter(all_struct_names, root=0)
+        struct_name = manager_comm.scatter(list(all_struct_names), root=0)
 
         print(
             "Manager", manager_rank, "received structure", struct_name, "plus",
@@ -210,6 +215,9 @@ def main():
     else:
         struct_name = None
         manager_rank = None
+
+    if is_master:
+        all_struct_names = list(old_copy_names)
 
     worker_group = world_group.Incl(worker_ranks)
     worker_comm = world_comm.Create(worker_group)
@@ -246,9 +254,6 @@ def main():
 
     master_pop = np.array(master_pop)
 
-    if is_master:
-        print("Before:", master_pop)
-
     weights = np.ones(num_structs)
 
     init_fit = toolbox.evaluate_population(master_pop, weights)
@@ -261,21 +266,24 @@ def main():
             np.max(init_fit), flush=True
         )
 
-    master_pop = local_minimization(
-        master_pop, toolbox, weights, world_comm, is_master, nsteps=INIT_NSTEPS
-    )
+        subset = master_pop[:10]
+    else:
+        subset = None
 
-    if is_master:
-        print("After:", master_pop)
+    subest = local_minimization(
+        subset, toolbox, weights, world_comm, is_master, nsteps=INIT_NSTEPS
+    )
 
     new_fit = toolbox.evaluate_population(master_pop, weights)
 
     if is_master:
         new_fit = np.sum(new_fit, axis=1)
         print(
-            "avg min max:", np.average(init_fit), np.min(init_fit),
-            np.max(init_fit), flush=True
+            "avg min max:", np.average(new_fit), np.min(new_fit),
+            np.max(new_fit), flush=True
         )
+
+        master_pop[:10] = subset
 
     # Have master gather fitnesses and update individuals
     if is_master:
@@ -330,10 +338,13 @@ def main():
 
             # Run local minimization on best individual if desired
             if DO_LMIN and (generation_number % LMIN_FREQUENCY == 0):
-                master_pop = local_minimization(
-                    master_pop, toolbox, weights, world_comm, is_master,
-                    nsteps=INTER_NSTEPS
+
+                subset = local_minimization(
+                    subset, toolbox, weights, world_comm, is_master, nsteps=INIT_NSTEPS
                 )
+
+                if is_master:
+                    master_pop[:10] = subset
 
             # Compute fitnesses with mated/mutated/optimized population
             # fitnesses, max_ni = toolbox.evaluate_population(master_pop, True)
@@ -371,13 +382,14 @@ def main():
         master_pop = np.genfromtxt(POP_FILE_NAME)
         best_guess = creator.Individual(master_pop[0])
 
-    master_pop = local_minimization(
-        master_pop, toolbox, weights, world_comm, is_master,
-        nsteps=INTER_NSTEPS
+    subset = local_minimization(
+        subset, toolbox, weights, world_comm, is_master, nsteps=INIT_NSTEPS
     )
 
     # Perform a final local optimization on the final results of the GA
     if is_master:
+        master_pop[:10] = subset
+
         ga_runtime = time.time() - ga_start
 
         checkpoint(master_pop, logbook, best_guess, generation_number)

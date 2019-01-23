@@ -79,6 +79,7 @@ def build_evaluation_functions(
 
         if is_manager:
             pop = manager_comm.bcast(master_pop, root=0)
+            pop = np.atleast_2d(pop)
         else:
             pop = None
 
