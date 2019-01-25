@@ -6,9 +6,6 @@ sys.path.append('./')
 import numpy as np
 import random
 
-np.random.seed(42)
-random.seed(42)
-
 np.set_printoptions(precision=8, suppress=True)
 
 import pickle
@@ -37,6 +34,7 @@ from src.database import Database
 from src.potential_templates import Template
 from src.node import Node
 from src.manager import Manager
+from src.mcmc import mcmc
 
 ################################################################################
 """MPI settings"""
@@ -53,7 +51,7 @@ NTYPES = 2
 ################################################################################
 """GA settings"""
 
-NUM_STRUCTS = 30
+NUM_STRUCTS = 4
 
 if len(sys.argv) > 1:
     POP_SIZE = int(sys.argv[1])
@@ -95,21 +93,23 @@ date_str = datetime.datetime.now().strftime("%Y-%m-%d")
 CHECK_BEFORE_OVERWRITE = False
 
 # TODO: BW settings
-BASE_PATH = "/home/jvita/scripts/s-meam/"
 BASE_PATH = ""
+BASE_PATH = "/home/jvita/scripts/s-meam/"
 
-LOAD_PATH = BASE_PATH + "data/fitting_databases/hyojung/"
 LOAD_PATH = "/u/sciteam/vita/hyojung/"
+LOAD_PATH = BASE_PATH + "data/fitting_databases/hyojung/"
 SAVE_PATH = BASE_PATH + "data/results/"
 
 SAVE_DIRECTORY = SAVE_PATH + date_str + "-" + "meam" + "{}-{}".format(NUM_GENS,
                                                                       MUTPB)
-
 if os.path.isdir(SAVE_DIRECTORY):
     SAVE_DIRECTORY = SAVE_DIRECTORY + '-' + str(np.random.randint(100000))
 
-DB_PATH = LOAD_PATH + 'structures'
-DB_INFO_FILE_NAME = LOAD_PATH + 'info_ref'
+np.random.seed(2)
+random.seed(2)
+
+DB_PATH = LOAD_PATH + 'mini_structs'
+DB_INFO_FILE_NAME = LOAD_PATH + 'mini_info'
 POP_FILE_NAME = SAVE_DIRECTORY + "/pop.dat"
 LOG_FILE_NAME = SAVE_DIRECTORY + "/ga.log"
 TRACE_FILE_NAME = SAVE_DIRECTORY + "/trace.dat"
@@ -270,9 +270,9 @@ def main():
     else:
         subset = None
 
-    subest = local_minimization(
-        subset, toolbox, weights, world_comm, is_master, nsteps=INIT_NSTEPS
-    )
+    # subest = local_minimization(
+    #     subset, toolbox, weights, world_comm, is_master, nsteps=INIT_NSTEPS
+    # )
 
     new_fit = toolbox.evaluate_population(master_pop, weights)
 
@@ -382,14 +382,15 @@ def main():
         master_pop = np.genfromtxt(POP_FILE_NAME)
         best_guess = creator.Individual(master_pop[0])
 
-    subset = local_minimization(
-        subset, toolbox, weights, world_comm, is_master, nsteps=INIT_NSTEPS
-    )
+    # subset = local_minimization(
+    #     subset, toolbox, weights, world_comm, is_master, nsteps=INIT_NSTEPS
+    # )
 
     # Perform a final local optimization on the final results of the GA
     if is_master:
-        master_pop[:10] = subset
+        # master_pop[:10] = subset
 
+        master_pop = tools.selBest(master_pop, len(master_pop))
         ga_runtime = time.time() - ga_start
 
         checkpoint(master_pop, logbook, best_guess, generation_number)
@@ -397,6 +398,38 @@ def main():
         print("MASTER: GA runtime = {:.2f} (s)".format(ga_runtime), flush=True)
         print("MASTER: Average time per step = {:.2f}"
               " (s)".format(ga_runtime / NUM_GENS), flush=True)
+
+        best_guess = master_pop[0]
+
+    else:
+        best_guess = None
+
+    final_cost = toolbox.evaluate_population(master_pop, weights)
+
+    if is_master:
+        final_cost = np.sum(final_cost, axis=1)
+        print("Final best cost = ", final_cost[0])
+        print("MASTER: beginning MCMC... ", flush=True)
+
+    def fxn_with_weights(x):
+        vals = toolbox.evaluate_population(x, weights)
+
+        if is_master:
+            vals = np.sum(vals, axis=1)
+
+        return vals
+
+    chain, trace = mcmc(fxn_with_weights, best_guess, 1000, is_master)
+
+    if is_master:
+        print(
+            "MASTER: MCMC statistics (avg, std): {} {}".format(
+                np.average(trace), np.std(trace)
+            )
+        )
+
+        # np.savetxt("mcmc_chain.dat", chain)
+        np.savetxt("mcmc_trace.dat", trace)
 
 
 ################################################################################

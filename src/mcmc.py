@@ -38,36 +38,64 @@ def mcmc(cost_fxn, init_mle, nsteps, is_master):
     trace = np.zeros(nsteps + 1)
     trace[0] = current_cost
 
+    if is_master:
+        print("step cost trail_cost ratio avg_accepted")
+        print(0, current_cost[0], "None", "None", flush=True)
+
+    num_accepted = 0
+
     step_num = 0
     while step_num < nsteps:
         # propose a move
-        proposed_move = current + np.random.normal(
-            scale=0.1, size=init_mle.shape
-        )
+        if is_master:
+            trial_position = current + np.random.normal(
+                scale=0.01, size=init_mle.shape
+            )
+
+            # rnd_indices = np.random.randint(
+            #     init_mle.shape[1], size=init_mle.shape[0]
+            # )
+            # 
+            # trial_position = current.copy()
+            # trial_position[:, rnd_indices] += np.random.normal(
+            #     scale=0.001, size=init_mle.shape[0]
+            # )
+        else:
+            trial_position = None
 
         # compute the Metropolis-Hastings ratioj
-        new_cost = cost_fxn(current + proposed_move)
+        trial_cost = cost_fxn(trial_position)
+        tmp = current_cost
 
-        # note: PZ code multiplies by np.exp(proposed_move - current), but this
+        # note: PZ code multiplies by np.exp(trial_position - current), but this
         # doesn't seem  to agree with what Givens/Hoeting 7.1.1 says to do
-        acceptance_ratio = np.exp(
-            (new_cost - current_cost) / mle_cost
-        )
+        if is_master:
+            ratio = np.exp((current_cost - trial_cost) / mle_cost)
 
-        # decide whether or not to accept the move
-        accepted = False
-        if acceptance_ratio > 1:
-            accepted = True
-        else:
-            if np.random.random() < acceptance_ratio: # accept the move
+            # decide whether or not to accept the move
+            accepted = False
+            if ratio > 1:
                 accepted = True
+                num_accepted += 1
+            else:
+                if np.random.random() < ratio: # accept the move
+                    accepted = True
+                    num_accepted += 1
 
-        # if accepted update the chain and trace
-        if accepted:
-            current = proposed_move
-            current_cost = new_cost
+            # if accepted update the chain and trace
+            if accepted:
+                current = trial_position
+                current_cost = trial_cost
 
-        chain[step_num + 1] = current
-        trace[step_num + 1] = current_cost
+            print(
+                step_num + 1, tmp[0], trial_cost[0], ratio[0],
+                num_accepted/(step_num + 1),
+                flush=True
+            )
 
-    return chain
+            chain[step_num + 1] = current
+            trace[step_num + 1] = current_cost
+
+        step_num += 1
+
+    return chain, trace

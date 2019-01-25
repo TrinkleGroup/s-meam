@@ -54,18 +54,23 @@ class Database:
             sorted_names, load_num, replace=False
         )
 
-        # to_add = set([os.path.join(self.true_values_folder_path,
-        #                "info." + self.ref_name)] + additional_names.tolist())
+        to_add = additional_names.tolist()
 
-        print("os.getcwd():", os.getcwd())
+        ref_path = os.path.join(
+            self.true_values_folder_path, "info." + self.ref_name
+        )
 
-        to_add = []
-        with open("../names.txt", "r") as f:
-            for line in f:
-                clean = "_".join(line.strip().split("/")[1:])
-                to_add.append(
-                    os.path.join(self.true_values_folder_path, "info."+ clean)
-                )
+        if ref_path not in to_add:
+            to_add[np.random.randint(len(to_add))] = ref_path
+
+
+        # to_add = []
+        # with open("/home/jvita/scripts/s-meam/data/results/hyojung/names.txt", "r") as f:
+        #     for line in f:
+        #         clean = "_".join(line.strip().split("/")[1:])
+        #         to_add.append(
+        #             os.path.join(self.true_values_folder_path, "info."+ clean)
+        #         )
 
         already_added = []
         for file_name in to_add:
