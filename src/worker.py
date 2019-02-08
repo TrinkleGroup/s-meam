@@ -392,13 +392,12 @@ class Worker:
         # Embedding terms
         ni = self.compute_ni(rho_pvecs, f_pvecs, g_pvecs)
 
-        tmp_eng, max_ni, min_ni = self.embedding_energy(ni, u_pvecs, u_ranges)
-        # tmp_eng = self.embedding_energy(ni, u_pvecs, u_ranges)
+        # tmp_eng, ni_sorted = self.embedding_energy(ni, u_pvecs, u_ranges)
+        tmp_eng = self.embedding_energy(ni, u_pvecs, u_ranges)
         energy += tmp_eng
 
         logging.info("total energy: {0}".format(energy))
-
-        return energy, max_ni, min_ni
+        return energy#, ni_sorted
 
     def compute_ni(self, rho_pvecs, f_pvecs, g_pvecs):
         """
@@ -445,8 +444,7 @@ class Worker:
 
         u_energy = np.zeros(self.n_pots)
 
-        max_ni = np.zeros((self.n_pots, len(u_pvecs)))
-        min_ni = np.zeros((self.n_pots, len(u_pvecs)))
+        # max_ni = np.zeros((self.n_pots, len(u_pvecs)))
 
         # Evaluate U, U'
         for i, (y, u) in enumerate(zip(u_pvecs, self.us)):
@@ -455,9 +453,8 @@ class Worker:
             # extract ni values for atoms of type i
             ni_sublist = ni[:, self.type_of_each_atom - 1 == i]
 
-            if ni_sublist.shape[1] > 0:
-                max_ni[:, i] = np.max(ni_sublist)
-                min_ni[:, i] = np.min(ni_sublist)
+            # if ni_sublist.shape[1] > 0:
+                # max_ni[:, i] = np.abs(np.max(ni_sublist))
 
             num_embedded = ni_sublist.shape[1]
 
@@ -472,7 +469,7 @@ class Worker:
 
             u.reset()
 
-        return u_energy, max_ni, min_ni
+        return u_energy#, max_ni
 
     def evaluate_uprimes(self, ni, u_pvecs, u_ranges, second=False):
         """

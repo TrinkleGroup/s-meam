@@ -1,4 +1,7 @@
+import sys
 import numpy as np
+
+MOVE_SCALE = float(sys.argv[1])
 
 def mcmc(cost_fxn, init_mle, nsteps, is_master):
     """
@@ -48,18 +51,18 @@ def mcmc(cost_fxn, init_mle, nsteps, is_master):
     while step_num < nsteps:
         # propose a move
         if is_master:
-            trial_position = current + np.random.normal(
-                scale=0.01, size=init_mle.shape
-            )
+            # trial_position = current + np.random.normal(
+            #     scale=0.01, size=init_mle.shape
+            # )
 
-            # rnd_indices = np.random.randint(
-            #     init_mle.shape[1], size=init_mle.shape[0]
-            # )
-            # 
-            # trial_position = current.copy()
-            # trial_position[:, rnd_indices] += np.random.normal(
-            #     scale=0.001, size=init_mle.shape[0]
-            # )
+            rnd_indices = np.random.randint(
+                init_mle.shape[1], size=init_mle.shape[0]
+            )
+            
+            trial_position = current.copy()
+            trial_position[:, rnd_indices] += np.random.normal(
+                scale=MOVE_SCALE, size=init_mle.shape[0]
+            )
         else:
             trial_position = None
 
