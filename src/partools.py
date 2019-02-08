@@ -12,7 +12,7 @@ def build_evaluation_functions(
     """Builds the function to evaluate populations. Wrapped here for readability
     of main code."""
 
-    def fxn_wrap(master_pop, weights):
+    def fxn_wrap(master_pop, weights, return_ni=False):
         """Master: returns all potentials for all structures.
 
         NOTE: the order of 'weights' should match the order of the database
@@ -25,18 +25,37 @@ def build_evaluation_functions(
         else:
             pop = None
 
-        eng = manager.compute_energy(pop)
+        # eng = manager.compute_energy(pop)
+        eng, max_ni, min_ni = manager.compute_energy(pop)
         fcs = manager.compute_forces(pop)
 
         fitnesses = 0
+        max_ni = 0
 
         if is_manager:
             mgr_eng = manager_comm.gather(eng, root=0)
+            mgr_max_ni = manager_comm.gather(max_ni, root=0)
+            mgr_min_ni = manager_comm.gather(min_ni, root=0)
             mgr_fcs = manager_comm.gather(fcs, root=0)
 
             if is_master:
                 # note: can't stack mgr_fcs b/c different dimensions per struct
                 all_eng = np.vstack(mgr_eng)
+
+                if return_ni:
+                    # all_max_ni = [np.vstack(p_ni) for p_ni in mgr_max_ni]
+                    all_max_ni = np.dstack(mgr_max_ni)
+                    # finds the smallest ni ranges across all potentials
+                    max_ni = np.min(np.max(all_max_ni, axis=2), axis=0)
+
+                    # make smallest possible range [-1,1]
+                    max_ni = np.clip(max_ni, 1, None)
+
+                    # all_min_ni = [np.vstack(p_ni) for p_ni in mgr_min_ni]
+                    all_min_ni = np.dstack(all_min_ni)
+                    min_ni = np.min(np.min(all_min_ni, axis=2), axis=0)
+                    min_ni = np.clip(min_ni, None, -1)
+
                 all_fcs = mgr_fcs
 
                 fitnesses = np.zeros((len(pop), len(master_database.entries)))
@@ -71,7 +90,10 @@ def build_evaluation_functions(
                         tmp = (comp_ediff - true_ediff) ** 2
                         fitnesses[:, fit_id] = tmp * weight
 
-        return fitnesses
+        if return_ni:
+            return fitnesses, max_ni, min_ni
+        else:
+            return fitnesses
 
 
     def grad_wrap(master_pop, weights):
@@ -83,7 +105,8 @@ def build_evaluation_functions(
         else:
             pop = None
 
-        eng = manager.compute_energy(pop)
+        # eng = manager.compute_energy(pop)
+        eng, _, _ = manager.compute_energy(pop)
         fcs = manager.compute_forces(pop)
 
         eng_grad = manager.compute_energy_grad(pop)
@@ -318,9 +341,9 @@ def initialize_potential_template(load_path):
         pvec_len=108,
         u_ranges=[(-1, 1), (-1, 1)],
         # Ranges taken from Lou Ti-Mo (phis) or from old TiO (other)
-        spline_ranges=[(-1, 1), (-1, 1), (-1, 1), (-10, 10), (-10, 10),
-                       (-1, 1), (-1, 1), (-5, 5), (-5, 5),
-                       (-10, 10), (-10, 10), (-10, 10)],
+        spline_ranges=[(-1, 1), (-1, 1), (-1, 1), (-5, 5), (-5, 5),
+                       (-1, 1), (-1, 1), (-2.5, 2.5), (-2.5, 2.5),
+                       (-2.5, 2.5), (-2.5, 2.5), (-2.5, 2.5)],
         spline_indices=[(0, 9), (9, 18), (18, 27), (27, 36), (36, 45),
                         (45, 54), (54, 63), (63, 72), (72, 81),
                         (81, 90), (90, 99), (99, 108)]

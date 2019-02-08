@@ -50,27 +50,27 @@ class Database:
         else:
             load_num = max_num_structs
 
-        additional_names = np.random.choice(
-            sorted_names, load_num, replace=False
-        )
+        # additional_names = np.random.choice(
+        #     sorted_names, load_num, replace=False
+        # )
 
-        to_add = additional_names.tolist()
+        # to_add = additional_names.tolist()
+        
+        to_add = []
+        with open("../names.txt", "r") as f:
+            for line in f:
+                # clean = "_".join(line.strip().split("/")[1:])
+                clean = line.strip()
+                to_add.append(
+                    os.path.join(self.true_values_folder_path, "info."+ clean)
+                )
 
-        ref_path = os.path.join(
-            self.true_values_folder_path, "info." + self.ref_name
-        )
+        # ref_path = os.path.join(
+        #     self.true_values_folder_path, "info." + self.ref_name
+        # )
 
-        if ref_path not in to_add:
-            to_add[np.random.randint(len(to_add))] = ref_path
-
-
-        # to_add = []
-        # with open("/home/jvita/scripts/s-meam/data/results/hyojung/names.txt", "r") as f:
-        #     for line in f:
-        #         clean = "_".join(line.strip().split("/")[1:])
-        #         to_add.append(
-        #             os.path.join(self.true_values_folder_path, "info."+ clean)
-        #         )
+        # if ref_path not in to_add:
+        #     to_add[np.random.randint(len(to_add))] = ref_path
 
         already_added = []
         for file_name in to_add:

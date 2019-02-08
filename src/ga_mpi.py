@@ -34,7 +34,6 @@ from src.database import Database
 from src.potential_templates import Template
 from src.node import Node
 from src.manager import Manager
-from src.mcmc import mcmc
 
 ################################################################################
 """MPI settings"""
@@ -51,7 +50,7 @@ NTYPES = 2
 ################################################################################
 """GA settings"""
 
-NUM_STRUCTS = 4
+NUM_STRUCTS = 30
 
 if len(sys.argv) > 1:
     POP_SIZE = int(sys.argv[1])
@@ -76,10 +75,13 @@ FLATTEN_LANDSCAPE = False  # define fitness as fitness of partially-minimized po
 FLAT_NSTEPS = 5
 
 DO_LMIN = False
-LMIN_FREQUENCY = 1
-INIT_NSTEPS = 5
-INTER_NSTEPS = 5
+LMIN_STOP_STEP = 500
+LMIN_FREQUENCY = 20
+INIT_NSTEPS = 30
+INTER_NSTEPS = 15
 FINAL_NSTEPS = 30
+RESCALE_FREQUENCY = 10
+RESCALE_THRESH = 300
 
 CHECKPOINT_FREQUENCY = 1
 
@@ -93,23 +95,21 @@ date_str = datetime.datetime.now().strftime("%Y-%m-%d")
 CHECK_BEFORE_OVERWRITE = False
 
 # TODO: BW settings
-BASE_PATH = ""
 BASE_PATH = "/home/jvita/scripts/s-meam/"
+BASE_PATH = ""
 
-LOAD_PATH = "/u/sciteam/vita/hyojung/"
 LOAD_PATH = BASE_PATH + "data/fitting_databases/hyojung/"
+LOAD_PATH = "/u/sciteam/vita/hyojung/"
 SAVE_PATH = BASE_PATH + "data/results/"
 
 SAVE_DIRECTORY = SAVE_PATH + date_str + "-" + "meam" + "{}-{}".format(NUM_GENS,
-                                                                      MUTPB)
+                                                                      POP_SIZE)
+
 if os.path.isdir(SAVE_DIRECTORY):
     SAVE_DIRECTORY = SAVE_DIRECTORY + '-' + str(np.random.randint(100000))
 
-np.random.seed(2)
-random.seed(2)
-
-DB_PATH = LOAD_PATH + 'mini_structs'
-DB_INFO_FILE_NAME = LOAD_PATH + 'mini_info'
+DB_PATH = LOAD_PATH + 'structures'
+DB_INFO_FILE_NAME = LOAD_PATH + 'info_ref'
 POP_FILE_NAME = SAVE_DIRECTORY + "/pop.dat"
 LOG_FILE_NAME = SAVE_DIRECTORY + "/ga.log"
 TRACE_FILE_NAME = SAVE_DIRECTORY + "/trace.dat"
@@ -150,7 +150,7 @@ def main():
             DB_PATH, DB_INFO_FILE_NAME, "Ti48Mo80_type1_c18"
         )
 
-        master_database.load_structures(NUM_STRUCTS)
+        master_database.load_structures()
 
         # master_database.print_metadata()
 
@@ -248,6 +248,9 @@ def main():
     # Create the original population
     if is_master:
         master_pop = toolbox.population(n=POP_SIZE)
+        # master_pop = np.genfromtxt("../hj-long_seed_1/data/results/2019-01-21-meam25000-0.5/pop.dat24999")
+        # master_pop[:, 21:28] /= 10
+        # master_pop[:, 28:35] /= 10
         print("master_pop.shape", len(master_pop[0]))
     else:
         master_pop = 0
@@ -270,9 +273,13 @@ def main():
     else:
         subset = None
 
-    # subest = local_minimization(
-    #     subset, toolbox, weights, world_comm, is_master, nsteps=INIT_NSTEPS
-    # )
+    subest = local_minimization(
+        subset, toolbox, weights, world_comm, is_master, nsteps=INIT_NSTEPS
+    )
+
+    if is_master:
+        master_pop[:10] = subset
+
 
     new_fit = toolbox.evaluate_population(master_pop, weights)
 
@@ -282,8 +289,6 @@ def main():
             "avg min max:", np.average(new_fit), np.min(new_fit),
             np.max(new_fit), flush=True
         )
-
-        master_pop[:10] = subset
 
     # Have master gather fitnesses and update individuals
     if is_master:
@@ -337,23 +342,49 @@ def main():
             #     master_pop = None
 
             # Run local minimization on best individual if desired
-            if DO_LMIN and (generation_number % LMIN_FREQUENCY == 0):
+            if DO_LMIN and (generation_number % LMIN_FREQUENCY == 0) and (generation_number < LMIN_STOP_STEP):
+
+                if is_master:
+                    subset = master_pop[:10]
 
                 subset = local_minimization(
-                    subset, toolbox, weights, world_comm, is_master, nsteps=INIT_NSTEPS
+                    subset, toolbox, weights, world_comm, is_master,
+                    nsteps=INTER_NSTEPS
                 )
 
                 if is_master:
                     master_pop[:10] = subset
 
             # Compute fitnesses with mated/mutated/optimized population
-            # fitnesses, max_ni = toolbox.evaluate_population(master_pop, True)
+            fitnesses, max_ni, min_ni = toolbox.evaluate_population(
+                master_pop, weights, return_ni=True
+            )
+
+            # attempt to rescale
+            if is_master:
+                old_fit = np.sum(fitnesses, axis=1)
+
+                if generation_number % RESCALE_FREQUENCY == 0:
+                    potential_template.u_ranges = [max_ni, min_ni]
+                    # rescale_attempt = rescale_rhos(master_pop, max_ni, potential_template)
+
+
             fitnesses = toolbox.evaluate_population(master_pop, weights)
+
+            if is_master:
+                new_fit = np.sum(fitnesses, axis=1)
+
+                improved_indices = np.where(
+                    np.logical_and(new_fit < old_fit, old_fit > RESCALE_THRESH)
+                )[0]
+
+                if np.any(improved_indices):
+                    master_pop[improved_indices] = rescale_attempt[improved_indices]
+                    print("Before rescale:", old_fit)
+                    print("After rescale:", new_fit)
 
             # Update individuals with new fitnesses
             if is_master:
-                # master_pop = rescale_rhos(master_pop, max_ni, potential_template)
-
                 new_fit = np.sum(fitnesses, axis=1)
 
                 pop_copy = []
@@ -382,15 +413,17 @@ def main():
         master_pop = np.genfromtxt(POP_FILE_NAME)
         best_guess = creator.Individual(master_pop[0])
 
-    # subset = local_minimization(
-    #     subset, toolbox, weights, world_comm, is_master, nsteps=INIT_NSTEPS
-    # )
+    if is_master:
+        subset = master_pop[:10]
+
+    subset = local_minimization(
+        subset, toolbox, weights, world_comm, is_master, nsteps=INIT_NSTEPS
+    )
 
     # Perform a final local optimization on the final results of the GA
     if is_master:
-        # master_pop[:10] = subset
+        master_pop[:10] = subset
 
-        master_pop = tools.selBest(master_pop, len(master_pop))
         ga_runtime = time.time() - ga_start
 
         checkpoint(master_pop, logbook, best_guess, generation_number)
@@ -398,38 +431,6 @@ def main():
         print("MASTER: GA runtime = {:.2f} (s)".format(ga_runtime), flush=True)
         print("MASTER: Average time per step = {:.2f}"
               " (s)".format(ga_runtime / NUM_GENS), flush=True)
-
-        best_guess = master_pop[0]
-
-    else:
-        best_guess = None
-
-    final_cost = toolbox.evaluate_population(master_pop, weights)
-
-    if is_master:
-        final_cost = np.sum(final_cost, axis=1)
-        print("Final best cost = ", final_cost[0])
-        print("MASTER: beginning MCMC... ", flush=True)
-
-    def fxn_with_weights(x):
-        vals = toolbox.evaluate_population(x, weights)
-
-        if is_master:
-            vals = np.sum(vals, axis=1)
-
-        return vals
-
-    chain, trace = mcmc(fxn_with_weights, best_guess, 1000, is_master)
-
-    if is_master:
-        print(
-            "MASTER: MCMC statistics (avg, std): {} {}".format(
-                np.average(trace), np.std(trace)
-            )
-        )
-
-        # np.savetxt("mcmc_chain.dat", chain)
-        np.savetxt("mcmc_trace.dat", trace)
 
 
 ################################################################################
@@ -805,7 +806,10 @@ def old_local_minimization(guess, toolbox, is_master, comm, num_steps=None, ):
 def checkpoint(population, logbook, trace_update, i):
     """Saves information to files for later use"""
 
-    np.savetxt(POP_FILE_NAME + str(i), population)
+    digits = np.ceil(np.log10(int(NUM_GENS)))
+    format_str = '{0:0' + str(int(digits) + 1) + 'd}'
+
+    np.savetxt(POP_FILE_NAME + format_str.format(i), population)
     pickle.dump(logbook, open(LOG_FILE_NAME, 'wb'))
 
     f = open(TRACE_FILE_NAME, 'ab')
@@ -1066,7 +1070,7 @@ def rescale_rhos(pop, per_u_max_ni, potential_template):
         start, stop = r_ind
 
         # pull scaling factors, only scale if ni fall out of U range
-        scaling = np.clip(per_u_max_ni[:, i], 1, None)
+        scaling = np.clip(np.abs(per_u_max_ni[:, i]), 1, None)
 
         pop_arr[:, start:stop] /= scaling[:, np.newaxis]
 
