@@ -536,6 +536,7 @@ class Worker:
                                  vectors for all splines in the system
             u_ranges (list): list of tuples of (lhs_knot, rhs_knot)
         """
+
         parameters = np.atleast_2d(parameters)
         self.n_pots = parameters.shape[0]
 
