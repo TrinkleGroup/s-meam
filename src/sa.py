@@ -7,7 +7,7 @@ import numpy as np
 from mpi4py import MPI
 import partools
 import datetime
-from scipy.optimize import least_squares, fmin_cg, minimize
+from scipy.optimize import least_squares
 
 from src.database import Database
 from src.manager import Manager
@@ -22,8 +22,8 @@ COOLING_RATE = float(sys.argv[3])
 ################################################################################
 
 DO_LMIN = True
-LMIN_FREQ = 50
-LMIN_STEPS = 10
+LMIN_FREQ = 100
+LMIN_STEPS = 15
 
 ################################################################################
 
@@ -203,7 +203,7 @@ def simulated_annealing(nsteps, cooling_rate, cooling_type='linear'):
         trace[0] = current_cost
 
         T = 10.
-        T_min = 0.1
+        T_min = 0.01
 
         print("step T min_cost avg_cost avg_accepted")
         print(
@@ -342,13 +342,13 @@ def local_minimization(master_pop, fxn, grad, weights, world_comm, is_master, ns
     pad = 100
 
     def lm_fxn_wrap(raveled_pop, original_shape):
-        val = fxn(raveled_pop.reshape(original_shape), weights, output=True)
+        val = fxn(raveled_pop.reshape(original_shape), weights, output=False)
 
         val = world_comm.bcast(val, root=0)
 
         # pad with zeros since num structs is less than num knots
         tmp = np.concatenate([val.ravel(), np.zeros(pad*original_shape[0])])
-        return tmp.ravel()
+        return tmp
 
     def lm_grad_wrap(raveled_pop, original_shape):
         # shape: (num_pots, num_structs*2, num_params)
@@ -378,20 +378,17 @@ def local_minimization(master_pop, fxn, grad, weights, world_comm, is_master, ns
             np.zeros((pad*num_pots, num_pots * num_params))]
         )
 
-        return np.sum(tmp, axis=1)
+        return tmp
 
     # lm_grad_wrap = '2-point'
 
     master_pop = world_comm.bcast(master_pop, root=0)
     master_pop = np.array(master_pop)
 
-    # opt_results = least_squares(
-    #     lm_fxn_wrap, master_pop.ravel(), lm_grad_wrap,
-    #     method='lm', max_nfev=nsteps, args=(master_pop.shape,)
-    # )
-
-    opt_results = minimize(lm_fxn_wrap, master_pop.ravel(), method='cg', jac=lm_grad_wrap,
-            args=(master_pop.shape,))
+    opt_results = least_squares(
+        lm_fxn_wrap, master_pop.ravel(), lm_grad_wrap,
+        method='lm', max_nfev=nsteps, args=(master_pop.shape,)
+    )
 
     if is_master:
         new_pop = opt_results['x'].reshape(master_pop.shape)
@@ -418,7 +415,11 @@ def checkpoint(population, i):
     """Saves information to files for later use"""
     digits = np.floor(np.log10(SA_STEPS))
 
-    format_str = 'pop_{0:0' + str(int(digits) + 1) + 'd}.dat'
+    format_str = os.path.join(
+        SAVE_DIRECTORY,
+        'pop_{0:0' + str(int(digits) + 1)+ 'd}.dat'
+    )
+
     np.savetxt(format_str.format(i), population)
 
 if __name__ == "__main__":

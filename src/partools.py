@@ -319,7 +319,7 @@ def initialize_potential_template(load_path):
 
     potential_template = Template(
         pvec_len=108,
-        u_ranges=[(-1, 1), (-1, 1)],
+        u_ranges=[(-2000, 2000), (-2000, 2000)],
         # Ranges taken from Lou Ti-Mo (phis) or from old TiO (other)
         spline_ranges=[(-1, 1), (-1, 1), (-1, 1), (-10, 10), (-10, 10),
                        (-1, 1), (-1, 1), (-5, 5), (-5, 5),
