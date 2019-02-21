@@ -1,6 +1,4 @@
 import os
-# TODO: BW settings
-# os.chdir("/mnt/c/Users/jvita/scripts/s-meam/")
 import sys
 
 sys.path.append('./')
@@ -36,6 +34,8 @@ from src.database import Database
 from src.potential_templates import Template
 from src.node import Node
 from src.manager import Manager
+from src.mcmc import mcmc
+from src.sa import simulated_annealing
 
 ################################################################################
 """MPI settings"""
@@ -52,22 +52,21 @@ NTYPES = 2
 ################################################################################
 """GA settings"""
 
+NUM_STRUCTS = 4
+
 if len(sys.argv) > 1:
     POP_SIZE = int(sys.argv[1])
 else:
     POP_SIZE = 1
 
-# TODO: BW settings
 if len(sys.argv) > 2:
     NUM_GENS = int(sys.argv[2])
 else:
     NUM_GENS = 10
 
-if len(sys.argv) > 3:
-    MUTPB = float(sys.argv[3])
-else:
-    MUTPB = 0.5
+MCMC_NSTEPS = int(sys.argv[3])
 
+MUTPB = 0.5
 CXPB = 1.0
 
 RUN_NEW_GA = True
@@ -96,18 +95,17 @@ CHECK_BEFORE_OVERWRITE = False
 BASE_PATH = "/home/jvita/scripts/s-meam/"
 BASE_PATH = ""
 
-LOAD_PATH = BASE_PATH + "data/fitting_databases/pinchao/"
-LOAD_PATH = "/projects/sciteam/baot/pz-unfx-cln/"
+LOAD_PATH = BASE_PATH + "data/fitting_databases/hyojung/"
+LOAD_PATH = "/u/sciteam/vita/hyojung/"
 SAVE_PATH = BASE_PATH + "data/results/"
 
 SAVE_DIRECTORY = SAVE_PATH + date_str + "-" + "meam" + "{}-{}".format(NUM_GENS,
                                                                       MUTPB)
-
 if os.path.isdir(SAVE_DIRECTORY):
     SAVE_DIRECTORY = SAVE_DIRECTORY + '-' + str(np.random.randint(100000))
 
 DB_PATH = LOAD_PATH + 'structures'
-DB_INFO_FILE_NAME = LOAD_PATH + 'full/info'
+DB_INFO_FILE_NAME = LOAD_PATH + 'info_ref'
 POP_FILE_NAME = SAVE_DIRECTORY + "/pop.dat"
 LOG_FILE_NAME = SAVE_DIRECTORY + "/ga.log"
 TRACE_FILE_NAME = SAVE_DIRECTORY + "/trace.dat"
@@ -142,19 +140,26 @@ def main():
         potential_template.print_statistics()
         print()
 
-        struct_files = glob.glob(DB_PATH + "/*")
+        print(DB_PATH, DB_INFO_FILE_NAME)
 
-        master_database = Database(DB_PATH, DB_INFO_FILE_NAME)
-
-        master_database.read_pinchao_formatting(
-            os.path.join(LOAD_PATH, 'Database-Structures')
+        master_database = Database(
+            DB_PATH, DB_INFO_FILE_NAME, "Ti48Mo80_type1_c18"
         )
+
+        master_database.load_structures(NUM_STRUCTS)
 
         # master_database.print_metadata()
 
         # all_struct_names  , structures = zip(*master_database.structures.items())
-        all_struct_names, struct_natoms = zip(*master_database.natoms.items())
+        all_struct_names = [s.encode('utf-8').strip().decode('utf-8') for s in
+                master_database.unique_structs]
+
+        struct_natoms = master_database.unique_natoms
         num_structs = len(all_struct_names)
+
+        print(all_struct_names)
+
+        old_copy_names = list(all_struct_names)
 
         worker_ranks = partools.compute_procs_per_subset(
             struct_natoms, world_size
@@ -175,6 +180,7 @@ def main():
     world_group = world_comm.Get_group()
 
     all_rank_lists = world_comm.bcast(worker_ranks, root=0)
+    all_struct_names = world_comm.bcast(all_struct_names, root=0)
 
     # Tell workers which manager they are a part of
     worker_ranks = None
@@ -195,7 +201,7 @@ def main():
     if is_manager:
         manager_rank = manager_comm.Get_rank()
 
-        struct_name = manager_comm.scatter(all_struct_names, root=0)
+        struct_name = manager_comm.scatter(list(all_struct_names), root=0)
 
         print(
             "Manager", manager_rank, "received structure", struct_name, "plus",
@@ -205,6 +211,9 @@ def main():
     else:
         struct_name = None
         manager_rank = None
+
+    if is_master:
+        all_struct_names = list(old_copy_names)
 
     worker_group = world_group.Incl(worker_ranks)
     worker_comm = world_comm.Create(worker_group)
@@ -223,7 +232,7 @@ def main():
 
     fxn_wrap, grad_wrap = partools.build_evaluation_functions(
         potential_template, master_database, all_struct_names, manager,
-        is_master, is_manager, manager_comm, flatten=FLATTEN_LANDSCAPE
+        is_master, is_manager, manager_comm, "Ti48Mo80_type1_c18"
     )
 
     # Have every process build the toolbox
@@ -235,21 +244,15 @@ def main():
     # Create the original population
     if is_master:
         master_pop = toolbox.population(n=POP_SIZE)
+        print("master_pop.shape", len(master_pop[0]))
     else:
         master_pop = 0
 
     master_pop = np.array(master_pop)
 
-    master_pop_shape = world_comm.bcast(master_pop.shape, root=0)
+    weights = np.ones(num_structs)
 
-    forces = manager.compute_forces(
-        np.zeros((1, len(np.where(potential_template.active_mask)[0])))
-    )
-
-    if is_master:
-        print("Before:", master_pop)
-
-    init_fit = toolbox.evaluate_population(master_pop)
+    init_fit = toolbox.evaluate_population(master_pop, weights)
 
     if is_master:
         init_fit = np.sum(init_fit, axis=1)
@@ -259,21 +262,24 @@ def main():
             np.max(init_fit), flush=True
         )
 
-    master_pop = local_minimization(
-        master_pop, toolbox, world_comm, is_master, nsteps=INIT_NSTEPS
-    )
+        subset = master_pop[:10]
+    else:
+        subset = None
 
-    if is_master:
-        print("After:", master_pop)
+    # subest = local_minimization(
+    #     subset, toolbox, weights, world_comm, is_master, nsteps=INIT_NSTEPS
+    # )
 
-    new_fit = toolbox.evaluate_population(master_pop)
+    new_fit = toolbox.evaluate_population(master_pop, weights)
 
     if is_master:
         new_fit = np.sum(new_fit, axis=1)
         print(
-            "avg min max:", np.average(init_fit), np.min(init_fit),
-            np.max(init_fit), flush=True
+            "avg min max:", np.average(new_fit), np.min(new_fit),
+            np.max(new_fit), flush=True
         )
+
+        master_pop[:10] = subset
 
     # Have master gather fitnesses and update individuals
     if is_master:
@@ -328,14 +334,17 @@ def main():
 
             # Run local minimization on best individual if desired
             if DO_LMIN and (generation_number % LMIN_FREQUENCY == 0):
-                master_pop = local_minimization(
-                    master_pop, toolbox, world_comm, is_master,
-                    nsteps=INTER_NSTEPS
+
+                subset = local_minimization(
+                    subset, toolbox, weights, world_comm, is_master, nsteps=INIT_NSTEPS
                 )
+
+                if is_master:
+                    master_pop[:10] = subset
 
             # Compute fitnesses with mated/mutated/optimized population
             # fitnesses, max_ni = toolbox.evaluate_population(master_pop, True)
-            fitnesses = toolbox.evaluate_population(master_pop)
+            fitnesses = toolbox.evaluate_population(master_pop, weights)
 
             # Update individuals with new fitnesses
             if is_master:
@@ -365,22 +374,61 @@ def main():
                 best_guess = master_pop[0]
 
             generation_number += 1
+
+        # Perform a final local optimization on the final results of the GA
+        # subset = local_minimization(
+        #     subset, toolbox, weights, world_comm, is_master, nsteps=INIT_NSTEPS
+        # )
+
+        if is_master:
+            # master_pop[:10] = subset
+
+            master_pop = tools.selBest(master_pop, len(master_pop))
+            ga_runtime = time.time() - ga_start
+
+            checkpoint(master_pop, logbook, best_guess, generation_number)
+
+            print("MASTER: GA runtime = {:.2f} (s)".format(ga_runtime), flush=True)
+            print("MASTER: Average time per step = {:.2f}"
+                  " (s)".format(ga_runtime / NUM_GENS), flush=True)
+
+            best_guess = master_pop[0]
+
+        else:
+            best_guess = None
     else:
-        master_pop = np.genfromtxt(POP_FILE_NAME)
+        master_pop = np.genfromtxt("../hj-long_seed_1/pop.dat24999")
         best_guess = creator.Individual(master_pop[0])
 
-    master_pop = local_minimization(
-        master_pop, toolbox, world_comm, is_master,
-        nsteps=INTER_NSTEPS
-    )
+    final_cost = toolbox.evaluate_population(master_pop, weights)
 
-    # Perform a final local optimization on the final results of the GA
     if is_master:
-        ga_runtime = time.time() - ga_start
+        final_cost = np.sum(final_cost, axis=1)
+        print("Final best cost = ", final_cost[0])
+        print("MASTER: beginning MCMC... ", flush=True)
 
-        print("MASTER: GA runtime = {:.2f} (s)".format(ga_runtime), flush=True)
-        print("MASTER: Average time per step = {:.2f}"
-              " (s)".format(ga_runtime / NUM_GENS), flush=True)
+    def fxn_with_weights(x):
+        vals = toolbox.evaluate_population(x, weights)
+
+        if is_master:
+            vals = np.sum(vals, axis=1)
+
+        return vals
+
+    chain, trace = simulated_annealing(fxn_with_weights, toolbox,
+            local_minimization, weights, world_comm, best_guess, MCMC_NSTEPS,
+            is_master, 0.005
+            )
+
+    if is_master:
+        print(
+            "MASTER: SA statistics (avg, std): {} {}".format(
+                np.average(trace), np.std(trace)
+            )
+        )
+
+        # np.savetxt("mcmc_chain.dat", chain)
+        np.savetxt("mcmc_trace.dat", trace)
 
 
 ################################################################################
@@ -581,23 +629,25 @@ def print_statistics(pop, gen_num, stats, logbook):
 
 
 # @profile
-def local_minimization(master_pop, toolbox, world_comm, is_master, nsteps=20):
+def local_minimization(master_pop, toolbox, weights, world_comm, is_master, nsteps=20):
+    pad = 100
+
     def lm_fxn_wrap(raveled_pop, original_shape):
         val = toolbox.evaluate_population(
-            raveled_pop.reshape(original_shape)
+            raveled_pop.reshape(original_shape), weights
         )
 
         val = world_comm.bcast(val, root=0)
 
         # pad with zeros since num structs is less than num knots
-        tmp = np.concatenate([val.ravel(), np.zeros(16*original_shape[0])])
+        tmp = np.concatenate([val.ravel(), np.zeros(pad*original_shape[0])])
         return tmp
 
     def lm_grad_wrap(raveled_pop, original_shape):
         # shape: (num_pots, num_structs*2, num_params)
 
         grads = toolbox.gradient(
-            raveled_pop.reshape(original_shape)
+            raveled_pop.reshape(original_shape), weights
         )
 
         grads = world_comm.bcast(grads, root=0)
@@ -620,7 +670,7 @@ def local_minimization(master_pop, toolbox, world_comm, is_master, nsteps=20):
 
         tmp = np.vstack([
             padded_grad,
-            np.zeros((16*num_pots, num_pots * num_params))]
+            np.zeros((pad*num_pots, num_pots * num_params))]
         )
 
         return tmp
@@ -640,8 +690,8 @@ def local_minimization(master_pop, toolbox, world_comm, is_master, nsteps=20):
     else:
         new_pop = None
 
-    org_fits = toolbox.evaluate_population(master_pop)
-    new_fits = toolbox.evaluate_population(new_pop)
+    org_fits = toolbox.evaluate_population(master_pop, weights)
+    new_fits = toolbox.evaluate_population(new_pop, weights)
 
     if is_master:
         updated_master_pop = list(master_pop)

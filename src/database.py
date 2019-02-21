@@ -5,31 +5,27 @@ import numpy as np
 from collections import namedtuple
 import src.lammpsTools
 
-class Database:
-    def __init__(self, structure_folder_name="", info_folder_name=""):
+# allowed 'types': 'energy' or 'forces'
+entry = namedtuple(
+    'entry', 'struct_name value natoms type ref_struct'
+)
 
+class Database:
+    def __init__(self, structure_folder_name="", info_folder_name="",
+                 ref_name=None):
+
+        self.ref_name = ref_name
         self.structures_folder_path = os.path.abspath(structure_folder_name)
         self.true_values_folder_path = os.path.abspath(info_folder_name)
 
         self.structures_metadata = {}
         self.true_values_metadata = {}
 
-        # self.structures = {}
-        self.natoms = {}
-        self.true_energies = {}
-        self.true_forces = {}
+        self.unique_structs = []
+        self.unique_natoms = []
+        self.entries = []
+
         self.force_weighting = {}
-        # self.reference_struct = None
-        self.reference_structs = {}
-        self.reference_energy = None
-
-        self.weights = {}
-
-        # if structure_folder_name != "":
-        #     self.load_structures()
-
-        # if info_folder_name != "":
-        #     self.load_true_values()
 
     @classmethod
     def manual_init(cls, structures, energies, forces, weights, ref_struct,
@@ -46,20 +42,77 @@ class Database:
 
         return new_db
 
-    def load_structures(self):
-        sorted_names = sorted(glob.glob(self.structures_folder_path + "/*"))
-        for file_name in sorted_names:
+    def load_structures(self, max_num_structs=None):
+        sorted_names = glob.glob(self.true_values_folder_path + "/*")
+
+        if max_num_structs is None:
+            load_num = len(sorted_names)
+        else:
+            load_num = max_num_structs
+
+        # additional_names = np.random.choice(
+        #     sorted_names, load_num, replace=False
+        # )
+
+        # to_add = additional_names.tolist()
+        
+        to_add = []
+        with open("../names.txt", "r") as f:
+            for line in f:
+                # clean = "_".join(line.strip().split("/")[1:])
+                clean = line.strip()
+                to_add.append(
+                    os.path.join(self.true_values_folder_path, "info."+ clean)
+                )
+
+        # ref_path = os.path.join(
+        #     self.true_values_folder_path, "info." + self.ref_name
+        # )
+
+        # if ref_path not in to_add:
+        #     to_add[np.random.randint(len(to_add))] = ref_path
+
+        already_added = []
+        for file_name in to_add:
             if "metadata" not in file_name:
                 f = open(file_name, 'rb')
-                struct = pickle.load(f)
                 f.close()
 
                 # assumes file_name is of form "*/[struct_name].pkl"
-                short_name = os.path.split(file_name)[-1]
-                short_name = os.path.splitext(short_name)[0]
+                # file_name = os.path.splitext(file_name)[1][1:]
+                struct_name = os.path.split(file_name)[-1]
+                struct_name = os.path.splitext(struct_name)[1][1:]
 
-                self.structures[short_name] = struct
-                self.weights[short_name] = 1
+                # 'entry', 'struct_name value natoms type ref_struct'
+                check_entry = entry(
+                    struct_name, None, None, 'energy', self.ref_name
+                )
+
+                eng = np.genfromtxt(file_name, max_rows=1)
+                fcs = np.genfromtxt(file_name, skip_header=1)
+                natoms = fcs.shape[0]
+
+                if check_entry not in already_added:
+                    already_added.append(check_entry)
+                    self.entries.append(
+                        entry(struct_name, eng, natoms, 'energy', self.ref_name)
+                    )
+
+                if struct_name not in self.unique_structs:
+                    self.unique_structs.append(struct_name)
+                    self.unique_natoms.append(natoms)
+
+                # 'entry', 'struct_name value natoms type ref_struct'
+                check_entry = entry(struct_name, None, None, 'forces', None)
+
+                if check_entry not in already_added:
+                    already_added.append(check_entry)
+
+                    self.entries.append(
+                        entry(struct_name, fcs, natoms, 'forces', None)
+                    )
+
+
             else:
                 # each line should be of the form "[data_name] [data]"
                 for line in open(file_name):
@@ -67,40 +120,6 @@ class Database:
                     tag = line.split(" ")[0]
                     info = line.split(" ")[1:]
                     self.structures_metadata[tag] = info
-
-    def load_true_values(self):
-        min_energy = None
-
-        # for short_name in self.structures.keys():
-        for file_name in glob.glob(self.true_values_folder_path + "/*"):
-            # file_name = self.true_values_folder_path + "/info." + short_name
-            if "metadata" not in file_name:
-
-                # assumes file_name is of form "*/info.[struct_name]"
-                short_name = os.path.split(file_name)[-1]
-                short_name = '.'.join(short_name.split('.')[1:])
-
-                # assumes the first line of the file is the energy
-                eng = np.genfromtxt(file_name, max_rows=1)
-
-                if (min_energy is None) or (eng < min_energy):
-                    min_energy = eng
-                    self.reference_struct = short_name
-                    self.reference_energy = min_energy
-
-                # assumes the next N lines are the forces on the N atoms
-                fcs = np.genfromtxt(file_name, skip_header=1)
-
-                self.true_energies[short_name] = eng
-                self.true_forces[short_name] = fcs
-                self.natoms[short_name] = fcs.shape[0]
-            else:
-                # each line should be of the form "[data_name] [data]"
-                for line in open(file_name):
-                    line = line.strip()
-                    tag = line.split(" ")[0]
-                    info = line.split(" ")[1:]
-                    self.true_values_metadata[tag] = info
 
     def print_metadata(self):
         print("Reference structure:", self.reference_struct)
@@ -115,51 +134,96 @@ class Database:
     def __len__(self):
         return len(self.natoms)
 
-    def read_pinchao_formatting(self, directory_path):
-        reference = namedtuple(
-            'reference', 'ref_struct energy_difference weight'
-        )
+    def read_pinchao_formatting(self, directory_path, db_type):
 
-        # for file_name in glob.glob(os.path.join(directory_path, 'force_*')):
-        #     with open(file_name) as f:
-        #         struct_name = f.readline().strip()
+        if db_type == 'fitting':
+            load_file = 'FittingDataEnergy.dat'
+        elif db_type == 'testing':
+            load_file = 'TestingDataEnergy.dat'
+        else:
+            raise ValueError(
+                "Invalid database type: must be 'fitting' or 'testing'"
+            )
 
-        #     full = np.genfromtxt(file_name, skip_header=1)
+        already_added = []
 
-        #     self.true_forces[struct_name] = full[:, 1:] * full[:, 0, np.newaxis]
-        #     self.force_weighting[struct_name] = full[:, 0]
-        #     self.natoms[struct_name] = full.shape[0]
-
-        with open(os.path.join(directory_path, 'FittingDataEnergy.dat')) as f:
+        with open(os.path.join(directory_path, load_file)) as f:
 
             for _ in range(3):
                 _ = f.readline() # remove headers
 
             for line in f:
-                struct_name, natoms, _, ref_name, weight = line.split(" ")
+                if db_type == 'fitting':
+                    struct_name, natoms, _, ref_name, weight = line.split(" ")
+                else:
+                    struct_name, natoms, _, ref_name = line.split(" ")
+                    weight = 1
+
+                natoms = int(natoms)
                 ref_name = ref_name.strip()
 
                 eng = float(f.readline().strip())
                 weight = float(weight)
 
-                self.reference_structs[struct_name] = reference(
-                    ref_name, eng, weight
+                # 'entry', 'struct_name value natoms type ref_struct'
+                check_entry = entry(struct_name, None, None, 'energy', ref_name)
+
+                if check_entry not in already_added:
+                    already_added.append(check_entry)
+                    self.entries.append(
+                        entry(struct_name, eng, natoms, 'energy', ref_name)
                     )
 
-                self.natoms[struct_name] = int(natoms)
-
+                if struct_name not in self.unique_structs:
+                    self.unique_structs.append(struct_name)
+                    self.unique_natoms.append(natoms)
 
                 ref_atoms_object = src.lammpsTools.atoms_from_file(
                     os.path.join(directory_path, ref_name), ['H', 'He']
                 )
 
+                ref_natoms = len(ref_atoms_object)
+
+                if ref_name not in self.unique_structs:
+                    self.unique_structs.append(ref_name)
+                    self.unique_natoms.append(ref_natoms)
+
+
                 file_name = os.path.join(directory_path, 'force_' + struct_name)
                 full = np.genfromtxt(file_name, skip_header=1)
 
-                self.true_forces[struct_name] = full[:, 1:] * full[:, 0, np.newaxis]
+                struct_forces = full[:, 1:] * full[:, 0, np.newaxis]
                 self.force_weighting[struct_name] = full[:, 0]
 
-                self.natoms[ref_name] = len(ref_atoms_object)
+                file_name = os.path.join(directory_path, 'force_' + ref_name)
+                full = np.genfromtxt(file_name, skip_header=1)
+
+                ref_forces = full[:, 1:] * full[:, 0, np.newaxis]
+                self.force_weighting[ref_name] = full[:, 0]
+
+
+                # 'entry', 'struct_name value natoms type ref_struct'
+                check_entry = entry(struct_name, None, None, 'forces', None)
+
+                if check_entry not in already_added:
+                    already_added.append(check_entry)
+
+                    self.entries.append(
+                        entry(
+                            struct_name, struct_forces, natoms, 'forces', None
+                        )
+                    )
+
+                check_entry = entry(ref_name, None, None, 'forces', None)
+
+                if check_entry not in already_added:
+                    already_added.append(check_entry)
+
+                    self.entries.append(
+                        entry(
+                            ref_name, ref_forces, ref_natoms, 'forces', None
+                        )
+                    )
 
 
 if __name__ == "__main__":

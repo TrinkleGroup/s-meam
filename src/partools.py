@@ -7,42 +7,31 @@ from src.potential_templates import Template
 
 def build_evaluation_functions(
     potential_template, master_database, all_struct_names, manager, is_master,
-    is_manager, manager_comm, flatten=False
+    is_manager, manager_comm, ref_name
     ):
     """Builds the function to evaluate populations. Wrapped here for readability
     of main code."""
 
-    if is_master:
-        num_structs = len(all_struct_names)
+    def fxn_wrap(master_pop, weights, output=False):
+        """Master: returns all potentials for all structures.
 
-    def fxn_wrap(master_pop):
-        """Master: returns all potentials for all structures"""
+        NOTE: the order of 'weights' should match the order of the database
+        entries
+
+        """
         if is_manager:
             pop = manager_comm.bcast(master_pop, root=0)
+            pop = np.atleast_2d(pop)
         else:
             pop = None
-
-        if flatten:
-            master_pop = local_minimization(
-                master_pop, toolbox, world_comm, is_master, nsteps=FLAT_NSTEPS
-            )
-
-            pop = manager_comm.bcast(master_pop, root=0)
 
         eng = manager.compute_energy(pop)
         fcs = manager.compute_forces(pop)
 
         fitnesses = 0
 
-        # if return_ni:
-        #     max_ni = 0
-
         if is_manager:
             mgr_eng = manager_comm.gather(eng, root=0)
-
-            # if return_ni:
-            #     mgr_ni = manager_comm.gather(per_u_max_ni, root=0)
-
             mgr_fcs = manager_comm.gather(fcs, root=0)
 
             if is_master:
@@ -50,91 +39,50 @@ def build_evaluation_functions(
                 all_eng = np.vstack(mgr_eng)
                 all_fcs = mgr_fcs
 
-                w_energies = np.zeros((len(pop), num_structs))
-                t_energies = np.zeros(num_structs)
+                fitnesses = np.zeros((len(pop), len(master_database.entries)))
 
-                fcs_fitnesses = np.zeros((len(pop), num_structs))
+                for fit_id, (entry, weight) in enumerate(
+                        zip(master_database.entries, weights)):
 
-                for name in master_database.true_forces.keys():
+                    name = entry.struct_name
                     s_id = all_struct_names.index(name)
-                    # w_energies[:, s_id] = all_eng[s_id]
-                    # t_energies[s_id] = master_database.true_energies[name]
 
-                    # if name == master_database.reference_struct:
-                    #     ref_energy = w_energies[:, s_id]
+                    if entry.type == 'forces':
 
-                    # zero forces outside of cutoff (as done by Pinchao)
+                        w_fcs = all_fcs[s_id]
+                        true_fcs = entry.value
 
-                    if "oct" in name:
-                        weight = 0.0682
-                    elif "hex" in name:
-                        weight = 0.03
-                    elif ("crowd" in name) or ("face" in name):
-                        weight = 0.03
-                    elif "oh.Ti" == name:
-                        weight = 0.0460
-                    elif "oc.Ti" == name:
-                        weight = 0.07665
-                    elif "hc.Ti" == name:
-                        weight = 0.0372
-                    elif "oo.Ti" == name:
-                        weight = 0.0395
+                        diff = w_fcs - true_fcs
 
-                    force_weights = master_database.force_weighting[name]
+                        # zero out interactions outside of range of O atom
+                        epsilon = np.linalg.norm(diff, 'fro', axis=(1, 2)) / np.sqrt(10)
+                        fitnesses[:, fit_id] = epsilon * epsilon * weight
 
-                    w_fcs = all_fcs[s_id] * force_weights[:, np.newaxis]
+                    elif entry.type == 'energy':
 
-                    true_fcs = master_database.true_forces[name]
+                        r_name = entry.ref_struct
+                        true_ediff = entry.value
 
-                    fcs_err = ((w_fcs - true_fcs) / np.sqrt(10)) ** 2
-                    fcs_err = np.linalg.norm(fcs_err, axis=(1, 2))# / np.sqrt(10)
+                        # find index of structures to know which energies to use
+                        r_id = all_struct_names.index(r_name)
 
-                    fcs_fitnesses[:, s_id] = fcs_err * weight
+                        comp_ediff = all_eng[s_id, :] - all_eng[r_id, :]
 
-                # w_energies -= ref_energy
-                # t_energies -= master_database.reference_energy
+                        tmp = (comp_ediff - true_ediff) ** 2
+                        fitnesses[:, fit_id] = tmp * weight
 
-                # eng_fitnesses = np.zeros((len(pop), num_structs))
-                #
-                # for s_id, (w_eng,t_eng) in enumerate(
-                #     zip(w_energies.T, t_energies)):
-                #     eng_fitnesses[:, s_id] = (w_eng - t_eng) ** 2
+                    if output:
+                        print(np.sum(fitnesses, axis=1))
 
-                # TODO: this only works for how Pinchao's DB is formatted
-
-                eng_fitnesses = np.zeros(
-                    (len(pop), len(master_database.reference_structs))
-                )
-
-                for fit_id, (s_name, ref) in enumerate(
-                        master_database.reference_structs.items()):
-                    r_name = ref.ref_struct
-                    true_ediff = ref.energy_difference
-
-                    # find index of structures to know which energies to use
-                    s_id = all_struct_names.index(s_name)
-                    r_id = all_struct_names.index(r_name)
-
-                    comp_ediff = all_eng[s_id, :] - all_eng[r_id, :]
-                    # comp_ediff = 0
-
-                    tmp = (comp_ediff - true_ediff) ** 2
-                    eng_fitnesses[:, fit_id] = tmp * ref.weight
-
-                fitnesses = np.hstack([eng_fitnesses, fcs_fitnesses])
-
-                # print(np.sum(fitnesses, axis=1), flush=True)
-
-        # if return_ni: return fitnesses, per_u_max_ni
-        # else: return fitnesses
         return fitnesses
 
 
-    def grad_wrap(master_pop):
+    def grad_wrap(master_pop, weights):
         """Evalautes the gradient for all potentials in the population"""
 
         if is_manager:
             pop = manager_comm.bcast(master_pop, root=0)
+            pop = np.atleast_2d(pop)
         else:
             pop = None
 
@@ -159,84 +107,54 @@ def build_evaluation_functions(
                 all_eng = np.vstack(mgr_eng)
                 all_fcs = mgr_fcs
 
-                w_energies = np.zeros((len(pop), num_structs))
-                t_energies = np.zeros(num_structs)
+                gradient = np.zeros((
+                    len(pop), potential_template.pvec_len,
+                    len(master_database.entries)
+                ))
 
-                fcs_grad_vec = np.zeros(
-                    (len(pop), potential_template.pvec_len, num_structs)
-                )
 
-                ref_energy = 0
+                for fit_id, (entry, weight) in enumerate(
+                        zip(master_database.entries, weights)):
 
-                # for s_id, name in enumerate(all_struct_names):
-                for name in master_database.true_forces.keys():
-                    s_id = all_struct_names.index(name)
-                    # w_energies[:, s_id] = all_eng[s_id]
-                    # t_energies[s_id] = master_database.true_energies[name]
+                    name = entry.struct_name
 
-                    # if name == master_database.reference_struct:
-                        # ref_energy = w_energies[:, s_id]
+                    if entry.type == 'forces':
 
-                    force_weights = master_database.force_weighting[name]
-                    w_fcs = all_fcs[s_id] * force_weights[:, np.newaxis]
+                        s_id = all_struct_names.index(name)
 
-                    true_fcs = master_database.true_forces[name]
+                        w_fcs = all_fcs[s_id]
+                        true_fcs = entry.value
 
-                    fcs_err = ((w_fcs - true_fcs) / np.sqrt(10)) ** 2
+                        diff = w_fcs - true_fcs
 
-                    fcs_grad = mgr_fcs_grad[s_id]
+                        # zero out interactions outside of range of O atom
+                        fcs_grad = mgr_fcs_grad[s_id]
 
-                    scaled = np.einsum('pna,pnak->pnak', fcs_err, fcs_grad)
-                    summed = scaled.sum(axis=1).sum(axis=1)
+                        scaled = np.einsum('pna,pnak->pnak', diff, fcs_grad)
+                        summed = scaled.sum(axis=1).sum(axis=1)
 
-                    fcs_grad_vec[:, :, s_id] += (2 * summed / 10)
+                        gradient[:, :, fit_id] += (2 * summed / 10) * weight
 
-                # w_energies -= ref_energy
-                # t_energies -= database.reference_energy
+                    elif entry.type == 'energy':
+                        r_name = entry.ref_struct
+                        true_ediff = entry.value
 
-                # eng_grad_vec = np.zeros(
-                #     (len(pop), potential_template.pvec_len, num_structs)
-                # )
-                #
-                # for s_id, (name, w_eng, t_eng), in enumerate(
-                #     zip(all_struct_names, w_energies.T, t_energies)):
-                #
-                #     eng_err = (w_eng - t_eng)
-                #     eng_grad = mgr_eng_grad[s_id]
-                #
-                #     eng_grad_vec[:, :, s_id] += (
-                #         eng_err[:, np.newaxis] * eng_grad * 2
-                #     )
+                        # find index of structures to know which energies to use
+                        s_id = all_struct_names.index(name)
+                        r_id = all_struct_names.index(r_name)
 
-                eng_grad_vec = np.zeros(
-                    (len(pop), potential_template.pvec_len,
-                     len(master_database.reference_structs))
-                )
+                        comp_ediff = all_eng[s_id, :] - all_eng[r_id, :]
 
-                for fit_id, (s_name, ref) in enumerate(
-                        master_database.reference_structs.items()):
-                    r_name = ref.ref_struct
-                    true_ediff = ref.energy_difference
+                        eng_err = comp_ediff - true_ediff
+                        s_grad = mgr_eng_grad[s_id]
+                        r_grad = mgr_eng_grad[r_id]
 
-                    # find index of structures to know which energies to use
-                    s_id = all_struct_names.index(s_name)
-                    r_id = all_struct_names.index(r_name)
-
-                    comp_ediff = w_energies[:, s_id] - w_energies[:, r_id]
-
-                    eng_err = comp_ediff - true_ediff
-                    s_grad = mgr_eng_grad[s_id]
-                    r_grad = mgr_eng_grad[r_id]
-
-                    eng_grad_vec[:, :, fit_id] += (
-                            eng_err[:, np.newaxis] * (s_grad - r_grad) * 2
-                    )
+                        gradient[:, :, fit_id] += (
+                                eng_err[:, np.newaxis] * (s_grad - r_grad) * 2
+                        ) * weight
 
                 indices = np.where(potential_template.active_mask)[0]
-                tmp_eng = eng_grad_vec[:, indices, :]
-                tmp_fcs = fcs_grad_vec[:, indices, :]
-
-                gradient = np.dstack([tmp_eng, tmp_fcs]).swapaxes(1, 2)
+                gradient = gradient[:, indices, :].swapaxes(1, 2)
 
         return gradient
 
@@ -288,7 +206,6 @@ def group_database_subsets(database, num_managers):
     subsets = []
     grouped_work = []
 
-    # for _ in range(num_managers):
     for name_chunk, work_chunk in zip(name_chunks, weight_chunks):
         cumulated_work = 0
 
@@ -298,8 +215,6 @@ def group_database_subsets(database, num_managers):
         for n,w in zip(name_chunk, work_chunk):
             names.append(n)
             cumulated_work += w
-            # names.append(unassigned_structs.pop())
-            # cumulated_work += work_weights.pop()
 
         mini_database = Database.manual_init(
             {name: database.structures[name] for name in names},
@@ -339,8 +254,6 @@ def compute_procs_per_subset(struct_natoms, total_num_procs, method='natoms'):
 
     # Note: ideally, should have at least as many cores as struct   s
     supported_methods = ['natoms', 'time']
-
-    # natoms = [worker.natoms for worker in struct_natoms]
 
     # Error checking on  desired method
     if method == 'natoms':
@@ -386,53 +299,99 @@ def compute_procs_per_subset(struct_natoms, total_num_procs, method='natoms'):
     return np.split(np.arange(total_num_procs), split_indices)[:-1]
 
 
+
 def initialize_potential_template(load_path):
     # TODO: BW settings
-    potential = MEAM.from_file(os.path.join(load_path, 'TiO.meam.spline'))
+    inner_cutoff = 1.5
+    outer_cutoff = 5.5
 
-    x_pvec, seed_pvec, indices = src.meam.splines_to_pvec(
-        potential.splines)
+    points_per_spline = 7
 
-    potential_template = Template(
-        pvec_len=116,
-        u_ranges=[(-55, -24), (-24, 8.3)],
-        spline_ranges=[(-1, 4), (-0.5, 0.5), (-1, 1), (-9, 3), (-30, 15),
-                       (-0.5, 1), (-0.2, -0.4), (-2, 3), (-7.5, 12.5),
-                       (-8, 2), (-1, 1), (-1, 0.2)],
-        spline_indices=[(0, 15), (15, 22), (22, 37), (37, 50), (50, 57),
-                        (57, 63), (63, 70), (70, 82), (82, 89),
-                        (89, 99), (99, 106), (106, 116)]
+    x_pvec = np.concatenate([
+        np.tile(np.linspace(inner_cutoff, outer_cutoff, points_per_spline), 5),
+        np.tile(np.linspace(-1, 1, points_per_spline), 2),
+        np.tile(np.linspace(inner_cutoff, outer_cutoff, points_per_spline), 2),
+        np.tile(np.linspace(-1, 1, points_per_spline), 3)]
     )
 
-    potential_template.pvec = seed_pvec.copy()
+    x_indices = range(0, points_per_spline * 12, points_per_spline)
+    types = ["Ti", "Mo"]
+
+    potential_template = Template(
+        pvec_len=108,
+        u_ranges=[(-2000, 2000), (-2000, 2000)],
+        # Ranges taken from Lou Ti-Mo (phis) or from old TiO (other)
+        spline_ranges=[(-1, 1), (-1, 1), (-1, 1), (-10, 10), (-10, 10),
+                       (-1, 1), (-1, 1), (-5, 5), (-5, 5),
+                       (-10, 10), (-10, 10), (-10, 10)],
+        spline_indices=[(0, 9), (9, 18), (18, 27), (27, 36), (36, 45),
+                        (45, 54), (54, 63), (63, 72), (72, 81),
+                        (81, 90), (90, 99), (99, 108)]
+    )
+
     mask = np.ones(potential_template.pvec_len)
 
-    mask[:15] = 0 # phi_Ti
+    potential_template.pvec[6] = 0; mask[6] = 0  # rhs value phi_Ti
+    potential_template.pvec[8] = 0; mask[8] = 0  # rhs deriv phi_Ti
 
-    potential_template.pvec[19] = 0;
-    mask[19] = 0  # rhs phi_TiO knot
-    potential_template.pvec[21] = 0;
-    mask[21] = 0  # rhs phi_TiO deriv
+    potential_template.pvec[15] = 0; mask[15] = 0  # rhs value phi_TiMo
+    potential_template.pvec[17] = 0; mask[17] = 0  # rhs deriv phi_TiMo
 
-    potential_template.pvec[22:37] = 0; mask[22:37] = 0  # phi_O
-    mask[37:50] = 0  # rho_Ti
+    potential_template.pvec[24] = 0; mask[24] = 0  # rhs value phi_Mo
+    potential_template.pvec[26] = 0; mask[26] = 0  # rhs deriv phi_Mo
 
-    potential_template.pvec[54] = 0;
-    mask[54] = 0  # rhs rho_O knot
-    potential_template.pvec[56] = 0;
-    mask[56] = 0  # rhs rho_O deriv
+    potential_template.pvec[33] = 0; mask[33] = 0  # rhs value rho_Ti
+    potential_template.pvec[35] = 0; mask[35] = 0  # rhs deriv rho_Ti
 
-    mask[57:63] = 0  # U_Ti
-    mask[70:82] = 0  # f_Ti
+    potential_template.pvec[42] = 0; mask[42] = 0  # rhs value rho_Mo
+    potential_template.pvec[44] = 0; mask[44] = 0  # rhs deriv rho_Mo
 
-    potential_template.pvec[86] = 0;
-    mask[86] = 0  # rhs f_O knot
-    potential_template.pvec[88] = 0;
-    mask[88] = 0  # rhs f_O deriv
+    potential_template.pvec[69] = 0; mask[69] = 0  # rhs value f_Ti
+    potential_template.pvec[71] = 0; mask[71] = 0  # rhs deriv f_Ti
 
-    mask[89:99] = 0  # g_Ti
-    mask[106:116] = 0  # g_O
+    potential_template.pvec[78] = 0; mask[78] = 0  # rhs value f_Mo
+    potential_template.pvec[80] = 0; mask[80] = 0  # rhs deriv f_Mo
 
     potential_template.active_mask = mask
 
     return potential_template
+
+def build_objective_function(testing_database, error_fxn, is_master):
+    """In the first paper, this was the log of the Bayesian estimate of the
+    mean. In the second paper, it was the logistic function C(x, eps) of the
+    Bayesian estimate.
+
+    C(x, eps) = 1 / (1 + exp(-m*(x/eps - 1)))
+
+    Here, x is the error in the estimate of the property
+    eps is the 'decision boundary' (see second paper), and
+    m is the 'stiffness' (chosen as 2 in Pinchao's code)
+
+    Currently, this code applies the logistic function, but replaces the
+    Bayesian estimate of the mean simply with the MLE value.
+    """
+
+    m = 2
+    logistic = lambda x, eps: 1 / (1 + np.exp(-m*(x/eps - 1)))
+
+    def objective_fxn(mle, weights):
+        """Only designed for one MLE at a time (currently)"""
+        errors = error_fxn(mle, weights)
+
+
+        values = 0
+        if is_master:
+            errors = errors.ravel()
+            values = np.zeros(len(errors))
+
+            for entry_id, entry in enumerate(testing_database.entries):
+                if entry.type == 'energy':
+                    values[entry_id] = logistic(errors[entry_id], 0.2)
+                elif entry.type == 'forces':
+                    values[entry_id] = logistic(errors[entry_id], 0.5)
+                else:
+                    raise ValueError("Not a valid entry type")
+
+        return np.sum(values)
+
+    return objective_fxn

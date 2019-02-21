@@ -4,7 +4,7 @@ import numpy as np
 from src.spline import Spline
 from src.spline import ZeroSpline
 from src.meam import MEAM
-from .testVars import a0
+from tests.serial.testVars import a0
 
 N = 0
 zero_potential = None
@@ -144,13 +144,6 @@ def get_random_pots(new_n):
                 splines.append(temp)
 
             p = MEAM(splines=splines, types=['H', 'He'])
-            # p = MEAM.from_file("../data/pot_files/HHe.meam.spline")
-            # p = MEAM.from_file("../large_error_pot_phionly.meam")
-
-            # import meam
-            # x_pvec, y_pvec, indices = meam.splines_to_pvec(p.splines)
-            # splines = meam.splines_from_pvec(x_pvec, y_pvec, indices)
-            # p = MEAM(splines=splines, types=p.types)
 
             rng_meams[n] = p
             rng_nophis[n] = p.nophi_subtype()
@@ -165,8 +158,6 @@ def get_random_pots(new_n):
                    'norhos': rng_norhos, 'norhophis': rng_norhophis,
                    'rhophis': rng_rhophis}
         return allpots
-
-    # print("Created %d potentials (%d main, %d subtypes)" % (7*N, N, 6*N))
 
 # allPotentials = {'meams':meams, 'nophis':nophis, 'phionlys':phionlys,\
 #        'rhos':rhos, 'norhos':norhos, 'norhophis':norhophis, 'rhophis':rhophis}

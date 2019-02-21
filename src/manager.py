@@ -59,7 +59,14 @@ class Manager:
         if self.proc_rank == 0:
             full = np.atleast_2d(master_pop)
             full = self.pot_template.insert_active_splines(full)
-            full = np.array_split(full, self.num_procs)
+
+            only_one_pot = (full.shape[0] == 1)
+
+            if only_one_pot:
+                full = [full] * self.num_procs
+            else:
+                full = np.array_split(full, self.num_procs)
+
         else:
             full = None
 
@@ -72,8 +79,10 @@ class Manager:
         # all_ni = self.comm.gather(ni, root=0)
 
         if self.proc_rank == 0:
-            all_eng = np.concatenate(all_eng)
-            # all_ni = np.vstack(all_ni)
+            if only_one_pot:
+                all_eng = all_eng[0]
+            else:
+                all_eng = np.concatenate(all_eng)
 
         return all_eng#, all_ni
 
@@ -83,52 +92,45 @@ class Manager:
         if self.proc_rank == 0:
             full = np.atleast_2d(master_pop)
             full = self.pot_template.insert_active_splines(full)
-            full = np.array_split(full, self.num_procs)
+
+            only_one_pot = (full.shape[0] == 1)
+
+            if only_one_pot:
+                full = [full] * self.num_procs
+            else:
+                full = np.array_split(full, self.num_procs)
         else:
             full = None
 
         pop = self.comm.scatter(full, root=0)
 
-        potential = MEAM.from_file('/projects/sciteam/baot/pz-unfx-cln/TiO.meam.spline')
-
-        x_pvec, true_pvec, indices = src.meam.splines_to_pvec(potential.splines)
-
-        ti_only_pvec = true_pvec.copy()
-
-        mask = np.zeros(self.pot_template.pvec_len, dtype=int)
-
-        mask[15:22] = 1 # phi_TiO
-        mask[22:37] = 1 # phi_O
-        mask[50:57] = 1 # rho_O
-        mask[63:70] = 1 # U_O
-        mask[82:89] = 1 # f_O
-        mask[99:116] = 1 # g_TiO, g_O
-
-        ti_only_pvec[np.where(mask)[0]] = 0
-        ti_only_pvec = np.atleast_2d(ti_only_pvec)
-
-        ti_fcs = self.struct.compute_forces(
-            ti_only_pvec, self.pot_template.u_ranges
-        )
-
         fcs = self.struct.compute_forces(pop, self.pot_template.u_ranges)
-        fcs -= ti_fcs
 
         all_fcs = self.comm.gather(fcs, root=0)
 
         if self.proc_rank == 0:
-            all_fcs = np.vstack(all_fcs)
+            if only_one_pot:
+                all_fcs = all_fcs[0]
+            else:
+                all_fcs = np.vstack(all_fcs)
 
         return all_fcs
 
 
+    # @profile
     def compute_energy_grad(self, master_pop):
         """Evaluates the structure energy gradient for the whole population"""
 
         if self.proc_rank == 0:
             full = np.atleast_2d(master_pop)
             full = self.pot_template.insert_active_splines(full)
-            full = np.array_split(full, self.num_procs)
+
+            only_one_pot = (full.shape[0] == 1)
+
+            if only_one_pot:
+                full = [full] * self.num_procs
+            else:
+                full = np.array_split(full, self.num_procs)
         else:
             full = None
 
@@ -141,17 +143,27 @@ class Manager:
         all_eng_grad = self.comm.gather(eng_grad, root=0)
 
         if self.proc_rank == 0:
-            all_eng_grad = np.vstack(all_eng_grad)
+            if only_one_pot:
+                all_eng_grad = all_eng_grad[0]
+            else:
+                all_eng_grad = np.vstack(all_eng_grad)
 
         return all_eng_grad
 
+    # @profile
     def compute_forces_grad(self, master_pop):
         """Evaluates the structure for the whole population"""
 
         if self.proc_rank == 0:
             full = np.atleast_2d(master_pop)
             full = self.pot_template.insert_active_splines(full)
-            full = np.array_split(full, self.num_procs)
+
+            only_one_pot = (full.shape[0] == 1)
+
+            if only_one_pot:
+                full = [full] * self.num_procs
+            else:
+                full = np.array_split(full, self.num_procs)
         else:
             full = None
 
@@ -166,6 +178,9 @@ class Manager:
         all_fcs_grad = self.comm.gather(fcs_grad, root=0)
 
         if self.proc_rank == 0:
-            all_fcs_grad = np.vstack(all_fcs_grad)
+            if only_one_pot:
+                all_fcs_grad = all_fcs_grad[0]
+            else:
+                all_fcs_grad = np.vstack(all_fcs_grad)
 
         return all_fcs_grad
