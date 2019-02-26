@@ -1,6 +1,5 @@
 import os
 import sys
-sys.path.append('./')
 
 import random
 import numpy as np
@@ -14,37 +13,7 @@ from src.manager import Manager
 
 ################################################################################
 
-NUM_STRUCTS = 30
-POP_SIZE = int(sys.argv[1])
-SA_STEPS = int(sys.argv[2])
-COOLING_RATE = float(sys.argv[3])
-
-################################################################################
-
-DO_LMIN = True
-LMIN_FREQ = 100
-LMIN_STEPS = 15
-
-################################################################################
-
-BASE_PATH = "/home/jvita/scripts/s-meam/"
-BASE_PATH = ""
-
-LOAD_PATH = BASE_PATH + "data/fitting_databases/hyojung/"
-LOAD_PATH = "/u/sciteam/vita/hyojung/"
-SAVE_PATH = BASE_PATH + "data/results/"
-
-date_str = datetime.datetime.now().strftime("%Y-%m-%d")
-
-SAVE_DIRECTORY = SAVE_PATH + date_str + "-" + "meam" + "{}-{}".format(SA_STEPS,
-                                                             COOLING_RATE)
-if os.path.isdir(SAVE_DIRECTORY):
-    SAVE_DIRECTORY = SAVE_DIRECTORY + '-' + str(np.random.randint(100000))
-
-DB_PATH = LOAD_PATH + 'structures'
-DB_INFO_FILE_NAME = LOAD_PATH + 'info_ref'
-
-def simulated_annealing(nsteps, cooling_rate, cooling_type='linear'):
+def sa(parameters, template):
     """
     Runs a simulated annealing run. The Metropolis-Hastings acception/rejection
     criterion sampling from a normally-distributed P-dimensional vector for move
@@ -55,7 +24,6 @@ def simulated_annealing(nsteps, cooling_rate, cooling_type='linear'):
 
     Args:
         cost_fxn (callable): function for evaluating the costs
-        nsteps (int): the number of monte carlo steps to take
         is_master (bool): True if processor's world rank is 0
         cooling_rate (float): T = T0 - a*t (linear) or T = T0*a^t (exponential)
 
@@ -74,20 +42,22 @@ def simulated_annealing(nsteps, cooling_rate, cooling_type='linear'):
 
     is_master = (world_rank == 0)
 
+    if os.path.isdir(parameters['SAVE_DIRECTORY']):
+        parameters['SAVE_DIRECTORY'] = parameters['SAVE_DIRECTORY'] + '-' + \
+            str(np.random.randint(100000))
+
     if is_master:
-        print("MASTER: Preparing save directory/files ... ", flush=True)
-        prepare_save_directory()
+        prepare_save_directory(parameters)
 
-        # Prepare database and potential template
-        potential_template = partools.initialize_potential_template(LOAD_PATH)
-
-        print(DB_PATH, DB_INFO_FILE_NAME)
+        potential_template = template
 
         master_database = Database(
-            DB_PATH, DB_INFO_FILE_NAME, "Ti48Mo80_type1_c18"
+            parameters['STRUCTURE_DIRECTORY'],
+            parameters['INFO_DIRECTORY'],
+            parameters['REFERENCE_STRUCT']
         )
 
-        master_database.load_structures(NUM_STRUCTS)
+        master_database.load_structures(parameters['NUM_STRUCTS'])
 
         # master_database.print_metadata()
 
@@ -106,6 +76,8 @@ def simulated_annealing(nsteps, cooling_rate, cooling_type='linear'):
             struct_natoms, world_size
         )
 
+
+        weights = np.ones(len(master_database.entries))
         print("worker_ranks:", worker_ranks)
     else:
         potential_template = None
@@ -114,6 +86,9 @@ def simulated_annealing(nsteps, cooling_rate, cooling_type='linear'):
         worker_ranks = None
         all_struct_names = None
 
+        weights = None
+
+    weights = world_comm.bcast(weights, root=0)
     potential_template = world_comm.bcast(potential_template, root=0)
     num_structs = world_comm.bcast(num_structs, root=0)
 
@@ -148,7 +123,6 @@ def simulated_annealing(nsteps, cooling_rate, cooling_type='linear'):
             "Manager", manager_rank, "received structure", struct_name, "plus",
             len(worker_ranks), "processors for evaluation", flush=True
         )
-
     else:
         struct_name = None
         manager_rank = None
@@ -166,7 +140,7 @@ def simulated_annealing(nsteps, cooling_rate, cooling_type='linear'):
 
     manager.struct_name = struct_name
     manager.struct = manager.load_structure(
-        manager.struct_name, DB_PATH + "/"
+        manager.struct_name, parameters['STRUCTURE_DIRECTORY'] + "/"
     )
 
     manager.struct = manager.broadcast_struct(manager.struct)
@@ -176,18 +150,18 @@ def simulated_annealing(nsteps, cooling_rate, cooling_type='linear'):
         is_master, is_manager, manager_comm, "Ti48Mo80_type1_c18"
     )
 
-    weights = np.ones(num_structs)
-
     if is_master:
         chain = np.zeros(
-            (nsteps + 1, POP_SIZE, np.where(potential_template.active_mask)[0].shape[0])
+            (parameters['SA_NSTEPS'] + 1, parameters['POP_SIZE'],
+                np.where(potential_template.active_mask)[0].shape[0])
         )
 
-        for i in range(POP_SIZE):
+        for i in range(parameters['POP_SIZE']):
             tmp = potential_template.generate_random_instance()
             chain[0, i, :] = tmp[np.where(potential_template.active_mask)[0]]
 
         current = chain[0]
+        current = np.ones(current.shape)
     else:
         current = None
         chain = None
@@ -198,12 +172,12 @@ def simulated_annealing(nsteps, cooling_rate, cooling_type='linear'):
     if is_master:
         current_cost = np.sum(current_cost, axis=1)
 
-        trace = np.zeros((nsteps + 1, POP_SIZE))
+        trace = np.zeros((parameters['SA_NSTEPS'] + 1, parameters['POP_SIZE']))
 
         trace[0] = current_cost
 
-        T = 10.
-        T_min = 0.01
+        T = parameters['TSTART']
+        T_min = parameters['TMIN']
 
         print("step T min_cost avg_cost avg_accepted")
         print(
@@ -213,21 +187,11 @@ def simulated_annealing(nsteps, cooling_rate, cooling_type='linear'):
 
         num_accepted = 0
 
-    # if cooling_type == 'linear':
-    #     # T_schedule = np.linspace(1, 10, (2 - 0.02) / alpha)[::-1]
-    #     T_min = 1
-    # else:
-    #     raise ValueError(
-    #         "Invalid cooling schedule type; only 'linear' cooling is currently
-    #         supported"
-    #     )
-
-
-    # run while cooling the system; stop cooling once minimum T reached
+    # run simulated annealing; stop cooling once T = Tmin
     step_num = 0
-    while step_num < nsteps:
+    while step_num < parameters['SA_NSTEPS']:
 
-        if DO_LMIN and (step_num % LMIN_FREQ == 0):
+        if parameters['DO_LMIN'] and (step_num % parameters['LMIN_FREQ'] == 0):
             current_cost = cost_fxn(current, weights)
 
             if is_master:
@@ -240,7 +204,7 @@ def simulated_annealing(nsteps, cooling_rate, cooling_type='linear'):
 
             minimized = local_minimization(
                 minimized , cost_fxn, grad_wrap, weights, world_comm, is_master,
-                nsteps=LMIN_STEPS
+                nsteps=parameters['LMIN_NSTEPS']
             )
 
             lm_cost = cost_fxn(minimized, weights)
@@ -273,19 +237,23 @@ def simulated_annealing(nsteps, cooling_rate, cooling_type='linear'):
 
             tmp = current_cost
 
-            T = np.max([T_min, T - cooling_rate])
+            T = np.max([T_min, T*parameters['COOLING_RATE']])
 
             ratio = np.exp((current_cost - trial_cost) / T)
 
             # automatically accept anythinig with a ratio >= 1
             where_auto_accept = np.where(ratio >= 1)[0]
-            num_accepted += len(where_auto_accept)
 
             # conditionally accept everything else
             where_cond_accept = np.where(
                 np.random.random(ratio.shape[0]) < ratio
             )[0]
-            num_accepted += len(where_cond_accept)
+
+            total_accepted = set(
+                np.concatenate([where_auto_accept, where_cond_accept])
+            )
+
+            num_accepted += len(total_accepted)
 
             # accepted = False
             # if ratio > 1:
@@ -306,28 +274,25 @@ def simulated_annealing(nsteps, cooling_rate, cooling_type='linear'):
 
             # print statistics
             print(
-                step_num + 1, "{:.2f}".format(T), np.min(current_cost),
+                step_num + 1, "{:.3f}".format(T), np.min(current_cost),
                 np.average(current_cost),
-                num_accepted / (step_num + 1) / POP_SIZE,
+                num_accepted / (step_num + 1) / parameters['POP_SIZE'],
                 flush=True
             )
 
             chain[step_num + 1] = current
             trace[step_num + 1] = current_cost
 
-            checkpoint(current, step_num)
+            checkpoint(current, step_num, parameters)
 
         step_num += 1
-
-
     return chain, trace
 
-def prepare_save_directory():
+def prepare_save_directory(parameters):
     """Creates directories to store results"""
 
     print()
-    print("Save location:", SAVE_DIRECTORY)
-    if os.path.isdir(SAVE_DIRECTORY) and CHECK_BEFORE_OVERWRITE:
+    if os.path.isdir(parameters['SAVE_DIRECTORY']):
         print()
         print("/" + "*" * 30 + " WARNING " + "*" * 30 + "/")
         print("A folder already exists for these settings.\nPress Enter"
@@ -335,27 +300,41 @@ def prepare_save_directory():
         input("/" + "*" * 30 + " WARNING " + "*" * 30 + "/\n")
     print()
 
-    # os.rmdir(SAVE_DIRECTORY)
-    os.mkdir(SAVE_DIRECTORY)
+    os.mkdir(parameters['SAVE_DIRECTORY'])
 
 def local_minimization(master_pop, fxn, grad, weights, world_comm, is_master, nsteps=20):
     pad = 100
 
     def lm_fxn_wrap(raveled_pop, original_shape):
-        val = fxn(raveled_pop.reshape(original_shape), weights, output=False)
+        # print(raveled_pop)
+        val = fxn(
+            raveled_pop.reshape(original_shape), weights, output=False
+        )
 
         val = world_comm.bcast(val, root=0)
 
         # pad with zeros since num structs is less than num knots
         tmp = np.concatenate([val.ravel(), np.zeros(pad*original_shape[0])])
+
         return tmp
 
     def lm_grad_wrap(raveled_pop, original_shape):
         # shape: (num_pots, num_structs*2, num_params)
 
-        grads = grad(raveled_pop.reshape(original_shape), weights)
+        # if is_master:
+        #     print('org_pop', raveled_pop.reshape(original_shape))
+
+        grads = grad(
+            raveled_pop.reshape(original_shape), weights
+        )
+
+        # if is_master:
+        #     print("grads.shape\n", grads.shape)
 
         grads = world_comm.bcast(grads, root=0)
+
+        # if is_master:
+        #     print('grad', grads[0].astype(int))
 
         num_pots, num_structs_2, num_params = grads.shape
 
@@ -369,6 +348,9 @@ def local_minimization(master_pop, fxn, grad, weights, world_comm, is_master, ns
         padded_grad = padded_grad.reshape(
             (num_pots * num_structs_2, num_pots * num_params)
         )
+
+        # if is_master:
+        #     print('padded_grad', padded_grad.shape, padded_grad.astype(int))
 
 
         # also pad with zeros since num structs is less than num knots
@@ -407,20 +389,22 @@ def local_minimization(master_pop, fxn, grad, weights, world_comm, is_master, ns
             else:
                 updated_master_pop[i] = updated_master_pop[i]
 
-        master_pop = updated_master_pop
+        master_pop = np.array(updated_master_pop)
 
-    return np.array(master_pop)
+    master_pop = world_comm.bcast(master_pop, root=0)
 
-def checkpoint(population, i):
+    return master_pop
+
+def checkpoint(population, i, parameters):
     """Saves information to files for later use"""
-    digits = np.floor(np.log10(SA_STEPS))
+    digits = np.floor(np.log10(parameters['SA_NSTEPS']))
 
     format_str = os.path.join(
-        SAVE_DIRECTORY,
+        parameters['SAVE_DIRECTORY'],
         'pop_{0:0' + str(int(digits) + 1)+ 'd}.dat'
     )
 
     np.savetxt(format_str.format(i), population)
 
 if __name__ == "__main__":
-    simulated_annealing(SA_STEPS, COOLING_RATE)
+    sa(SA_NSTEPS, COOLING_RATE)

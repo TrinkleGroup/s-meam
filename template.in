@@ -16,5 +16,5 @@ Ti Mo
 -1 1 -10 10 7
 
 load_potential True
-pot_file_name example_template.dat
+pot_file_name example_potential.txt
 random_template False
