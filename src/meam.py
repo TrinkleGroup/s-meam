@@ -207,6 +207,8 @@ class MEAM:
         self.uprimes = [None] * natoms
 
         all_ni = []
+        all_rho_ni = []
+        all_ffg_ni = []
         all_rij = []
         all_costheta = []
 
@@ -302,6 +304,9 @@ class MEAM:
 
                     total_ni += fj_val * partialsum
                     total_ni += rho(r_ij)
+
+                    all_rho_ni.append(rho(r_ij))
+                    all_ffg_ni.append(fj_val * partialsum)
                 # end u loop
 
                 logging.info("MEAM: u({0}) = {1}".format(total_ni,u(total_ni)))
@@ -319,7 +324,7 @@ class MEAM:
         outfile_rij = open("meam_rij.dat", 'ab')
         outfile_costheta = open("meam_costheta.dat", 'ab')
 
-        return total_pe#, all_ni
+        return total_pe, all_ni, all_rho_ni, all_ffg_ni, all_rij
 
     def compute_forces(self, atoms):
         """Evaluates the energies for the given system using the MEAM potential,
