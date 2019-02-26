@@ -68,11 +68,12 @@ def build_evaluation_functions(
 
                         comp_ediff = all_eng[s_id, :] - all_eng[r_id, :]
 
+
                         tmp = (comp_ediff - true_ediff) ** 2
                         fitnesses[:, fit_id] = tmp * weight
 
-                    if output:
-                        print(np.sum(fitnesses, axis=1))
+                if output:
+                    print(np.sum(fitnesses, axis=1), flush=True)
 
         return fitnesses
 
@@ -300,8 +301,7 @@ def compute_procs_per_subset(struct_natoms, total_num_procs, method='natoms'):
 
 
 
-def initialize_potential_template(load_path):
-    # TODO: BW settings
+def initialize_potential_template():
     inner_cutoff = 1.5
     outer_cutoff = 5.5
 
@@ -320,7 +320,6 @@ def initialize_potential_template(load_path):
     potential_template = Template(
         pvec_len=108,
         u_ranges=[(-2000, 2000), (-2000, 2000)],
-        # Ranges taken from Lou Ti-Mo (phis) or from old TiO (other)
         spline_ranges=[(-1, 1), (-1, 1), (-1, 1), (-10, 10), (-10, 10),
                        (-1, 1), (-1, 1), (-5, 5), (-5, 5),
                        (-10, 10), (-10, 10), (-10, 10)],

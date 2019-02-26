@@ -43,34 +43,36 @@ class Database:
         return new_db
 
     def load_structures(self, max_num_structs=None):
-        sorted_names = glob.glob(self.true_values_folder_path + "/*")
+        sorted_names = glob.glob(self.true_values_folder_path + "/info.*")
 
         if max_num_structs is None:
+            load_num = len(sorted_names)
+        elif max_num_structs > len(sorted_names):
             load_num = len(sorted_names)
         else:
             load_num = max_num_structs
 
-        # additional_names = np.random.choice(
-        #     sorted_names, load_num, replace=False
-        # )
+        additional_names = np.random.choice(
+            sorted_names, load_num, replace=False
+        )
 
-        # to_add = additional_names.tolist()
-        
-        to_add = []
-        with open("../names.txt", "r") as f:
-            for line in f:
-                # clean = "_".join(line.strip().split("/")[1:])
-                clean = line.strip()
-                to_add.append(
-                    os.path.join(self.true_values_folder_path, "info."+ clean)
-                )
+        to_add = additional_names.tolist()
 
-        # ref_path = os.path.join(
-        #     self.true_values_folder_path, "info." + self.ref_name
-        # )
+        # to_add = []
+        # with open("../names.txt", "r") as f:
+        #     for line in f:
+        #         # clean = "_".join(line.strip().split("/")[1:])
+        #         clean = line.strip()
+        #         to_add.append(
+        #             os.path.join(self.true_values_folder_path, "info."+ clean)
+        #         )
 
-        # if ref_path not in to_add:
-        #     to_add[np.random.randint(len(to_add))] = ref_path
+        ref_path = os.path.join(
+            self.true_values_folder_path, "info." + self.ref_name
+        )
+
+        if ref_path not in to_add:
+            to_add[np.random.randint(len(to_add))] = ref_path
 
         already_added = []
         for file_name in to_add:
@@ -97,6 +99,9 @@ class Database:
                     self.entries.append(
                         entry(struct_name, eng, natoms, 'energy', self.ref_name)
                     )
+                else:
+                    print(check_entry.struct_name, check_entry.type, "already"
+                            "there")
 
                 if struct_name not in self.unique_structs:
                     self.unique_structs.append(struct_name)
