@@ -1,0 +1,35 @@
+POP_SIZE 3
+
+GA_NSTEPS 1
+SA_NSTEPS 20
+
+STRUCTURE_DIRECTORY ../data/fitting_databases/hyojung/mini_structs
+INFO_DIRECTORY ../data/fitting_databases/hyojung/mini_info
+SAVE_DIRECTORY ../data/results/delete
+
+REFERENCE_STRUCT Ti48Mo80_type1_c18
+
+TRACE_FILE_NAME ../data/results/ni_trace.delete
+
+OPT_TYPE SA
+NUM_STRUCTS 5
+
+MUT_PB 0.5
+
+#  comment line
+RUN_NEW_GA True
+DO_LMIN True
+LMIN_FREQ 10
+INIT_NSTEPS 10
+LMIN_NSTEPS 10
+FINAL_NSTEPS 10
+CHECKPOINT_FREQ 1
+
+# LOAD_DIRECTORY hyojung
+# NAMES_FILE ../names.txt
+
+TSTART 1
+TMIN 0.001
+COOLING_RATE 0.9
+
+# add checks to only load valid parameters
