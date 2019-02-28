@@ -109,10 +109,15 @@ def main(config_name, template_file_name):
                 mask = data[:, 0]
                 knot_values = data[:, 1]
 
+                print()
                 print("pvec_len:", len(knot_values))
+                print()
                 print("u_domains:", template_args['u_domains'])
+                print()
                 print("spline_ranges:", spline_ranges)
+                print()
                 print("spline_indices:", spline_indices)
+                print()
 
                 template = Template(
                     pvec_len = len(knot_values),
@@ -134,12 +139,20 @@ def main(config_name, template_file_name):
     template = world_comm.bcast(template, root=0)
 
     # convert types of inputs from str
-    int_params = ['NUM_STRUCTS', 'POP_SIZE', 'GA_NSTEPS', 'LMIN_FREQ',
-            'INIT_NSTEPS', 'LMIN_NSTEPS', 'FINAL_NSTEPS', 'CHECKPOINT_FREQ',
-            'SA_NSTEPS', ]
+    int_params = [
+        'NUM_STRUCTS', 'POP_SIZE', 'GA_NSTEPS', 'LMIN_FREQ',
+        'INIT_NSTEPS', 'LMIN_NSTEPS', 'FINAL_NSTEPS', 'CHECKPOINT_FREQ',
+        'SA_NSTEPS', 'RESCALE_FREQ', 'RESCALE_STOP_STEP'
+    ]
 
-    float_params = ['MUT_PB', 'COOLING_RATE', 'TMIN', 'TSTART']
-    bool_params = ['RUN_NEW_GA', 'DO_LMIN']
+    float_params = [
+        'MUT_PB', 'COOLING_RATE', 'TMIN', 'TSTART', 'SA_MOVE_PROB',
+        'SA_MOVE_SCALE'
+    ]
+
+    bool_params = [
+        'RUN_NEW_GA', 'DO_LMIN', 'DEBUG', 'DO_RESCALE', 'OVERWRITE_OLD_FILES'
+    ]
 
     for key, val in parameters.items():
         if key in int_params:
@@ -149,20 +162,42 @@ def main(config_name, template_file_name):
         elif key in bool_params:
             parameters[key] = (val == 'True')
 
-    if os.path.isdir(parameters['SAVE_DIRECTORY']):
+    if os.path.isdir(parameters['SAVE_DIRECTORY']) and \
+            not parameters['OVERWRITE_OLD_FILES']:
+
+        print("Renaming save directory to avoid overwrite")
+
         parameters['SAVE_DIRECTORY'] = parameters['SAVE_DIRECTORY'] + '-' +\
             str(np.random.randint(100000))
 
+    parameters['NI_TRACE_FILE_NAME'] = os.path.join(
+        parameters['SAVE_DIRECTORY'], 'ni_trace.dat'
+    )
+
     # run the optimizer
-    if parameters['OPT_TYPE'] == 'GA':
+    if parameters.get('DEBUG', False):
+        if is_master:
+            print("Running debug script:", parameters['DEBUG_FILE'], flush=True)
+            print()
+
+        # debug_module = __import__(parameters['DEBUG_FILE'])
+        split_fname = parameters['DEBUG_FILE'].split('.')
+
+        debug_module = __import__(
+            '.'.join(split_fname), fromlist=[split_fname[-1]]
+        )
+
+        debug_module.main(parameters, template)
+    elif parameters['OPT_TYPE'] == 'GA':
         if is_master:
             print("Running GA")
+            print()
 
         ga(parameters, template)
     elif parameters['OPT_TYPE'] == 'SA':
         if is_master:
             print("Running SA")
-
+            print()
         sa(parameters, template)
     else:
         if is_master:

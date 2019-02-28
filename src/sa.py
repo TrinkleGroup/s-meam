@@ -57,6 +57,10 @@ def sa(parameters, template):
             parameters['REFERENCE_STRUCT']
         )
 
+        # Trace file to be appended to later
+        f = open(parameters['NI_TRACE_FILE_NAME'], 'ab')
+        f.close()
+
         master_database.load_structures(parameters['NUM_STRUCTS'])
 
         # master_database.print_metadata()
@@ -161,7 +165,6 @@ def sa(parameters, template):
             chain[0, i, :] = tmp[np.where(potential_template.active_mask)[0]]
 
         current = chain[0]
-        current = np.ones(current.shape)
     else:
         current = None
         chain = None
@@ -190,6 +193,55 @@ def sa(parameters, template):
     # run simulated annealing; stop cooling once T = Tmin
     step_num = 0
     while step_num < parameters['SA_NSTEPS']:
+        # do U rescaling
+        current_cost, max_ni, min_ni = cost_fxn(
+            current, weights, return_ni=True
+        )
+
+        if is_master:
+            # only plotting the range of the 1st potential
+            current_cost = np.sum(current_cost, axis=1)
+
+            tmp_min_ni = min_ni[np.argsort(current_cost)]
+            tmp_max_ni = max_ni[np.argsort(current_cost)]
+
+            # output to ile
+            with open(parameters['NI_TRACE_FILE_NAME'], 'ab') as f:
+                np.savetxt(
+                    f,
+                    np.atleast_2d(
+                        [tmp_min_ni[0], tmp_max_ni[0]]
+                        # np.concatenate(
+                            # [[tmp_min_ni[i], tmp_max_ni[i]] for i in
+                            # range(2)]
+                            # )
+                        )
+                )
+
+
+        if parameters['DO_RESCALE'] and \
+            (step_num < parameters['RESCALE_STOP_STEP']) and \
+                (step_num % parameters['RESCALE_FREQ'] == 0):
+                    if is_master:
+                        tmp_min_ni = min_ni[np.argsort(current_cost)]
+                        tmp_max_ni = max_ni[np.argsort(current_cost)]
+
+                        # new_u_domains = [(tmp_min_ni[i], tmp_max_ni[i]) for
+                        #         i in range(2)]
+                        new_u_domains = [(tmp_min_ni[0], tmp_max_ni[0])]
+
+                        print(
+                            "Rescaling ... new ranges =", new_u_domains,
+                            flush=True
+                        )
+                    else:
+                        new_u_domains = None
+
+                    # if is_manager:
+                    #     new_u_domains = manager_comm.bcast(new_u_domains, root=0)
+                    #     potential_template.u_ranges = new_u_domains
+                    # 
+                    # current_cost = cost_fxn(current, weights)
 
         if parameters['DO_LMIN'] and (step_num % parameters['LMIN_FREQ'] == 0):
             current_cost = cost_fxn(current, weights)
@@ -217,14 +269,27 @@ def sa(parameters, template):
         # propose a move
         if is_master:
 
-            rnd_indices = np.random.randint(
-                current.shape[1], size=current.shape[0]
+            # choose a single knot from each potential
+            # rnd_indices = np.random.randint(
+            #     current.shape[1], size=current.shape[0]
+            # )
+            # 
+            # trial_position = current.copy()
+            # trial_position[:, rnd_indices] += np.random.normal(
+            #     scale=0.01, size=current.shape[0]
+            # )
+
+            # choose a random collection of knots from each potential
+            mask = np.random.choice(
+                [True, False],
+                size = (current.shape[0], current.shape[1]),
+                p = [parameters['SA_MOVE_PROB'], 1 - parameters['SA_MOVE_PROB']]
             )
 
             trial_position = current.copy()
-            trial_position[:, rnd_indices] += np.random.normal(
-                scale=0.01, size=current.shape[0]
-            )
+            trial_position[mask] = trial_position[mask] +\
+                np.random.normal(scale=parameters['SA_MOVE_SCALE'])
+
         else:
             trial_position = None
 

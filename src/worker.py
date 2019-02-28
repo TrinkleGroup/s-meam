@@ -398,7 +398,7 @@ class Worker:
 
         logging.info("total energy: {0}".format(energy))
 
-        return energy, max_ni, min_ni
+        return energy, ni#,max_ni, min_ni
 
     def compute_ni(self, rho_pvecs, f_pvecs, g_pvecs):
         """

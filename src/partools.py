@@ -26,7 +26,9 @@ def build_evaluation_functions(
             pop = None
 
         # eng = manager.compute_energy(pop)
-        eng, c_max_ni, c_min_ni = manager.compute_energy(pop)
+        # eng, c_max_ni, c_min_ni = manager.compute_energy(pop)
+        eng, c_ni = manager.compute_energy(pop)
+        # eng, c_per_type_ni = manager.compute_energy(pop)
         fcs = manager.compute_forces(pop)
 
         fitnesses = 0
@@ -35,8 +37,10 @@ def build_evaluation_functions(
 
         if is_manager:
             mgr_eng = manager_comm.gather(eng, root=0)
-            mgr_max_ni = manager_comm.gather(c_max_ni, root=0)
-            mgr_min_ni = manager_comm.gather(c_min_ni, root=0)
+            # mgr_max_ni = manager_comm.gather(c_max_ni, root=0)
+            # mgr_min_ni = manager_comm.gather(c_min_ni, root=0)
+            mgr_ni = manager_comm.gather(c_ni, root=0)
+            # mgr_ni = manager_comm.gather(c_per_type_ni, root=0)
             mgr_fcs = manager_comm.gather(fcs, root=0)
 
             if is_master:
@@ -45,11 +49,19 @@ def build_evaluation_functions(
 
                 # GA will take the U domain as the max/min ni from the best potential
                 if return_ni:
-                    all_max_ni = np.dstack(mgr_max_ni)
-                    max_ni = np.max(all_max_ni, axis=2)
+                    # all_max_ni = np.dstack(mgr_max_ni)
+                    # max_ni = np.max(all_max_ni, axis=2)
+                    # 
+                    # all_min_ni = np.dstack(mgr_min_ni)
+                    # min_ni = np.min(all_min_ni, axis=2)
+                    all_ni = np.dstack(mgr_ni)
+                    # per_type_ni_for_each_struct = np.dstack(mgr_ni)
 
-                    all_min_ni = np.dstack(mgr_min_ni)
-                    min_ni = np.min(all_min_ni, axis=2)
+                    max_ni = np.max(np.max(all_ni, axis=2), axis=1)
+                    min_ni = np.min(np.min(all_ni, axis=2), axis=1)
+                    # per_type_ni = np.average(
+                    #     per_type_ni_for_each_struct, axis=2
+                    # )
 
                 all_fcs = mgr_fcs
 

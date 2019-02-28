@@ -182,13 +182,13 @@ def ga(parameters, template):
 
     if is_master:
         init_fit = np.sum(init_fit, axis=1)
-        print("MASTER: initial (UN-minimized) fitnesses:", init_fit, flush=True)
-        print(
-            "avg min max:", np.average(init_fit), np.min(init_fit),
-            np.max(init_fit), flush=True
-        )
-
-        print("Before:", init_fit)
+        # print("MASTER: initial (UN-minimized) fitnesses:", init_fit, flush=True)
+        # print(
+        #     "avg min max:", np.average(init_fit), np.min(init_fit),
+        #     np.max(init_fit), flush=True
+        # )
+        # 
+        # print("Before:", init_fit)
 
         subset = master_pop[:10]
     else:
@@ -260,6 +260,8 @@ def ga(parameters, template):
 
             # Run local minimization on best individual if desired
             if parameters['DO_LMIN'] and (generation_number % parameters['LMIN_FREQ'] == 0):
+                if is_master:
+                    print("Performing local minimization ...", flush=True)
 
                 subset = local_minimization(
                     subset, toolbox, weights, world_comm, is_master,
@@ -305,6 +307,9 @@ def ga(parameters, template):
 
         # Perform a final local optimization on the final results of the GA
         if parameters['DO_LMIN']:
+            if is_master:
+                print("Performing local minimization ...", flush=True)
+
             subset = local_minimization(
                 subset, toolbox, weights, world_comm, is_master,
                 nsteps=parameters['LMIN_NSTEPS']
