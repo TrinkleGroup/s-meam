@@ -1,6 +1,6 @@
 import os
 import sys
-
+import shutil
 import random
 import numpy as np
 from mpi4py import MPI
@@ -41,10 +41,6 @@ def sa(parameters, template):
     world_size = world_comm.Get_size()
 
     is_master = (world_rank == 0)
-
-    if os.path.isdir(parameters['SAVE_DIRECTORY']):
-        parameters['SAVE_DIRECTORY'] = parameters['SAVE_DIRECTORY'] + '-' + \
-            str(np.random.randint(100000))
 
     if is_master:
         prepare_save_directory(parameters)
@@ -188,13 +184,15 @@ def sa(parameters, template):
             np.average(current_cost), "--", flush=True
         )
 
+        checkpoint(current, 0, parameters)
+
         num_accepted = 0
 
     # run simulated annealing; stop cooling once T = Tmin
     step_num = 0
     while step_num < parameters['SA_NSTEPS']:
         # do U rescaling
-        current_cost, max_ni, min_ni = cost_fxn(
+        current_cost, max_ni, min_ni, avg_ni = cost_fxn(
             current, weights, return_ni=True
         )
 
@@ -204,17 +202,16 @@ def sa(parameters, template):
 
             tmp_min_ni = min_ni[np.argsort(current_cost)]
             tmp_max_ni = max_ni[np.argsort(current_cost)]
+            tmp_avg_ni = avg_ni[np.argsort(current_cost)]
 
             # output to ile
             with open(parameters['NI_TRACE_FILE_NAME'], 'ab') as f:
                 np.savetxt(
                     f,
                     np.atleast_2d(
-                        [tmp_min_ni[0], tmp_max_ni[0]]
-                        # np.concatenate(
-                            # [[tmp_min_ni[i], tmp_max_ni[i]] for i in
-                            # range(2)]
-                            # )
+                        [tmp_min_ni[0][0], tmp_max_ni[0][0],
+                         tmp_min_ni[0][1], tmp_max_ni[0][1],
+                         tmp_avg_ni[0][0], tmp_avg_ni[0][1]]
                         )
                 )
 
@@ -356,14 +353,8 @@ def sa(parameters, template):
 def prepare_save_directory(parameters):
     """Creates directories to store results"""
 
-    print()
     if os.path.isdir(parameters['SAVE_DIRECTORY']):
-        print()
-        print("/" + "*" * 30 + " WARNING " + "*" * 30 + "/")
-        print("A folder already exists for these settings.\nPress Enter"
-              " to ovewrite old data, or Ctrl-C to quit")
-        input("/" + "*" * 30 + " WARNING " + "*" * 30 + "/\n")
-    print()
+        shutil.rmtree(parameters['SAVE_DIRECTORY'])
 
     os.mkdir(parameters['SAVE_DIRECTORY'])
 

@@ -9,7 +9,7 @@ import os
 import sys
 import numpy as np
 import random
-
+import shutil
 np.set_printoptions(precision=8, suppress=True)
 
 import pickle
@@ -237,11 +237,14 @@ def ga(parameters, template):
     if parameters['RUN_NEW_GA']:
         generation_number = 1
         while (generation_number < parameters['GA_NSTEPS']):
+
             if is_master:
 
                 # Preserve top 50%, breed survivors
                 for pot_num in range(len(master_pop) // 2, len(master_pop)):
                     mom_idx = np.random.randint(len(master_pop) // 2)
+
+                    # TODO: add a check to make sure GA popsize is large enough
 
                     dad_idx = mom_idx
                     while dad_idx == mom_idx:
@@ -271,13 +274,60 @@ def ga(parameters, template):
                 if is_master:
                     master_pop[:10] = subset
 
-            # Compute fitnesses with mated/mutated/optimized population
-            # fitnesses, max_ni = toolbox.evaluate_population(master_pop, True)
+            fitnesses, max_ni, min_ni, avg_ni = toolbox.evaluate_population(
+                master_pop, weights, return_ni=True
+            )
+
+            if is_master:
+                # only plotting the range of the 1st potential
+                fitnesses = np.sum(fitnesses, axis=1)
+
+                tmp_min_ni = min_ni[np.argsort(fitnesses)]
+                tmp_max_ni = max_ni[np.argsort(fitnesses)]
+                tmp_avg_ni = avg_ni[np.argsort(fitnesses)]
+
+                # output to ile
+                with open(parameters['NI_TRACE_FILE_NAME'], 'ab') as f:
+                    np.savetxt(
+                        f,
+                        np.atleast_2d(
+                            [tmp_min_ni[0][0], tmp_max_ni[0][0],
+                             tmp_min_ni[0][1], tmp_max_ni[0][1],
+                             tmp_avg_ni[0][0], tmp_avg_ni[0][1]]
+                            )
+                    )
+
+            if parameters['DO_RESCALE'] and \
+                (generation_number < parameters['RESCALE_STOP_STEP']) and \
+                    (generation_number % parameters['RESCALE_FREQ'] == 0):
+                        if is_master:
+                            fitnesses = np.sum(fitnesses, axis=1)
+
+                            tmp_min_ni = min_ni[np.argsort(fitnesses)]
+                            tmp_max_ni = max_ni[np.argsort(fitnesses)]
+
+                            new_u_domains = [(tmp_min_ni[i], tmp_max_ni[i]) for
+                                    i in range(2)]
+
+                            print(
+                                "Rescaling ... new ranges =", new_u_domains,
+                                flush=True
+                            )
+                        else:
+                            new_u_domains = None
+
+                        if is_manager:
+                            new_u_domains = manager_comm.bcast(new_u_domains, root=0)
+                            potential_template.u_ranges = new_u_domains
+
             fitnesses = toolbox.evaluate_population(master_pop, weights)
 
             # Update individuals with new fitnesses
             if is_master:
                 new_fit = np.sum(fitnesses, axis=1)
+
+                tmp_min_ni = min_ni[np.argsort(new_fit)]
+                tmp_max_ni = max_ni[np.argsort(new_fit)]
 
                 pop_copy = []
                 for ind in master_pop:
@@ -304,6 +354,8 @@ def ga(parameters, template):
                 best_guess = master_pop[0]
 
             generation_number += 1
+
+        # end of GA loop
 
         # Perform a final local optimization on the final results of the GA
         if parameters['DO_LMIN']:
@@ -403,17 +455,19 @@ def plot_best_individual():
 def prepare_save_directory(parameters):
     """Creates directories to store results"""
 
-    print()
-    print("Save location:", parameters['SAVE_DIRECTORY'])
-    if os.path.isdir(parameters['SAVE_DIRECTORY']):
-        print()
-        print("/" + "*" * 30 + " WARNING " + "*" * 30 + "/")
-        print("A folder already exists for these settings.\nPress Enter"
-              " to ovewrite old data, or Ctrl-C to quit")
-        input("/" + "*" * 30 + " WARNING " + "*" * 30 + "/\n")
-    print()
+    # print()
+    # print("Save location:", parameters['SAVE_DIRECTORY'])
+    # if os.path.isdir(parameters['SAVE_DIRECTORY']):
+    #     print()
+    #     print("/" + "*" * 30 + " WARNING " + "*" * 30 + "/")
+    #     print("A folder already exists for these settings.\nPress Enter"
+    #           " to ovewrite old data, or Ctrl-C to quit")
+    #     input("/" + "*" * 30 + " WARNING " + "*" * 30 + "/\n")
+    # print()
 
-    # os.rmdir(SAVE_DIRECTORY)
+    if os.path.isdir(parameters['SAVE_DIRECTORY']):
+        shutil.rmtree(parameters['SAVE_DIRECTORY'])
+
     os.mkdir(parameters['SAVE_DIRECTORY'])
 
 
@@ -550,9 +604,13 @@ def checkpoint(population, logbook, trace_update, i, parameters):
     """Saves information to files for later use"""
 
     digits = np.ceil(np.log10(int(parameters['GA_NSTEPS'])))
-    format_str = '{0:0' + str(int(digits) + 1) + 'd}'
 
-    np.savetxt('pop_' + format_str.format(i) + '.dat', population)
+    format_str = os.path.join(
+        parameters['SAVE_DIRECTORY'],
+        'pop_{0:0' + str(int(digits) + 1) + 'd}.dat'
+        )
+
+    np.savetxt(format_str.format(i), population)
 
     f = open(parameters['TRACE_FILE_NAME'], 'ab')
     np.savetxt(f, [np.array(trace_update)])

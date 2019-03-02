@@ -87,22 +87,24 @@ class Manager:
             # all_min_ni = np.vstack(all_max_ni)
             all_ni = np.vstack(all_ni)
 
-            # per_type_averages = np.zeros(
-            #     (all_ni.shape[0], len(self.struct.types))
-            # )
-            # 
-            # for i in range(len(self.struct.types)):
-            #     per_type_averages[:, i] = np.average(
-            #         all_ni[:, self.struct.type_of_each_atom - 1 == i ],
-            #         axis=1
-            #     )
+            per_type_ni = []
+
+            for i in range(self.struct.ntypes):
+                per_type_ni.append(
+                    all_ni[:, self.struct.type_of_each_atom - 1 == i ]
+                )
+
+            min_ni = [np.min(ni, axis=1) for ni in per_type_ni]
+            max_ni = [np.max(ni, axis=1) for ni in per_type_ni]
+            avg_ni = [np.average(ni, axis=1) for ni in per_type_ni]
+            ni_var = [np.std(ni, axis=1)**2 for ni in per_type_ni]
 
             if only_one_pot:
                 all_eng = all_eng[0]
             else:
                 all_eng = np.concatenate(all_eng)
 
-        return all_eng, all_ni# per_type_averages # all_max_ni, all_min_ni
+        return all_eng, min_ni, max_ni, avg_ni, ni_var
 
     def compute_forces(self, master_pop):
         """Evaluates the structure forces for the whole population"""

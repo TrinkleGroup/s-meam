@@ -9,6 +9,10 @@ from src.potential_templates import Template
 
 np.set_printoptions(linewidth=1000)
 
+import random
+# np.random.seed(42)
+# random.seed(42)
+
 # TODO: print settings before running anything
 # TODO: have a script that checks the validity of an input script befor qsub
 
@@ -165,7 +169,8 @@ def main(config_name, template_file_name):
     if os.path.isdir(parameters['SAVE_DIRECTORY']) and \
             not parameters['OVERWRITE_OLD_FILES']:
 
-        print("Renaming save directory to avoid overwrite")
+        if is_master:
+            print("Renaming save directory to avoid overwrite\n")
 
         parameters['SAVE_DIRECTORY'] = parameters['SAVE_DIRECTORY'] + '-' +\
             str(np.random.randint(100000))
