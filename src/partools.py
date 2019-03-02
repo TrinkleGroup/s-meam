@@ -1,5 +1,6 @@
 import os
 import numpy as np
+import itertools
 from src.database import Database
 import src.meam
 from src.meam import MEAM
@@ -12,7 +13,7 @@ def build_evaluation_functions(
     """Builds the function to evaluate populations. Wrapped here for readability
     of main code."""
 
-    def fxn_wrap(master_pop, weights, return_ni=False):
+    def fxn_wrap(master_pop, weights, return_ni=False, output=False):
         """Master: returns all potentials for all structures.
 
         NOTE: the order of 'weights' should match the order of the database
@@ -27,45 +28,48 @@ def build_evaluation_functions(
 
         # eng = manager.compute_energy(pop)
         # eng, c_max_ni, c_min_ni = manager.compute_energy(pop)
-        eng, c_ni = manager.compute_energy(pop)
-        # eng, c_per_type_ni = manager.compute_energy(pop)
+        # eng, c_ni = manager.compute_energy(pop)
+        eng, c_min_ni, c_max_ni, c_avg_ni, c_ni_var = manager.compute_energy(pop)
         fcs = manager.compute_forces(pop)
 
         fitnesses = 0
         max_ni = 0
         min_ni = 0
+        avg_ni = 0
 
         if is_manager:
+            # gathers everything on master process
+
             mgr_eng = manager_comm.gather(eng, root=0)
-            # mgr_max_ni = manager_comm.gather(c_max_ni, root=0)
-            # mgr_min_ni = manager_comm.gather(c_min_ni, root=0)
-            mgr_ni = manager_comm.gather(c_ni, root=0)
-            # mgr_ni = manager_comm.gather(c_per_type_ni, root=0)
             mgr_fcs = manager_comm.gather(fcs, root=0)
+
+            mgr_min_ni = manager_comm.gather(c_min_ni, root=0)
+            mgr_max_ni = manager_comm.gather(c_max_ni, root=0)
+            mgr_avg_ni = manager_comm.gather(c_avg_ni, root=0)
+            mgr_ni_var = manager_comm.gather(c_ni_var, root=0)
 
             if is_master:
                 # note: can't stack mgr_fcs b/c different dimensions per struct
                 all_eng = np.vstack(mgr_eng)
-
-                # GA will take the U domain as the max/min ni from the best potential
-                if return_ni:
-                    # all_max_ni = np.dstack(mgr_max_ni)
-                    # max_ni = np.max(all_max_ni, axis=2)
-                    # 
-                    # all_min_ni = np.dstack(mgr_min_ni)
-                    # min_ni = np.min(all_min_ni, axis=2)
-                    all_ni = np.dstack(mgr_ni)
-                    # per_type_ni_for_each_struct = np.dstack(mgr_ni)
-
-                    max_ni = np.max(np.max(all_ni, axis=2), axis=1)
-                    min_ni = np.min(np.min(all_ni, axis=2), axis=1)
-                    # per_type_ni = np.average(
-                    #     per_type_ni_for_each_struct, axis=2
-                    # )
-
                 all_fcs = mgr_fcs
 
-                fitnesses = np.zeros((len(pop), len(master_database.entries)))
+                # do operations so that the final shape is (2, num_pots)
+                min_ni = np.min(np.dstack(mgr_min_ni), axis=2).T
+                max_ni = np.max(np.dstack(mgr_max_ni), axis=2).T
+                avg_ni = np.average(np.dstack(mgr_avg_ni), axis=2).T
+                ni_var = np.min(np.dstack(mgr_ni_var), axis=2).T
+
+                fitnesses = np.zeros(
+                    (len(pop), len(master_database.entries) + 2)
+                )
+
+                lambda_mean = 10
+
+                # TODO: add a trick to make var only decay to 1, not smaller
+                # maybe make the error U[] - var?
+
+                fitnesses[:, -1] = lambda_mean*np.sum(np.abs(avg_ni), axis=1)
+                fitnesses[:, -2] = lambda_mean*np.sum(ni_var, axis=1)
 
                 for fit_id, (entry, weight) in enumerate(
                         zip(master_database.entries, weights)):
@@ -98,8 +102,11 @@ def build_evaluation_functions(
                         fitnesses[:, fit_id] = tmp * weight
 
         if return_ni:
-            return fitnesses, max_ni, min_ni
+            return fitnesses, max_ni, min_ni, avg_ni
         else:
+            if output:
+                if is_master:
+                    print(np.sum(fitnesses, axis=1))
             return fitnesses
 
 
@@ -113,7 +120,7 @@ def build_evaluation_functions(
             pop = None
 
         # eng = manager.compute_energy(pop)
-        eng, _, _ = manager.compute_energy(pop)
+        eng, _, _, _, _ = manager.compute_energy(pop)
         fcs = manager.compute_forces(pop)
 
         eng_grad = manager.compute_energy_grad(pop)
@@ -136,7 +143,7 @@ def build_evaluation_functions(
 
                 gradient = np.zeros((
                     len(pop), potential_template.pvec_len,
-                    len(master_database.entries)
+                    len(master_database.entries) + 2
                 ))
 
 
