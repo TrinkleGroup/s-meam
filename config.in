@@ -19,7 +19,7 @@ SA_MOVE_PROB 0.1
 SA_MOVE_SCALE 0.3
 
 DEBUG False
-DEBUG_FILE src.misc.check_ni
+DEBUG_FILE src.misc.generate_starters
 
 #  comment line
 RUN_NEW_GA True

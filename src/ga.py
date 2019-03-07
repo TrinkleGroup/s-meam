@@ -165,9 +165,14 @@ def ga(parameters, template):
 
     # Create the original population
     if is_master:
-        master_pop = toolbox.population(n=parameters['POP_SIZE'])
-        master_pop = np.array(master_pop)
-        master_pop = np.ones(master_pop.shape)
+        master_pop = np.tile(
+            potential_template.pvec, (parameters['POP_SIZE'], 1)
+        )
+
+        print("master_pop.shape", master_pop.shape)
+
+        master_pop = master_pop[:, np.where(potential_template.active_mask)[0]]
+
         print("master_pop.shape", master_pop.shape)
 
         weights = np.ones(len(master_database.entries))
@@ -178,17 +183,19 @@ def ga(parameters, template):
     master_pop = np.array(master_pop)
     weights = world_comm.bcast(weights, root=0)
 
-    init_fit = toolbox.evaluate_population(master_pop, weights)
+    init_fit, max_ni, min_ni, avg_ni = toolbox.evaluate_population(master_pop,
+            weights, return_ni=True)
 
     if is_master:
         init_fit = np.sum(init_fit, axis=1)
-        # print("MASTER: initial (UN-minimized) fitnesses:", init_fit, flush=True)
-        # print(
-        #     "avg min max:", np.average(init_fit), np.min(init_fit),
-        #     np.max(init_fit), flush=True
-        # )
-        # 
-        # print("Before:", init_fit)
+
+        print('max_ni:', max_ni)
+        print('min_ni:', min_ni)
+
+        scale = np.max(np.abs(np.hstack([min_ni, max_ni])), axis=1)
+
+        master_pop[:, 27:45] /= scale[:, np.newaxis]
+        master_pop[:, 81:] /= scale[:, np.newaxis]
 
         subset = master_pop[:10]
     else:
@@ -202,10 +209,15 @@ def ga(parameters, template):
     # if is_master:
     #     master_pop[:10] = subset
 
-    new_fit = toolbox.evaluate_population(master_pop, weights)
+    new_fit, max_ni, min_ni, avg_ni = toolbox.evaluate_population(master_pop,
+            weights, return_ni=True)
 
     if is_master:
         new_fit = np.sum(new_fit, axis=1)
+
+        print('max_ni:', max_ni)
+        print('min_ni:', min_ni)
+
         # print(
         #     "avg min max:", np.average(new_fit), np.min(new_fit),
         #     np.max(new_fit), flush=True
@@ -512,8 +524,8 @@ def local_minimization(master_pop, toolbox, weights, world_comm, is_master, nste
 
     def lm_fxn_wrap(raveled_pop, original_shape):
         # print(raveled_pop)
-        val = toolbox.evaluate_population(
-            raveled_pop.reshape(original_shape), weights, output=True
+        val = fxn(
+            raveled_pop.reshape(original_shape), weights, output=False
         )
 
         val = world_comm.bcast(val, root=0)
@@ -524,22 +536,11 @@ def local_minimization(master_pop, toolbox, weights, world_comm, is_master, nste
         return tmp
 
     def lm_grad_wrap(raveled_pop, original_shape):
-        # shape: (num_pots, num_structs*2, num_params)
-
-        # if is_master:
-        #     print('org_pop', raveled_pop.reshape(original_shape))
-
-        grads = toolbox.gradient(
+        grads = grad(
             raveled_pop.reshape(original_shape), weights
         )
 
-        # if is_master:
-        #     print("grads.shape\n", grads.shape)
-
         grads = world_comm.bcast(grads, root=0)
-
-        # if is_master:
-        #     print('grad', grads[0].astype(int))
 
         num_pots, num_structs_2, num_params = grads.shape
 
@@ -553,10 +554,6 @@ def local_minimization(master_pop, toolbox, weights, world_comm, is_master, nste
         padded_grad = padded_grad.reshape(
             (num_pots * num_structs_2, num_pots * num_params)
         )
-
-        # if is_master:
-        #     print('padded_grad', padded_grad.shape, padded_grad.astype(int))
-
 
         # also pad with zeros since num structs is less than num knots
 
@@ -582,19 +579,19 @@ def local_minimization(master_pop, toolbox, weights, world_comm, is_master, nste
     else:
         new_pop = None
 
-    org_fits = toolbox.evaluate_population(master_pop, weights)
-    new_fits = toolbox.evaluate_population(new_pop, weights)
+    org_fits = fxn(master_pop, weights)
+    new_fits = fxn(new_pop, weights)
 
     if is_master:
         updated_master_pop = list(master_pop)
 
         for i, ind in enumerate(new_pop):
             if np.sum(new_fits[i]) < np.sum(org_fits[i]):
-                updated_master_pop[i] = creator.Individual(new_pop[i])
+                updated_master_pop[i] = new_pop[i]
             else:
-                updated_master_pop[i] = creator.Individual(updated_master_pop[i])
+                updated_master_pop[i] = updated_master_pop[i]
 
-        master_pop = updated_master_pop
+        master_pop = np.array(updated_master_pop)
 
     master_pop = world_comm.bcast(master_pop, root=0)
 
