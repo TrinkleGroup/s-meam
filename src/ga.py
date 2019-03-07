@@ -424,7 +424,14 @@ def build_ga_toolbox(potential_template):
     toolbox.register("parameter_set", ret_pvec, creator.Individual, )
     toolbox.register("population", tools.initRepeat, list,
                      toolbox.parameter_set, )
-    toolbox.register("mutate", tools.mutGaussian, mu=0, sigma=1, indpb=0.1)
+
+    print(potential_template.scales)
+
+    toolbox.register(
+        "mutate", tools.mutGaussian, mu=0,
+        sigma=(0.05*potential_template.scales).tolist(),
+        indpb=0.1
+    )
     # toolbox.register("mate", tools.cxBlend, alpha=MATING_ALPHA)
     toolbox.register("mate", tools.cxTwoPoint)
 

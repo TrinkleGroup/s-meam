@@ -19,7 +19,6 @@ import random
 def main(config_name, template_file_name):
     world_comm = MPI.COMM_WORLD
     world_rank = world_comm.Get_rank()
-    world_size = world_comm.Get_size()
 
     is_master = (world_rank == 0)
 
@@ -49,6 +48,7 @@ def main(config_name, template_file_name):
         # TODO: make template reading more dynamic; ignore blanks and comments
 
         template_args = {}
+
         # read potential template 
         if os.path.isfile(template_file_name):
             with open(template_file_name, 'r') as f:
@@ -93,6 +93,14 @@ def main(config_name, template_file_name):
 
                 spline_indices = list(zip(start_indices, end_indices))
 
+                scales = np.zeros(end_indices[-1])
+
+                index = 0
+                for rng, npts in zip(spline_ranges, spline_npts):
+                    scales[index:index + npts] = rng[1] - rng[0]
+
+                    index += npts
+
                 f.readline()
 
                 # should a potential be loaded from a file? randomly generated?
@@ -102,7 +110,8 @@ def main(config_name, template_file_name):
 
                     data = np.genfromtxt(fname)
                 else:
-                    print("Loading mask and parameter vector from:",
+                    print(
+                        "Loading mask and parameter vector from:",
                         template_file_name
                     )
 
@@ -122,17 +131,19 @@ def main(config_name, template_file_name):
                 print()
                 print("spline_indices:", spline_indices)
                 print()
+                print("scales:", scales)
+                print()
 
                 template = Template(
-                    pvec_len = len(knot_values),
-                    u_ranges = template_args['u_domains'],
-                    spline_ranges = spline_ranges,
-                    spline_indices = spline_indices
+                    pvec_len=len(knot_values),
+                    u_ranges=template_args['u_domains'],
+                    spline_ranges=spline_ranges,
+                    spline_indices=spline_indices
                 )
 
                 template.active_mask = mask
                 template.pvec = knot_values
-
+                template.scales = scales
         else:
             kill_and_write("Config file does not exist")
     else:
