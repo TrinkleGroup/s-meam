@@ -69,7 +69,7 @@ def build_evaluation_functions(
                 # maybe make the error U[] - var?
 
                 fitnesses[:, -1] = lambda_mean*np.sum(np.abs(avg_ni), axis=1)
-                fitnesses[:, -2] = lambda_mean*np.sum(ni_var, axis=1)
+                fitnesses[:, -2] = lambda_mean*np.sum(1 - ni_var, axis=1)
 
                 for fit_id, (entry, weight) in enumerate(
                         zip(master_database.entries, weights)):

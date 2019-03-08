@@ -81,6 +81,10 @@ class Manager:
         # all_min_ni = self.comm.gather(min_ni, root=0)
         all_ni = self.comm.gather(ni, root=0)
 
+        min_ni = None
+        max_ni = None
+        avg_ni = None
+        ni_var = None
 
         if self.proc_rank == 0:
             # all_max_ni = np.vstack(all_max_ni)
