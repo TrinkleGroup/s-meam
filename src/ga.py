@@ -194,11 +194,14 @@ def ga(parameters, template):
 
         scale = np.max(np.abs(np.hstack([min_ni, max_ni])), axis=1)
 
-        master_pop[:, 27:45] /= scale[:, np.newaxis]
-        master_pop[:, 81:] /= scale[:, np.newaxis]
+        master_pop[:, potential_template.rho_indices] /= \
+            scale[:, np.newaxis]
 
-        potential_template.scales[27:45] /= scale[0]
-        potential_template.scales[81:] /= scale[0]
+        master_pop[:, potential_template.g_indices] /= \
+            scale[:, np.newaxis]
+
+        # potential_template.scales[27:45] /= scale[0]
+        # potential_template.scales[81:] /= scale[0]
 
         subset = master_pop[:10]
     else:
@@ -329,8 +332,11 @@ def ga(parameters, template):
                             print('master_pop.shape', master_pop.shape)
                             print('scale.shape', scale.shape)
 
-                            master_pop[:, 27:45] /= scale[:, np.newaxis]
-                            master_pop[:, 81:] /= scale[:, np.newaxis]
+                            master_pop[:, potential_template.rho_indices] /= \
+                                scale[:, np.newaxis]
+
+                            master_pop[:, potential_template.g_indices] /= \
+                                scale[:, np.newaxis]
 
                             # potential_template.scales[27:45] /= scale[0]
                             # potential_template.scales[81:] /= scale[0]

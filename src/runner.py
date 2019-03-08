@@ -95,14 +95,18 @@ def main(config_name, template_file_name):
                 spline_indices = list(zip(start_indices, end_indices))
 
                 scales = np.zeros(end_indices[-1])
+                spline_tags = []
 
                 index = 0
-                for rng, npts in zip(spline_ranges, spline_npts):
+                for j, (rng, npts) in enumerate(zip(spline_ranges, spline_npts)):
                     scales[index:index + npts] = rng[1] - rng[0]
+                    spline_tags.append(np.ones(npts + 2)*j)
 
                     index += npts
 
                 f.readline()
+
+                spline_tags = np.concatenate(spline_tags)
 
                 # should a potential be loaded from a file? randomly generated?
                 if f.readline().strip().split(" ")[-1] == "True":
@@ -123,6 +127,21 @@ def main(config_name, template_file_name):
                 mask = data[:, 0]
                 knot_values = data[:, 1]
 
+                spline_tags = spline_tags[np.where(mask)[0]]
+
+                nphi = template_args['ntypes']*(template_args['ntypes'] + 1) / 2
+
+                rho_indices = np.where(
+                    np.logical_or(
+                        spline_tags == nphi,
+                        spline_tags == nphi + 1
+                    )
+                )[0]
+
+                g_indices = np.where(
+                    spline_tags >= nphi + 3*template_args['ntypes']
+                )[0]
+
                 print()
                 print("pvec_len:", len(knot_values))
                 print()
@@ -133,6 +152,12 @@ def main(config_name, template_file_name):
                 print("spline_indices:", spline_indices)
                 print()
                 print("scales:", scales)
+                print()
+                print("spline_tags:", spline_tags)
+                print()
+                print("rho_indices:", rho_indices)
+                print()
+                print("g_indices:", g_indices)
                 print()
 
                 template = Template(
@@ -145,6 +170,9 @@ def main(config_name, template_file_name):
                 template.active_mask = mask
                 template.pvec = knot_values
                 template.scales = scales
+                template.spline_tags = spline_tags
+                template.rho_indices = rho_indices
+                template.g_indices = g_indices
         else:
             kill_and_write("Config file does not exist")
     else:

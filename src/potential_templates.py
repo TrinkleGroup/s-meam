@@ -22,6 +22,7 @@ class Template:
             active_mask (np.arr): 1 where parameter is 'active'
             spline_indices (list): list of (start, stop) tuples for each spline
             spline_ranges (list): list of (low, high) tuples for each spline
+            spline_tags(np.arr): identifies spline for each point in pvec
             scales (np.arr): ranges of spline knots
             load_file_path (str): path to LAMMPS-style potential to use as base
             seed (np.arr): starting format for pvec
@@ -36,6 +37,9 @@ class Template:
         self.u_ranges = u_ranges
         self.spline_ranges = spline_ranges
         self.spline_indices = spline_indices
+        self.spline_tags = None
+        self.rho_indices = None
+        self.g_indices = None
         self.scales = None
 
         self.load_file_path = load_file_path
