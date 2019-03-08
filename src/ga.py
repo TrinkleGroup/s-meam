@@ -197,6 +197,9 @@ def ga(parameters, template):
         master_pop[:, 27:45] /= scale[:, np.newaxis]
         master_pop[:, 81:] /= scale[:, np.newaxis]
 
+        potential_template.scales[27:45] /= scale[0]
+        potential_template.scales[81:] /= scale[0]
+
         subset = master_pop[:10]
     else:
         subset = None
@@ -313,24 +316,40 @@ def ga(parameters, template):
                 (generation_number < parameters['RESCALE_STOP_STEP']) and \
                     (generation_number % parameters['RESCALE_FREQ'] == 0):
                         if is_master:
-                            fitnesses = np.sum(fitnesses, axis=1)
-
+                            print("Rescaling ...")
                             tmp_min_ni = min_ni[np.argsort(fitnesses)]
                             tmp_max_ni = max_ni[np.argsort(fitnesses)]
 
-                            new_u_domains = [(tmp_min_ni[i], tmp_max_ni[i]) for
-                                    i in range(2)]
-
-                            print(
-                                "Rescaling ... new ranges =", new_u_domains,
-                                flush=True
+                            scale = np.max(
+                                np.abs(np.hstack([tmp_min_ni, tmp_max_ni])),
+                                axis=1
                             )
+
+                            master_pop = np.array(master_pop)
+                            print('master_pop.shape', master_pop.shape)
+                            print('scale.shape', scale.shape)
+
+                            master_pop[:, 27:45] /= scale[:, np.newaxis]
+                            master_pop[:, 81:] /= scale[:, np.newaxis]
+
+                            # potential_template.scales[27:45] /= scale[0]
+                            # potential_template.scales[81:] /= scale[0]
+
                         else:
                             new_u_domains = None
 
                         if is_manager:
-                            new_u_domains = manager_comm.bcast(new_u_domains, root=0)
-                            potential_template.u_ranges = new_u_domains
+                            potential_template = manager_comm.bcast(
+                                potential_template, root=0
+                            )
+
+                        fitnesses, max_ni, min_ni, avg_ni = toolbox.evaluate_population(
+                            master_pop, weights, return_ni=True
+                        )
+
+                        if is_master:
+                            print(min_ni)
+                            print(max_ni)
 
             fitnesses = toolbox.evaluate_population(master_pop, weights)
 
@@ -531,7 +550,7 @@ def local_minimization(master_pop, toolbox, weights, world_comm, is_master, nste
 
     def lm_fxn_wrap(raveled_pop, original_shape):
         # print(raveled_pop)
-        val = fxn(
+        val = toolbox.evaluate_population(
             raveled_pop.reshape(original_shape), weights, output=False
         )
 
@@ -543,7 +562,7 @@ def local_minimization(master_pop, toolbox, weights, world_comm, is_master, nste
         return tmp
 
     def lm_grad_wrap(raveled_pop, original_shape):
-        grads = grad(
+        grads = toolbox.gradient(
             raveled_pop.reshape(original_shape), weights
         )
 
@@ -586,8 +605,8 @@ def local_minimization(master_pop, toolbox, weights, world_comm, is_master, nste
     else:
         new_pop = None
 
-    org_fits = fxn(master_pop, weights)
-    new_fits = fxn(new_pop, weights)
+    org_fits = toolbox.evaluate_population(master_pop, weights)
+    new_fits = toolbox.evaluate_population(new_pop, weights)
 
     if is_master:
         updated_master_pop = list(master_pop)
