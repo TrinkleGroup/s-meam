@@ -193,6 +193,7 @@ def ga(parameters, template):
         print('min_ni:', min_ni)
 
         scale = np.max(np.abs(np.hstack([min_ni, max_ni])), axis=1)
+        scale[scale < 1] = 1 # don't rescale if already good
 
         master_pop[:, potential_template.rho_indices] /= \
             scale[:, np.newaxis]
@@ -200,20 +201,17 @@ def ga(parameters, template):
         master_pop[:, potential_template.g_indices] /= \
             scale[:, np.newaxis]
 
-        # potential_template.scales[27:45] /= scale[0]
-        # potential_template.scales[81:] /= scale[0]
-
         subset = master_pop[:10]
     else:
         subset = None
 
-    # subset = local_minimization(
-    #     subset, toolbox, weights, world_comm, is_master,
-    #     nsteps=parameters['INIT_NSTEPS']
-    # )
-    # 
-    # if is_master:
-    #     master_pop[:10] = subset
+    subset = local_minimization(
+        subset, toolbox, weights, world_comm, is_master,
+        nsteps=parameters['INIT_NSTEPS']
+    )
+
+    if is_master:
+        master_pop[:10] = subset
 
     new_fit, max_ni, min_ni, avg_ni = toolbox.evaluate_population(master_pop,
             weights, return_ni=True)
@@ -328,18 +326,15 @@ def ga(parameters, template):
                                 axis=1
                             )
 
+                            scale[scale < 1] = 1 # don't rescale if already good
+
                             master_pop = np.array(master_pop)
-                            print('master_pop.shape', master_pop.shape)
-                            print('scale.shape', scale.shape)
 
                             master_pop[:, potential_template.rho_indices] /= \
                                 scale[:, np.newaxis]
 
                             master_pop[:, potential_template.g_indices] /= \
                                 scale[:, np.newaxis]
-
-                            # potential_template.scales[27:45] /= scale[0]
-                            # potential_template.scales[81:] /= scale[0]
 
                         else:
                             new_u_domains = None
