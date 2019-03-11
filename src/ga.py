@@ -636,6 +636,11 @@ def checkpoint(population, logbook, trace_update, i, parameters):
 
     np.savetxt(format_str.format(i), population)
 
+    pickle.dump(
+        logbook,
+        open(os.path.join(parameters['SAVE_DIRECTORY'], 'log.pkl'), 'wb')
+    )
+
     f = open(parameters['TRACE_FILE_NAME'], 'ab')
     np.savetxt(f, [np.array(trace_update)])
     f.close()

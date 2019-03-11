@@ -16,6 +16,7 @@ import random
 
 # TODO: print settings before running anything
 # TODO: have a script that checks the validity of an input script befor qsub
+# TODO: store directories with SAVE_DIRECTORY prepended to avoid doing later
 
 def main(config_name, template_file_name):
     world_comm = MPI.COMM_WORLD
