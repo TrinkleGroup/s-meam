@@ -187,7 +187,7 @@ def main(config_name, template_file_name):
     int_params = [
         'NUM_STRUCTS', 'POP_SIZE', 'GA_NSTEPS', 'LMIN_FREQ',
         'INIT_NSTEPS', 'LMIN_NSTEPS', 'FINAL_NSTEPS', 'CHECKPOINT_FREQ',
-        'SA_NSTEPS', 'RESCALE_FREQ', 'RESCALE_STOP_STEP'
+        'SA_NSTEPS', 'RESCALE_FREQ', 'RESCALE_STOP_STEP', 'U_NSTEPS'
     ]
 
     float_params = [

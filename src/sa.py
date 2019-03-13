@@ -166,10 +166,35 @@ def sa(parameters, template):
         chain = None
         trace = None
 
-    current_cost = cost_fxn(current, weights)
+    current_cost, max_ni, min_ni, avg_ni = cost_fxn(
+        current, weights,
+        return_ni=True
+    )
 
     if is_master:
         current_cost = np.sum(current_cost, axis=1)
+
+        print('max_ni:', max_ni)
+        print('min_ni:', min_ni)
+
+        scale = np.max(np.abs(np.hstack([min_ni, max_ni])), axis=1)
+
+        current[:, potential_template.rho_indices] /= \
+            scale[:, np.newaxis]
+
+        current[:, potential_template.g_indices] /= \
+            scale[:, np.newaxis]
+
+    current_cost, max_ni, min_ni, avg_ni = cost_fxn(
+        current, weights,
+        return_ni=True
+    )
+
+    if is_master:
+        current_cost = np.sum(current_cost, axis=1)
+
+        print('max_ni:', max_ni)
+        print('min_ni:', min_ni)
 
         trace = np.zeros((parameters['SA_NSTEPS'] + 1, parameters['POP_SIZE']))
 
@@ -223,14 +248,19 @@ def sa(parameters, template):
                         tmp_min_ni = min_ni[np.argsort(current_cost)]
                         tmp_max_ni = max_ni[np.argsort(current_cost)]
 
-                        # new_u_domains = [(tmp_min_ni[i], tmp_max_ni[i]) for
-                        #         i in range(2)]
-                        new_u_domains = [(tmp_min_ni[0], tmp_max_ni[0])]
-
-                        print(
-                            "Rescaling ... new ranges =", new_u_domains,
-                            flush=True
+                        scale = np.max(
+                            np.abs(np.hstack([tmp_min_ni, tmp_max_ni])),
+                            axis=1
                         )
+
+                        current = np.array(current)
+
+                        current[:, potential_template.rho_indices] /= \
+                            scale[:, np.newaxis]
+
+                        current[:, potential_template.g_indices] /= \
+                            scale[:, np.newaxis]
+
                     else:
                         new_u_domains = None
 
@@ -358,7 +388,7 @@ def prepare_save_directory(parameters):
 
     os.mkdir(parameters['SAVE_DIRECTORY'])
 
-def local_minimization(master_pop, fxn, grad, weights, world_comm, is_master, nsteps=20):
+def local_minimization(current, fxn, grad, weights, world_comm, is_master, nsteps=20):
     pad = 100
 
     def lm_fxn_wrap(raveled_pop, original_shape):
@@ -420,36 +450,36 @@ def local_minimization(master_pop, fxn, grad, weights, world_comm, is_master, ns
 
     # lm_grad_wrap = '2-point'
 
-    master_pop = world_comm.bcast(master_pop, root=0)
-    master_pop = np.array(master_pop)
+    current = world_comm.bcast(current, root=0)
+    current = np.array(current)
 
     opt_results = least_squares(
-        lm_fxn_wrap, master_pop.ravel(), lm_grad_wrap,
-        method='lm', max_nfev=nsteps, args=(master_pop.shape,)
+        lm_fxn_wrap, current.ravel(), lm_grad_wrap,
+        method='lm', max_nfev=nsteps, args=(current.shape,)
     )
 
     if is_master:
-        new_pop = opt_results['x'].reshape(master_pop.shape)
+        new_pop = opt_results['x'].reshape(current.shape)
     else:
         new_pop = None
 
-    org_fits = fxn(master_pop, weights)
+    org_fits = fxn(current, weights)
     new_fits = fxn(new_pop, weights)
 
     if is_master:
-        updated_master_pop = list(master_pop)
+        updated_current = list(current)
 
         for i, ind in enumerate(new_pop):
             if np.sum(new_fits[i]) < np.sum(org_fits[i]):
-                updated_master_pop[i] = new_pop[i]
+                updated_current[i] = new_pop[i]
             else:
-                updated_master_pop[i] = updated_master_pop[i]
+                updated_current[i] = updated_current[i]
 
-        master_pop = np.array(updated_master_pop)
+        current = np.array(updated_current)
 
-    master_pop = world_comm.bcast(master_pop, root=0)
+    current = world_comm.bcast(current, root=0)
 
-    return master_pop
+    return current
 
 def checkpoint(population, i, parameters):
     """Saves information to files for later use"""
