@@ -454,6 +454,8 @@ def rescale_ni(pots, min_ni, max_ni, potential_template):
         updated_pots: (NxP array) the potentials with rescaled rho/f/g splines
     """
 
+    pots = np.array(pots)
+
     scale = np.max(np.abs(np.hstack([min_ni, max_ni])), axis=1)
 
     scale[scale < 1] = 1  # don't rescale if already in [-1, 1]
@@ -490,8 +492,6 @@ def shift_u(min_ni, max_ni):
         (min_ni[0][i] / scale[0], max_ni[0][i] / scale[0]) for
         i in range(2)]
 
-    print("before squeeze:", new_u_domains)
-
     for k, tup in enumerate(new_u_domains):
         tmp_tup = []
 
@@ -507,16 +507,127 @@ def shift_u(min_ni, max_ni):
 
         new_u_domains[k] = tuple(tmp_tup)
 
-    print("after squeeze:", new_u_domains)
-
     return new_u_domains
 
 
-def mcmc():
+def mcmc(max_nsteps, population, weights, cost_fxn, potential_template, T,
+         move_prob, move_scale, active_tags, is_master, start_step=0):
     """
     Runs an MCMC optimization on the given subset of the parameter vectors.
+    Stopping criterion is either 20 steps without any improvement,
+    or max_nsteps reached.
+
+    Args:
+        max_nsteps: (int) maximum number of steps to run
+        population: (np.arr) 2d array where each row is a potential
+        weights: (np.arr) weights for each term in cost function
+        cost_fxn: (callable) cost funciton
+        potential_template: (Template) template containing potential information
+        T: (float) normalization factor
+        move_prob: (float) probability that any given knot will be changed
+        move_scale: (float) stdev for normal dist for each knot
+        active_tags: (list) integer tags specifying active splines
+        is_master: (bool) used for MPI communication
+        start_step: (int) current step number; used for outputting
 
     Returns:
         final: (np.arr) the final parameter vectors
 
     """
+
+    if is_master:
+        population = np.array(population)
+
+        active_indices = []
+
+        for tag in active_tags:
+            active_indices.append(
+                np.where(potential_template.spline_tags == tag)[0]
+            )
+
+        active_indices = np.concatenate(active_indices)
+
+        # new_mask = potential_template.active_mask.copy()
+        # new_mask[:] = 0
+        # new_mask[active_indices] = 1
+
+        current = population[:, active_indices]
+
+        tmp = population.copy()
+        tmp_trial = tmp.copy()
+
+        num_without_improvement = 0
+
+        current_best = np.infty
+
+    else:
+        current = None
+        tmp = None
+        tmp_trial = None
+
+    for step_num in range(max_nsteps):
+
+        if is_master:
+            tmp[:, active_indices] = current
+
+            # choose a random collection of knots from each potential
+            mask = np.random.choice(
+                [True, False], size=(current.shape[0], current.shape[1]),
+                p=[move_prob, 1 - move_prob]
+            )
+
+            trial = current.copy()
+
+            # TODO: this should take in the std for each knot point
+            trial[mask] = trial[mask] + np.random.normal(scale=move_scale)
+
+            tmp_trial[:, active_indices] = trial
+
+        else:
+            trial = None
+
+        current_cost = cost_fxn(tmp, weights)
+        trial_cost = cost_fxn(tmp_trial, weights)
+
+        if is_master:
+            prev_best = current_best
+
+            current_cost = np.sum(current_cost, axis=1)
+            trial_cost = np.sum(trial_cost, axis=1)
+
+            ratio = np.exp((current_cost - trial_cost) / T)
+            where_auto_accept = np.where(ratio >= 1)[0]
+
+            where_cond_accept = np.where(
+                np.random.random(ratio.shape[0]) < ratio
+            )[0]
+
+            current[where_auto_accept] = trial[where_auto_accept]
+            current_cost[where_auto_accept] = trial_cost[where_auto_accept]
+
+            current[where_cond_accept] = trial[where_cond_accept]
+            current_cost[where_cond_accept] = trial_cost[where_cond_accept]
+
+            current_best = current_cost[np.argmin(current_cost)]
+
+            print(
+                start_step + step_num, "{:.3f}".format(T),
+                np.min(current_cost), np.average(current_cost),
+                active_tags,
+                # num_accepted / (step_num + 1) / parameters['POP_SIZE'],
+                flush=True
+            )
+
+            if current_best == prev_best:
+                num_without_improvement += 1
+
+                if num_without_improvement == 20:
+                    break
+
+            else:
+                num_without_improvement = 0
+
+    if is_master:
+        population[:, active_indices] = current
+
+    return population

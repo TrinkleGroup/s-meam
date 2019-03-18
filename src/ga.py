@@ -362,86 +362,92 @@ def ga(parameters, template):
 
                     print("Optimizing mini MCMC on U only ... ")
 
-                    # TODO: compute this in runner.py
-                    u_indices = np.where(
-                        np.logical_or(
-                            potential_template.spline_tags == 5,
-                            potential_template.spline_tags == 6,
-                        )
-                    )[0]
+                master_pop = partools.mcmc(
+                    parameters['U_NSTEPS'], master_pop, weights,
+                    toolbox.evaluate_population, potential_template, 1,
+                    parameters['SA_MOVE_PROB'], parameters['SA_MOVE_SCALE'],
+                    [5, 6], is_master
+                )
 
-                    tmp = np.array(master_pop)
-                    current = tmp[:, u_indices]
-
-                    tmp_trial = tmp.copy()
-                else:
-                    tmp = None
-                    tmp_trial = None
-
-                # adjust U after the rescale
-                for u_step in range(parameters['U_NSTEPS']):
-                    if is_master:
-                        tmp[:, u_indices] = current
-
-                    current_cost = toolbox.evaluate_population(
-                        tmp, weights
-                    )
-
-                    if (u_step == 0) or (u_step == parameters['U_NSTEPS'] - 1):
-                        if is_master:
-                            print(np.sum(current_cost, axis=1))
-
-                    if is_master:
-                        current_cost = np.sum(current_cost, axis=1)
-
-                        # choose a random collection of knots from each potential
-                        mask = np.random.choice(
-                            [True, False],
-                            size=(current.shape[0], current.shape[1]),
-                            p=[
-                                parameters['SA_MOVE_PROB'],
-                                1 - parameters['SA_MOVE_PROB']
-                            ]
-                        )
-
-                        trial_position = current.copy()
-                        trial_position[mask] = trial_position[mask] + \
-                                               np.random.normal(
-                                                   scale=parameters[
-                                                       'SA_MOVE_SCALE']
-                                               )
-
-                        tmp_trial[:, u_indices] = trial_position
-                    else:
-                        trial_position = None
-
-                    trial_cost = toolbox.evaluate_population(
-                        tmp_trial, weights
-                    )
-
-                    if is_master:
-                        trial_cost = np.sum(trial_cost, axis=1)
-                        T = 1
-
-                        ratio = np.exp((current_cost - trial_cost) / T)
-                        where_auto_accept = np.where(ratio >= 1)[0]
-
-                        where_cond_accept = np.where(
-                            np.random.random(ratio.shape[0]) < ratio
-                        )[0]
-
-                        current[where_auto_accept] = trial_position[
-                            where_auto_accept]
-                        current_cost[where_auto_accept] = trial_cost[
-                            where_auto_accept]
-
-                        current[where_cond_accept] = trial_position[
-                            where_cond_accept]
-                        current_cost[where_cond_accept] = trial_cost[
-                            where_cond_accept]
-
-                if is_master:
-                    master_pop[:, u_indices] = current
+                #     u_indices = np.where(
+                #         np.logical_or(
+                #             potential_template.spline_tags == 5,
+                #             potential_template.spline_tags == 6,
+                #         )
+                #     )[0]
+                #
+                #     tmp = np.array(master_pop)
+                #     current = tmp[:, u_indices]
+                #
+                #     tmp_trial = tmp.copy()
+                # else:
+                #     tmp = None
+                #     tmp_trial = None
+                #
+                # # adjust U after the rescale
+                # for u_step in range(parameters['U_NSTEPS']):
+                #     if is_master:
+                #         tmp[:, u_indices] = current
+                #
+                #     current_cost = toolbox.evaluate_population(
+                #         tmp, weights
+                #     )
+                #
+                #     if (u_step == 0) or (u_step == parameters['U_NSTEPS'] - 1):
+                #         if is_master:
+                #             print(np.sum(current_cost, axis=1))
+                #
+                #     if is_master:
+                #         current_cost = np.sum(current_cost, axis=1)
+                #
+                #         # choose a random collection of knots from each potential
+                #         mask = np.random.choice(
+                #             [True, False],
+                #             size=(current.shape[0], current.shape[1]),
+                #             p=[
+                #                 parameters['SA_MOVE_PROB'],
+                #                 1 - parameters['SA_MOVE_PROB']
+                #             ]
+                #         )
+                #
+                #         trial_position = current.copy()
+                #         trial_position[mask] = trial_position[mask] + \
+                #                                np.random.normal(
+                #                                    scale=parameters[
+                #                                        'SA_MOVE_SCALE']
+                #                                )
+                #
+                #         tmp_trial[:, u_indices] = trial_position
+                #     else:
+                #         trial_position = None
+                #
+                #     trial_cost = toolbox.evaluate_population(
+                #         tmp_trial, weights
+                #     )
+                #
+                #     if is_master:
+                #         trial_cost = np.sum(trial_cost, axis=1)
+                #         T = 1
+                #
+                #         ratio = np.exp((current_cost - trial_cost) / T)
+                #         where_auto_accept = np.where(ratio >= 1)[0]
+                #
+                #         where_cond_accept = np.where(
+                #             np.random.random(ratio.shape[0]) < ratio
+                #         )[0]
+                #
+                #         current[where_auto_accept] = trial_position[
+                #             where_auto_accept]
+                #         current_cost[where_auto_accept] = trial_cost[
+                #             where_auto_accept]
+                #
+                #         current[where_cond_accept] = trial_position[
+                #             where_cond_accept]
+                #         current_cost[where_cond_accept] = trial_cost[
+                #             where_cond_accept]
+                #
+                # if is_master:
+                #     master_pop[:, u_indices] = current
 
             fitnesses = toolbox.evaluate_population(master_pop, weights)
 
