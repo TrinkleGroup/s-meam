@@ -490,18 +490,24 @@ def shift_u(min_ni, max_ni):
         (min_ni[0][i] / scale[0], max_ni[0][i] / scale[0]) for
         i in range(2)]
 
+    print("before squeeze:", new_u_domains)
+
     for k, tup in enumerate(new_u_domains):
         tmp_tup = []
+
+        size = abs(tup[1] - tup[0])
 
         for kk, lim in enumerate(tup):
             if kk == 0:  # lower bound
                 # add some to the lower bound
-                tmp_tup.append(lim + 0.2 * abs(lim))
+                tmp_tup.append(lim + 0.1*size)
             elif kk == 1:
                 # subtract some from the upper bound
-                tmp_tup.append(lim - 0.2 * lim)
+                tmp_tup.append(lim - 0.1*size)
 
         new_u_domains[k] = tuple(tmp_tup)
+
+    print("after squeeze:", new_u_domains)
 
     return new_u_domains
 
