@@ -165,14 +165,8 @@ def ga(parameters, template):
 
     # Create the original population
     if is_master:
-        master_pop = np.tile(
-            potential_template.pvec, (parameters['POP_SIZE'], 1)
-        )
-
-        print("master_pop.shape", master_pop.shape)
-
-        master_pop = master_pop[:, np.where(potential_template.active_mask)[0]]
-
+        master_pop = toolbox.population(n=parameters['POP_SIZE'])
+        master_pop = np.array(master_pop)
         print("master_pop.shape", master_pop.shape)
 
         weights = np.ones(len(master_database.entries))
@@ -192,6 +186,9 @@ def ga(parameters, template):
         print('max_ni:', max_ni)
         print('min_ni:', min_ni)
 
+        tmp_min_ni = min_ni[np.argsort(init_fit)]
+        tmp_max_ni = max_ni[np.argsort(init_fit)]
+
         scale = np.max(np.abs(np.hstack([min_ni, max_ni])), axis=1)
         scale[scale < 1] = 1 # don't rescale if already good
 
@@ -201,14 +198,37 @@ def ga(parameters, template):
         master_pop[:, potential_template.g_indices] /= \
             scale[:, np.newaxis]
 
+        new_u_domains = [(tmp_min_ni[0][i] / scale[0], tmp_max_ni[0][i] / scale[0]) for
+                i in range(2)]
+
+        for k, tup in enumerate(new_u_domains):
+            tmp_tup = []
+
+            for kk, lim in enumerate(tup):
+                if kk == 0: # lower bound
+                    # add some to the lower bound
+                    tmp_tup.append(lim + 0.2*abs(lim))
+                elif kk == 1:
+                    # subtract some from the upper bound
+                    tmp_tup.append(lim - 0.2*lim)
+
+            new_u_domains[k] = tuple(tmp_tup)
+
+        print("new_u_domains:", new_u_domains)
+
         subset = master_pop[:10]
     else:
         subset = None
+        new_u_domains = None
 
-    subset = local_minimization(
-        subset, toolbox, weights, world_comm, is_master,
-        nsteps=parameters['INIT_NSTEPS']
-    )
+    if is_manager:
+        new_u_domains = manager_comm.bcast(new_u_domains, root=0)
+        potential_template.u_ranges = new_u_domains
+
+    # subset = local_minimization(
+    #     subset, toolbox, weights, world_comm, is_master,
+    #     nsteps=parameters['INIT_NSTEPS']
+    # )
 
     if is_master:
         master_pop[:10] = subset
@@ -307,9 +327,15 @@ def ga(parameters, template):
                     np.savetxt(
                         f,
                         np.atleast_2d(
-                            [tmp_min_ni[0][0], tmp_max_ni[0][0],
-                             tmp_min_ni[0][1], tmp_max_ni[0][1],
-                             tmp_avg_ni[0][0], tmp_avg_ni[0][1]]
+                            [
+                                tmp_min_ni[0][0], tmp_max_ni[0][0],
+                                tmp_min_ni[0][1], tmp_max_ni[0][1],
+                                tmp_avg_ni[0][0], tmp_avg_ni[0][1],
+                                potential_template.u_ranges[0][0],
+                                potential_template.u_ranges[0][1],
+                                potential_template.u_ranges[1][0],
+                                potential_template.u_ranges[1][1],
+                             ]
                             )
                     )
 
@@ -336,13 +362,31 @@ def ga(parameters, template):
                             master_pop[:, potential_template.g_indices] /= \
                                 scale[:, np.newaxis]
 
+                            new_u_domains = [(tmp_min_ni[0][i] / scale[0], tmp_max_ni[0][i] / scale[0]) for
+                                    i in range(2)]
+
+                            for k, tup in enumerate(new_u_domains):
+                                tmp_tup = []
+
+                                for kk, lim in enumerate(tup):
+                                    if kk == 0: # lower bound
+                                        # add some to the lower bound
+                                        tmp_tup.append(lim + 0.2*abs(lim))
+                                    elif kk == 1:
+                                        # subtract some from the upper bound
+                                        tmp_tup.append(lim - 0.2*lim)
+
+                                new_u_domains[k] = tuple(tmp_tup)
+
+                            print("new_u_domains:", new_u_domains)
+
+
                         else:
                             new_u_domains = None
 
                         if is_manager:
-                            potential_template = manager_comm.bcast(
-                                potential_template, root=0
-                            )
+                            new_u_domains = manager_comm.bcast(new_u_domains, root=0)
+                            potential_template.u_ranges = new_u_domains
 
                         fitnesses, max_ni, min_ni, avg_ni = toolbox.evaluate_population(
                             master_pop, weights, return_ni=True
@@ -351,8 +395,6 @@ def ga(parameters, template):
                         if is_master:
                             print(min_ni)
                             print(max_ni)
-
-                            # TODO: don't hard-code U spline tag indices
 
                             print("Optimizing mini MCMC on U only ... ")
                             u_indices = np.where(
@@ -379,9 +421,12 @@ def ga(parameters, template):
                                 tmp, weights
                             )
 
+                            if (u_step == 0) or (u_step == parameters['U_NSTEPS'] - 1):
+                                if is_master:
+                                    print(np.sum(current_cost, axis=1))
+
                             if is_master:
                                 current_cost = np.sum(current_cost, axis=1)
-                                print(current_cost)
 
                                 # choose a random collection of knots from each potential
                                 mask = np.random.choice(
@@ -524,7 +569,7 @@ def build_ga_toolbox(potential_template):
 
     toolbox.register(
         "mutate", tools.mutGaussian, mu=0,
-        sigma=(0.1*potential_template.scales).tolist(),
+        sigma=(0.05*potential_template.scales).tolist(),
         indpb=0.1
     )
     # toolbox.register("mate", tools.cxBlend, alpha=MATING_ALPHA)

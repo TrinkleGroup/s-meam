@@ -60,16 +60,11 @@ def build_evaluation_functions(
                 ni_var = np.min(np.dstack(mgr_ni_var), axis=2).T
 
                 fitnesses = np.zeros(
-                    (len(pop), len(master_database.entries) + 2)
+                    (len(pop), len(master_database.entries))
                 )
-
-                lambda_mean = 10
 
                 # TODO: add a trick to make var only decay to 1, not smaller
                 # maybe make the error U[] - var?
-
-                fitnesses[:, -1] = lambda_mean*np.sum(np.abs(avg_ni), axis=1)
-                fitnesses[:, -2] = lambda_mean*np.sum(1 - ni_var, axis=1)
 
                 for fit_id, (entry, weight) in enumerate(
                         zip(master_database.entries, weights)):
@@ -143,7 +138,7 @@ def build_evaluation_functions(
 
                 gradient = np.zeros((
                     len(pop), potential_template.pvec_len,
-                    len(master_database.entries) + 2
+                    len(master_database.entries)
                 ))
 
 
