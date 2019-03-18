@@ -10,6 +10,7 @@ import sys
 import numpy as np
 import random
 import shutil
+
 np.set_printoptions(precision=8, suppress=True)
 
 import pickle
@@ -38,6 +39,7 @@ from src.database import Database
 from src.potential_templates import Template
 from src.node import Node
 from src.manager import Manager
+
 
 ################################################################################
 
@@ -74,7 +76,7 @@ def ga(parameters, template):
 
         # all_struct_names  , structures = zip(*master_database.structures.items())
         all_struct_names = [s.encode('utf-8').strip().decode('utf-8') for s in
-                master_database.unique_structs]
+                            master_database.unique_structs]
 
         struct_natoms = master_database.unique_natoms
         num_structs = len(all_struct_names)
@@ -177,42 +179,25 @@ def ga(parameters, template):
     master_pop = np.array(master_pop)
     weights = world_comm.bcast(weights, root=0)
 
-    init_fit, max_ni, min_ni, avg_ni = toolbox.evaluate_population(master_pop,
-            weights, return_ni=True)
+    init_fit, max_ni, min_ni, avg_ni = toolbox.evaluate_population(
+        master_pop, weights, return_ni=True
+    )
 
     if is_master:
         init_fit = np.sum(init_fit, axis=1)
 
-        print('max_ni:', max_ni)
-        print('min_ni:', min_ni)
-
         tmp_min_ni = min_ni[np.argsort(init_fit)]
         tmp_max_ni = max_ni[np.argsort(init_fit)]
 
-        scale = np.max(np.abs(np.hstack([min_ni, max_ni])), axis=1)
-        scale[scale < 1] = 1 # don't rescale if already good
+        print('max_ni:', max_ni)
+        print('min_ni:', min_ni)
 
-        master_pop[:, potential_template.rho_indices] /= \
-            scale[:, np.newaxis]
+        master_pop = partools.rescale_ni(
+            master_pop, tmp_min_ni, tmp_max_ni,
+            potential_template
+        )
 
-        master_pop[:, potential_template.g_indices] /= \
-            scale[:, np.newaxis]
-
-        new_u_domains = [(tmp_min_ni[0][i] / scale[0], tmp_max_ni[0][i] / scale[0]) for
-                i in range(2)]
-
-        for k, tup in enumerate(new_u_domains):
-            tmp_tup = []
-
-            for kk, lim in enumerate(tup):
-                if kk == 0: # lower bound
-                    # add some to the lower bound
-                    tmp_tup.append(lim + 0.2*abs(lim))
-                elif kk == 1:
-                    # subtract some from the upper bound
-                    tmp_tup.append(lim - 0.2*lim)
-
-            new_u_domains[k] = tuple(tmp_tup)
+        new_u_domains = partools.shift_u(tmp_min_ni, tmp_max_ni)
 
         print("new_u_domains:", new_u_domains)
 
@@ -234,7 +219,8 @@ def ga(parameters, template):
         master_pop[:10] = subset
 
     new_fit, max_ni, min_ni, avg_ni = toolbox.evaluate_population(master_pop,
-            weights, return_ni=True)
+                                                                  weights,
+                                                                  return_ni=True)
 
     if is_master:
         new_fit = np.sum(new_fit, axis=1)
@@ -294,11 +280,14 @@ def ga(parameters, template):
                     master_pop[pot_num] = kid
 
                 # Mutate randomly everyone except top 10% (or top 2)
-                for mut_ind in master_pop[max(2, int(parameters['POP_SIZE'] / 10)):]:
-                    if np.random.random() >= parameters['MUT_PB']: toolbox.mutate(mut_ind)
+                for mut_ind in master_pop[
+                               max(2, int(parameters['POP_SIZE'] / 10)):]:
+                    if np.random.random() >= parameters[
+                        'MUT_PB']: toolbox.mutate(mut_ind)
 
             # Run local minimization on best individual if desired
-            if parameters['DO_LMIN'] and (generation_number % parameters['LMIN_FREQ'] == 0):
+            if parameters['DO_LMIN'] and (
+                    generation_number % parameters['LMIN_FREQ'] == 0):
                 if is_master:
                     print("Performing local minimization ...", flush=True)
 
@@ -335,142 +324,124 @@ def ga(parameters, template):
                                 potential_template.u_ranges[0][1],
                                 potential_template.u_ranges[1][0],
                                 potential_template.u_ranges[1][1],
-                             ]
-                            )
+                            ]
+                        )
                     )
 
             if parameters['DO_RESCALE'] and \
-                (generation_number < parameters['RESCALE_STOP_STEP']) and \
+                    (generation_number < parameters['RESCALE_STOP_STEP']) and \
                     (generation_number % parameters['RESCALE_FREQ'] == 0):
+                if is_master:
+                    print("Rescaling ...")
+
+                    tmp_min_ni = min_ni[np.argsort(fitnesses)]
+                    tmp_max_ni = max_ni[np.argsort(fitnesses)]
+
+                    master_pop = partools.rescale_ni(
+                        master_pop, tmp_min_ni, tmp_max_ni,
+                        potential_template
+                    )
+
+                    new_u_domains = partools.shift_u(tmp_min_ni, tmp_max_ni)
+
+                    print("new_u_domains:", new_u_domains)
+                else:
+                    new_u_domains = None
+
+                if is_manager:
+                    new_u_domains = manager_comm.bcast(new_u_domains, root=0)
+                    potential_template.u_ranges = new_u_domains
+
+                fitnesses, max_ni, min_ni, avg_ni = toolbox.evaluate_population(
+                    master_pop, weights, return_ni=True
+                )
+
+                if is_master:
+                    print(min_ni)
+                    print(max_ni)
+
+                    print("Optimizing mini MCMC on U only ... ")
+
+                    # TODO: compute this in runner.py
+                    u_indices = np.where(
+                        np.logical_or(
+                            potential_template.spline_tags == 5,
+                            potential_template.spline_tags == 6,
+                        )
+                    )[0]
+
+                    tmp = np.array(master_pop)
+                    current = tmp[:, u_indices]
+
+                    tmp_trial = tmp.copy()
+                else:
+                    tmp = None
+                    tmp_trial = None
+
+                # adjust U after the rescale
+                for u_step in range(parameters['U_NSTEPS']):
+                    if is_master:
+                        tmp[:, u_indices] = current
+
+                    current_cost = toolbox.evaluate_population(
+                        tmp, weights
+                    )
+
+                    if (u_step == 0) or (u_step == parameters['U_NSTEPS'] - 1):
                         if is_master:
-                            print("Rescaling ...")
-                            tmp_min_ni = min_ni[np.argsort(fitnesses)]
-                            tmp_max_ni = max_ni[np.argsort(fitnesses)]
+                            print(np.sum(current_cost, axis=1))
 
-                            scale = np.max(
-                                np.abs(np.hstack([tmp_min_ni, tmp_max_ni])),
-                                axis=1
-                            )
+                    if is_master:
+                        current_cost = np.sum(current_cost, axis=1)
 
-                            scale[scale < 1] = 1 # don't rescale if already good
-
-                            master_pop = np.array(master_pop)
-
-                            master_pop[:, potential_template.rho_indices] /= \
-                                scale[:, np.newaxis]
-
-                            master_pop[:, potential_template.g_indices] /= \
-                                scale[:, np.newaxis]
-
-                            new_u_domains = [(tmp_min_ni[0][i] / scale[0], tmp_max_ni[0][i] / scale[0]) for
-                                    i in range(2)]
-
-                            for k, tup in enumerate(new_u_domains):
-                                tmp_tup = []
-
-                                for kk, lim in enumerate(tup):
-                                    if kk == 0: # lower bound
-                                        # add some to the lower bound
-                                        tmp_tup.append(lim + 0.2*abs(lim))
-                                    elif kk == 1:
-                                        # subtract some from the upper bound
-                                        tmp_tup.append(lim - 0.2*lim)
-
-                                new_u_domains[k] = tuple(tmp_tup)
-
-                            print("new_u_domains:", new_u_domains)
-
-
-                        else:
-                            new_u_domains = None
-
-                        if is_manager:
-                            new_u_domains = manager_comm.bcast(new_u_domains, root=0)
-                            potential_template.u_ranges = new_u_domains
-
-                        fitnesses, max_ni, min_ni, avg_ni = toolbox.evaluate_population(
-                            master_pop, weights, return_ni=True
+                        # choose a random collection of knots from each potential
+                        mask = np.random.choice(
+                            [True, False],
+                            size=(current.shape[0], current.shape[1]),
+                            p=[
+                                parameters['SA_MOVE_PROB'],
+                                1 - parameters['SA_MOVE_PROB']
+                            ]
                         )
 
-                        if is_master:
-                            print(min_ni)
-                            print(max_ni)
+                        trial_position = current.copy()
+                        trial_position[mask] = trial_position[mask] + \
+                                               np.random.normal(
+                                                   scale=parameters[
+                                                       'SA_MOVE_SCALE']
+                                               )
 
-                            print("Optimizing mini MCMC on U only ... ")
-                            u_indices = np.where(
-                                np.logical_or(
-                                    potential_template.spline_tags == 5,
-                                    potential_template.spline_tags == 6,
-                                )
-                            )[0]
+                        tmp_trial[:, u_indices] = trial_position
+                    else:
+                        trial_position = None
 
-                            tmp = np.array(master_pop)
-                            current = tmp[:, u_indices]
+                    trial_cost = toolbox.evaluate_population(
+                        tmp_trial, weights
+                    )
 
-                            tmp_trial = tmp.copy()
-                        else:
-                            tmp = None
-                            tmp_trial = None
+                    if is_master:
+                        trial_cost = np.sum(trial_cost, axis=1)
+                        T = 1
 
-                        # adjust U after the rescale
-                        for u_step in range(parameters['U_NSTEPS']):
-                            if is_master:
-                                tmp[:, u_indices] = current
+                        ratio = np.exp((current_cost - trial_cost) / T)
+                        where_auto_accept = np.where(ratio >= 1)[0]
 
-                            current_cost = toolbox.evaluate_population(
-                                tmp, weights
-                            )
+                        where_cond_accept = np.where(
+                            np.random.random(ratio.shape[0]) < ratio
+                        )[0]
 
-                            if (u_step == 0) or (u_step == parameters['U_NSTEPS'] - 1):
-                                if is_master:
-                                    print(np.sum(current_cost, axis=1))
+                        current[where_auto_accept] = trial_position[
+                            where_auto_accept]
+                        current_cost[where_auto_accept] = trial_cost[
+                            where_auto_accept]
 
-                            if is_master:
-                                current_cost = np.sum(current_cost, axis=1)
+                        current[where_cond_accept] = trial_position[
+                            where_cond_accept]
+                        current_cost[where_cond_accept] = trial_cost[
+                            where_cond_accept]
 
-                                # choose a random collection of knots from each potential
-                                mask = np.random.choice(
-                                    [True, False],
-                                    size = (current.shape[0], current.shape[1]),
-                                    p = [
-                                        parameters['SA_MOVE_PROB'],
-                                        1 - parameters['SA_MOVE_PROB']
-                                    ]
-                                )
-
-                                trial_position = current.copy()
-                                trial_position[mask] = trial_position[mask] + \
-                                    np.random.normal(
-                                        scale=parameters['SA_MOVE_SCALE']
-                                    )
-
-                                tmp_trial[:, u_indices] = trial_position
-                            else:
-                                trial_position = None
-
-                            trial_cost = toolbox.evaluate_population(
-                                tmp_trial, weights
-                            )
-
-                            if is_master:
-                                trial_cost = np.sum(trial_cost, axis=1)
-                                T = 1
-
-                                ratio = np.exp((current_cost - trial_cost) / T)
-                                where_auto_accept = np.where(ratio >= 1)[0]
-
-                                where_cond_accept = np.where(
-                                    np.random.random(ratio.shape[0]) < ratio
-                                )[0]
-
-                                current[where_auto_accept] = trial_position[where_auto_accept]
-                                current_cost[where_auto_accept] = trial_cost[where_auto_accept]
-
-                                current[where_cond_accept] = trial_position[where_cond_accept]
-                                current_cost[where_cond_accept] = trial_cost[where_cond_accept]
-
-                        if is_master:
-                            master_pop[:, u_indices] = current
+                if is_master:
+                    master_pop[:, u_indices] = current
 
             fitnesses = toolbox.evaluate_population(master_pop, weights)
 
@@ -527,11 +498,13 @@ def ga(parameters, template):
             ga_runtime = time.time() - ga_start
 
             checkpoint(master_pop, logbook, master_pop[0], generation_number,
-                    parameters)
+                       parameters)
 
-            print("MASTER: GA runtime = {:.2f} (s)".format(ga_runtime), flush=True)
+            print("MASTER: GA runtime = {:.2f} (s)".format(ga_runtime),
+                  flush=True)
             print("MASTER: Average time per step = {:.2f}"
-                  " (s)".format(ga_runtime / parameters['GA_NSTEPS']), flush=True)
+                  " (s)".format(ga_runtime / parameters['GA_NSTEPS']),
+                  flush=True)
 
             best_guess = master_pop[0]
 
@@ -546,6 +519,7 @@ def ga(parameters, template):
     if is_master:
         final_cost = np.sum(final_cost, axis=1)
         print("Final best cost = ", final_cost[0])
+
 
 ################################################################################
 
@@ -569,13 +543,14 @@ def build_ga_toolbox(potential_template):
 
     toolbox.register(
         "mutate", tools.mutGaussian, mu=0,
-        sigma=(0.05*potential_template.scales).tolist(),
+        sigma=(0.05 * potential_template.scales).tolist(),
         indpb=0.1
     )
     # toolbox.register("mate", tools.cxBlend, alpha=MATING_ALPHA)
     toolbox.register("mate", tools.cxTwoPoint)
 
     return toolbox, creator
+
 
 def plot_best_individual():
     """Builds an animated plot of the trace of the GA. The final frame should be
@@ -666,7 +641,8 @@ def print_statistics(pop, gen_num, stats, logbook):
 
 
 # @profile
-def local_minimization(master_pop, toolbox, weights, world_comm, is_master, nsteps=20):
+def local_minimization(master_pop, toolbox, weights, world_comm, is_master,
+                       nsteps=20):
     pad = 100
 
     def lm_fxn_wrap(raveled_pop, original_shape):
@@ -678,7 +654,7 @@ def local_minimization(master_pop, toolbox, weights, world_comm, is_master, nste
         val = world_comm.bcast(val, root=0)
 
         # pad with zeros since num structs is less than num knots
-        tmp = np.concatenate([val.ravel(), np.zeros(pad*original_shape[0])])
+        tmp = np.concatenate([val.ravel(), np.zeros(pad * original_shape[0])])
 
         return tmp
 
@@ -706,7 +682,7 @@ def local_minimization(master_pop, toolbox, weights, world_comm, is_master, nste
 
         tmp = np.vstack([
             padded_grad,
-            np.zeros((pad*num_pots, num_pots * num_params))]
+            np.zeros((pad * num_pots, num_pots * num_params))]
         )
 
         return tmp
@@ -744,6 +720,7 @@ def local_minimization(master_pop, toolbox, weights, world_comm, is_master, nste
 
     return master_pop
 
+
 def checkpoint(population, logbook, trace_update, i, parameters):
     """Saves information to files for later use"""
 
@@ -752,7 +729,7 @@ def checkpoint(population, logbook, trace_update, i, parameters):
     format_str = os.path.join(
         parameters['SAVE_DIRECTORY'],
         'pop_{0:0' + str(int(digits) + 1) + 'd}.dat'
-        )
+    )
 
     np.savetxt(format_str.format(i), population)
 
@@ -764,6 +741,7 @@ def checkpoint(population, logbook, trace_update, i, parameters):
     f = open(parameters['TRACE_FILE_NAME'], 'ab')
     np.savetxt(f, [np.array(trace_update)])
     f.close()
+
 
 def rescale_rhos(pop, per_u_max_ni, potential_template):
     ntypes = len(potential_template.u_ranges)

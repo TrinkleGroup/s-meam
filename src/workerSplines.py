@@ -629,6 +629,9 @@ class USpline(WorkerSpline):
         uspline_group.attrs['atoms_embedded'] = self.atoms_embedded
 
     def update_knot_positions(self, lhs_knot, rhs_knot, npots):
+
+        # TODO: add a check to only update if noticeably different from current
+
         self.knots = np.linspace(lhs_knot, rhs_knot, self.n_knots)
         self.M = build_M(self.n_knots, self.knots[1] - self.knots[0], self.bc_type)
         self.extrap_dist = (rhs_knot - lhs_knot) / 2

@@ -11,8 +11,8 @@ from src.potential_templates import Template
 np.set_printoptions(linewidth=1000)
 
 import random
-# np.random.seed(42)
-# random.seed(42)
+np.random.seed(42)
+random.seed(42)
 
 # TODO: print settings before running anything
 # TODO: have a script that checks the validity of an input script befor qsub
@@ -103,7 +103,7 @@ def main(config_name, template_file_name):
                     scales[index:index + npts] = rng[1] - rng[0]
                     spline_tags.append(np.ones(npts + 2)*j)
 
-                    index += npts
+                    index += npts + 2
 
                 f.readline()
 
@@ -143,6 +143,13 @@ def main(config_name, template_file_name):
                     spline_tags >= nphi + 3*template_args['ntypes']
                 )[0]
 
+                f_indices = np.where(
+                    np.logical_and(
+                        spline_tags >= nphi + 2*template_args['ntypes'],
+                        spline_tags < nphi + 3*template_args['ntypes']
+                    )
+                )[0]
+
                 print()
                 print("pvec_len:", len(knot_values))
                 print()
@@ -157,6 +164,8 @@ def main(config_name, template_file_name):
                 print("spline_tags:", spline_tags)
                 print()
                 print("rho_indices:", rho_indices)
+                print()
+                print("f_indices:", f_indices)
                 print()
                 print("g_indices:", g_indices)
                 print()
@@ -174,6 +183,7 @@ def main(config_name, template_file_name):
                 template.spline_tags = spline_tags
                 template.rho_indices = rho_indices
                 template.g_indices = g_indices
+                template.f_indices = f_indices
         else:
             kill_and_write("Config file does not exist")
     else:

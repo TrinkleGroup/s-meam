@@ -1,15 +1,13 @@
-import os
 import numpy as np
-import itertools
 from src.database import Database
-import src.meam
-from src.meam import MEAM
 from src.potential_templates import Template
 
+
 def build_evaluation_functions(
-    potential_template, master_database, all_struct_names, manager, is_master,
-    is_manager, manager_comm, ref_name
-    ):
+        potential_template, master_database, all_struct_names, manager,
+        is_master,
+        is_manager, manager_comm, ref_name
+):
     """Builds the function to evaluate populations. Wrapped here for readability
     of main code."""
 
@@ -29,7 +27,8 @@ def build_evaluation_functions(
         # eng = manager.compute_energy(pop)
         # eng, c_max_ni, c_min_ni = manager.compute_energy(pop)
         # eng, c_ni = manager.compute_energy(pop)
-        eng, c_min_ni, c_max_ni, c_avg_ni, c_ni_var = manager.compute_energy(pop)
+        eng, c_min_ni, c_max_ni, c_avg_ni, c_ni_var = manager.compute_energy(
+            pop)
         fcs = manager.compute_forces(pop)
 
         fitnesses = 0
@@ -46,7 +45,7 @@ def build_evaluation_functions(
             mgr_min_ni = manager_comm.gather(c_min_ni, root=0)
             mgr_max_ni = manager_comm.gather(c_max_ni, root=0)
             mgr_avg_ni = manager_comm.gather(c_avg_ni, root=0)
-            mgr_ni_var = manager_comm.gather(c_ni_var, root=0)
+            # mgr_ni_var = manager_comm.gather(c_ni_var, root=0)
 
             if is_master:
                 # note: can't stack mgr_fcs b/c different dimensions per struct
@@ -57,7 +56,7 @@ def build_evaluation_functions(
                 min_ni = np.min(np.dstack(mgr_min_ni), axis=2).T
                 max_ni = np.max(np.dstack(mgr_max_ni), axis=2).T
                 avg_ni = np.average(np.dstack(mgr_avg_ni), axis=2).T
-                ni_var = np.min(np.dstack(mgr_ni_var), axis=2).T
+                # ni_var = np.min(np.dstack(mgr_ni_var), axis=2).T
 
                 fitnesses = np.zeros(
                     (len(pop), len(master_database.entries))
@@ -80,7 +79,8 @@ def build_evaluation_functions(
                         diff = w_fcs - true_fcs
 
                         # zero out interactions outside of range of O atom
-                        epsilon = np.linalg.norm(diff, 'fro', axis=(1, 2)) / np.sqrt(10)
+                        epsilon = np.linalg.norm(diff, 'fro',
+                                                 axis=(1, 2)) / np.sqrt(10)
                         fitnesses[:, fit_id] = epsilon * epsilon * weight
 
                     elif entry.type == 'energy':
@@ -104,7 +104,6 @@ def build_evaluation_functions(
                     print(np.sum(fitnesses, axis=1))
             return fitnesses
 
-
     def grad_wrap(master_pop, weights):
         """Evalautes the gradient for all potentials in the population"""
 
@@ -120,7 +119,6 @@ def build_evaluation_functions(
 
         eng_grad = manager.compute_energy_grad(pop)
         fcs_grad = manager.compute_forces_grad(pop)
-
 
         gradient = 0
 
@@ -140,7 +138,6 @@ def build_evaluation_functions(
                     len(pop), potential_template.pvec_len,
                     len(master_database.entries)
                 ))
-
 
                 for fit_id, (entry, weight) in enumerate(
                         zip(master_database.entries, weights)):
@@ -178,9 +175,8 @@ def build_evaluation_functions(
                         s_grad = mgr_eng_grad[s_id]
                         r_grad = mgr_eng_grad[r_id]
 
-                        gradient[:, :, fit_id] += (
-                                eng_err[:, np.newaxis] * (s_grad - r_grad) * 2
-                        ) * weight
+                        gradient[:, :, fit_id] += \
+                            (eng_err[:, np.newaxis]*(s_grad - r_grad)*2)*weight
 
                 indices = np.where(potential_template.active_mask)[0]
                 gradient = gradient[:, indices, :].swapaxes(1, 2)
@@ -200,9 +196,10 @@ def compute_relative_weights(database):
 
     work_weights = np.array(work_weights)
     work_weights = work_weights / np.min(work_weights)
-    work_weights = work_weights*work_weights # cost assumed to scale as N^2
+    work_weights = work_weights * work_weights  # cost assumed to scale as N^2
 
     return work_weights, name_list
+
 
 def group_database_subsets(database, num_managers):
     """Groups workers based on evaluation time to help with load balancing.
@@ -221,14 +218,15 @@ def group_database_subsets(database, num_managers):
 
     work_weights, name_list = compute_relative_weights(database)
 
-    work_per_proc = np.sum(work_weights)# / num_managers
+    work_per_proc = np.sum(work_weights)  # / num_managers
 
     # work_weights = work_weights.tolist()
 
     # Splitting code taken from SO: https://stackoverflow.com/questions/33555496/split-array-into-equally-weighted-chunks-based-on-order
     cum_arr = np.cumsum(work_weights) / np.sum(work_weights)
 
-    idx = np.searchsorted(cum_arr, np.linspace(0, 1, num_managers, endpoint=False)[1:])
+    idx = np.searchsorted(cum_arr,
+                          np.linspace(0, 1, num_managers, endpoint=False)[1:])
     name_chunks = np.split(unassigned_structs, idx)
     weight_chunks = np.split(work_weights, idx)
 
@@ -241,7 +239,7 @@ def group_database_subsets(database, num_managers):
         names = []
 
         # while unassigned_structs and (cumulated_work < work_per_proc):
-        for n,w in zip(name_chunk, work_chunk):
+        for n, w in zip(name_chunk, work_chunk):
             names.append(n)
             cumulated_work += w
 
@@ -286,7 +284,7 @@ def compute_procs_per_subset(struct_natoms, total_num_procs, method='natoms'):
 
     # Error checking on  desired method
     if method == 'natoms':
-        weights = [n*n for n in struct_natoms]
+        weights = [n * n for n in struct_natoms]
         weights /= np.sum(weights)
     elif method == 'time':
         raise NotImplementedError("Oops ...")
@@ -316,7 +314,7 @@ def compute_procs_per_subset(struct_natoms, total_num_procs, method='natoms'):
         while np.sum(num_procs_needed_per_struct) != total_num_procs:
             max_idx = np.argmax(num_procs_needed_per_struct)
             num_procs_needed_per_struct[max_idx] -= 1
-    else: # not enough procs assigned
+    else:  # not enough procs assigned
         while np.sum(num_procs_needed_per_struct) != total_num_procs:
             min_idx = np.argmin(num_procs_needed_per_struct)
             num_procs_needed_per_struct[min_idx] += 1
@@ -327,63 +325,76 @@ def compute_procs_per_subset(struct_natoms, total_num_procs, method='natoms'):
 
     return np.split(np.arange(total_num_procs), split_indices)[:-1]
 
+# def initialize_potential_template(load_path):
+#     # TODO: BW settings
+#     inner_cutoff = 1.5
+#     outer_cutoff = 5.5
+#
+#     points_per_spline = 7
+#
+#     x_pvec = np.concatenate([
+#         np.tile(np.linspace(inner_cutoff, outer_cutoff, points_per_spline), 5),
+#         np.tile(np.linspace(-1, 1, points_per_spline), 2),
+#         np.tile(np.linspace(inner_cutoff, outer_cutoff, points_per_spline), 2),
+#         np.tile(np.linspace(-1, 1, points_per_spline), 3)]
+#     )
+#
+#     x_indices = range(0, points_per_spline * 12, points_per_spline)
+#     types = ["Ti", "Mo"]
+#
+#     potential_template = Template(
+#         pvec_len=108,
+#         u_ranges=[(-1, 1), (-1, 1)],
+#         # Ranges taken from Lou Ti-Mo (phis) or from old TiO (other)
+#         spline_ranges=[(-1, 1), (-1, 1), (-1, 1), (-5, 5), (-5, 5),
+#                        (-1, 1), (-1, 1), (-2.5, 2.5), (-2.5, 2.5),
+#                        (-2.5, 2.5), (-2.5, 2.5), (-2.5, 2.5)],
+#         spline_indices=[(0, 9), (9, 18), (18, 27), (27, 36), (36, 45),
+#                         (45, 54), (54, 63), (63, 72), (72, 81),
+#                         (81, 90), (90, 99), (99, 108)]
+#     )
+#
+#     mask = np.ones(potential_template.pvec_len)
+#
+#     potential_template.pvec[6] = 0
+#     mask[6] = 0  # rhs value phi_Ti
+#     potential_template.pvec[8] = 0
+#     mask[8] = 0  # rhs deriv phi_Ti
+#
+#     potential_template.pvec[15] = 0
+#     mask[15] = 0  # rhs value phi_TiMo
+#     potential_template.pvec[17] = 0
+#     mask[17] = 0  # rhs deriv phi_TiMo
+#
+#     potential_template.pvec[24] = 0
+#     mask[24] = 0  # rhs value phi_Mo
+#     potential_template.pvec[26] = 0
+#     mask[26] = 0  # rhs deriv phi_Mo
+#
+#     potential_template.pvec[33] = 0
+#     mask[33] = 0  # rhs value rho_Ti
+#     potential_template.pvec[35] = 0
+#     mask[35] = 0  # rhs deriv rho_Ti
+#
+#     potential_template.pvec[42] = 0
+#     mask[42] = 0  # rhs value rho_Mo
+#     potential_template.pvec[44] = 0
+#     mask[44] = 0  # rhs deriv rho_Mo
+#
+#     potential_template.pvec[69] = 0
+#     mask[69] = 0  # rhs value f_Ti
+#     potential_template.pvec[71] = 0
+#     mask[71] = 0  # rhs deriv f_Ti
+#
+#     potential_template.pvec[78] = 0
+#     mask[78] = 0  # rhs value f_Mo
+#     potential_template.pvec[80] = 0
+#     mask[80] = 0  # rhs deriv f_Mo
+#
+#     potential_template.active_mask = mask
+#
+#     return potential_template
 
-
-def initialize_potential_template(load_path):
-    # TODO: BW settings
-    inner_cutoff = 1.5
-    outer_cutoff = 5.5
-
-    points_per_spline = 7
-
-    x_pvec = np.concatenate([
-        np.tile(np.linspace(inner_cutoff, outer_cutoff, points_per_spline), 5),
-        np.tile(np.linspace(-1, 1, points_per_spline), 2),
-        np.tile(np.linspace(inner_cutoff, outer_cutoff, points_per_spline), 2),
-        np.tile(np.linspace(-1, 1, points_per_spline), 3)]
-    )
-
-    x_indices = range(0, points_per_spline * 12, points_per_spline)
-    types = ["Ti", "Mo"]
-
-    potential_template = Template(
-        pvec_len=108,
-        u_ranges=[(-1, 1), (-1, 1)],
-        # Ranges taken from Lou Ti-Mo (phis) or from old TiO (other)
-        spline_ranges=[(-1, 1), (-1, 1), (-1, 1), (-5, 5), (-5, 5),
-                       (-1, 1), (-1, 1), (-2.5, 2.5), (-2.5, 2.5),
-                       (-2.5, 2.5), (-2.5, 2.5), (-2.5, 2.5)],
-        spline_indices=[(0, 9), (9, 18), (18, 27), (27, 36), (36, 45),
-                        (45, 54), (54, 63), (63, 72), (72, 81),
-                        (81, 90), (90, 99), (99, 108)]
-    )
-
-    mask = np.ones(potential_template.pvec_len)
-
-    potential_template.pvec[6] = 0; mask[6] = 0  # rhs value phi_Ti
-    potential_template.pvec[8] = 0; mask[8] = 0  # rhs deriv phi_Ti
-
-    potential_template.pvec[15] = 0; mask[15] = 0  # rhs value phi_TiMo
-    potential_template.pvec[17] = 0; mask[17] = 0  # rhs deriv phi_TiMo
-
-    potential_template.pvec[24] = 0; mask[24] = 0  # rhs value phi_Mo
-    potential_template.pvec[26] = 0; mask[26] = 0  # rhs deriv phi_Mo
-
-    potential_template.pvec[33] = 0; mask[33] = 0  # rhs value rho_Ti
-    potential_template.pvec[35] = 0; mask[35] = 0  # rhs deriv rho_Ti
-
-    potential_template.pvec[42] = 0; mask[42] = 0  # rhs value rho_Mo
-    potential_template.pvec[44] = 0; mask[44] = 0  # rhs deriv rho_Mo
-
-    potential_template.pvec[69] = 0; mask[69] = 0  # rhs value f_Ti
-    potential_template.pvec[71] = 0; mask[71] = 0  # rhs deriv f_Ti
-
-    potential_template.pvec[78] = 0; mask[78] = 0  # rhs value f_Mo
-    potential_template.pvec[80] = 0; mask[80] = 0  # rhs deriv f_Mo
-
-    potential_template.active_mask = mask
-
-    return potential_template
 
 def build_objective_function(testing_database, error_fxn, is_master):
     """In the first paper, this was the log of the Bayesian estimate of the
@@ -401,12 +412,11 @@ def build_objective_function(testing_database, error_fxn, is_master):
     """
 
     m = 2
-    logistic = lambda x, eps: 1 / (1 + np.exp(-m*(x/eps - 1)))
+    logistic = lambda x, eps: 1 / (1 + np.exp(-m * (x / eps - 1)))
 
     def objective_fxn(mle, weights):
         """Only designed for one MLE at a time (currently)"""
         errors = error_fxn(mle, weights)
-
 
         values = 0
         if is_master:
@@ -424,3 +434,83 @@ def build_objective_function(testing_database, error_fxn, is_master):
         return np.sum(values)
 
     return objective_fxn
+
+
+def rescale_ni(pots, min_ni, max_ni, potential_template):
+    """
+    Rescales the rho/f/g splines to try to fit it all ni into the U domain of
+    [-1, 1].
+
+    Note:
+        order of min_ni and max_ni is assumed to be the same as pots
+
+    Args:
+        pots: (NxP array) the N starting potentials of P parameters
+        min_ni: (Nx1 array) the minimum ni sampled for each of the N potential
+        max_ni: (Nx1 array) the maximum ni sampled for each of the N potential
+        potential_template: (Template) template object, used for indexing
+
+    Returns:
+        updated_pots: (NxP array) the potentials with rescaled rho/f/g splines
+    """
+
+    scale = np.max(np.abs(np.hstack([min_ni, max_ni])), axis=1)
+
+    scale[scale < 1] = 1  # don't rescale if already in [-1, 1]
+
+    pots[:, potential_template.rho_indices] /= \
+        scale[:, np.newaxis]
+
+    pots[:, potential_template.f_indices] /= \
+        scale[:, np.newaxis] ** (1. / 3)
+
+    pots[:, potential_template.g_indices] /= \
+        scale[:, np.newaxis] ** (1. / 3)
+
+    return pots
+
+
+def shift_u(min_ni, max_ni):
+    """
+    Computes the new U domains for all N potentials
+
+    Args:
+        min_ni: (Nx1 array) the minimum ni sampled for each of the N potential
+        max_ni: (Nx1 array) the maximum ni sampled for each of the N potential
+
+    Returns:
+        new_u_domains: (num_atom_types length list) each element in the list
+        is a length-2 tuple of the min/max values for the U spline of one
+        atom type
+    """
+
+    scale = np.max(np.abs(np.hstack([min_ni, max_ni])), axis=1)
+
+    new_u_domains = [
+        (min_ni[0][i] / scale[0], max_ni[0][i] / scale[0]) for
+        i in range(2)]
+
+    for k, tup in enumerate(new_u_domains):
+        tmp_tup = []
+
+        for kk, lim in enumerate(tup):
+            if kk == 0:  # lower bound
+                # add some to the lower bound
+                tmp_tup.append(lim + 0.2 * abs(lim))
+            elif kk == 1:
+                # subtract some from the upper bound
+                tmp_tup.append(lim - 0.2 * lim)
+
+        new_u_domains[k] = tuple(tmp_tup)
+
+    return new_u_domains
+
+
+def mcmc():
+    """
+    Runs an MCMC optimization on the given subset of the parameter vectors.
+
+    Returns:
+        final: (np.arr) the final parameter vectors
+
+    """

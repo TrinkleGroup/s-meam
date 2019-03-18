@@ -39,6 +39,7 @@ class Template:
         self.spline_indices = spline_indices
         self.spline_tags = None
         self.rho_indices = None
+        self.f_indices = None
         self.g_indices = None
         self.scales = None
 
