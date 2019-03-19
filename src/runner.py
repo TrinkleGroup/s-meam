@@ -51,7 +51,7 @@ def main(config_name, template_file_name):
 
         template_args = {}
 
-        # read potential template 
+        # read potential template
         if os.path.isfile(template_file_name):
             with open(template_file_name, 'r') as f:
                 # atom types
@@ -197,7 +197,8 @@ def main(config_name, template_file_name):
     int_params = [
         'NUM_STRUCTS', 'POP_SIZE', 'GA_NSTEPS', 'LMIN_FREQ',
         'INIT_NSTEPS', 'LMIN_NSTEPS', 'FINAL_NSTEPS', 'CHECKPOINT_FREQ',
-        'SA_NSTEPS', 'RESCALE_FREQ', 'RESCALE_STOP_STEP', 'U_NSTEPS'
+        'SA_NSTEPS', 'RESCALE_FREQ', 'RESCALE_STOP_STEP', 'U_NSTEPS',
+        'MCMC_BLOCK_SIZE'
     ]
 
     float_params = [

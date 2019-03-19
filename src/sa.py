@@ -7,12 +7,23 @@ from mpi4py import MPI
 import partools
 import datetime
 from scipy.optimize import least_squares
+from collections import namedtuple
 
 from src.database import Database
 from src.manager import Manager
 
-################################################################################
+mcmc_block = namedtuple(
+    'mcmc_block', 'block_name spline_tags selection_probability'
+)
 
+mcmc_blocks = {
+    'phi': mcmc_block('phi', [0, 1, 2], 5./16),
+    'rho-U': mcmc_block('rho-U', [3, 4, 5, 6], 5./16),
+    'f-g-U': mcmc_block('f-g-U', [5,  6, 7, 8, 9, 10, 11], 5./16),
+    'rws': mcmc_block('rws', [5, 6], 1./16),
+}
+
+################################################################################
 def sa(parameters, template):
     """
     Runs a simulated annealing run. The Metropolis-Hastings acception/rejection
@@ -213,171 +224,274 @@ def sa(parameters, template):
 
         num_accepted = 0
 
+    if parameters['DO_LMIN']:
+        if is_master:
+            print("Performing initial local minimization ...", flush=True)
+            print("Before", current_cost)
+
+            minimized = current.copy()
+        else:
+            minimized = None
+
+        minimized = local_minimization(
+            minimized , cost_fxn, grad_wrap, weights, world_comm, is_master,
+            nsteps=parameters['LMIN_NSTEPS']
+        )
+
+        lm_cost = cost_fxn(minimized, weights)
+
+        if is_master:
+            current = minimized.copy()
+            current_cost = np.sum(lm_cost, axis=1)
+            print("After", current_cost)
+
+            checkpoint(current, -1, parameters)
+
     # run simulated annealing; stop cooling once T = Tmin
     step_num = 0
-    while step_num < parameters['SA_NSTEPS']:
-        # do U rescaling
+    num_blocks = parameters['SA_NSTEPS'] // parameters['MCMC_BLOCK_SIZE']
+
+    for block_num in range(num_blocks):
+        if is_master:
+            choice = np.random.choice(
+                list(mcmc_blocks.keys()),
+                p=[b.selection_probability for b in mcmc_blocks.values()],
+            )
+
+            block = mcmc_blocks[choice]
+        else:
+            block = None
+
+        block = world_comm.bcast(block, root=0)
+
         current_cost, max_ni, min_ni, avg_ni = cost_fxn(
             current, weights, return_ni=True
         )
 
-        if is_master:
-            # only plotting the range of the 1st potential
-            current_cost = np.sum(current_cost, axis=1)
+        if block.block_name == 'rws':
+            if is_master:
+                current_cost = np.sum(current_cost, axis=1)
 
-            tmp_min_ni = min_ni[np.argsort(current_cost)]
-            tmp_max_ni = max_ni[np.argsort(current_cost)]
-            tmp_avg_ni = avg_ni[np.argsort(current_cost)]
+                print("Rescaling ...")
 
-            # output to ile
-            with open(parameters['NI_TRACE_FILE_NAME'], 'ab') as f:
-                np.savetxt(
-                    f,
-                    np.atleast_2d(
-                        [tmp_min_ni[0][0], tmp_max_ni[0][0],
-                         tmp_min_ni[0][1], tmp_max_ni[0][1],
-                         tmp_avg_ni[0][0], tmp_avg_ni[0][1]]
-                        )
+                tmp_min_ni = min_ni[np.argsort(current_cost)]
+                tmp_max_ni = max_ni[np.argsort(current_cost)]
+
+                current = partools.rescale_ni(
+                    current, tmp_min_ni, tmp_max_ni,
+                    potential_template
                 )
 
+                new_u_domains = partools.shift_u(tmp_min_ni, tmp_max_ni)
 
-        if parameters['DO_RESCALE'] and \
-            (step_num < parameters['RESCALE_STOP_STEP']) and \
-                (step_num % parameters['RESCALE_FREQ'] == 0):
-                    if is_master:
-                        tmp_min_ni = min_ni[np.argsort(current_cost)]
-                        tmp_max_ni = max_ni[np.argsort(current_cost)]
-
-                        scale = np.max(
-                            np.abs(np.hstack([tmp_min_ni, tmp_max_ni])),
-                            axis=1
-                        )
-
-                        current = np.array(current)
-
-                        current[:, potential_template.rho_indices] /= \
-                            scale[:, np.newaxis]
-
-                        current[:, potential_template.g_indices] /= \
-                            scale[:, np.newaxis]
-
-                    else:
-                        new_u_domains = None
-
-                    # if is_manager:
-                    #     new_u_domains = manager_comm.bcast(new_u_domains, root=0)
-                    #     potential_template.u_ranges = new_u_domains
-                    # 
-                    # current_cost = cost_fxn(current, weights)
-
-        if parameters['DO_LMIN'] and (step_num % parameters['LMIN_FREQ'] == 0):
-            current_cost = cost_fxn(current, weights)
-
-            if is_master:
-                print("Performing local minimization ...", flush=True)
-                print("Before", np.sum(current_cost, axis=1))
-
-                minimized = current.copy()
+                print("new_u_domains:", new_u_domains)
             else:
-                minimized = None
+                new_u_domains = None
 
-            minimized = local_minimization(
-                minimized , cost_fxn, grad_wrap, weights, world_comm, is_master,
-                nsteps=parameters['LMIN_NSTEPS']
+            if is_manager:
+                new_u_domains = manager_comm.bcast(new_u_domains, root=0)
+                potential_template.u_ranges = new_u_domains
+
+            current_cost, max_ni, min_ni, avg_ni = cost_fxn(
+                current, weights, return_ni=True
             )
 
-            lm_cost = cost_fxn(minimized, weights)
+        current = partools.mcmc(
+            parameters['MCMC_BLOCK_SIZE'], current, weights,
+            cost_fxn, potential_template, 1,
+            parameters['SA_MOVE_PROB'], parameters['SA_MOVE_SCALE'],
+            block.spline_tags, is_master, step_num, suffix=block.block_name
+        )
 
-            if is_master:
-                current = minimized.copy()
-                current_cost = np.sum(lm_cost, axis=1)
-                print("After", current_cost)
+        step_num += parameters['MCMC_BLOCK_SIZE']
 
-        # propose a move
+    if parameters['DO_LMIN']:
         if is_master:
+            print("Performing final local minimization ...", flush=True)
+            print("Before", np.sum(current_cost, axis=1))
 
-            # choose a single knot from each potential
-            # rnd_indices = np.random.randint(
-            #     current.shape[1], size=current.shape[0]
-            # )
-            # 
-            # trial_position = current.copy()
-            # trial_position[:, rnd_indices] += np.random.normal(
-            #     scale=0.01, size=current.shape[0]
-            # )
-
-            # choose a random collection of knots from each potential
-            mask = np.random.choice(
-                [True, False],
-                size = (current.shape[0], current.shape[1]),
-                p = [parameters['SA_MOVE_PROB'], 1 - parameters['SA_MOVE_PROB']]
-            )
-
-            trial_position = current.copy()
-            trial_position[mask] = trial_position[mask] +\
-                np.random.normal(scale=parameters['SA_MOVE_SCALE'])
-
+            minimized = current.copy()
         else:
-            trial_position = None
+            minimized = None
 
-        # compute the Metropolis-Hastings ratio
-        trial_cost = cost_fxn(trial_position, weights)
+        minimized = local_minimization(
+            minimized , cost_fxn, grad_wrap, weights, world_comm, is_master,
+            nsteps=parameters['LMIN_NSTEPS']
+        )
 
-        # temperature is used as a multiplicative factor on the MLE cost
+        lm_cost = cost_fxn(minimized, weights)
+
         if is_master:
-            trial_cost = np.sum(trial_cost, axis=1)
+            current = minimized.copy()
+            current_cost = np.sum(lm_cost, axis=1)
+            print("After", current_cost)
 
-            tmp = current_cost
+            checkpoint(current, parameters['SA_NSTEPS'], parameters)
 
-            T = np.max([T_min, T*parameters['COOLING_RATE']])
-
-            ratio = np.exp((current_cost - trial_cost) / T)
-
-            # automatically accept anythinig with a ratio >= 1
-            where_auto_accept = np.where(ratio >= 1)[0]
-
-            # conditionally accept everything else
-            where_cond_accept = np.where(
-                np.random.random(ratio.shape[0]) < ratio
-            )[0]
-
-            total_accepted = set(
-                np.concatenate([where_auto_accept, where_cond_accept])
-            )
-
-            num_accepted += len(total_accepted)
-
-            # accepted = False
-            # if ratio > 1:
-            #     accepted = True
-            #     num_accepted += 1
-            # else:
-            #     if np.random.random() < ratio: # accept the move
-            #         accepted = True
-            #         num_accepted += 1
-
-
-            # update accepted moves and costs
-            current[where_auto_accept] = trial_position[where_auto_accept]
-            current_cost[where_auto_accept] = trial_cost[where_auto_accept]
-
-            current[where_cond_accept] = trial_position[where_cond_accept]
-            current_cost[where_cond_accept] = trial_cost[where_cond_accept]
-
-            # print statistics
-            print(
-                step_num + 1, "{:.3f}".format(T), np.min(current_cost),
-                np.average(current_cost),
-                num_accepted / (step_num + 1) / parameters['POP_SIZE'],
-                flush=True
-            )
-
-            chain[step_num + 1] = current
-            trace[step_num + 1] = current_cost
-
-            checkpoint(current, step_num, parameters)
-
-        step_num += 1
+    #
+    # while step_num < parameters['SA_NSTEPS']:
+    #     # do U rescaling
+    #     current_cost, max_ni, min_ni, avg_ni = cost_fxn(
+    #         current, weights, return_ni=True
+    #     )
+    #
+    #     if is_master:
+    #         # only plotting the range of the 1st potential
+    #         current_cost = np.sum(current_cost, axis=1)
+    #
+    #         tmp_min_ni = min_ni[np.argsort(current_cost)]
+    #         tmp_max_ni = max_ni[np.argsort(current_cost)]
+    #         tmp_avg_ni = avg_ni[np.argsort(current_cost)]
+    #
+    #         # output to ile
+    #         with open(parameters['NI_TRACE_FILE_NAME'], 'ab') as f:
+    #             np.savetxt(
+    #                 f,
+    #                 np.atleast_2d(
+    #                     [tmp_min_ni[0][0], tmp_max_ni[0][0],
+    #                      tmp_min_ni[0][1], tmp_max_ni[0][1],
+    #                      tmp_avg_ni[0][0], tmp_avg_ni[0][1]]
+    #                     )
+    #             )
+    #
+    #
+    #     if parameters['DO_RESCALE'] and \
+    #         (step_num < parameters['RESCALE_STOP_STEP']) and \
+    #             (step_num % parameters['RESCALE_FREQ'] == 0):
+    #                 if is_master:
+    #                     tmp_min_ni = min_ni[np.argsort(current_cost)]
+    #                     tmp_max_ni = max_ni[np.argsort(current_cost)]
+    #
+    #                     scale = np.max(
+    #                         np.abs(np.hstack([tmp_min_ni, tmp_max_ni])),
+    #                         axis=1
+    #                     )
+    #
+    #                     current = np.array(current)
+    #
+    #                     current[:, potential_template.rho_indices] /= \
+    #                         scale[:, np.newaxis]
+    #
+    #                     current[:, potential_template.g_indices] /= \
+    #                         scale[:, np.newaxis]
+    #
+    #                 else:
+    #                     new_u_domains = None
+    #
+    #                 # if is_manager:
+    #                 #     new_u_domains = manager_comm.bcast(new_u_domains, root=0)
+    #                 #     potential_template.u_ranges = new_u_domains
+    #                 #
+    #                 # current_cost = cost_fxn(current, weights)
+    #
+    #     if parameters['DO_LMIN'] and (step_num % parameters['LMIN_FREQ'] == 0):
+    #         current_cost = cost_fxn(current, weights)
+    #
+    #         if is_master:
+    #             print("Performing local minimization ...", flush=True)
+    #             print("Before", np.sum(current_cost, axis=1))
+    #
+    #             minimized = current.copy()
+    #         else:
+    #             minimized = None
+    #
+    #         minimized = local_minimization(
+    #             minimized , cost_fxn, grad_wrap, weights, world_comm, is_master,
+    #             nsteps=parameters['LMIN_NSTEPS']
+    #         )
+    #
+    #         lm_cost = cost_fxn(minimized, weights)
+    #
+    #         if is_master:
+    #             current = minimized.copy()
+    #             current_cost = np.sum(lm_cost, axis=1)
+    #             print("After", current_cost)
+    #
+    #     # propose a move
+    #     if is_master:
+    #
+    #         # choose a single knot from each potential
+    #         # rnd_indices = np.random.randint(
+    #         #     current.shape[1], size=current.shape[0]
+    #         # )
+    #         #
+    #         # trial_position = current.copy()
+    #         # trial_position[:, rnd_indices] += np.random.normal(
+    #         #     scale=0.01, size=current.shape[0]
+    #         # )
+    #
+    #         # choose a random collection of knots from each potential
+    #         mask = np.random.choice(
+    #             [True, False],
+    #             size = (current.shape[0], current.shape[1]),
+    #             p = [parameters['SA_MOVE_PROB'], 1 - parameters['SA_MOVE_PROB']]
+    #         )
+    #
+    #         trial_position = current.copy()
+    #         trial_position[mask] = trial_position[mask] +\
+    #             np.random.normal(scale=parameters['SA_MOVE_SCALE'])
+    #
+    #     else:
+    #         trial_position = None
+    #
+    #     # compute the Metropolis-Hastings ratio
+    #     trial_cost = cost_fxn(trial_position, weights)
+    #
+    #     # temperature is used as a multiplicative factor on the MLE cost
+    #     if is_master:
+    #         trial_cost = np.sum(trial_cost, axis=1)
+    #
+    #         tmp = current_cost
+    #
+    #         T = np.max([T_min, T*parameters['COOLING_RATE']])
+    #
+    #         ratio = np.exp((current_cost - trial_cost) / T)
+    #
+    #         # automatically accept anythinig with a ratio >= 1
+    #         where_auto_accept = np.where(ratio >= 1)[0]
+    #
+    #         # conditionally accept everything else
+    #         where_cond_accept = np.where(
+    #             np.random.random(ratio.shape[0]) < ratio
+    #         )[0]
+    #
+    #         total_accepted = set(
+    #             np.concatenate([where_auto_accept, where_cond_accept])
+    #         )
+    #
+    #         num_accepted += len(total_accepted)
+    #
+    #         # accepted = False
+    #         # if ratio > 1:
+    #         #     accepted = True
+    #         #     num_accepted += 1
+    #         # else:
+    #         #     if np.random.random() < ratio: # accept the move
+    #         #         accepted = True
+    #         #         num_accepted += 1
+    #
+    #
+    #         # update accepted moves and costs
+    #         current[where_auto_accept] = trial_position[where_auto_accept]
+    #         current_cost[where_auto_accept] = trial_cost[where_auto_accept]
+    #
+    #         current[where_cond_accept] = trial_position[where_cond_accept]
+    #         current_cost[where_cond_accept] = trial_cost[where_cond_accept]
+    #
+    #         # print statistics
+    #         print(
+    #             step_num + 1, "{:.3f}".format(T), np.min(current_cost),
+    #             np.average(current_cost),
+    #             num_accepted / (step_num + 1) / parameters['POP_SIZE'],
+    #             flush=True
+    #         )
+    #
+    #         chain[step_num + 1] = current
+    #         trace[step_num + 1] = current_cost
+    #
+    #         checkpoint(current, step_num, parameters)
+    #
+    #     step_num += 1
     return chain, trace
 
 def prepare_save_directory(parameters):

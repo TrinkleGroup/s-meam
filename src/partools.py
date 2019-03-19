@@ -2,7 +2,6 @@ import numpy as np
 from src.database import Database
 from src.potential_templates import Template
 
-
 def build_evaluation_functions(
         potential_template, master_database, all_struct_names, manager,
         is_master,
@@ -101,7 +100,13 @@ def build_evaluation_functions(
         else:
             if output:
                 if is_master:
-                    print(np.sum(fitnesses, axis=1))
+                    fitnesses = np.sum(fitnesses, axis=1)
+
+                    print(
+                        np.min(fitnesses), np.max(fitnesses), np.average(fitnesses),
+                        flush=True
+                    )
+
             return fitnesses
 
     def grad_wrap(master_pop, weights):
@@ -512,7 +517,7 @@ def shift_u(min_ni, max_ni):
 
 def mcmc(max_nsteps, population, weights, cost_fxn, potential_template, T,
          move_prob, move_scale, active_tags, is_master, start_step=0,
-         cooling_rate=1, T_min=0):
+         cooling_rate=1, T_min=0, suffix=""):
     """
     Runs an MCMC optimization on the given subset of the parameter vectors.
     Stopping criterion is either 20 steps without any improvement,
@@ -615,8 +620,8 @@ def mcmc(max_nsteps, population, weights, cost_fxn, potential_template, T,
 
             print(
                 start_step + step_num, "{:.3f}".format(T),
-                np.min(current_cost), np.average(current_cost),
-                active_tags,
+                np.min(current_cost), np.max(current_cost),
+                np.average(current_cost), suffix,
                 # num_accepted / (step_num + 1) / parameters['POP_SIZE'],
                 flush=True
             )
@@ -625,15 +630,14 @@ def mcmc(max_nsteps, population, weights, cost_fxn, potential_template, T,
 
             # if current_best == prev_best:
             #     num_without_improvement += 1
-            # 
+            #
             #     if num_without_improvement == 20:
             #         break
-            # 
+            #
             # else:
             #     num_without_improvement = 0
 
     if is_master:
         population[:, active_indices] = current
-        print(population.shape)
 
     return population

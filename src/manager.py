@@ -193,8 +193,6 @@ class Manager:
 
         pop = self.comm.scatter(full, root=0)
 
-        # TODO: subtract off Ti-only forces from gradient?
-
         fcs_grad = self.struct.forces_gradient_wrt_pvec(
             pop, self.pot_template.u_ranges
         )
