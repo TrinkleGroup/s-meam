@@ -17,10 +17,10 @@ mcmc_block = namedtuple(
 )
 
 mcmc_blocks = {
-    'phi': mcmc_block('phi', [0, 1, 2], 5./16),
-    'rho-U': mcmc_block('rho-U', [3, 4, 5, 6], 5./16),
-    'f-g-U': mcmc_block('f-g-U', [5,  6, 7, 8, 9, 10, 11], 5./16),
-    'rws': mcmc_block('rws', [5, 6], 1./16),
+    # 'phi': mcmc_block('phi', [0, 1, 2], 5./16),
+    'rho-U': mcmc_block('rho-U', [3, 4, 5, 6], 5./11),
+    'f-g-U': mcmc_block('f-g-U', [5,  6, 7, 8, 9, 10, 11], 5./11),
+    'rws': mcmc_block('rws', [5, 6], 1./11),
 }
 
 ################################################################################
@@ -296,16 +296,22 @@ def sa(parameters, template):
                 current, weights, return_ni=True
             )
 
+        if is_master:
+            T = np.min(np.sum(current_cost, axis=1))
+        else:
+            T = 0
+
+        T = world_comm.bcast(T, root=0)
+
         current = partools.mcmc(
-            parameters['MCMC_BLOCK_SIZE'], current, weights,
-            cost_fxn, potential_template, 1,
-            parameters['SA_MOVE_PROB'], parameters['SA_MOVE_SCALE'],
-            block.spline_tags, is_master, step_num, suffix=block.block_name
+            current, weights, cost_fxn, potential_template, T, parameters,
+            block.spline_tags, checkpoint, is_master, step_num,
+            suffix=block.block_name
         )
 
         step_num += parameters['MCMC_BLOCK_SIZE']
 
-    if parameters['DO_LMIN']:
+    if parameters['DO_LMIN' ]:
         if is_master:
             print("Performing final local minimization ...", flush=True)
             print("Before", np.sum(current_cost, axis=1))

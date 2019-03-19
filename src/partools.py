@@ -515,9 +515,9 @@ def shift_u(min_ni, max_ni):
     return new_u_domains
 
 
-def mcmc(max_nsteps, population, weights, cost_fxn, potential_template, T,
-         move_prob, move_scale, active_tags, is_master, start_step=0,
-         cooling_rate=1, T_min=0, suffix=""):
+def mcmc(population, weights, cost_fxn, potential_template, T,
+         parameters, active_tags, checkpoint_fxn, is_master, start_step=0,
+         cooling_rate=1, T_min=0, suffix="",):
     """
     Runs an MCMC optimization on the given subset of the parameter vectors.
     Stopping criterion is either 20 steps without any improvement,
@@ -542,6 +542,11 @@ def mcmc(max_nsteps, population, weights, cost_fxn, potential_template, T,
         final: (np.arr) the final parameter vectors
 
     """
+
+    max_nsteps = parameters['MCMC_BLOCK_SIZE']
+    move_prob = parameters['SA_MOVE_PROB']
+    move_scale = parameters['SA_MOVE_SCALE']
+    checkpoint_freq = parameters['CHECKPOINT_FREQ']
 
     if is_master:
         population = np.array(population)
@@ -627,6 +632,10 @@ def mcmc(max_nsteps, population, weights, cost_fxn, potential_template, T,
             )
 
             T = np.max([T_min, T*cooling_rate])
+
+            if (start_step + step_num) % checkpoint_freq == 0:
+                print("LOGGING")
+                checkpoint_fxn(current, start_step + step_num, parameters)
 
             # if current_best == prev_best:
             #     num_without_improvement += 1
