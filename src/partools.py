@@ -581,7 +581,6 @@ def mcmc(population, weights, cost_fxn, potential_template, T,
     for step_num in range(max_nsteps):
 
         if is_master:
-            tmp[:, active_indices] = current
 
             # choose a random collection of knots from each potential
             mask = np.random.choice(
@@ -633,9 +632,11 @@ def mcmc(population, weights, cost_fxn, potential_template, T,
 
             T = np.max([T_min, T*cooling_rate])
 
-            if (start_step + step_num) % checkpoint_freq == 0:
-                print("LOGGING")
-                checkpoint_fxn(current, start_step + step_num, parameters)
+            if is_master:
+                tmp[:, active_indices] = current
+
+                if (start_step + step_num) % checkpoint_freq == 0:
+                    checkpoint_fxn(tmp, start_step + step_num, parameters)
 
             # if current_best == prev_best:
             #     num_without_improvement += 1
