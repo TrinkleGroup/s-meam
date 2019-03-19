@@ -17,10 +17,10 @@ mcmc_block = namedtuple(
 )
 
 mcmc_blocks = {
-    # 'phi': mcmc_block('phi', [0, 1, 2], 5./16),
-    'rho-U': mcmc_block('rho-U', [3, 4, 5, 6], 5./11),
-    'f-g-U': mcmc_block('f-g-U', [5,  6, 7, 8, 9, 10, 11], 5./11),
-    'rws': mcmc_block('rws', [5, 6], 1./11),
+    'phi': mcmc_block('phi', [0, 1, 2], 5./16),
+    'rho-U': mcmc_block('rho-U', [3, 4, 5, 6], 5./16),
+    'f-g-U': mcmc_block('f-g-U', [5,  6, 7, 8, 9, 10, 11], 5./16),
+    'rws': mcmc_block('rws', [5, 6], 1./16),
 }
 
 ################################################################################
