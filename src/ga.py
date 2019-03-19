@@ -210,10 +210,10 @@ def ga(parameters, template):
         new_u_domains = manager_comm.bcast(new_u_domains, root=0)
         potential_template.u_ranges = new_u_domains
 
-    # subset = local_minimization(
-    #     subset, toolbox, weights, world_comm, is_master,
-    #     nsteps=parameters['INIT_NSTEPS']
-    # )
+    subset = local_minimization(
+        subset, toolbox, weights, world_comm, is_master,
+        nsteps=parameters['INIT_NSTEPS']
+    )
 
     if is_master:
         master_pop[:10] = subset
@@ -303,35 +303,12 @@ def ga(parameters, template):
                 master_pop, weights, return_ni=True
             )
 
-            if is_master:
-                # only plotting the range of the 1st potential
-                fitnesses = np.sum(fitnesses, axis=1)
-
-                tmp_min_ni = min_ni[np.argsort(fitnesses)]
-                tmp_max_ni = max_ni[np.argsort(fitnesses)]
-                tmp_avg_ni = avg_ni[np.argsort(fitnesses)]
-
-                # output to ile
-                with open(parameters['NI_TRACE_FILE_NAME'], 'ab') as f:
-                    np.savetxt(
-                        f,
-                        np.atleast_2d(
-                            [
-                                tmp_min_ni[0][0], tmp_max_ni[0][0],
-                                tmp_min_ni[0][1], tmp_max_ni[0][1],
-                                tmp_avg_ni[0][0], tmp_avg_ni[0][1],
-                                potential_template.u_ranges[0][0],
-                                potential_template.u_ranges[0][1],
-                                potential_template.u_ranges[1][0],
-                                potential_template.u_ranges[1][1],
-                            ]
-                        )
-                    )
-
             if parameters['DO_RESCALE'] and \
                     (generation_number < parameters['RESCALE_STOP_STEP']) and \
                     (generation_number % parameters['RESCALE_FREQ'] == 0):
                 if is_master:
+                    fitnesses = np.sum(fitnesses, axis=1)
+
                     print("Rescaling ...")
 
                     tmp_min_ni = min_ni[np.argsort(fitnesses)]
@@ -369,91 +346,34 @@ def ga(parameters, template):
                     [5, 6], is_master
                 )
 
-                #     u_indices = np.where(
-                #         np.logical_or(
-                #             potential_template.spline_tags == 5,
-                #             potential_template.spline_tags == 6,
-                #         )
-                #     )[0]
-                #
-                #     tmp = np.array(master_pop)
-                #     current = tmp[:, u_indices]
-                #
-                #     tmp_trial = tmp.copy()
-                # else:
-                #     tmp = None
-                #     tmp_trial = None
-                #
-                # # adjust U after the rescale
-                # for u_step in range(parameters['U_NSTEPS']):
-                #     if is_master:
-                #         tmp[:, u_indices] = current
-                #
-                #     current_cost = toolbox.evaluate_population(
-                #         tmp, weights
-                #     )
-                #
-                #     if (u_step == 0) or (u_step == parameters['U_NSTEPS'] - 1):
-                #         if is_master:
-                #             print(np.sum(current_cost, axis=1))
-                #
-                #     if is_master:
-                #         current_cost = np.sum(current_cost, axis=1)
-                #
-                #         # choose a random collection of knots from each potential
-                #         mask = np.random.choice(
-                #             [True, False],
-                #             size=(current.shape[0], current.shape[1]),
-                #             p=[
-                #                 parameters['SA_MOVE_PROB'],
-                #                 1 - parameters['SA_MOVE_PROB']
-                #             ]
-                #         )
-                #
-                #         trial_position = current.copy()
-                #         trial_position[mask] = trial_position[mask] + \
-                #                                np.random.normal(
-                #                                    scale=parameters[
-                #                                        'SA_MOVE_SCALE']
-                #                                )
-                #
-                #         tmp_trial[:, u_indices] = trial_position
-                #     else:
-                #         trial_position = None
-                #
-                #     trial_cost = toolbox.evaluate_population(
-                #         tmp_trial, weights
-                #     )
-                #
-                #     if is_master:
-                #         trial_cost = np.sum(trial_cost, axis=1)
-                #         T = 1
-                #
-                #         ratio = np.exp((current_cost - trial_cost) / T)
-                #         where_auto_accept = np.where(ratio >= 1)[0]
-                #
-                #         where_cond_accept = np.where(
-                #             np.random.random(ratio.shape[0]) < ratio
-                #         )[0]
-                #
-                #         current[where_auto_accept] = trial_position[
-                #             where_auto_accept]
-                #         current_cost[where_auto_accept] = trial_cost[
-                #             where_auto_accept]
-                #
-                #         current[where_cond_accept] = trial_position[
-                #             where_cond_accept]
-                #         current_cost[where_cond_accept] = trial_cost[
-                #             where_cond_accept]
-                #
-                # if is_master:
-                #     master_pop[:, u_indices] = current
-
             fitnesses = toolbox.evaluate_population(master_pop, weights)
 
-            # Update individuals with new fitnesses
             if is_master:
+                # only plotting the range of the 1st potential
                 new_fit = np.sum(fitnesses, axis=1)
+
+                tmp_min_ni = min_ni[np.argsort(new_fit)]
+                tmp_max_ni = max_ni[np.argsort(new_fit)]
+                tmp_avg_ni = avg_ni[np.argsort(new_fit)]
+
+                # output to ile
+                with open(parameters['NI_TRACE_FILE_NAME'], 'ab') as f:
+                    np.savetxt(
+                        f,
+                        np.atleast_2d(
+                            [
+                                tmp_min_ni[0][0], tmp_max_ni[0][0],
+                                tmp_min_ni[0][1], tmp_max_ni[0][1],
+                                tmp_avg_ni[0][0], tmp_avg_ni[0][1],
+                                potential_template.u_ranges[0][0],
+                                potential_template.u_ranges[0][1],
+                                potential_template.u_ranges[1][0],
+                                potential_template.u_ranges[1][1],
+                            ]
+                        )
+                    )
+
+                # Update individuals with new fitnesses
 
                 tmp_min_ni = min_ni[np.argsort(new_fit)]
                 tmp_max_ni = max_ni[np.argsort(new_fit)]
