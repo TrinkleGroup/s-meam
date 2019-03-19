@@ -511,7 +511,8 @@ def shift_u(min_ni, max_ni):
 
 
 def mcmc(max_nsteps, population, weights, cost_fxn, potential_template, T,
-         move_prob, move_scale, active_tags, is_master, start_step=0):
+         move_prob, move_scale, active_tags, is_master, start_step=0,
+         cooling_rate=1, T_min=0):
     """
     Runs an MCMC optimization on the given subset of the parameter vectors.
     Stopping criterion is either 20 steps without any improvement,
@@ -529,6 +530,8 @@ def mcmc(max_nsteps, population, weights, cost_fxn, potential_template, T,
         active_tags: (list) integer tags specifying active splines
         is_master: (bool) used for MPI communication
         start_step: (int) current step number; used for outputting
+        cooling_rate: (float) cooling rate if performing simulated annealing
+        T_min: (float) minimum allowed normalization constant
 
     Returns:
         final: (np.arr) the final parameter vectors
@@ -618,16 +621,19 @@ def mcmc(max_nsteps, population, weights, cost_fxn, potential_template, T,
                 flush=True
             )
 
-            if current_best == prev_best:
-                num_without_improvement += 1
+            T = np.max([T_min, T*cooling_rate])
 
-                if num_without_improvement == 20:
-                    break
-
-            else:
-                num_without_improvement = 0
+            # if current_best == prev_best:
+            #     num_without_improvement += 1
+            # 
+            #     if num_without_improvement == 20:
+            #         break
+            # 
+            # else:
+            #     num_without_improvement = 0
 
     if is_master:
         population[:, active_indices] = current
+        print(population.shape)
 
     return population
