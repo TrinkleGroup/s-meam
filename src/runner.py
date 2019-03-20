@@ -231,6 +231,17 @@ def main(config_name, template_file_name):
         parameters['SAVE_DIRECTORY'], 'ni_trace.dat'
     )
 
+    parameters['COST_FILE_NAME'] = os.path.join(
+        parameters['SAVE_DIRECTORY'], 'cost_trace.dat'
+    )
+
+    if is_master:
+        f = open(parameters['NI_TRACE_FILE_NAME'], 'ab')
+        f.close()
+
+        f = open(parameters['COST_FILE_NAME'], 'ab')
+        f.close()
+
     # run the optimizer
     if parameters.get('DEBUG', False):
         if is_master:

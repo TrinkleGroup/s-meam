@@ -1,3 +1,4 @@
+import os
 import numpy as np
 from src.database import Database
 from src.potential_templates import Template
@@ -598,8 +599,13 @@ def mcmc(population, weights, cost_fxn, potential_template, T,
         else:
             trial = None
 
-        current_cost = cost_fxn(tmp, weights)
-        trial_cost = cost_fxn(tmp_trial, weights)
+        current_cost, c_max_ni, c_min_ni, c_avg_ni = cost_fxn(
+            tmp, weights, return_ni=True
+        )
+
+        trial_cost, t_max_ni, t_min_ni, t_avg_ni = cost_fxn(
+            tmp_trial, weights, return_ni=True
+        )
 
         if is_master:
             prev_best = current_best
@@ -614,11 +620,23 @@ def mcmc(population, weights, cost_fxn, potential_template, T,
                 np.random.random(ratio.shape[0]) < ratio
             )[0]
 
+            # update population
             current[where_auto_accept] = trial[where_auto_accept]
-            current_cost[where_auto_accept] = trial_cost[where_auto_accept]
-
             current[where_cond_accept] = trial[where_cond_accept]
+
+            # update costs
+            current_cost[where_auto_accept] = trial_cost[where_auto_accept]
             current_cost[where_cond_accept] = trial_cost[where_cond_accept]
+
+            # update ni
+            c_max_ni[where_auto_accept] = t_max_ni[where_auto_accept]
+            c_max_ni[where_cond_accept] = t_max_ni[where_cond_accept]
+
+            c_min_ni[where_auto_accept] = t_min_ni[where_auto_accept]
+            c_min_ni[where_cond_accept] = t_min_ni[where_cond_accept]
+
+            c_avg_ni[where_auto_accept] = t_avg_ni[where_auto_accept]
+            c_avg_ni[where_cond_accept] = t_avg_ni[where_cond_accept]
 
             current_best = current_cost[np.argmin(current_cost)]
 
@@ -636,7 +654,10 @@ def mcmc(population, weights, cost_fxn, potential_template, T,
                 tmp[:, active_indices] = current
 
                 if (start_step + step_num) % checkpoint_freq == 0:
-                    checkpoint_fxn(tmp, start_step + step_num, parameters)
+                    checkpoint_fxn(
+                        tmp, current_cost, c_max_ni, c_min_ni, c_avg_ni,
+                        start_step + step_num, parameters, potential_template
+                    )
 
             # if current_best == prev_best:
             #     num_without_improvement += 1
@@ -651,3 +672,38 @@ def mcmc(population, weights, cost_fxn, potential_template, T,
         population[:, active_indices] = current
 
     return population
+
+def checkpoint(population, costs, max_ni, min_ni, avg_ni, i, parameters,
+    potential_template):
+    """Saves information to files for later use"""
+
+    # save costs -- assume file is being appended to
+    with open(parameters['COST_FILE_NAME'], 'ab') as f:
+        np.savetxt(f, np.atleast_2d(costs))
+
+    # save population
+    digits = np.floor(np.log10(parameters['SA_NSTEPS']))
+
+    format_str = os.path.join(
+        parameters['SAVE_DIRECTORY'],
+        'pop_{0:0' + str(int(digits) + 1)+ 'd}.dat'
+    )
+
+    np.savetxt(format_str.format(i), population)
+
+    # output ni to file
+    with open(parameters['NI_TRACE_FILE_NAME'], 'ab') as f:
+        np.savetxt(
+            f,
+            np.atleast_2d(
+                [
+                    min_ni[0][0], max_ni[0][0],
+                    min_ni[0][1], max_ni[0][1],
+                    avg_ni[0][0], avg_ni[0][1],
+                    potential_template.u_ranges[0][0],
+                    potential_template.u_ranges[0][1],
+                    potential_template.u_ranges[1][0],
+                    potential_template.u_ranges[1][1],
+                ]
+            )
+        )

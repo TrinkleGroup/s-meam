@@ -65,9 +65,6 @@ def sa(parameters, template):
         )
 
         # Trace file to be appended to later
-        f = open(parameters['NI_TRACE_FILE_NAME'], 'ab')
-        f.close()
-
         master_database.load_structures(parameters['NUM_STRUCTS'])
 
         # master_database.print_metadata()
@@ -172,6 +169,7 @@ def sa(parameters, template):
             chain[0, i, :] = tmp[np.where(potential_template.active_mask)[0]]
 
         current = chain[0]
+        print("current.shape", current.shape)
     else:
         current = None
         chain = None
@@ -220,7 +218,14 @@ def sa(parameters, template):
             np.average(current_cost), "--", flush=True
         )
 
-        checkpoint(current, 0, parameters)
+        tmp_min_ni = min_ni[np.argsort(current_cost)]
+        tmp_max_ni = max_ni[np.argsort(current_cost)]
+        tmp_avg_ni = avg_ni[np.argsort(current_cost)]
+
+        partools.checkpoint(
+            current, current_cost, tmp_max_ni, tmp_min_ni, tmp_avg_ni, -1,
+            parameters, potential_template
+        )
 
         num_accepted = 0
 
@@ -238,14 +243,24 @@ def sa(parameters, template):
             nsteps=parameters['LMIN_NSTEPS']
         )
 
-        lm_cost = cost_fxn(minimized, weights)
+        lm_cost, max_ni, min_ni, avg_ni = cost_fxn(
+            minimized, weights,
+            return_ni=True
+        )
 
         if is_master:
             current = minimized.copy()
             current_cost = np.sum(lm_cost, axis=1)
             print("After", current_cost)
 
-            checkpoint(current, -1, parameters)
+            tmp_min_ni = min_ni[np.argsort(current_cost)]
+            tmp_max_ni = max_ni[np.argsort(current_cost)]
+            tmp_avg_ni = avg_ni[np.argsort(current_cost)]
+
+            partools.checkpoint(
+                current, current_cost, tmp_max_ni, tmp_min_ni, tmp_avg_ni, 0,
+                parameters, potential_template
+            )
 
     # run simulated annealing; stop cooling once T = Tmin
     step_num = 0
@@ -305,7 +320,7 @@ def sa(parameters, template):
 
         current = partools.mcmc(
             current, weights, cost_fxn, potential_template, T, parameters,
-            block.spline_tags, checkpoint, is_master, step_num,
+            block.spline_tags, partools.checkpoint, is_master, step_num,
             suffix=block.block_name
         )
 
@@ -332,7 +347,10 @@ def sa(parameters, template):
             current_cost = np.sum(lm_cost, axis=1)
             print("After", current_cost)
 
-            checkpoint(current, parameters['SA_NSTEPS'], parameters)
+            partools.checkpoint(
+                current, tmp_max_ni, tmp_min_ni, tmp_avg_ni,
+                parameters['SA_NSTEPS'], parameters, potential_template
+            )
 
     #
     # while step_num < parameters['SA_NSTEPS']:
@@ -600,17 +618,6 @@ def local_minimization(current, fxn, grad, weights, world_comm, is_master, nstep
     current = world_comm.bcast(current, root=0)
 
     return current
-
-def checkpoint(population, i, parameters):
-    """Saves information to files for later use"""
-    digits = np.floor(np.log10(parameters['SA_NSTEPS']))
-
-    format_str = os.path.join(
-        parameters['SAVE_DIRECTORY'],
-        'pop_{0:0' + str(int(digits) + 1)+ 'd}.dat'
-    )
-
-    np.savetxt(format_str.format(i), population)
 
 if __name__ == "__main__":
     sa(SA_NSTEPS, COOLING_RATE)

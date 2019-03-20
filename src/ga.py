@@ -58,10 +58,6 @@ def ga(parameters, template):
         print("MASTER: Preparing save directory/files ... ", flush=True)
         prepare_save_directory(parameters)
 
-        # Trace file to be appended to later
-        f = open(parameters['TRACE_FILE_NAME'], 'ab')
-        f.close()
-
         # GA tools
         stats, logbook = build_stats_and_log()
 
@@ -232,7 +228,7 @@ def ga(parameters, template):
         #     "avg min max:", np.average(new_fit), np.min(new_fit),
         #     np.max(new_fit), flush=True
         # )
-        # 
+        #
         # print("After:", new_fit)
 
     # Have master gather fitnesses and update individuals
@@ -252,7 +248,11 @@ def ga(parameters, template):
 
         print_statistics(master_pop, 0, stats, logbook)
 
-        checkpoint(master_pop, logbook, master_pop[0], 0, parameters)
+        partools.checkpoint(
+            master_pop, new_fit, max_ni, min_ni, avg_ni, 0, parameters,
+            potential_template
+        )
+
         ga_start = time.time()
 
     # Begin GA
@@ -340,13 +340,14 @@ def ga(parameters, template):
                     print("Optimizing mini MCMC on U only ... ")
 
                 master_pop = partools.mcmc(
-                    parameters['U_NSTEPS'], master_pop, weights,
-                    toolbox.evaluate_population, potential_template, 1,
-                    parameters['SA_MOVE_PROB'], parameters['SA_MOVE_SCALE'],
-                    [5, 6], is_master
+                    master_pop, weights, toolbox.evaluate_population,
+                    potential_template, 1, parameters, [5, 6],
+                    partools.checkpoint, is_master
                 )
 
-            fitnesses = toolbox.evaluate_population(master_pop, weights)
+            fitnesses, max_ni, min_ni, avg_ni = toolbox.evaluate_population(
+                master_pop, weights, return_ni=True
+            )
 
             if is_master:
                 # only plotting the range of the 1st potential
@@ -395,9 +396,10 @@ def ga(parameters, template):
 
                 if (generation_number % parameters['CHECKPOINT_FREQ'] == 0):
                     best = np.array(tools.selBest(master_pop, 1)[0])
-                    checkpoint(
-                        master_pop, logbook, best, generation_number,
-                        parameters
+
+                    partools.checkpoint(
+                        master_pop, new_fit, tmp_max_ni, tmp_min_ni, tmp_avg_ni, 0,
+                        parameters, potential_template
                     )
 
                 best_guess = master_pop[0]
@@ -420,11 +422,21 @@ def ga(parameters, template):
             if parameters['DO_LMIN']:
                 master_pop[:10] = subset
 
+
+        fitnesses, max_ni, min_ni, avg_ni = toolbox.evaluate_population(
+            master_pop, weights, return_ni=True
+        )
+
+        if is_master:
+            final_fit = np.sum(fitnesses, axis=1)
+
             master_pop = tools.selBest(master_pop, len(master_pop))
             ga_runtime = time.time() - ga_start
 
-            checkpoint(master_pop, logbook, master_pop[0], generation_number,
-                       parameters)
+            partools.checkpoint(
+                master_pop, final_fit, tmp_max_ni, tmp_min_ni, tmp_avg_ni, 0,
+                parameters, potential_template
+            )
 
             print("MASTER: GA runtime = {:.2f} (s)".format(ga_runtime),
                   flush=True)
@@ -440,12 +452,8 @@ def ga(parameters, template):
         master_pop = np.genfromtxt("../hj-long_seed_1/pop.dat24999")
         best_guess = creator.Individual(master_pop[0])
 
-    final_cost = toolbox.evaluate_population(master_pop, weights)
-
     if is_master:
-        final_cost = np.sum(final_cost, axis=1)
-        print("Final best cost = ", final_cost[0])
-
+        print("Final best cost = ", final_fit[0])
 
 ################################################################################
 

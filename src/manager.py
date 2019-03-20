@@ -179,7 +179,7 @@ class Manager:
         """Evaluates the structure for the whole population"""
 
         if self.proc_rank == 0:
-            full = np.atleast_2d(master_pop)
+            full = np.atleast_2d(master_pop)    
             full = self.pot_template.insert_active_splines(full)
 
             only_one_pot = (full.shape[0] == 1)
