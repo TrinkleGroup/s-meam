@@ -176,7 +176,7 @@ def ga(parameters, template):
     weights = world_comm.bcast(weights, root=0)
 
     init_fit, max_ni, min_ni, avg_ni = toolbox.evaluate_population(
-        master_pop, weights, return_ni=True
+        master_pop, weights, return_ni=True, penalty=True
     )
 
     if is_master:
@@ -193,30 +193,29 @@ def ga(parameters, template):
             potential_template
         )
 
-        new_u_domains = partools.shift_u(tmp_min_ni, tmp_max_ni)
+        # new_u_domains = partools.shift_u(tmp_min_ni, tmp_max_ni)
 
-        print("new_u_domains:", new_u_domains)
+        # print("new_u_domains:", new_u_domains)
 
         subset = master_pop[:10]
     else:
         subset = None
-        new_u_domains = None
+        # new_u_domains = None
 
-    if is_manager:
-        new_u_domains = manager_comm.bcast(new_u_domains, root=0)
-        potential_template.u_ranges = new_u_domains
+    # if is_manager:
+    #     new_u_domains = manager_comm.bcast(new_u_domains, root=0)
+    #     potential_template.u_ranges = new_u_domains
 
-    subset = local_minimization(
-        subset, toolbox, weights, world_comm, is_master,
-        nsteps=parameters['INIT_NSTEPS']
-    )
+    # subset = local_minimization(
+    #     subset, toolbox, weights, world_comm, is_master,
+    #     nsteps=parameters['INIT_NSTEPS']
+    # )
 
-    if is_master:
-        master_pop[:10] = subset
+    # if is_master:
+    #     master_pop[:10] = subset
 
-    new_fit, max_ni, min_ni, avg_ni = toolbox.evaluate_population(master_pop,
-                                                                  weights,
-                                                                  return_ni=True)
+    new_fit, max_ni, min_ni, avg_ni = toolbox.evaluate_population(
+            master_pop, weights, return_ni=True, penalty=True)
 
     if is_master:
         new_fit = np.sum(new_fit, axis=1)
@@ -300,7 +299,7 @@ def ga(parameters, template):
                     master_pop[:10] = subset
 
             fitnesses, max_ni, min_ni, avg_ni = toolbox.evaluate_population(
-                master_pop, weights, return_ni=True
+                master_pop, weights, return_ni=True, penalty=True
             )
 
             if parameters['DO_RESCALE'] and \
@@ -330,7 +329,7 @@ def ga(parameters, template):
                     potential_template.u_ranges = new_u_domains
 
                 fitnesses, max_ni, min_ni, avg_ni = toolbox.evaluate_population(
-                    master_pop, weights, return_ni=True
+                    master_pop, weights, return_ni=True, penalty=True
                 )
 
                 if is_master:
@@ -342,11 +341,12 @@ def ga(parameters, template):
                 master_pop = partools.mcmc(
                     master_pop, weights, toolbox.evaluate_population,
                     potential_template, 1, parameters, [5, 6],
-                    partools.checkpoint, is_master
+                    partools.checkpoint, is_master, suffix='U',
+                    max_nsteps=parameters['U_NSTEPS']
                 )
 
             fitnesses, max_ni, min_ni, avg_ni = toolbox.evaluate_population(
-                master_pop, weights, return_ni=True
+                master_pop, weights, return_ni=True, penalty=True
             )
 
             if is_master:
@@ -398,8 +398,8 @@ def ga(parameters, template):
                     best = np.array(tools.selBest(master_pop, 1)[0])
 
                     partools.checkpoint(
-                        master_pop, new_fit, tmp_max_ni, tmp_min_ni, tmp_avg_ni, 0,
-                        parameters, potential_template
+                        master_pop, new_fit, tmp_max_ni, tmp_min_ni, tmp_avg_ni,
+                        generation_number, parameters, potential_template
                     )
 
                 best_guess = master_pop[0]
@@ -424,18 +424,27 @@ def ga(parameters, template):
 
 
         fitnesses, max_ni, min_ni, avg_ni = toolbox.evaluate_population(
-            master_pop, weights, return_ni=True
+            master_pop, weights, return_ni=True, penalty=True
         )
 
         if is_master:
             final_fit = np.sum(fitnesses, axis=1)
 
+            pop_copy = []
+            for ind in master_pop:
+                pop_copy.append(creator.Individual(ind))
+
+            master_pop = pop_copy
+
+            for ind, fit in zip(master_pop, new_fit):
+                ind.fitness.values = fit,
+
             master_pop = tools.selBest(master_pop, len(master_pop))
             ga_runtime = time.time() - ga_start
 
             partools.checkpoint(
-                master_pop, final_fit, tmp_max_ni, tmp_min_ni, tmp_avg_ni, 0,
-                parameters, potential_template
+                master_pop, final_fit, tmp_max_ni, tmp_min_ni, tmp_avg_ni, 
+                generation_number + 1, parameters, potential_template
             )
 
             print("MASTER: GA runtime = {:.2f} (s)".format(ga_runtime),

@@ -11,7 +11,8 @@ def build_evaluation_functions(
     """Builds the function to evaluate populations. Wrapped here for readability
     of main code."""
 
-    def fxn_wrap(master_pop, weights, return_ni=False, output=False):
+    def fxn_wrap(master_pop, weights, return_ni=False, output=False,
+            penalty=False):
         """Master: returns all potentials for all structures.
 
         NOTE: the order of 'weights' should match the order of the database
@@ -27,7 +28,10 @@ def build_evaluation_functions(
         # eng = manager.compute_energy(pop)
         # eng, c_max_ni, c_min_ni = manager.compute_energy(pop)
         # eng, c_ni = manager.compute_energy(pop)
-        eng, c_min_ni, c_max_ni, c_avg_ni, c_ni_var = manager.compute_energy(
+        # eng, c_min_ni, c_max_ni, c_avg_ni, c_ni_var = manager.compute_energy(
+        #     pop)
+
+        eng, c_min_ni, c_max_ni, c_avg_ni, c_ni_var, c_frac_in = manager.compute_energy(
             pop)
         fcs = manager.compute_forces(pop)
 
@@ -45,7 +49,8 @@ def build_evaluation_functions(
             mgr_min_ni = manager_comm.gather(c_min_ni, root=0)
             mgr_max_ni = manager_comm.gather(c_max_ni, root=0)
             mgr_avg_ni = manager_comm.gather(c_avg_ni, root=0)
-            # mgr_ni_var = manager_comm.gather(c_ni_var, root=0)
+            mgr_ni_var = manager_comm.gather(c_ni_var, root=0)
+            mgr_frac_in = manager_comm.gather(c_frac_in, root=0)
 
             if is_master:
                 # note: can't stack mgr_fcs b/c different dimensions per struct
@@ -56,14 +61,22 @@ def build_evaluation_functions(
                 min_ni = np.min(np.dstack(mgr_min_ni), axis=2).T
                 max_ni = np.max(np.dstack(mgr_max_ni), axis=2).T
                 avg_ni = np.average(np.dstack(mgr_avg_ni), axis=2).T
-                # ni_var = np.min(np.dstack(mgr_ni_var), axis=2).T
+                ni_var = np.min(np.dstack(mgr_ni_var), axis=2).T
+                frac_in = np.sum(np.dstack(mgr_frac_in), axis=2).T
 
                 fitnesses = np.zeros(
-                    (len(pop), len(master_database.entries))
+                    (len(pop), len(master_database.entries) + 2)
                 )
 
                 # TODO: add a trick to make var only decay to 1, not smaller
                 # maybe make the error U[] - var?
+
+                lambda_pen = 10000
+
+                ns = len(master_database.unique_structs)
+
+                fitnesses[:, -1] = lambda_pen*np.sum(np.abs(avg_ni), axis=1)
+                fitnesses[:, -2] = lambda_pen*np.sum(np.abs(1.2 - ni_var), axis=1)
 
                 for fit_id, (entry, weight) in enumerate(
                         zip(master_database.entries, weights)):
@@ -96,6 +109,10 @@ def build_evaluation_functions(
                         tmp = (comp_ediff - true_ediff) ** 2
                         fitnesses[:, fit_id] = tmp * weight
 
+        if is_master:
+            if not penalty:
+                fitnesses = fitnesses[:, :-2]
+
         if return_ni:
             return fitnesses, max_ni, min_ni, avg_ni
         else:
@@ -120,7 +137,7 @@ def build_evaluation_functions(
             pop = None
 
         # eng = manager.compute_energy(pop)
-        eng, _, _, _, _ = manager.compute_energy(pop)
+        eng, _, _, _, _, _ = manager.compute_energy(pop)
         fcs = manager.compute_forces(pop)
 
         eng_grad = manager.compute_energy_grad(pop)
@@ -493,10 +510,13 @@ def shift_u(min_ni, max_ni):
     """
 
     scale = np.max(np.abs(np.hstack([min_ni, max_ni])), axis=1)
+    scale = np.average(scale, axis=0)
+
+    tmp_min_ni = np.average(min_ni, axis=0)
+    tmp_max_ni = np.average(max_ni, axis=0)
 
     new_u_domains = [
-        (min_ni[0][i] / scale[0], max_ni[0][i] / scale[0]) for
-        i in range(2)]
+        (tmp_min_ni[i] / scale, tmp_max_ni[i] / scale) for i in range(2)]
 
     for k, tup in enumerate(new_u_domains):
         tmp_tup = []
@@ -518,7 +538,7 @@ def shift_u(min_ni, max_ni):
 
 def mcmc(population, weights, cost_fxn, potential_template, T,
          parameters, active_tags, checkpoint_fxn, is_master, start_step=0,
-         cooling_rate=1, T_min=0, suffix="",):
+         cooling_rate=1, T_min=0, suffix="", max_nsteps=None):
     """
     Runs an MCMC optimization on the given subset of the parameter vectors.
     Stopping criterion is either 20 steps without any improvement,
@@ -544,7 +564,9 @@ def mcmc(population, weights, cost_fxn, potential_template, T,
 
     """
 
-    max_nsteps = parameters['MCMC_BLOCK_SIZE']
+    if max_nsteps is None:
+        max_nsteps = parameters['MCMC_BLOCK_SIZE']
+
     move_prob = parameters['SA_MOVE_PROB']
     move_scale = parameters['SA_MOVE_SCALE']
     checkpoint_freq = parameters['CHECKPOINT_FREQ']
@@ -579,32 +601,46 @@ def mcmc(population, weights, cost_fxn, potential_template, T,
         tmp = None
         tmp_trial = None
 
-    for step_num in range(max_nsteps):
+    if suffix in ['rws', 'rho', 'U', 'f', 'g']:
+        def move_proposal(inp, move_scale):
+            # choose a single knot from each potential
+            rnd_indices = np.random.randint(
+                inp.shape[1], size=inp.shape[0]
+            )
+            
+            trial_position = inp.copy()
+            trial_position[:, rnd_indices] += np.random.normal(
+                scale=move_scale, size=inp.shape[0]
+            )
 
-        if is_master:
-
+            return trial_position
+    else:
+        def move_proposal(inp, move_scale):
             # choose a random collection of knots from each potential
             mask = np.random.choice(
-                [True, False], size=(current.shape[0], current.shape[1]),
+                [True, False], size=(inp.shape[0], inp.shape[1]),
                 p=[move_prob, 1 - move_prob]
             )
 
-            trial = current.copy()
-
-            # TODO: this should take in the std for each knot point
+            trial = inp.copy()
             trial[mask] = trial[mask] + np.random.normal(scale=move_scale)
 
-            tmp_trial[:, active_indices] = trial
+            return trial
 
+    for step_num in range(max_nsteps):
+
+        if is_master:
+            trial = move_proposal(current, move_scale)
+            tmp_trial[:, active_indices] = trial
         else:
             trial = None
 
         current_cost, c_max_ni, c_min_ni, c_avg_ni = cost_fxn(
-            tmp, weights, return_ni=True
+            tmp, weights, return_ni=True, penalty=True
         )
 
         trial_cost, t_max_ni, t_min_ni, t_avg_ni = cost_fxn(
-            tmp_trial, weights, return_ni=True
+            tmp_trial, weights, return_ni=True, penalty=True
         )
 
         if is_master:
@@ -695,15 +731,15 @@ def checkpoint(population, costs, max_ni, min_ni, avg_ni, i, parameters,
     with open(parameters['NI_TRACE_FILE_NAME'], 'ab') as f:
         np.savetxt(
             f,
-            np.atleast_2d(
+            np.concatenate(
                 [
-                    min_ni[0][0], max_ni[0][0],
-                    min_ni[0][1], max_ni[0][1],
-                    avg_ni[0][0], avg_ni[0][1],
-                    potential_template.u_ranges[0][0],
+                    min_ni.ravel(),
+                    max_ni.ravel(),
+                    avg_ni.ravel(),
+                    [potential_template.u_ranges[0][0],
                     potential_template.u_ranges[0][1],
                     potential_template.u_ranges[1][0],
-                    potential_template.u_ranges[1][1],
+                    potential_template.u_ranges[1][1]],
                 ]
             )
         )

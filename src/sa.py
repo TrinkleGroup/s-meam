@@ -17,10 +17,13 @@ mcmc_block = namedtuple(
 )
 
 mcmc_blocks = {
-    'phi': mcmc_block('phi', [0, 1, 2], 5./16),
-    'rho-U': mcmc_block('rho-U', [3, 4, 5, 6], 5./16),
-    'f-g-U': mcmc_block('f-g-U', [5,  6, 7, 8, 9, 10, 11], 5./16),
-    'rws': mcmc_block('rws', [5, 6], 1./16),
+    'U': mcmc_block('rho', [5, 6], 4./20),
+    'rho': mcmc_block('rho', [3, 4], 4./20),
+    'f': mcmc_block('f', [7, 8], 4./20),
+    'g': mcmc_block('g', [9, 10, 11], 4./20),
+    'rho-U': mcmc_block('rho-U', [3, 4, 5, 6], 2./20),
+    'f-g-U': mcmc_block('f-g-U', [5,  6, 7, 8, 9, 10, 11], 2./20),
+    # 'rws': mcmc_block('rws', [5, 6], 1./20),
 }
 
 ################################################################################
@@ -230,37 +233,38 @@ def sa(parameters, template):
         num_accepted = 0
 
     if parameters['DO_LMIN']:
-        if is_master:
-            print("Performing initial local minimization ...", flush=True)
-            print("Before", current_cost)
+        pass
+        # if is_master:
+        #     print("Performing initial local minimization ...", flush=True)
+        #     print("Before", current_cost)
 
-            minimized = current.copy()
-        else:
-            minimized = None
+        #     minimized = current.copy()
+        # else:
+        #     minimized = None
 
-        minimized = local_minimization(
-            minimized , cost_fxn, grad_wrap, weights, world_comm, is_master,
-            nsteps=parameters['LMIN_NSTEPS']
-        )
+        # minimized = local_minimization(
+        #     minimized , cost_fxn, grad_wrap, weights, world_comm, is_master,
+        #     nsteps=parameters['LMIN_NSTEPS']
+        # )
 
-        lm_cost, max_ni, min_ni, avg_ni = cost_fxn(
-            minimized, weights,
-            return_ni=True
-        )
+        # lm_cost, max_ni, min_ni, avg_ni = cost_fxn(
+        #     minimized, weights,
+        #     return_ni=True
+        # )
 
-        if is_master:
-            current = minimized.copy()
-            current_cost = np.sum(lm_cost, axis=1)
-            print("After", current_cost)
+        # if is_master:
+        #     current = minimized.copy()
+        #     current_cost = np.sum(lm_cost, axis=1)
+        #     print("After", current_cost)
 
-            tmp_min_ni = min_ni[np.argsort(current_cost)]
-            tmp_max_ni = max_ni[np.argsort(current_cost)]
-            tmp_avg_ni = avg_ni[np.argsort(current_cost)]
+        #     tmp_min_ni = min_ni[np.argsort(current_cost)]
+        #     tmp_max_ni = max_ni[np.argsort(current_cost)]
+        #     tmp_avg_ni = avg_ni[np.argsort(current_cost)]
 
-            partools.checkpoint(
-                current, current_cost, tmp_max_ni, tmp_min_ni, tmp_avg_ni, 0,
-                parameters, potential_template
-            )
+        #     partools.checkpoint(
+        #         current, current_cost, tmp_max_ni, tmp_min_ni, tmp_avg_ni, 0,
+        #         parameters, potential_template
+        #     )
 
     # run simulated annealing; stop cooling once T = Tmin
     step_num = 0
@@ -273,11 +277,19 @@ def sa(parameters, template):
                 p=[b.selection_probability for b in mcmc_blocks.values()],
             )
 
+            nsteps = parameters['MCMC_BLOCK_SIZE']
+
+            if block_num == 0:
+                choice = 'U'
+                nsteps = 3*parameters['MCMC_BLOCK_SIZE']
+
             block = mcmc_blocks[choice]
         else:
             block = None
+            nsteps = None
 
         block = world_comm.bcast(block, root=0)
+        nsteps = world_comm.bcast(nsteps, root=0)
 
         current_cost, max_ni, min_ni, avg_ni = cost_fxn(
             current, weights, return_ni=True
@@ -313,6 +325,7 @@ def sa(parameters, template):
 
         if is_master:
             T = np.min(np.sum(current_cost, axis=1))
+            T = 1
         else:
             T = 0
 
@@ -321,7 +334,7 @@ def sa(parameters, template):
         current = partools.mcmc(
             current, weights, cost_fxn, potential_template, T, parameters,
             block.spline_tags, partools.checkpoint, is_master, step_num,
-            suffix=block.block_name
+            suffix=block.block_name, max_nsteps=nsteps
         )
 
         step_num += parameters['MCMC_BLOCK_SIZE']

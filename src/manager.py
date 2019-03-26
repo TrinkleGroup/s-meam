@@ -85,6 +85,7 @@ class Manager:
         max_ni = None
         avg_ni = None
         ni_var = None
+        frac_in = None
 
         if self.proc_rank == 0:
             # all_max_ni = np.vstack(all_max_ni)
@@ -92,11 +93,19 @@ class Manager:
             all_ni = np.vstack(all_ni)
 
             per_type_ni = []
+            frac_in = []
 
             for i in range(self.struct.ntypes):
+                type_ni = all_ni[:, self.struct.type_of_each_atom - 1 == i ]
+
                 per_type_ni.append(
-                    all_ni[:, self.struct.type_of_each_atom - 1 == i ]
+                    type_ni
                 )
+
+                # num_in = np.where(np.logical_and(ni <= 1, ni >= -1))
+                num_in = np.logical_and(type_ni >= -1, type_ni <= 1).sum(axis=1)
+
+                frac_in.append(num_in / type_ni.shape[1])
 
             min_ni = [np.min(ni, axis=1) for ni in per_type_ni]
             max_ni = [np.max(ni, axis=1) for ni in per_type_ni]
@@ -108,7 +117,8 @@ class Manager:
             else:
                 all_eng = np.concatenate(all_eng)
 
-        return all_eng, min_ni, max_ni, avg_ni, ni_var
+        return all_eng, min_ni, max_ni, avg_ni, ni_var, frac_in
+        # return all_eng, min_ni, max_ni, avg_ni, ni_var
 
     def compute_forces(self, master_pop):
         """Evaluates the structure forces for the whole population"""
@@ -179,7 +189,7 @@ class Manager:
         """Evaluates the structure for the whole population"""
 
         if self.proc_rank == 0:
-            full = np.atleast_2d(master_pop)    
+            full = np.atleast_2d(master_pop)
             full = self.pot_template.insert_active_splines(full)
 
             only_one_pot = (full.shape[0] == 1)
