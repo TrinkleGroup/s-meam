@@ -77,8 +77,6 @@ class Manager:
         # eng = self.struct.compute_energy(pop, self.pot_template.u_ranges)
 
         all_eng = self.comm.gather(eng, root=0)
-        # all_max_ni = self.comm.gather(max_ni, root=0)
-        # all_min_ni = self.comm.gather(min_ni, root=0)
         all_ni = self.comm.gather(ni, root=0)
 
         min_ni = None
