@@ -65,18 +65,20 @@ def build_evaluation_functions(
                 frac_in = np.sum(np.dstack(mgr_frac_in), axis=2).T
 
                 fitnesses = np.zeros(
-                    (len(pop), len(master_database.entries) + 2)
+                    (len(pop), len(master_database.entries) + 4)
                 )
 
-                # TODO: add a trick to make var only decay to 1, not smaller
                 # maybe make the error U[] - var?
 
                 lambda_pen = 10000
 
                 ns = len(master_database.unique_structs)
 
-                fitnesses[:, -1] = lambda_pen*np.sum(np.abs(avg_ni), axis=1)
-                fitnesses[:, -2] = lambda_pen*np.sum(np.abs(1.2 - ni_var), axis=1)
+                fitnesses[:, -frac_in.shape[1]:] = lambda_pen*abs(ns - frac_in)
+
+                fitnesses[:, -3] = lambda_pen*np.sum(np.abs(avg_ni), axis=1)
+                fitnesses[:, -4] = lambda_pen*np.sum(np.abs(1 - ni_var), axis=1)
+
 
                 for fit_id, (entry, weight) in enumerate(
                         zip(master_database.entries, weights)):
@@ -111,7 +113,7 @@ def build_evaluation_functions(
 
         if is_master:
             if not penalty:
-                fitnesses = fitnesses[:, :-2]
+                fitnesses = fitnesses[:, :-4]
 
         if return_ni:
             return fitnesses, max_ni, min_ni, avg_ni
@@ -479,18 +481,19 @@ def rescale_ni(pots, min_ni, max_ni, potential_template):
 
     pots = np.array(pots)
 
-    scale = np.max(np.abs(np.hstack([min_ni, max_ni])), axis=1)
-
-    scale[scale < 1] = 1  # don't rescale if already in [-1, 1]
+    ni = np.hstack([max_ni, min_ni])
+    indices = np.argmax(abs(ni), axis=1)
+    scale = np.choose(indices, ni.T)
+    signs = np.sign(scale)
 
     pots[:, potential_template.rho_indices] /= \
         scale[:, np.newaxis]
 
     pots[:, potential_template.f_indices] /= \
-        scale[:, np.newaxis] ** (1. / 3)
+        abs(scale[:, np.newaxis]) ** (1. / 3)
 
     pots[:, potential_template.g_indices] /= \
-        scale[:, np.newaxis] ** (1. / 3)
+        signs[:, np.newaxis]*(abs(scale[:, np.newaxis]) ** (1. / 3))
 
     return pots
 
