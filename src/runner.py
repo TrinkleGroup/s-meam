@@ -168,7 +168,7 @@ def main(config_name, template_file_name):
                 print("f_indices:", f_indices)
                 print()
                 print("g_indices:", g_indices)
-                print()
+                print(flush=True)
 
                 template = Template(
                     pvec_len=len(knot_values),
