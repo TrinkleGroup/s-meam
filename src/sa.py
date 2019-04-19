@@ -17,12 +17,13 @@ mcmc_block = namedtuple(
 )
 
 mcmc_blocks = {
-    'U': mcmc_block('rho', [5, 6], 4./20),
-    'rho': mcmc_block('rho', [3, 4], 4./20),
-    'f': mcmc_block('f', [7, 8], 4./20),
-    'g': mcmc_block('g', [9, 10, 11], 4./20),
-    'rho-U': mcmc_block('rho-U', [3, 4, 5, 6], 2./20),
-    'f-g-U': mcmc_block('f-g-U', [5,  6, 7, 8, 9, 10, 11], 2./20),
+    # 'U': mcmc_block('rho', [5, 6], 4./20),
+    # 'rho': mcmc_block('rho', [3, 4], 4./20),
+    # 'f': mcmc_block('f', [7, 8], 4./20),
+    # 'g': mcmc_block('g', [9, 10, 11], 4./20),
+    # 'rho-U': mcmc_block('rho-U', [3, 4, 5, 6], 2./20),
+    # 'f-g-U': mcmc_block('f-g-U', [5,  6, 7, 8, 9, 10, 11], 2./20),
+    'full': mcmc_block('full', list(range(12)), 1)
     # 'rws': mcmc_block('rws', [5, 6], 1./20),
 }
 
@@ -156,6 +157,7 @@ def sa(parameters, template):
 
     manager.struct = manager.broadcast_struct(manager.struct)
 
+    # prepare evaluation functions
     cost_fxn, grad_wrap = partools.build_evaluation_functions(
         potential_template, master_database, all_struct_names, manager,
         is_master, is_manager, manager_comm, "Ti48Mo80_type1_c18"
@@ -173,13 +175,19 @@ def sa(parameters, template):
 
         current = chain[0]
         print("current.shape", current.shape)
+
+        ud = np.concatenate(potential_template.u_ranges)
+        u_domains = np.tile(ud, (current.shape[0], 1))
     else:
         current = None
+        u_domains = None
         chain = None
         trace = None
 
+    u_domains = world_comm.bcast(u_domains, root=0)
+
     current_cost, max_ni, min_ni, avg_ni = cost_fxn(
-        current, weights,
+        np.hstack([current, u_domains]), weights,
         return_ni=True
     )
 
@@ -198,7 +206,7 @@ def sa(parameters, template):
             scale[:, np.newaxis]
 
     current_cost, max_ni, min_ni, avg_ni = cost_fxn(
-        current, weights,
+        np.hstack([current, u_domains]), weights,
         return_ni=True
     )
 
@@ -292,7 +300,8 @@ def sa(parameters, template):
         nsteps = world_comm.bcast(nsteps, root=0)
 
         current_cost, max_ni, min_ni, avg_ni = cost_fxn(
-            current, weights, return_ni=True
+            np.hstack([current, u_domains]), weights,
+            return_ni=True
         )
 
         if block.block_name == 'rws':
@@ -320,7 +329,8 @@ def sa(parameters, template):
                 potential_template.u_ranges = new_u_domains
 
             current_cost, max_ni, min_ni, avg_ni = cost_fxn(
-                current, weights, return_ni=True
+                np.hstack([current, u_domains]), weights,
+                return_ni=True
             )
 
         if is_master:
@@ -332,7 +342,7 @@ def sa(parameters, template):
         T = world_comm.bcast(T, root=0)
 
         current = partools.mcmc(
-            current, weights, cost_fxn, potential_template, T, parameters,
+            current, u_domains, weights, cost_fxn, potential_template, T, parameters,
             block.spline_tags, partools.checkpoint, is_master, step_num,
             suffix=block.block_name, max_nsteps=nsteps
         )
@@ -349,7 +359,7 @@ def sa(parameters, template):
             minimized = None
 
         minimized = local_minimization(
-            minimized , cost_fxn, grad_wrap, weights, world_comm, is_master,
+            minimized, u_domains, cost_fxn, grad_wrap, weights, world_comm, is_master,
             nsteps=parameters['LMIN_NSTEPS']
         )
 
@@ -539,13 +549,14 @@ def prepare_save_directory(parameters):
 
     os.mkdir(parameters['SAVE_DIRECTORY'])
 
-def local_minimization(current, fxn, grad, weights, world_comm, is_master, nsteps=20):
+def local_minimization(current, u_domains, fxn, grad, weights, world_comm, is_master, nsteps=20):
     pad = 100
 
     def lm_fxn_wrap(raveled_pop, original_shape):
         # print(raveled_pop)
         val = fxn(
-            raveled_pop.reshape(original_shape), weights, output=False
+            np.hstack([raveled_pop.reshape(original_shape), u_domains]),
+            weights, output=False
         )
 
         val = world_comm.bcast(val, root=0)
@@ -562,7 +573,7 @@ def local_minimization(current, fxn, grad, weights, world_comm, is_master, nstep
         #     print('org_pop', raveled_pop.reshape(original_shape))
 
         grads = grad(
-            raveled_pop.reshape(original_shape), weights
+            np.hstack([raveled_pop.reshape(original_shape), u_domains]), weights
         )
 
         # if is_master:
@@ -614,8 +625,8 @@ def local_minimization(current, fxn, grad, weights, world_comm, is_master, nstep
     else:
         new_pop = None
 
-    org_fits = fxn(current, weights)
-    new_fits = fxn(new_pop, weights)
+    org_fits = fxn(np.hstack([current, u_domains]), weights)
+    new_fits = fxn(np.hstack([new_pop, u_domains]), weights)
 
     if is_master:
         updated_current = list(current)

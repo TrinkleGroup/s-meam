@@ -41,6 +41,7 @@ from src.potential_templates import Template
 from src.node import Node
 from src.manager import Manager
 
+# rzm: figure out why it's not monotonically decreasing
 
 ################################################################################
 
@@ -164,87 +165,68 @@ def ga(parameters, template):
 
     # Create the original population
     if is_master:
-        master_pop_01 = toolbox.population(n=parameters['POP_SIZE'])
-        master_pop_01 = np.array(master_pop_01)
+        master_pop = toolbox.population(n=parameters['POP_SIZE'])
+        master_pop = np.array(master_pop)
+        # master_pop = np.ones(master_pop.shape)
 
-        master_pop_11 = toolbox.population(n=parameters['POP_SIZE'])
-        master_pop_11 = np.array(master_pop_11)
-
-        print("master_pop.shape", master_pop_01.shape)
+        ud = np.concatenate(potential_template.u_ranges)
+        u_domains = np.tile(ud, (master_pop.shape[0], 1))
 
         weights = np.ones(len(master_database.entries))
     else:
-        master_pop_01 = [0]
-        master_pop_11 = [0]
+        master_pop = np.zeros(1)
+        u_domains = np.zeros(1)
         weights = None
 
-    master_pop_01 = np.array(master_pop_01)
-    master_pop_11 = np.array(master_pop_11)
-
-    full_pop = [master_pop_01, master_pop_11]
+    master_pop = np.array(master_pop)
 
     weights = world_comm.bcast(weights, root=0)
 
-    for i, master_pop in enumerate(full_pop):
-        if i == 0:
-            potential_template.u_ranges = [[0, 1], [0, 1]]
-        elif i == 1:
-            potential_template.u_ranges = [[-1, 1], [-1, 1]]
-
-        init_fit, max_ni, min_ni, avg_ni = toolbox.evaluate_population(
-            master_pop, weights, return_ni=True, penalty=True
-        )
-
-        if is_master:
-            init_fit = np.sum(init_fit, axis=1)
-
-            print('max_ni:', max_ni)
-            print('min_ni:', min_ni)
-
-            master_pop = partools.rescale_ni(
-                master_pop, min_ni, max_ni,
-                potential_template
-            )
-
-            subset = master_pop[:10]
-        else:
-            subset = None
-
-        new_fit, max_ni, min_ni, avg_ni = toolbox.evaluate_population(
-                master_pop, weights, return_ni=True, penalty=True)
-
-        if is_master:
-            new_fit = np.sum(new_fit, axis=1)
-
-            print('after max_ni:', max_ni)
-            print('after min_ni:', min_ni)
-
-        # Have master gather fitnesses and update individuals
-        if is_master:
-
-            pop_copy = []
-            for ind in master_pop:
-                pop_copy.append(creator.Individual(ind))
-
-            master_pop = pop_copy
-
-            for ind, fit in zip(master_pop, new_fit):
-                ind.fitness.values = fit,
-
-            # Sort population; best on top
-            master_pop = tools.selBest(master_pop, len(master_pop))
-            full_pop[i] = master_pop
-
-            partools.checkpoint(
-                list(itertools.chain.from_iterable(full_pop)), new_fit, max_ni,
-                min_ni, avg_ni, 0, parameters, potential_template
-            )
+    init_fit, max_ni, min_ni, avg_ni = toolbox.evaluate_population(
+        np.hstack([master_pop, u_domains]), weights, return_ni=True,
+        penalty=True
+    )
 
     if is_master:
-        print('full_pop len:', len(list(itertools.chain.from_iterable(full_pop))))
-        print_statistics(
-            list(itertools.chain.from_iterable(full_pop)), 0, stats, logbook
+        init_fit = np.sum(init_fit, axis=1)
+
+        master_pop = partools.rescale_ni(
+            master_pop, min_ni, max_ni,
+            potential_template
         )
+
+        subset = master_pop[:10]
+    else:
+        subset = None
+
+    new_fit, max_ni, min_ni, avg_ni = toolbox.evaluate_population(
+        np.hstack([master_pop, u_domains]), weights, return_ni=True, penalty=True
+    )
+
+    # Have master gather fitnesses and update individuals
+    if is_master:
+        new_fit = np.sum(new_fit, axis=1)
+
+        pop_copy = []
+        for ind in master_pop:
+            pop_copy.append(creator.Individual(ind))
+
+        master_pop = pop_copy
+
+        for ind, fit in zip(master_pop, new_fit):
+            ind.fitness.values = fit,
+
+        # Sort population; best on top
+        master_pop = tools.selBest(master_pop, len(master_pop))
+        u_domains = u_domains[np.argsort(new_fit)]
+
+        partools.checkpoint(
+            master_pop, new_fit, max_ni,
+            min_ni, avg_ni, 0, parameters, potential_template
+        )
+
+    if is_master:
+        print_statistics(master_pop, 0, stats, logbook)
 
         ga_start = time.time()
 
@@ -252,113 +234,111 @@ def ga(parameters, template):
     if parameters['RUN_NEW_GA']:
         generation_number = 1
         while (generation_number < parameters['GA_NSTEPS']):
+            if is_master:
+                # print("before:", np.min(new_fit), new_fit[0])
 
-            for i, master_pop in enumerate(full_pop):
-                if i == 0:
-                    potential_template.u_ranges = [[0, 1], [0, 1]]
-                elif i == 1:
-                    potential_template.u_ranges = [[-1, 1], [-1, 1]]
+                master_pop = tools.selBest(master_pop, len(master_pop))
+                # Preserve top 50%, breed survivors
+                for pot_num in range(len(master_pop) // 2, len(master_pop)):
+                    mom_idx = np.random.randint(1, len(master_pop) // 2)
 
+                    # TODO: add a check to make sure GA popsize is large enough
+
+                    dad_idx = mom_idx
+                    while dad_idx == mom_idx:
+                        dad_idx = np.random.randint(1, len(master_pop) // 2)
+
+                    mom = master_pop[mom_idx]
+                    dad = master_pop[dad_idx]
+
+                    kid, _ = toolbox.mate(toolbox.clone(mom),
+                                          toolbox.clone(dad))
+                    master_pop[pot_num] = kid
+
+                # Mutate randomly everyone except top 10% (or top 2)
+                for mut_ind in master_pop[
+                               max(2, int(parameters['POP_SIZE'] / 10)):]:
+                    if np.random.random() >= parameters[
+                        'MUT_PB']: toolbox.mutate(mut_ind)
+
+            # Run local minimization on best individual if desired
+            if parameters['DO_LMIN'] and (
+                    generation_number % parameters['LMIN_FREQ'] == 0):
                 if is_master:
+                    print("Performing local minimization ...", flush=True)
+                    subset = master_pop[:10]
 
-                    # Preserve top 50%, breed survivors
-                    for pot_num in range(len(master_pop) // 2, len(master_pop)):
-                        mom_idx = np.random.randint(len(master_pop) // 2)
-
-                        # TODO: add a check to make sure GA popsize is large enough
-
-                        dad_idx = mom_idx
-                        while dad_idx == mom_idx:
-                            dad_idx = np.random.randint(len(master_pop) // 2)
-
-                        mom = master_pop[mom_idx]
-                        dad = master_pop[dad_idx]
-
-                        kid, _ = toolbox.mate(toolbox.clone(mom),
-                                              toolbox.clone(dad))
-                        master_pop[pot_num] = kid
-
-                    # Mutate randomly everyone except top 10% (or top 2)
-                    for mut_ind in master_pop[
-                                   max(2, int(parameters['POP_SIZE'] / 10)):]:
-                        if np.random.random() >= parameters[
-                            'MUT_PB']: toolbox.mutate(mut_ind)
-
-                # Run local minimization on best individual if desired
-                if parameters['DO_LMIN'] and (
-                        generation_number % parameters['LMIN_FREQ'] == 0):
-                    if is_master:
-                        print("Performing local minimization ...", flush=True)
-                        subset = master_pop[:10]
-
-                    subset = local_minimization(
-                        subset, toolbox, weights, world_comm, is_master,
-                        nsteps=parameters['LMIN_NSTEPS']
-                    )
-
-                    if is_master:
-                        master_pop[:10] = subset
-
-                fitnesses, max_ni, min_ni, avg_ni = toolbox.evaluate_population(
-                    master_pop, weights, return_ni=True, penalty=True
-                )
-
-                if parameters['DO_RESCALE'] and \
-                        (generation_number % parameters['RESCALE_FREQ'] == 0):
-                    if is_master:
-                        if generation_number < parameters['RESCALE_STOP_STEP']:
-                            print("Rescaling ...")
-
-                            master_pop = partools.rescale_ni(
-                                master_pop, min_ni, max_ni,
-                                potential_template
-                            )
-                    else:
-                        new_u_domains = None
-
-                fitnesses, max_ni, min_ni, avg_ni = toolbox.evaluate_population(
-                    master_pop, weights, return_ni=True, penalty=True
+                subset = np.array(subset)
+                subset = local_minimization(
+                    subset, u_domains, toolbox, weights, world_comm, is_master,
+                    nsteps=parameters['LMIN_NSTEPS']
                 )
 
                 if is_master:
-                    # only plotting the range of the 1st potential
-                    new_fit = np.sum(fitnesses, axis=1)
+                    master_pop[:10] = subset
 
-                    tmp_min_ni = min_ni[np.argsort(new_fit)]
-                    tmp_max_ni = max_ni[np.argsort(new_fit)]
-                    tmp_avg_ni = avg_ni[np.argsort(new_fit)]
+                fitnesses, max_ni, min_ni, avg_ni = toolbox.evaluate_population(
+                    np.hstack([master_pop, u_domains]), weights, return_ni=True, penalty=True
+                )
 
-                    pop_copy = []
-                    for ind in master_pop:
-                        pop_copy.append(creator.Individual(ind))
+            if parameters['DO_RESCALE'] and \
+                    (generation_number % parameters['RESCALE_FREQ'] == 0):
+                if is_master:
+                    if generation_number < parameters['RESCALE_STOP_STEP']:
+                        print("Rescaling ...")
 
-                    master_pop = pop_copy
-
-                    for ind, fit in zip(master_pop, new_fit):
-                        ind.fitness.values = fit,
-
-                    # Sort
-                    master_pop = tools.selBest(master_pop, len(master_pop))
-                    full_pop[i] = master_pop
-
-                    if (generation_number % parameters['CHECKPOINT_FREQ'] == 0):
-                        best = np.array(tools.selBest(master_pop, 1)[0])
-
-                        partools.checkpoint(
-                            list(itertools.chain.from_iterable(full_pop)),
-                            new_fit, tmp_max_ni, tmp_min_ni, tmp_avg_ni,
-                            generation_number, parameters, potential_template
+                        master_pop = partools.rescale_ni(
+                            master_pop, min_ni, max_ni,
+                            potential_template
                         )
-
-                    best_guess = master_pop[0]
-
+                else:
+                    new_u_domains = None
 
             if is_master:
+                u_domains = np.tile([-1, 1, -1, 1], (6, 1))
+
+            master_pop = np.array(master_pop)
+            fitnesses, max_ni, min_ni, avg_ni = toolbox.evaluate_population(
+                np.hstack([master_pop, u_domains]), weights, return_ni=True, penalty=True
+            )
+
+            if is_master:
+                # only plotting the range of the 1st potential
+                new_fit = np.sum(fitnesses, axis=1)
+
+                tmp_min_ni = min_ni[np.argsort(new_fit)]
+                tmp_max_ni = max_ni[np.argsort(new_fit)]
+                tmp_avg_ni = avg_ni[np.argsort(new_fit)]
+
+                pop_copy = []
+                for ind in master_pop:
+                    pop_copy.append(creator.Individual(ind))
+
+                master_pop = pop_copy
+
+                for ind, fit in zip(master_pop, new_fit):
+                    ind.fitness.values = fit,
+
+                # Sort
+                master_pop = tools.selBest(master_pop, len(master_pop))
+                u_domains = u_domains[np.argsort(new_fit)]
+                new_fit = new_fit[np.argsort(new_fit)]
+
+                if (generation_number % parameters['CHECKPOINT_FREQ'] == 0):
+                    best = np.array(tools.selBest(master_pop, 1)[0])
+
+                    partools.checkpoint(
+                        master_pop,
+                        new_fit, tmp_max_ni, tmp_min_ni, tmp_avg_ni,
+                        generation_number, parameters, potential_template
+                    )
+
+                best_guess = master_pop[0]
+
                 # Print statistics to screen and checkpoint
-                print_statistics(
-                    list(itertools.chain.from_iterable(full_pop)),
-                    generation_number, stats, logbook
-                )
+                # print(new_fit)
+                print_statistics(master_pop, generation_number, stats, logbook)
+                # print("after:", np.min(new_fit), new_fit[0])
 
             generation_number += 1
 
@@ -372,8 +352,9 @@ def ga(parameters, template):
             else:
                 subset = None
 
+            subset = np.array(subset)
             subset = local_minimization(
-                subset, toolbox, weights, world_comm, is_master,
+                subset, u_domains, toolbox, weights, world_comm, is_master,
                 nsteps=parameters['LMIN_NSTEPS']
             )
 
@@ -382,8 +363,9 @@ def ga(parameters, template):
                 master_pop[:10] = subset
 
 
+        master_pop = np.array(master_pop)
         fitnesses, max_ni, min_ni, avg_ni = toolbox.evaluate_population(
-            master_pop, weights, return_ni=True, penalty=False
+            np.hstack([master_pop, u_domains]), weights, return_ni=True, penalty=False
         )
 
         if is_master:
@@ -399,6 +381,8 @@ def ga(parameters, template):
                 ind.fitness.values = fit,
 
             master_pop = tools.selBest(master_pop, len(master_pop))
+            u_domains = u_domains[np.argsort(new_fit)]
+
             ga_runtime = time.time() - ga_start
 
             partools.checkpoint(
@@ -524,9 +508,10 @@ def build_stats_and_log():
     stats.register("std", np.std)
     stats.register("min", np.min)
     stats.register("max", np.max)
+    stats.register("0", lambda x: x[0])
 
     logbook = tools.Logbook()
-    logbook.header = "gen", "size", "min", "max", "avg", "std"
+    logbook.header = "gen", "size", "min", "max", "avg", "std", "0"
 
     return stats, logbook
 
@@ -540,15 +525,19 @@ def print_statistics(pop, gen_num, stats, logbook):
 
 
 # @profile
-def local_minimization(master_pop, toolbox, weights, world_comm, is_master,
-                       nsteps=20):
+def local_minimization(master_pop, u_domains, toolbox, weights, world_comm,
+        is_master, nsteps=20):
     pad = 100
 
     def lm_fxn_wrap(raveled_pop, original_shape):
         # print(raveled_pop)
-        val = toolbox.evaluate_population(
-            raveled_pop.reshape(original_shape), weights, output=False
-        )
+
+        if is_master:
+            tmp = np.hstack([raveled_pop.reshape(original_shape), u_domains])
+        else:
+            tmp = None
+
+        val = toolbox.evaluate_population(tmp, weights, output=False)
 
         val = world_comm.bcast(val, root=0)
 
@@ -558,9 +547,13 @@ def local_minimization(master_pop, toolbox, weights, world_comm, is_master,
         return tmp
 
     def lm_grad_wrap(raveled_pop, original_shape):
-        grads = toolbox.gradient(
-            raveled_pop.reshape(original_shape), weights
-        )
+
+        if is_master:
+            tmp = np.hstack([raveled_pop.reshape(original_shape), u_domains])
+        else:
+            tmp = None
+
+        grads = toolbox.gradient(tmp, weights)
 
         grads = world_comm.bcast(grads, root=0)
 
@@ -598,11 +591,16 @@ def local_minimization(master_pop, toolbox, weights, world_comm, is_master,
 
     if is_master:
         new_pop = opt_results['x'].reshape(master_pop.shape)
+        tmp = np.hstack([master_pop, u_domains])
+        new_tmp = np.hstack([new_pop, u_domains])
     else:
+        tmp = None
+        new_tmp = None
         new_pop = None
 
-    org_fits = toolbox.evaluate_population(master_pop, weights)
-    new_fits = toolbox.evaluate_population(new_pop, weights)
+    org_fits = toolbox.evaluate_population(tmp, weights)
+
+    new_fits = toolbox.evaluate_population(new_tmp, weights)
 
     if is_master:
         updated_master_pop = list(master_pop)

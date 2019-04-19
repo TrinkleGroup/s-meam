@@ -362,7 +362,7 @@ class Worker:
 
         return ffg_list
 
-    def compute_energy(self, parameters, u_ranges):
+    def compute_energy(self, parameters):
         """Calculates energies for all potentials using information
         pre-computed during initialization.
 
@@ -376,6 +376,9 @@ class Worker:
         """
         parameters = np.array(parameters)
         parameters = np.atleast_2d(parameters)
+
+        u_ranges = parameters[:, -2*self.ntypes:]
+        parameters = parameters[:, :-2*self.ntypes]
 
         self.n_pots = parameters.shape[0]
 
@@ -430,7 +433,7 @@ class Worker:
 
         return ni
 
-    def embedding_energy(self, ni, u_pvecs, new_range):
+    def embedding_energy(self, ni, u_pvecs, new_ranges):
         """
         Computes embedding energy
 
@@ -449,26 +452,30 @@ class Worker:
         min_ni = np.zeros((self.n_pots, len(u_pvecs)))
 
         # Evaluate U, U'
-        for i, (y, u) in enumerate(zip(u_pvecs, self.us)):
-            u.structure_vectors['energy'] = np.zeros((self.n_pots, u.knots.shape[0]+2))
+        for i, u in enumerate(self.us):
+            for j, y in enumerate(u_pvecs):
+                u.structure_vectors['energy'] = np.zeros((self.n_pots, u.knots.shape[0]+2))
 
-            # extract ni values for atoms of type i
-            ni_sublist = ni[:, self.type_of_each_atom - 1 == i]
+                # extract ni values for atoms of type i
+                ni_sublist = np.atleast_2d(
+                    ni[j, self.type_of_each_atom - 1 ==i]
+                )
 
-            if ni_sublist.shape[1] > 0:
-                max_ni[:, i] = np.max(ni_sublist)
-                min_ni[:, i] = np.min(ni_sublist)
+                if ni_sublist.shape[0] > 0:
+                    max_ni[j, i] = np.max(ni_sublist)
+                    min_ni[j, i] = np.min(ni_sublist)
 
-            num_embedded = ni_sublist.shape[1]
+                num_embedded = ni_sublist.shape[0]
 
-            if num_embedded > 0:
-                u_range = new_range[i]
+                if num_embedded > 0:
+                    # TODO: should be indexing a length 2*num_types vector
+                    new_abcd = u.add_to_energy_struct_vec(
+                        ni_sublist, new_ranges[j][2*i], new_ranges[j][2*i + 1]
+                        )
 
-                u.add_to_energy_struct_vec(
-                    ni_sublist, u_range[0], u_range[1]
-                    )
+                    u.structure_vectors['energy'][j, :] += new_abcd.ravel()
 
-                u_energy += u.calc_energy(y)
+                    u_energy += u.calc_energy(y)
 
             u.reset()
 
@@ -493,29 +500,35 @@ class Worker:
         shifted_types = self.type_of_each_atom - 1
 
         for i, u in enumerate(self.us):
-            new_range = u_ranges[i]
+            for j, y in enumerate(u_pvecs):
+                new_range = u_ranges[i]
 
-            # get atom ids of type i
-            indices = tags[shifted_types == i]
+                # get atom ids of type i
+                indices = tags[shifted_types == i]
 
-            u.structure_vectors['deriv'] = np.zeros(
-                (self.n_pots, self.natoms, u.knots.shape[0]+2))
-
-            if second:
-                u.structure_vectors['2nd_deriv'] = np.zeros(
+                u.structure_vectors['deriv'] = np.zeros(
                     (self.n_pots, self.natoms, u.knots.shape[0]+2))
 
-            if indices.shape[0] > 0:
-                u.add_to_deriv_struct_vec(
-                    ni[:, shifted_types == i], indices, new_range[0],
-                    new_range[1]
-                )
-
                 if second:
-                    u.add_to_2nd_deriv_struct_vec(
-                        ni[:, shifted_types == i], indices, new_range[0],
-                        new_range[1]
-                        )
+                    u.structure_vectors['2nd_deriv'] = np.zeros(
+                        (self.n_pots, self.natoms, u.knots.shape[0]+2))
+
+                if indices.shape[0] > 0:
+                    abcd = u.add_to_deriv_struct_vec(
+                               ni[j, shifted_types == i], indices,
+                               u_ranges[j][2*i], u_ranges[j][2*i + 1]
+                           )
+
+                    u.structure_vectors['deriv'][j, indices, :] = abcd
+
+                    if second:
+                        abcd = u.add_to_2nd_deriv_struct_vec(
+                                   ni[j, shifted_types == i], indices,
+                                   u_ranges[j][2*i], u_ranges[j][2*i + 1]
+                               )
+
+                        u.structure_vectors['2nd_deriv'][j, indices, :] = abcd
+            u.reset()
 
         # Evaluate U, U', and compute zero-point energies
         uprimes = np.zeros((self.n_pots, self.natoms))
@@ -530,7 +543,7 @@ class Worker:
         if second: return uprimes, uprimes_2
         else: return uprimes
 
-    def compute_forces(self, parameters, u_ranges):
+    def compute_forces(self, parameters):
         """Calculates the force vectors on each atom using the given spline
         parameters.
 
@@ -541,6 +554,9 @@ class Worker:
         """
 
         parameters = np.atleast_2d(parameters)
+        u_ranges = parameters[:, -2*self.ntypes:]
+        parameters = parameters[:, :-2*self.ntypes]
+
         self.n_pots = parameters.shape[0]
 
         phi_pvecs, rho_pvecs, u_pvecs, f_pvecs, g_pvecs = \
@@ -661,8 +677,11 @@ class Worker:
         return ffg_indices
 
     # @profile
-    def energy_gradient_wrt_pvec(self, pvec, u_ranges):
+    def energy_gradient_wrt_pvec(self, pvec):
         parameters = np.atleast_2d(pvec)
+        u_ranges = parameters[:, -2*self.ntypes:]
+        parameters = parameters[:, :-2*self.ntypes]
+
         gradient = np.zeros(parameters.shape)
 
         phi_pvecs, rho_pvecs, u_pvecs, f_pvecs, g_pvecs = \
@@ -795,8 +814,11 @@ class Worker:
         return gradient
 
     # @profile
-    def forces_gradient_wrt_pvec(self, pvec, u_ranges, sparse=False):
+    def forces_gradient_wrt_pvec(self, pvec, sparse=False):
         parameters = np.atleast_2d(pvec)
+        u_ranges = parameters[:, -2*self.ntypes:]
+        parameters = parameters[:, :-2*self.ntypes]
+
         self.n_pots = parameters.shape[0]
 
         if sparse:

@@ -4,6 +4,7 @@ sys.path.append('./')
 import numpy as np
 from mpi4py import MPI
 # from src.ga import ga
+from src.mcmc import mcmc
 from src.sa import sa
 from src.ga import ga
 from src.potential_templates import Template
@@ -198,7 +199,7 @@ def main(config_name, template_file_name):
         'NUM_STRUCTS', 'POP_SIZE', 'GA_NSTEPS', 'LMIN_FREQ',
         'INIT_NSTEPS', 'LMIN_NSTEPS', 'FINAL_NSTEPS', 'CHECKPOINT_FREQ',
         'SA_NSTEPS', 'RESCALE_FREQ', 'RESCALE_STOP_STEP', 'U_NSTEPS',
-        'MCMC_BLOCK_SIZE'
+        'MCMC_BLOCK_SIZE', 'SHIFT_FREQ'
     ]
 
     float_params = [
@@ -207,7 +208,8 @@ def main(config_name, template_file_name):
     ]
 
     bool_params = [
-        'RUN_NEW_GA', 'DO_LMIN', 'DEBUG', 'DO_RESCALE', 'OVERWRITE_OLD_FILES'
+        'RUN_NEW_GA', 'DO_LMIN', 'DEBUG', 'DO_RESCALE', 'OVERWRITE_OLD_FILES',
+        'DO_SHIFT'
     ]
 
     for key, val in parameters.items():
@@ -266,7 +268,8 @@ def main(config_name, template_file_name):
         if is_master:
             print("Running SA")
             print()
-        sa(parameters, template)
+        # sa(parameters, template)
+        mcmc(parameters, template)
     else:
         if is_master:
             kill_and_write("Invalid optimization type (OPT_TYPE)")

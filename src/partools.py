@@ -539,7 +539,7 @@ def shift_u(min_ni, max_ni):
     return new_u_domains
 
 
-def mcmc(population, weights, cost_fxn, potential_template, T,
+def mcmc(population, u_domains, weights, cost_fxn, potential_template, T,
          parameters, active_tags, checkpoint_fxn, is_master, start_step=0,
          cooling_rate=1, T_min=0, suffix="", max_nsteps=None):
     """
@@ -550,6 +550,7 @@ def mcmc(population, weights, cost_fxn, potential_template, T,
     Args:
         max_nsteps: (int) maximum number of steps to run
         population: (np.arr) 2d array where each row is a potential
+        u_domains: (np.arr) U min/max for each atom type
         weights: (np.arr) weights for each term in cost function
         cost_fxn: (callable) cost funciton
         potential_template: (Template) template containing potential information
@@ -576,6 +577,7 @@ def mcmc(population, weights, cost_fxn, potential_template, T,
 
     if is_master:
         population = np.array(population)
+        population = np.hstack([population, u_domains])
 
         active_indices = []
 
@@ -610,7 +612,7 @@ def mcmc(population, weights, cost_fxn, potential_template, T,
             rnd_indices = np.random.randint(
                 inp.shape[1], size=inp.shape[0]
             )
-            
+
             trial_position = inp.copy()
             trial_position[:, rnd_indices] += np.random.normal(
                 scale=move_scale, size=inp.shape[0]

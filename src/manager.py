@@ -58,7 +58,11 @@ class Manager:
 
         if self.proc_rank == 0:
             full = np.atleast_2d(master_pop)
-            full = self.pot_template.insert_active_splines(full)
+            tmp = self.pot_template.insert_active_splines(
+                full[:, :-2*self.pot_template.ntypes]
+            )
+
+            full = np.hstack([tmp, full[:, -2*self.pot_template.ntypes:]])
 
             only_one_pot = (full.shape[0] == 1)
 
@@ -73,7 +77,7 @@ class Manager:
         pop = self.comm.scatter(full, root=0)
 
         # eng, max_ni, min_ni = self.struct.compute_energy(pop, self.pot_template.u_ranges)
-        eng, ni = self.struct.compute_energy(pop, self.pot_template.u_ranges)
+        eng, ni = self.struct.compute_energy(pop)
         # eng = self.struct.compute_energy(pop, self.pot_template.u_ranges)
 
         all_eng = self.comm.gather(eng, root=0)
@@ -123,7 +127,11 @@ class Manager:
 
         if self.proc_rank == 0:
             full = np.atleast_2d(master_pop)
-            full = self.pot_template.insert_active_splines(full)
+            tmp = self.pot_template.insert_active_splines(
+                full[:, :-2*self.pot_template.ntypes]
+            )
+
+            full = np.hstack([tmp, full[:, -2*self.pot_template.ntypes:]])
 
             only_one_pot = (full.shape[0] == 1)
 
@@ -136,7 +144,7 @@ class Manager:
 
         pop = self.comm.scatter(full, root=0)
 
-        fcs = self.struct.compute_forces(pop, self.pot_template.u_ranges)
+        fcs = self.struct.compute_forces(pop)
 
         all_fcs = self.comm.gather(fcs, root=0)
 
@@ -155,7 +163,11 @@ class Manager:
 
         if self.proc_rank == 0:
             full = np.atleast_2d(master_pop)
-            full = self.pot_template.insert_active_splines(full)
+            tmp = self.pot_template.insert_active_splines(
+                full[:, :-2*self.pot_template.ntypes]
+            )
+
+            full = np.hstack([tmp, full[:, -2*self.pot_template.ntypes:]])
 
             only_one_pot = (full.shape[0] == 1)
 
@@ -168,9 +180,7 @@ class Manager:
 
         pop = self.comm.scatter(full, root=0)
 
-        eng_grad = self.struct.energy_gradient_wrt_pvec(
-            pop, self.pot_template.u_ranges
-        )
+        eng_grad = self.struct.energy_gradient_wrt_pvec(pop)
 
         all_eng_grad = self.comm.gather(eng_grad, root=0)
 
@@ -188,7 +198,11 @@ class Manager:
 
         if self.proc_rank == 0:
             full = np.atleast_2d(master_pop)
-            full = self.pot_template.insert_active_splines(full)
+            tmp = self.pot_template.insert_active_splines(
+                full[:, :-2*self.pot_template.ntypes]
+            )
+
+            full = np.hstack([tmp, full[:, -2*self.pot_template.ntypes:]])
 
             only_one_pot = (full.shape[0] == 1)
 
@@ -201,9 +215,7 @@ class Manager:
 
         pop = self.comm.scatter(full, root=0)
 
-        fcs_grad = self.struct.forces_gradient_wrt_pvec(
-            pop, self.pot_template.u_ranges
-        )
+        fcs_grad = self.struct.forces_gradient_wrt_pvec(pop)
 
         all_fcs_grad = self.comm.gather(fcs_grad, root=0)
 
