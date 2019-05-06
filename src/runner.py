@@ -6,7 +6,11 @@ from mpi4py import MPI
 # from src.ga import ga
 from src.sa import sa
 from src.ga import ga
+from src.sgd import sgd
 from src.potential_templates import Template
+import src.partools as partools
+from src.database import Database
+from src.manager import Manager
 
 np.set_printoptions(linewidth=1000)
 
@@ -198,12 +202,12 @@ def main(config_name, template_file_name):
         'NUM_STRUCTS', 'POP_SIZE', 'GA_NSTEPS', 'LMIN_FREQ',
         'INIT_NSTEPS', 'LMIN_NSTEPS', 'FINAL_NSTEPS', 'CHECKPOINT_FREQ',
         'SA_NSTEPS', 'RESCALE_FREQ', 'RESCALE_STOP_STEP', 'U_NSTEPS',
-        'MCMC_BLOCK_SIZE'
+        'MCMC_BLOCK_SIZE', 'SGD_NSTEPS', 'SGD_BATCH_SIZE'
     ]
 
     float_params = [
         'MUT_PB', 'COOLING_RATE', 'TMIN', 'TSTART', 'SA_MOVE_PROB',
-        'SA_MOVE_SCALE'
+        'SA_MOVE_SCALE', 'SGD_STEP_SIZE'
     ]
 
     bool_params = [
@@ -242,6 +246,26 @@ def main(config_name, template_file_name):
         f = open(parameters['COST_FILE_NAME'], 'ab')
         f.close()
 
+        database = Database(
+            parameters['STRUCTURE_DIRECTORY'], parameters['INFO_DIRECTORY'],
+            "Ti48Mo80_type1_c18"
+        )
+
+        database.load_structures(parameters['NUM_STRUCTS'])
+    else:
+        database = None
+
+    if is_master:
+        print("MASTER: Preparing save directory/files ... ", flush=True)
+        partools.prepare_save_directory(parameters)
+
+    # prepare managers
+    is_manager, manager, manager_comm = prepare_managers(
+            is_master, parameters, template, database
+        )
+
+    print("Rank {} manager:".format(world_rank), manager.struct_name)
+
     # run the optimizer
     if parameters.get('DEBUG', False):
         if is_master:
@@ -258,15 +282,19 @@ def main(config_name, template_file_name):
         debug_module.main(parameters, template)
     elif parameters['OPT_TYPE'] == 'GA':
         if is_master:
-            print("Running GA")
+            print("Running GA", flush=True)
             print()
 
-        ga(parameters, template)
+        ga(parameters, database, template, is_manager, manager, manager_comm)
     elif parameters['OPT_TYPE'] == 'SA':
         if is_master:
-            print("Running SA")
+            print("Running SA", flush=True)
             print()
-        sa(parameters, template)
+        sa(parameters, database, template, is_manager, manager, manager_comm)
+    elif parameters['OPT_TYPE'] == 'SGD':
+        if is_master:
+            print("Running SGD", flush=True)
+        sgd(parameters, database, template, is_manager, manager, manager_comm)
     else:
         if is_master:
             kill_and_write("Invalid optimization type (OPT_TYPE)")
@@ -274,6 +302,94 @@ def main(config_name, template_file_name):
 def kill_and_write(msg):
     print(msg, flush=True)
     MPI.COMM_WORLD.Abort(1)
+
+def prepare_managers(is_master, parameters, potential_template, database):
+    world_comm = MPI.COMM_WORLD
+    world_rank = world_comm.Get_rank()
+    world_size = world_comm.Get_size()
+
+    is_master = (world_rank == 0)
+
+    if is_master:
+        all_struct_names = [s.encode('utf-8').strip().decode('utf-8') for s in
+                            database.unique_structs]
+
+        struct_natoms = database.unique_natoms
+        num_structs = len(all_struct_names)
+
+        print(all_struct_names)
+
+        old_copy_names = list(all_struct_names)
+
+        worker_ranks = partools.compute_procs_per_subset(
+            struct_natoms, world_size
+        )
+
+        print("worker_ranks:", worker_ranks)
+    else:
+        potential_template = None
+        num_structs = None
+        worker_ranks = None
+        all_struct_names = None
+
+    potential_template = world_comm.bcast(potential_template, root=0)
+    num_structs = world_comm.bcast(num_structs, root=0)
+
+    # each Manager is in charge of a single structure
+    world_group = world_comm.Get_group()
+
+    all_rank_lists = world_comm.bcast(worker_ranks, root=0)
+    all_struct_names = world_comm.bcast(all_struct_names, root=0)
+
+    # Tell workers which manager they are a part of
+    worker_ranks = None
+    manager_ranks = []
+    for per_manager_ranks in all_rank_lists:
+        manager_ranks.append(per_manager_ranks[0])
+
+        if world_rank in per_manager_ranks:
+            worker_ranks = per_manager_ranks
+
+    # manager_comm connects all manager processes
+    manager_group = world_group.Incl(manager_ranks)
+    manager_comm = world_comm.Create(manager_group)
+
+    is_manager = (manager_comm != MPI.COMM_NULL)
+
+    # One manager per structure
+    if is_manager:
+        manager_rank = manager_comm.Get_rank()
+
+        struct_name = manager_comm.scatter(list(all_struct_names), root=0)
+
+        print(
+            "Manager", manager_rank, "received structure", struct_name, "plus",
+            len(worker_ranks), "processors for evaluation", flush=True
+        )
+
+    else:
+        struct_name = None
+        manager_rank = None
+
+    if is_master:
+        all_struct_names = list(old_copy_names)
+
+    worker_group = world_group.Incl(worker_ranks)
+    worker_comm = world_comm.Create(worker_group)
+
+    struct_name = worker_comm.bcast(struct_name, root=0)
+    manager_rank = worker_comm.bcast(manager_rank, root=0)
+
+    manager = Manager(manager_rank, worker_comm, potential_template)
+
+    manager.struct_name = struct_name
+    manager.struct = manager.load_structure(
+        manager.struct_name, parameters['STRUCTURE_DIRECTORY'] + "/"
+    )
+
+    manager.struct = manager.broadcast_struct(manager.struct)
+
+    return is_manager, manager, manager_comm
 
 
 if __name__ == "__main__":
