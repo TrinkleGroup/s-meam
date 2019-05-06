@@ -17,18 +17,18 @@ mcmc_block = namedtuple(
 )
 
 mcmc_blocks = {
-    # 'U': mcmc_block('rho', [5, 6], 4./20),
-    # 'rho': mcmc_block('rho', [3, 4], 4./20),
-    # 'f': mcmc_block('f', [7, 8], 4./20),
-    # 'g': mcmc_block('g', [9, 10, 11], 4./20),
-    # 'rho-U': mcmc_block('rho-U', [3, 4, 5, 6], 2./20),
-    # 'f-g-U': mcmc_block('f-g-U', [5,  6, 7, 8, 9, 10, 11], 2./20),
-    'full': mcmc_block('full', list(range(12)), 1)
+    'U': mcmc_block('rho', [5, 6], 4./20),
+    'rho': mcmc_block('rho', [3, 4], 4./20),
+    'f': mcmc_block('f', [7, 8], 4./20),
+    'g': mcmc_block('g', [9, 10, 11], 4./20),
+    'rho-U': mcmc_block('rho-U', [3, 4, 5, 6], 2./20),
+    'f-g-U': mcmc_block('f-g-U', [5,  6, 7, 8, 9, 10, 11], 2./20),
     # 'rws': mcmc_block('rws', [5, 6], 1./20),
 }
 
 ################################################################################
-def sa(parameters, template):
+def sa(parameters, database, potential_template, is_manager, manager,
+        manager_comm):
     """
     Runs a simulated annealing run. The Metropolis-Hastings acception/rejection
     criterion sampling from a normally-distributed P-dimensional vector for move
@@ -60,24 +60,10 @@ def sa(parameters, template):
     if is_master:
         prepare_save_directory(parameters)
 
-        potential_template = template
-
-        master_database = Database(
-            parameters['STRUCTURE_DIRECTORY'],
-            parameters['INFO_DIRECTORY'],
-            parameters['REFERENCE_STRUCT']
-        )
-
-        # Trace file to be appended to later
-        master_database.load_structures(parameters['NUM_STRUCTS'])
-
-        # master_database.print_metadata()
-
-        # all_struct_names  , structures = zip(*master_database.structures.items())
         all_struct_names = [s.encode('utf-8').strip().decode('utf-8') for s in
-                master_database.unique_structs]
+                database.unique_structs]
 
-        struct_natoms = master_database.unique_natoms
+        struct_natoms = database.unique_natoms
         num_structs = len(all_struct_names)
 
         print(all_struct_names)
@@ -88,12 +74,9 @@ def sa(parameters, template):
             struct_natoms, world_size
         )
 
-
-        weights = np.ones(len(master_database.entries))
+        weights = np.ones(len(database.entries))
         print("worker_ranks:", worker_ranks)
     else:
-        potential_template = None
-        master_database = None
         num_structs = None
         worker_ranks = None
         all_struct_names = None
@@ -101,65 +84,10 @@ def sa(parameters, template):
         weights = None
 
     weights = world_comm.bcast(weights, root=0)
-    potential_template = world_comm.bcast(potential_template, root=0)
     num_structs = world_comm.bcast(num_structs, root=0)
 
-    # each Manager is in charge of a single structure
-    world_group = world_comm.Get_group()
-
-    all_rank_lists = world_comm.bcast(worker_ranks, root=0)
-    all_struct_names = world_comm.bcast(all_struct_names, root=0)
-
-    # Tell workers which manager they are a part of
-    worker_ranks = None
-    manager_ranks = []
-    for per_manager_ranks in all_rank_lists:
-        manager_ranks.append(per_manager_ranks[0])
-
-        if world_rank in per_manager_ranks:
-            worker_ranks = per_manager_ranks
-
-    # manager_comm connects all manager processes
-    manager_group = world_group.Incl(manager_ranks)
-    manager_comm = world_comm.Create(manager_group)
-
-    is_manager = (manager_comm != MPI.COMM_NULL)
-
-    # One manager per structure
-    if is_manager:
-        manager_rank = manager_comm.Get_rank()
-
-        struct_name = manager_comm.scatter(list(all_struct_names), root=0)
-
-        print(
-            "Manager", manager_rank, "received structure", struct_name, "plus",
-            len(worker_ranks), "processors for evaluation", flush=True
-        )
-    else:
-        struct_name = None
-        manager_rank = None
-
-    if is_master:
-        all_struct_names = list(old_copy_names)
-
-    worker_group = world_group.Incl(worker_ranks)
-    worker_comm = world_comm.Create(worker_group)
-
-    struct_name = worker_comm.bcast(struct_name, root=0)
-    manager_rank = worker_comm.bcast(manager_rank, root=0)
-
-    manager = Manager(manager_rank, worker_comm, potential_template)
-
-    manager.struct_name = struct_name
-    manager.struct = manager.load_structure(
-        manager.struct_name, parameters['STRUCTURE_DIRECTORY'] + "/"
-    )
-
-    manager.struct = manager.broadcast_struct(manager.struct)
-
-    # prepare evaluation functions
     cost_fxn, grad_wrap = partools.build_evaluation_functions(
-        potential_template, master_database, all_struct_names, manager,
+        potential_template, database, all_struct_names, manager,
         is_master, is_manager, manager_comm, "Ti48Mo80_type1_c18"
     )
 
@@ -175,19 +103,13 @@ def sa(parameters, template):
 
         current = chain[0]
         print("current.shape", current.shape)
-
-        ud = np.concatenate(potential_template.u_ranges)
-        u_domains = np.tile(ud, (current.shape[0], 1))
     else:
         current = None
-        u_domains = None
         chain = None
         trace = None
 
-    u_domains = world_comm.bcast(u_domains, root=0)
-
     current_cost, max_ni, min_ni, avg_ni = cost_fxn(
-        np.hstack([current, u_domains]), weights,
+        current, weights,
         return_ni=True
     )
 
@@ -206,7 +128,7 @@ def sa(parameters, template):
             scale[:, np.newaxis]
 
     current_cost, max_ni, min_ni, avg_ni = cost_fxn(
-        np.hstack([current, u_domains]), weights,
+        current, weights,
         return_ni=True
     )
 
@@ -300,8 +222,7 @@ def sa(parameters, template):
         nsteps = world_comm.bcast(nsteps, root=0)
 
         current_cost, max_ni, min_ni, avg_ni = cost_fxn(
-            np.hstack([current, u_domains]), weights,
-            return_ni=True
+            current, weights, return_ni=True
         )
 
         if block.block_name == 'rws':
@@ -329,8 +250,7 @@ def sa(parameters, template):
                 potential_template.u_ranges = new_u_domains
 
             current_cost, max_ni, min_ni, avg_ni = cost_fxn(
-                np.hstack([current, u_domains]), weights,
-                return_ni=True
+                current, weights, return_ni=True
             )
 
         if is_master:
@@ -342,7 +262,7 @@ def sa(parameters, template):
         T = world_comm.bcast(T, root=0)
 
         current = partools.mcmc(
-            current, u_domains, weights, cost_fxn, potential_template, T, parameters,
+            current, weights, cost_fxn, potential_template, T, parameters,
             block.spline_tags, partools.checkpoint, is_master, step_num,
             suffix=block.block_name, max_nsteps=nsteps
         )
@@ -359,7 +279,7 @@ def sa(parameters, template):
             minimized = None
 
         minimized = local_minimization(
-            minimized, u_domains, cost_fxn, grad_wrap, weights, world_comm, is_master,
+            minimized , cost_fxn, grad_wrap, weights, world_comm, is_master,
             nsteps=parameters['LMIN_NSTEPS']
         )
 
@@ -549,14 +469,13 @@ def prepare_save_directory(parameters):
 
     os.mkdir(parameters['SAVE_DIRECTORY'])
 
-def local_minimization(current, u_domains, fxn, grad, weights, world_comm, is_master, nsteps=20):
+def local_minimization(current, fxn, grad, weights, world_comm, is_master, nsteps=20):
     pad = 100
 
     def lm_fxn_wrap(raveled_pop, original_shape):
         # print(raveled_pop)
         val = fxn(
-            np.hstack([raveled_pop.reshape(original_shape), u_domains]),
-            weights, output=False
+            raveled_pop.reshape(original_shape), weights, output=False
         )
 
         val = world_comm.bcast(val, root=0)
@@ -573,7 +492,7 @@ def local_minimization(current, u_domains, fxn, grad, weights, world_comm, is_ma
         #     print('org_pop', raveled_pop.reshape(original_shape))
 
         grads = grad(
-            np.hstack([raveled_pop.reshape(original_shape), u_domains]), weights
+            raveled_pop.reshape(original_shape), weights
         )
 
         # if is_master:
@@ -625,8 +544,8 @@ def local_minimization(current, u_domains, fxn, grad, weights, world_comm, is_ma
     else:
         new_pop = None
 
-    org_fits = fxn(np.hstack([current, u_domains]), weights)
-    new_fits = fxn(np.hstack([new_pop, u_domains]), weights)
+    org_fits = fxn(current, weights)
+    new_fits = fxn(new_pop, weights)
 
     if is_master:
         updated_current = list(current)

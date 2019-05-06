@@ -1,4 +1,5 @@
 import os
+import shutil
 import numpy as np
 from src.database import Database
 from src.potential_templates import Template
@@ -748,3 +749,11 @@ def checkpoint(population, costs, max_ni, min_ni, avg_ni, i, parameters,
                 ]
             )
         )
+
+def prepare_save_directory(parameters):
+    """Creates directories to store results"""
+
+    if os.path.isdir(parameters['SAVE_DIRECTORY']):
+        shutil.rmtree(parameters['SAVE_DIRECTORY'])
+
+    os.mkdir(parameters['SAVE_DIRECTORY'])
