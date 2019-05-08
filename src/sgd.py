@@ -134,8 +134,6 @@ def sgd(parameters, database, template, is_manager, manager,
         if is_manager:
             potential = np.atleast_2d(potential)
             potential = manager_comm.bcast(potential, root=0)
-        else:
-            potential = None
 
         if is_master:
             ref_name = database.ref_name

@@ -76,6 +76,9 @@ class Manager:
 
         pop = self.comm.scatter(full, root=0)
 
+        # if pop.shape[0] == 0: # num_pots < num_procs on manager
+        #     pop = np.zeros(pop.shape)
+
         # eng, max_ni, min_ni = self.struct.compute_energy(pop, self.pot_template.u_ranges)
         eng, ni = self.struct.compute_energy(pop)
         # eng = self.struct.compute_energy(pop, self.pot_template.u_ranges)
@@ -83,11 +86,11 @@ class Manager:
         all_eng = self.comm.gather(eng, root=0)
         all_ni = self.comm.gather(ni, root=0)
 
-        min_ni = None
-        max_ni = None
-        avg_ni = None
-        ni_var = None
-        frac_in = None
+        min_ni = [0]
+        max_ni = [0]
+        avg_ni = [0]
+        ni_var = [0]
+        frac_in = [0]
 
         if self.proc_rank == 0:
             # all_max_ni = np.vstack(all_max_ni)
@@ -109,10 +112,18 @@ class Manager:
 
                 frac_in.append(num_in / type_ni.shape[1])
 
-            min_ni = [np.min(ni, axis=1) for ni in per_type_ni]
-            max_ni = [np.max(ni, axis=1) for ni in per_type_ni]
-            avg_ni = [np.average(ni, axis=1) for ni in per_type_ni]
-            ni_var = [np.std(ni, axis=1)**2 for ni in per_type_ni]
+            # i'm sorry for this... it's how I handled nProcs > nPots
+            min_ni = [np.atleast_2d(np.min(ni, axis=1))[:, :master_pop.shape[0]] for ni in per_type_ni]
+            max_ni = [np.atleast_2d(np.max(ni, axis=1))[:, :master_pop.shape[0]] for ni in per_type_ni]
+            avg_ni = [np.atleast_2d(np.average(ni, axis=1))[:, :master_pop.shape[0]] for ni in per_type_ni]
+            ni_var = [np.atleast_2d(np.std(ni, axis=1)**2)[:, :master_pop.shape[0]] for ni in per_type_ni]
+
+            min_ni = min_ni[:master_pop.shape[0]]
+            max_ni = max_ni[:master_pop.shape[0]]
+            avg_ni = avg_ni[:master_pop.shape[0]]
+            ni_var = ni_var[:master_pop.shape[0]]
+
+            frac_in = [el[:master_pop.shape[0]] for el in frac_in]
 
             if only_one_pot:
                 all_eng = all_eng[0]
