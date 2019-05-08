@@ -58,17 +58,23 @@ def sgd(parameters, database, template, is_manager, manager,
     if is_master:
         potential = np.atleast_2d(template.generate_random_instance())
         potential = potential[:, np.where(template.active_mask)[0]]
-        print('potential', potential.shape)
+        print('potential.shape:', potential.shape)
+
+        ud = np.concatenate(template.u_ranges)
+        u_domains = np.atleast_2d(np.tile(ud, (potential.shape[0], 1)))
+
         weights = np.ones(len(database.entries))
     else:
         potential = None
+        u_domains = None
         weights = None
 
     potential = world_comm.bcast(potential, root=0)
+    u_domains = world_comm.bcast(u_domains, root=0)
     weights = world_comm.bcast(weights, root=0)
 
     init_cost, max_ni, min_ni, avg_ni = fxn_wrap(
-        potential, weights, return_ni=True, penalty=True
+        np.hstack([potential, u_domains]), weights, return_ni=True, penalty=True
     )
 
     # perform initial rescaling
@@ -76,7 +82,8 @@ def sgd(parameters, database, template, is_manager, manager,
         potential = partools.rescale_ni(potential, min_ni, max_ni, template)
 
     costs, max_ni, min_ni, avg_ni = fxn_wrap(
-            potential, weights, return_ni=True, penalty=True, output=True)
+        np.hstack([potential, u_domains]), weights, return_ni=True, penalty=True
+    )
 
     if is_master:
         costs = np.sum(costs, axis=1)
@@ -87,11 +94,12 @@ def sgd(parameters, database, template, is_manager, manager,
 
     num_steps_taken = 0
 
-    cost = fxn_wrap(potential, weights,)
+    cost = fxn_wrap(np.hstack([potential, u_domains]), weights,)
 
     if is_master:
         print("{} {}".format(num_steps_taken, np.sum(cost)), flush=True)
 
+    eta = parameters['SGD_STEP_SIZE']
     while (num_steps_taken < parameters['SGD_NSTEPS']):
         """
         choose random subset of structures
@@ -141,11 +149,14 @@ def sgd(parameters, database, template, is_manager, manager,
         if manager.struct_name in batch_ids + [ref_name]:
 
             # managers gather from workers
-            eng, _, _, _, _, _ = manager.compute_energy(potential)
-            fcs = manager.compute_forces(potential)
+            eng, _, _, _, _, _ = manager.compute_energy(
+                    np.hstack([potential, u_domains])
+                )
 
-            eng_grad = manager.compute_energy_grad(potential)
-            fcs_grad = manager.compute_forces_grad(potential)
+            fcs = manager.compute_forces(np.hstack([potential, u_domains]))
+
+            eng_grad = manager.compute_energy_grad(np.hstack([potential, u_domains]))
+            fcs_grad = manager.compute_forces_grad(np.hstack([potential, u_domains]))
         else:  # TODO: avoid sending these empty messages
             eng = [0]
             fcs =[0]
@@ -206,15 +217,24 @@ def sgd(parameters, database, template, is_manager, manager,
             # end gradient calculations
 
             tmp = np.atleast_2d(np.average(gradient, axis=1))
-
-            eta = (1e-5)#*(0.95**(num_steps_taken+1))
             potential -= eta*tmp[:, np.where(template.active_mask)[0]]
 
-            num_steps_taken += 1
+            eta *= 0.95
 
-        cost = fxn_wrap(potential, weights,)
+        cost = fxn_wrap(np.hstack([potential, u_domains]), weights,)
 
         if is_master:
             print("{} {} {}".format(num_steps_taken, eta, np.sum(cost)), flush=True)
+
+        num_steps_taken += 1
+
+        digits = np.floor(np.log10(parameters['SGD_NSTEPS']))
+
+        format_str = os.path.join(
+            parameters['SAVE_DIRECTORY'],
+            'pop_{0:0' + str(int(digits) + 1)+ 'd}.dat'
+        )
+
+        np.savetxt(format_str.format(num_steps_taken), potential)
 
 ################################################################################

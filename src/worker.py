@@ -451,10 +451,15 @@ class Worker:
         max_ni = np.zeros((self.n_pots, len(u_pvecs)))
         min_ni = np.zeros((self.n_pots, len(u_pvecs)))
 
+        # print("ni.shape:", ni.shape)
+        # print("u_pvecs.shape:", [el.shape for el in u_pvecs])
+
         # Evaluate U, U'
-        for i, u in enumerate(self.us):
-            for j, y in enumerate(u_pvecs):
-                u.structure_vectors['energy'] = np.zeros((self.n_pots, u.knots.shape[0]+2))
+        for i, u in enumerate(self.us):  # for every atom type
+            u.structure_vectors['energy'] = np.zeros((self.n_pots, u.knots.shape[0]+2))
+            # for j, y in enumerate(u_pvecs):
+            for j in range(u_pvecs[0].shape[0]):  # for every potential
+                y = np.atleast_2d(u_pvecs[i][j])
 
                 # extract ni values for atoms of type i
                 ni_sublist = np.atleast_2d(
@@ -500,8 +505,11 @@ class Worker:
         shifted_types = self.type_of_each_atom - 1
 
         for i, u in enumerate(self.us):
-            for j, y in enumerate(u_pvecs):
-                new_range = u_ranges[i]
+            # for j, y in enumerate(u_pvecs):
+            for j in range(u_pvecs[0].shape[0]):  # for every potential
+                y = np.atleast_2d(u_pvecs[i][j])
+
+                new_range = u_ranges[j, 2*i:2*(i+1)]
 
                 # get atom ids of type i
                 indices = tags[shifted_types == i]
@@ -711,26 +719,29 @@ class Worker:
             grad_index += y.shape[1]
 
         # add in first term of chain rule
-        for i,(y,u) in enumerate(zip(u_pvecs, self.us)):
-            new_range = u_ranges[i]
+        for i, u in enumerate(self.us):
+            for j in range(u_pvecs[0].shape[0]):  # for every potential
+                y = np.atleast_2d(u_pvecs[i][j])
 
-            ni_sublist = ni[:, self.type_of_each_atom - 1 == i]
+                new_range = u_ranges[j, 2*i:2*(i+1)]
 
-            u.update_knot_positions(
-                new_range[0], new_range[1], y.shape[0]
-                )
+                ni_sublist = ni[:, self.type_of_each_atom - 1 == i]
 
-            num_embedded = ni_sublist.shape[1]
-
-            if num_embedded > 0:
-                u.add_to_energy_struct_vec(
-                    ni_sublist, new_range[0], new_range[1]
+                u.update_knot_positions(
+                    new_range[0], new_range[1], y.shape[0]
                     )
 
-                gradient[:, grad_index:grad_index + y.shape[1]] += \
-                    u.structure_vectors['energy']
+                num_embedded = ni_sublist.shape[1]
 
-            grad_index += y.shape[1]
+                if num_embedded > 0:
+                    u.add_to_energy_struct_vec(
+                        ni_sublist, new_range[0], new_range[1]
+                        )
+
+                    gradient[:, grad_index:grad_index + y.shape[1]] += \
+                        u.structure_vectors['energy']
+
+                grad_index += y.shape[1]
 
             u.reset()
 
