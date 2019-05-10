@@ -57,8 +57,14 @@ def sgd(parameters, database, template, is_manager, manager,
 
     if is_master:
         potential = np.atleast_2d(template.generate_random_instance())
-        potential = potential[:, np.where(template.active_mask)[0]]
+        potential = np.atleast_2d(
+                [template.generate_random_instance() for _ in
+                    range(parameters['POP_SIZE'])
+                    ]
+                )
         print('potential.shape:', potential.shape)
+        potential = potential[:, np.where(template.active_mask)[0]]
+        # potential = np.ones(potential.shape)
 
         ud = np.concatenate(template.u_ranges)
         u_domains = np.atleast_2d(np.tile(ud, (potential.shape[0], 1)))
@@ -97,7 +103,7 @@ def sgd(parameters, database, template, is_manager, manager,
     cost = fxn_wrap(np.hstack([potential, u_domains]), weights,)
 
     if is_master:
-        print("{} {}".format(num_steps_taken, np.sum(cost)), flush=True)
+        print("{} {}".format(num_steps_taken, np.sum(cost, axis=1)), flush=True)
 
     eta = parameters['SGD_STEP_SIZE']
     while (num_steps_taken < parameters['SGD_NSTEPS']):
@@ -128,7 +134,8 @@ def sgd(parameters, database, template, is_manager, manager,
         # TODO: problem; how do you compare inputs for things like C_ij?
 
         gradient = np.zeros(
-                (template.pvec_len, parameters['SGD_BATCH_SIZE'])
+                (potential.shape[0], template.pvec_len, parameters['SGD_BATCH_SIZE'])
+                # (template.pvec_len, parameters['SGD_BATCH_SIZE'])
             )
 
         if is_manager:
@@ -156,8 +163,8 @@ def sgd(parameters, database, template, is_manager, manager,
             eng_grad = manager.compute_energy_grad(np.hstack([potential, u_domains]))
             fcs_grad = manager.compute_forces_grad(np.hstack([potential, u_domains]))
         else:  # TODO: avoid sending these empty messages
-            eng = [0]
-            fcs =[0]
+            eng = np.zeros(potential.shape[0])
+            fcs = np.zeros(potential.shape[0])
 
             eng_grad = np.zeros(potential.shape)
             fcs_grad = np.zeros(potential.shape)
@@ -191,9 +198,10 @@ def sgd(parameters, database, template, is_manager, manager,
                     fcs_grad = mgr_fcs_grad[s_id]
 
                     scaled = np.einsum('pna,pnak->pnak', diff, fcs_grad)
-                    summed = scaled.sum(axis=1).sum(axis=1).ravel()
+                    summed = scaled.sum(axis=1).sum(axis=1)#.ravel()
 
-                    gradient[:, cost_id] += (2*summed/10)*weights[s_id]
+                    gradient[:, :, cost_id] += (2*summed/10)*weights[s_id]
+                    # gradient[:, cost_id] += (2*summed/10)*weights[s_id]
 
                 elif entry.type == 'energy':
                     r_name = entry.ref_struct
@@ -206,15 +214,16 @@ def sgd(parameters, database, template, is_manager, manager,
                     comp_ediff = all_eng[s_id, :] - all_eng[r_id, :]
 
                     eng_err = comp_ediff - true_ediff
-                    s_grad = mgr_eng_grad[s_id].ravel()
-                    r_grad = mgr_eng_grad[r_id].ravel()
+                    s_grad = mgr_eng_grad[s_id]#.ravel()
+                    r_grad = mgr_eng_grad[r_id]#.ravel()
 
                     tmp = (eng_err[:, np.newaxis]*(s_grad - r_grad)*2)*weights[s_id]
-                    gradient[:, cost_id] += tmp.ravel()
+                    gradient[:, :, cost_id] += tmp#.ravel()
+                    # gradient[:, cost_id] += tmp.ravel()
 
             # end gradient calculations
 
-            tmp = np.atleast_2d(np.average(gradient, axis=1))
+            tmp = np.atleast_2d(np.average(gradient, axis=2))
             potential -= eta*tmp[:, np.where(template.active_mask)[0]]
 
             eta *= 0.95
@@ -222,7 +231,7 @@ def sgd(parameters, database, template, is_manager, manager,
         cost = fxn_wrap(np.hstack([potential, u_domains]), weights,)
 
         if is_master:
-            print("{} {} {}".format(num_steps_taken, eta, np.sum(cost)), flush=True)
+            print("{} {} {}".format(num_steps_taken, eta, np.sum(cost, axis=1)), flush=True)
 
         num_steps_taken += 1
 
