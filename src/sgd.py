@@ -84,14 +84,20 @@ def sgd(parameters, database, template, is_manager, manager,
 
     # perform initial rescaling
     if is_master:
+        # min_ni = np.min(np.dstack(mgr_min_ni), axis=2).T
+        # max_ni = np.max(np.dstack(mgr_max_ni), axis=2).T
+
         potential = partools.rescale_ni(potential, min_ni, max_ni, template)
 
-    costs, max_ni, min_ni, avg_ni = fxn_wrap(
+    costs, c_max_ni, c_min_ni, c_avg_ni = fxn_wrap(
         np.hstack([potential, u_domains]), weights, return_ni=True, penalty=True
     )
 
     if is_master:
         costs = np.sum(costs, axis=1)
+
+        # min_ni = np.min(np.dstack(mgr_min_ni), axis=2).T
+        # max_ni = np.max(np.dstack(mgr_max_ni), axis=2).T
 
         partools.checkpoint(
             potential, costs, max_ni, min_ni, avg_ni, 0, parameters, template,
@@ -112,7 +118,9 @@ def sgd(parameters, database, template, is_manager, manager,
         compute gradient of subset
         update potential
         """
+
         if is_master:
+
             # choose random subset of structures
 
             # print(np.random.choice(database.entries, max([1,parameters['SGD_BATCH_SIZE']])))
@@ -126,6 +134,9 @@ def sgd(parameters, database, template, is_manager, manager,
                 entries_batch.append(database.entries[k])
 
             batch_ids = [e.struct_name for e in entries_batch]
+
+            # min_ni = np.min(np.dstack(mgr_min_ni), axis=2).T
+            # max_ni = np.max(np.dstack(mgr_max_ni), axis=2).T
 
             # shift U domains if desired
             if parameters['DO_SHIFT'] and (num_steps_taken + 1 %
@@ -178,6 +189,9 @@ def sgd(parameters, database, template, is_manager, manager,
         else:  # TODO: avoid sending these empty messages
             eng = np.zeros(potential.shape[0])
             fcs = np.zeros(potential.shape[0])
+
+            min_ni = np.zeros((potential.shape[0], template.ntypes))
+            max_ni = np.zeros((potential.shape[0], template.ntypes))
 
             eng_grad = np.zeros(potential.shape)
             fcs_grad = np.zeros(potential.shape)
@@ -243,12 +257,15 @@ def sgd(parameters, database, template, is_manager, manager,
 
         # cost = fxn_wrap(np.hstack([potential, u_domains]), weights,)
 
-        cost, max_ni, min_ni, avg_ni = fxn_wrap(
+        cost, c_max_ni, c_min_ni, c_avg_ni = fxn_wrap(
             np.hstack([potential, u_domains]), weights, return_ni=True,
         )
 
         if is_master:
             print("{} {} {}".format(num_steps_taken, eta, np.sum(cost, axis=1)), flush=True)
+
+            # min_ni = np.min(np.dstack(mgr_min_ni), axis=2).T
+            # max_ni = np.max(np.dstack(mgr_max_ni), axis=2).T
 
             partools.checkpoint(
                 potential, costs, max_ni, min_ni, avg_ni, num_steps_taken,
