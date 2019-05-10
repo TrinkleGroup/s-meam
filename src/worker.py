@@ -480,7 +480,7 @@ class Worker:
 
                     u.structure_vectors['energy'][j, :] += new_abcd.ravel()
 
-                    u_energy += u.calc_energy(y)
+            u_energy += u.calc_energy(y)
 
             u.reset()
 
@@ -738,10 +738,10 @@ class Worker:
                         ni_sublist, new_range[0], new_range[1]
                         )
 
-                    gradient[:, grad_index:grad_index + y.shape[1]] += \
-                        u.structure_vectors['energy']
+                gradient[:, grad_index:grad_index + y.shape[1]] += \
+                    u.structure_vectors['energy']
 
-                grad_index += y.shape[1]
+            grad_index += y.shape[1]
 
             u.reset()
 
