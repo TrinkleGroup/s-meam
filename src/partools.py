@@ -718,7 +718,7 @@ def mcmc(population, u_domains, weights, cost_fxn, potential_template, T,
     return population
 
 def checkpoint(population, costs, max_ni, min_ni, avg_ni, i, parameters,
-    potential_template):
+    potential_template, max_nsteps):
     """Saves information to files for later use"""
 
     # save costs -- assume file is being appended to
@@ -726,7 +726,7 @@ def checkpoint(population, costs, max_ni, min_ni, avg_ni, i, parameters,
         np.savetxt(f, np.atleast_2d(costs))
 
     # save population
-    digits = np.floor(np.log10(parameters['SA_NSTEPS']))
+    digits = np.floor(np.log10(max_nsteps))
 
     format_str = os.path.join(
         parameters['SAVE_DIRECTORY'],

@@ -118,11 +118,6 @@ class Manager:
             avg_ni = [np.atleast_2d(np.average(ni, axis=1))[:, :master_pop.shape[0]] for ni in per_type_ni]
             ni_var = [np.atleast_2d(np.std(ni, axis=1)**2)[:, :master_pop.shape[0]] for ni in per_type_ni]
 
-            min_ni = min_ni[:master_pop.shape[0]]
-            max_ni = max_ni[:master_pop.shape[0]]
-            avg_ni = avg_ni[:master_pop.shape[0]]
-            ni_var = ni_var[:master_pop.shape[0]]
-
             frac_in = [el[:master_pop.shape[0]] for el in frac_in]
 
             if only_one_pot:

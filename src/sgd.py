@@ -64,7 +64,6 @@ def sgd(parameters, database, template, is_manager, manager,
                 )
         print('potential.shape:', potential.shape)
         potential = potential[:, np.where(template.active_mask)[0]]
-        # potential = np.ones(potential.shape)
 
         ud = np.concatenate(template.u_ranges)
         u_domains = np.atleast_2d(np.tile(ud, (potential.shape[0], 1)))
@@ -95,7 +94,8 @@ def sgd(parameters, database, template, is_manager, manager,
         costs = np.sum(costs, axis=1)
 
         partools.checkpoint(
-            potential, costs, max_ni, min_ni, avg_ni, 0, parameters, template
+            potential, costs, max_ni, min_ni, avg_ni, 0, parameters, template,
+            parameters['SGD_NSTEPS']
         )
 
     num_steps_taken = 0
@@ -126,6 +126,19 @@ def sgd(parameters, database, template, is_manager, manager,
                 entries_batch.append(database.entries[k])
 
             batch_ids = [e.struct_name for e in entries_batch]
+
+            # shift U domains if desired
+            if parameters['DO_SHIFT'] and (num_steps_taken + 1 %
+                    parameters['SHIFT_FREQ'] == 0):
+
+                print("Rescaling ...")
+                ud = partools.shift_u(min_ni, max_ni)
+
+                u_domains = np.atleast_2d(
+                        np.tile(np.concatenate(ud), (potential.shape[0], 1))
+                    )
+
+                template.u_ranges = ud
         else:
             batch_ids = None
 
@@ -226,22 +239,21 @@ def sgd(parameters, database, template, is_manager, manager,
             tmp = np.atleast_2d(np.average(gradient, axis=2))
             potential -= eta*tmp[:, np.where(template.active_mask)[0]]
 
-            eta *= 0.95
+            # eta *= 0.95
 
-        cost = fxn_wrap(np.hstack([potential, u_domains]), weights,)
+        # cost = fxn_wrap(np.hstack([potential, u_domains]), weights,)
+
+        cost, max_ni, min_ni, avg_ni = fxn_wrap(
+            np.hstack([potential, u_domains]), weights, return_ni=True,
+        )
 
         if is_master:
             print("{} {} {}".format(num_steps_taken, eta, np.sum(cost, axis=1)), flush=True)
 
+            partools.checkpoint(
+                potential, costs, max_ni, min_ni, avg_ni, num_steps_taken,
+                parameters, template, parameters['SGD_NSTEPS']
+            )
+
         num_steps_taken += 1
-
-        digits = np.floor(np.log10(parameters['SGD_NSTEPS']))
-
-        format_str = os.path.join(
-            parameters['SAVE_DIRECTORY'],
-            'pop_{0:0' + str(int(digits) + 1)+ 'd}.dat'
-        )
-
-        np.savetxt(format_str.format(num_steps_taken), potential)
-
 ################################################################################
