@@ -58,11 +58,12 @@ class Manager:
 
         if self.proc_rank == 0:
             full = np.atleast_2d(master_pop)
-            tmp = self.pot_template.insert_active_splines(
-                full[:, :-2*self.pot_template.ntypes]
-            )
-
-            full = np.hstack([tmp, full[:, -2*self.pot_template.ntypes:]])
+            full = self.pot_template.insert_active_splines(full)
+            # tmp = self.pot_template.insert_active_splines(
+            #     full[:, :-2*self.pot_template.ntypes]
+            # )
+            #
+            # full = np.hstack([tmp, full[:, -2*self.pot_template.ntypes:]])
 
             only_one_pot = (full.shape[0] == 1)
 
@@ -80,17 +81,17 @@ class Manager:
         #     pop = np.zeros(pop.shape)
 
         # eng, max_ni, min_ni = self.struct.compute_energy(pop, self.pot_template.u_ranges)
-        eng, ni = self.struct.compute_energy(pop)
-        # eng = self.struct.compute_energy(pop, self.pot_template.u_ranges)
+        # eng, ni = self.struct.compute_energy(pop)
+        eng, ni = self.struct.compute_energy(pop, self.pot_template.u_ranges)
 
         all_eng = self.comm.gather(eng, root=0)
         all_ni = self.comm.gather(ni, root=0)
 
-        min_ni = [0]
-        max_ni = [0]
-        avg_ni = [0]
-        ni_var = [0]
-        frac_in = [0]
+        min_ni  = None
+        max_ni  = None
+        avg_ni  = None
+        ni_var  = None
+        frac_in = None
 
         if self.proc_rank == 0:
             # all_max_ni = np.vstack(all_max_ni)
@@ -112,17 +113,22 @@ class Manager:
 
                 frac_in.append(num_in / type_ni.shape[1])
 
+            min_ni = [np.min(ni, axis=1) for ni in per_type_ni]
+            max_ni = [np.max(ni, axis=1) for ni in per_type_ni]
+            avg_ni = [np.average(ni, axis=1) for ni in per_type_ni]
+            ni_var = [np.min(ni, axis=1) for ni in per_type_ni]
+
             # i'm sorry for this... it's how I handled nProcs > nPots
-            min_ni = [np.atleast_2d(np.min(ni, axis=1))[:, :master_pop.shape[0]] for ni in per_type_ni]
-            max_ni = [np.atleast_2d(np.max(ni, axis=1))[:, :master_pop.shape[0]] for ni in per_type_ni]
-            avg_ni = [np.atleast_2d(np.average(ni, axis=1))[:, :master_pop.shape[0]] for ni in per_type_ni]
-            ni_var = [np.atleast_2d(np.std(ni, axis=1)**2)[:, :master_pop.shape[0]] for ni in per_type_ni]
+            # min_ni = [np.atleast_2d(np.min(ni, axis=1))[:, :master_pop.shape[0]] for ni in per_type_ni]
+            # max_ni = [np.atleast_2d(np.max(ni, axis=1))[:, :master_pop.shape[0]] for ni in per_type_ni]
+            # avg_ni = [np.atleast_2d(np.average(ni, axis=1))[:, :master_pop.shape[0]] for ni in per_type_ni]
+            # ni_var = [np.atleast_2d(np.std(ni, axis=1)**2)[:, :master_pop.shape[0]] for ni in per_type_ni]
 
-            min_ni = [el.ravel() for el in min_ni]
-            max_ni = [el.ravel() for el in max_ni]
-            avg_ni = [el.ravel() for el in avg_ni]
+            # min_ni = [el.ravel() for el in min_ni]
+            # max_ni = [el.ravel() for el in max_ni]
+            # avg_ni = [el.ravel() for el in avg_ni]
 
-            frac_in = [el[:master_pop.shape[0]] for el in frac_in]
+            # frac_in = [el[:master_pop.shape[0]] for el in frac_in]
 
             if only_one_pot:
                 all_eng = all_eng[0]
@@ -137,11 +143,12 @@ class Manager:
 
         if self.proc_rank == 0:
             full = np.atleast_2d(master_pop)
-            tmp = self.pot_template.insert_active_splines(
-                full[:, :-2*self.pot_template.ntypes]
-            )
-
-            full = np.hstack([tmp, full[:, -2*self.pot_template.ntypes:]])
+            full = self.pot_template.insert_active_splines(full)
+            # tmp = self.pot_template.insert_active_splines(
+            #     full[:, :-2*self.pot_template.ntypes]
+            # )
+            #
+            # full = np.hstack([tmp, full[:, -2*self.pot_template.ntypes:]])
 
             only_one_pot = (full.shape[0] == 1)
 
@@ -154,7 +161,8 @@ class Manager:
 
         pop = self.comm.scatter(full, root=0)
 
-        fcs = self.struct.compute_forces(pop)
+        # fcs = self.struct.compute_forces(pop)
+        fcs = self.struct.compute_forces(pop, self.pot_template.u_ranges)
 
         all_fcs = self.comm.gather(fcs, root=0)
 
@@ -173,11 +181,12 @@ class Manager:
 
         if self.proc_rank == 0:
             full = np.atleast_2d(master_pop)
-            tmp = self.pot_template.insert_active_splines(
-                full[:, :-2*self.pot_template.ntypes]
-            )
-
-            full = np.hstack([tmp, full[:, -2*self.pot_template.ntypes:]])
+            full = self.pot_template.insert_active_splines(full)
+            # tmp = self.pot_template.insert_active_splines(
+            #     full[:, :-2*self.pot_template.ntypes]
+            # )
+            #
+            # full = np.hstack([tmp, full[:, -2*self.pot_template.ntypes:]])
 
             only_one_pot = (full.shape[0] == 1)
 
@@ -190,7 +199,7 @@ class Manager:
 
         pop = self.comm.scatter(full, root=0)
 
-        eng_grad = self.struct.energy_gradient_wrt_pvec(pop)
+        eng_grad = self.struct.energy_gradient_wrt_pvec(pop, self.pot_template.u_ranges)
 
         all_eng_grad = self.comm.gather(eng_grad, root=0)
 
@@ -208,11 +217,12 @@ class Manager:
 
         if self.proc_rank == 0:
             full = np.atleast_2d(master_pop)
-            tmp = self.pot_template.insert_active_splines(
-                full[:, :-2*self.pot_template.ntypes]
-            )
-
-            full = np.hstack([tmp, full[:, -2*self.pot_template.ntypes:]])
+            full = self.pot_template.insert_active_splines(full)
+            # tmp = self.pot_template.insert_active_splines(
+            #     full[:, :-2*self.pot_template.ntypes]
+            # )
+            #
+            # full = np.hstack([tmp, full[:, -2*self.pot_template.ntypes:]])
 
             only_one_pot = (full.shape[0] == 1)
 
@@ -225,7 +235,7 @@ class Manager:
 
         pop = self.comm.scatter(full, root=0)
 
-        fcs_grad = self.struct.forces_gradient_wrt_pvec(pop)
+        fcs_grad = self.struct.forces_gradient_wrt_pvec(pop, self.pot_template.u_ranges)
 
         all_fcs_grad = self.comm.gather(fcs_grad, root=0)
 

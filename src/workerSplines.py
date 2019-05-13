@@ -636,7 +636,7 @@ class USpline(WorkerSpline):
         self.M = build_M(self.n_knots, self.knots[1] - self.knots[0], self.bc_type)
         self.extrap_dist = (rhs_knot - lhs_knot) / 2
 
-        # self.structure_vectors['energy'] = np.zeros((npots, self.n_knots + 2))
+        self.structure_vectors['energy'] = np.zeros((npots, self.n_knots + 2))
 
     def reset(self):
         self.atoms_embedded = 0
@@ -645,7 +645,7 @@ class USpline(WorkerSpline):
         self.structure_vectors['2nd_deriv'][:] = 0
 
     def add_to_energy_struct_vec(self, values, lhs_knot, rhs_knot):
-        num_new_atoms = values.shape[0]
+        num_new_atoms = values.shape[1]
 
         self.update_knot_positions(lhs_knot, rhs_knot, values.shape[0])
 
@@ -660,9 +660,7 @@ class USpline(WorkerSpline):
             abcd = self.get_abcd(flat_values)
             abcd = abcd.reshape(list(org_shape) + [abcd.shape[1]])
 
-            # self.structure_vectors['energy'] += np.sum(abcd, axis=1)
-            return np.sum(abcd, axis=1)
-
+            self.structure_vectors['energy'] += np.sum(abcd, axis=1)
             # self.structure_vectors['energy'] -= self.zero_abcd * num_new_atoms
 
     def add_to_deriv_struct_vec(self, values, indices, lhs_knot, rhs_knot):
@@ -677,8 +675,7 @@ class USpline(WorkerSpline):
             abcd = self.get_abcd(flat_values, 1)
             abcd = abcd.reshape(list(org_shape) + [abcd.shape[1]])
 
-            # self.structure_vectors['deriv'][:, indices, :] = abcd
-            return abcd
+            self.structure_vectors['deriv'][:, indices, :] = abcd
 
     def add_to_2nd_deriv_struct_vec(self, values, indices, lhs_knot, rhs_knot):
         self.update_knot_positions(lhs_knot, rhs_knot, values.shape[0])
@@ -692,8 +689,7 @@ class USpline(WorkerSpline):
             abcd = self.get_abcd(flat_values, 2)
             abcd = abcd.reshape(list(org_shape) + [abcd.shape[1]])
 
-            # self.structure_vectors['2nd_deriv'][:, indices, :] = abcd
-            return abcd
+            self.structure_vectors['2nd_deriv'][:, indices, :] = abcd
 
     def calc_energy(self, y):
         return np.einsum("ij,ij->i", self.structure_vectors['energy'], y)

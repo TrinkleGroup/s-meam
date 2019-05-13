@@ -80,25 +80,19 @@ def sgd(parameters, database, template, is_manager, manager,
     weights = world_comm.bcast(weights, root=0)
 
     init_cost, max_ni, min_ni, avg_ni = fxn_wrap(
-        np.hstack([potential, u_domains]), weights, return_ni=True, penalty=True
+        potential, weights, return_ni=True
     )
 
     # perform initial rescaling
     if is_master:
-        # min_ni = np.min(np.dstack(mgr_min_ni), axis=2).T
-        # max_ni = np.max(np.dstack(mgr_max_ni), axis=2).T
-
         potential = partools.rescale_ni(potential, min_ni, max_ni, template)
 
-    costs, c_max_ni, c_min_ni, c_avg_ni = fxn_wrap(
-        np.hstack([potential, u_domains]), weights, return_ni=True, penalty=True
+    costs, max_ni, min_ni, avg_ni = fxn_wrap(
+        potential, weights, return_ni=True
     )
 
     if is_master:
         costs = np.sum(costs, axis=1)
-
-        # min_ni = np.min(np.dstack(mgr_min_ni), axis=2).T
-        # max_ni = np.max(np.dstack(mgr_max_ni), axis=2).T
 
         partools.checkpoint(
             potential, costs, max_ni, min_ni, avg_ni, 0, parameters, template,
@@ -107,7 +101,7 @@ def sgd(parameters, database, template, is_manager, manager,
 
     num_steps_taken = 0
 
-    cost = fxn_wrap(np.hstack([potential, u_domains]), weights,)
+    cost = fxn_wrap(potential, weights,)
 
     if is_master:
         print("{} {}".format(num_steps_taken, np.sum(cost, axis=1)), flush=True)
@@ -144,13 +138,13 @@ def sgd(parameters, database, template, is_manager, manager,
                     parameters['SHIFT_FREQ'] == 0):
 
                 print("Rescaling ...")
-                ud = partools.shift_u(min_ni, max_ni)
+                template.u_ranges = partools.shift_u(min_ni, max_ni)
 
-                u_domains = np.atleast_2d(
-                        np.tile(np.concatenate(ud), (potential.shape[0], 1))
-                    )
-
-                template.u_ranges = ud
+                # u_domains = np.atleast_2d(
+                #         np.tile(np.concatenate(ud), (potential.shape[0], 1))
+                #     )
+                #
+                # template.u_ranges = ud
         else:
             batch_ids = None
 
@@ -180,13 +174,15 @@ def sgd(parameters, database, template, is_manager, manager,
 
             # managers gather from workers
             eng, _, _, _, _, _ = manager.compute_energy(
-                    np.hstack([potential, u_domains])
+                    potential
+                    # np.hstack([potential, u_domains])
                 )
 
-            fcs = manager.compute_forces(np.hstack([potential, u_domains]))
+            # fcs = manager.compute_forces(np.hstack([potential, u_domains]))
+            fcs = manager.compute_forces(potential)
 
-            eng_grad = manager.compute_energy_grad(np.hstack([potential, u_domains]))
-            fcs_grad = manager.compute_forces_grad(np.hstack([potential, u_domains]))
+            eng_grad = manager.compute_energy_grad(potential)
+            fcs_grad = manager.compute_forces_grad(potential)
         else:  # TODO: avoid sending these empty messages
             eng = np.zeros(potential.shape[0])
             fcs = np.zeros(potential.shape[0])
@@ -246,6 +242,7 @@ def sgd(parameters, database, template, is_manager, manager,
                     r_grad = mgr_eng_grad[r_id]#.ravel()
 
                     tmp = (eng_err[:, np.newaxis]*(s_grad - r_grad)*2)*weights[s_id]
+                    # print('tmp[0]:', tmp[0])
                     gradient[:, :, cost_id] += tmp#.ravel()
                     # gradient[:, cost_id] += tmp.ravel()
 
@@ -254,12 +251,10 @@ def sgd(parameters, database, template, is_manager, manager,
             tmp = np.atleast_2d(np.average(gradient, axis=2))
             potential -= eta*tmp[:, np.where(template.active_mask)[0]]
 
-            # eta *= 0.95
+            eta *= 0.75
 
-        # cost = fxn_wrap(np.hstack([potential, u_domains]), weights,)
-
-        cost, c_max_ni, c_min_ni, c_avg_ni = fxn_wrap(
-            np.hstack([potential, u_domains]), weights, return_ni=True,
+        cost, max_ni, min_ni, avg_ni = fxn_wrap(
+            potential, weights, return_ni=True,
         )
 
         if is_master:
