@@ -248,7 +248,8 @@ def sgd(parameters, database, template, is_manager, manager,
 
         if is_master:
             cost = np.sum(cost, axis=1)
-            print("{} {} {}".format(num_steps_taken, eta, ), flush=True)
+
+            print("{} {} {}".format(num_steps_taken, eta, cost), flush=True)
 
             partools.checkpoint(
                 potential, cost, max_ni, min_ni, avg_ni, num_steps_taken,
