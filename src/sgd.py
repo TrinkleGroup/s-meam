@@ -134,12 +134,16 @@ def sgd(parameters, database, template, is_manager, manager,
             # max_ni = np.max(np.dstack(mgr_max_ni), axis=2).T
 
             # shift U domains if desired
-            if parameters['DO_SHIFT'] and (num_steps_taken + 1 %
+            # print('do_shift, shift_freq:', parameters['DO_SHIFT'], parameters['SHIFT_FREQ'])
+            # print('modulo:', (num_steps_taken + 1) % parameters['SHIFT_FREQ'])
+            if parameters['DO_SHIFT'] and ((num_steps_taken + 1) %
                     parameters['SHIFT_FREQ'] == 0):
 
-                print("Rescaling ...")
-                template.u_ranges = partools.shift_u(min_ni, max_ni)
+                new_u_domains = partools.shift_u(min_ni, max_ni)
 
+                print("New U domains:", new_u_domains)
+
+                template.u_ranges = new_u_domains
                 # u_domains = np.atleast_2d(
                 #         np.tile(np.concatenate(ud), (potential.shape[0], 1))
                 #     )

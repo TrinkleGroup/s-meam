@@ -23,8 +23,6 @@ def build_evaluation_functions(
         if is_manager:
             pop = manager_comm.bcast(master_pop, root=0)
             pop = np.atleast_2d(pop)
-
-            # TODO: when evaluating single, some procs will get empty pot
         else:
             pop = None
 
@@ -68,10 +66,8 @@ def build_evaluation_functions(
                 frac_in = np.sum(np.dstack(mgr_frac_in), axis=2).T
 
                 fitnesses = np.zeros(
-                    (len(pop), len(master_database.entries) + 4)
+                    (len(pop), len(master_database.entries) + 2)
                 )
-
-                # maybe make the error U[] - var?
 
                 lambda_pen = 10000
 
@@ -79,9 +75,7 @@ def build_evaluation_functions(
 
                 fitnesses[:, -frac_in.shape[1]:] = lambda_pen*abs(ns - frac_in)
 
-                fitnesses[:, -3] = lambda_pen*np.sum(np.abs(avg_ni), axis=1)
-                fitnesses[:, -4] = lambda_pen*np.sum(np.abs(1 - ni_var), axis=1)
-
+                # maybe make the error U[] - var?
 
                 for fit_id, (entry, weight) in enumerate(
                         zip(master_database.entries, weights)):
@@ -116,7 +110,7 @@ def build_evaluation_functions(
 
         if is_master:
             if not penalty:
-                fitnesses = fitnesses[:, :-4]
+                fitnesses = fitnesses[:, :-2]
 
         if return_ni:
             return fitnesses, max_ni, min_ni, avg_ni
@@ -515,14 +509,14 @@ def shift_u(min_ni, max_ni):
         atom type
     """
 
-    scale = np.max(np.abs(np.hstack([min_ni, max_ni])), axis=1)
-    scale = np.average(scale, axis=0)
+    # scale = np.max(np.abs(np.hstack([min_ni, max_ni])), axis=1)
+    # scale = np.average(scale, axis=0)
 
-    tmp_min_ni = np.average(min_ni, axis=0)
-    tmp_max_ni = np.average(max_ni, axis=0)
+    tmp_min_ni = min_ni[0]
+    tmp_max_ni = max_ni[0]
 
     new_u_domains = [
-        (tmp_min_ni[i] / scale, tmp_max_ni[i] / scale) for i in range(2)]
+        (tmp_min_ni[i], tmp_max_ni[i]) for i in range(2)]
 
     for k, tup in enumerate(new_u_domains):
         tmp_tup = []
@@ -542,7 +536,7 @@ def shift_u(min_ni, max_ni):
     return new_u_domains
 
 
-def mcmc(population, u_domains, weights, cost_fxn, potential_template, T,
+def mcmc(population, weights, cost_fxn, potential_template, T,
          parameters, active_tags, checkpoint_fxn, is_master, start_step=0,
          cooling_rate=1, T_min=0, suffix="", max_nsteps=None):
     """
@@ -553,7 +547,6 @@ def mcmc(population, u_domains, weights, cost_fxn, potential_template, T,
     Args:
         max_nsteps: (int) maximum number of steps to run
         population: (np.arr) 2d array where each row is a potential
-        u_domains: (np.arr) U min/max for each atom type
         weights: (np.arr) weights for each term in cost function
         cost_fxn: (callable) cost funciton
         potential_template: (Template) template containing potential information
@@ -580,7 +573,6 @@ def mcmc(population, u_domains, weights, cost_fxn, potential_template, T,
 
     if is_master:
         population = np.array(population)
-        population = np.hstack([population, u_domains])
 
         active_indices = []
 
@@ -615,7 +607,7 @@ def mcmc(population, u_domains, weights, cost_fxn, potential_template, T,
             rnd_indices = np.random.randint(
                 inp.shape[1], size=inp.shape[0]
             )
-
+            
             trial_position = inp.copy()
             trial_position[:, rnd_indices] += np.random.normal(
                 scale=move_scale, size=inp.shape[0]
