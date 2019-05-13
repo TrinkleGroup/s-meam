@@ -64,6 +64,7 @@ def sgd(parameters, database, template, is_manager, manager,
                 )
         print('potential.shape:', potential.shape)
         potential = potential[:, np.where(template.active_mask)[0]]
+        # potential = np.ones(potential.shape)
 
         ud = np.concatenate(template.u_ranges)
         u_domains = np.atleast_2d(np.tile(ud, (potential.shape[0], 1)))

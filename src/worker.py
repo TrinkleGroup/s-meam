@@ -505,21 +505,20 @@ class Worker:
         shifted_types = self.type_of_each_atom - 1
 
         for i, u in enumerate(self.us):
-            # for j, y in enumerate(u_pvecs):
+
+            u.structure_vectors['deriv'] = np.zeros(
+                (self.n_pots, self.natoms, u.knots.shape[0]+2))
+
+            if second:
+                u.structure_vectors['2nd_deriv'] = np.zeros(
+                    (self.n_pots, self.natoms, u.knots.shape[0]+2))
+
+
             for j in range(u_pvecs[0].shape[0]):  # for every potential
                 y = np.atleast_2d(u_pvecs[i][j])
 
-                new_range = u_ranges[j, 2*i:2*(i+1)]
-
                 # get atom ids of type i
                 indices = tags[shifted_types == i]
-
-                u.structure_vectors['deriv'] = np.zeros(
-                    (self.n_pots, self.natoms, u.knots.shape[0]+2))
-
-                if second:
-                    u.structure_vectors['2nd_deriv'] = np.zeros(
-                        (self.n_pots, self.natoms, u.knots.shape[0]+2))
 
                 if indices.shape[0] > 0:
                     abcd = u.add_to_deriv_struct_vec(
@@ -536,7 +535,6 @@ class Worker:
                                )
 
                         u.structure_vectors['2nd_deriv'][j, indices, :] = abcd
-            u.reset()
 
         # Evaluate U, U', and compute zero-point energies
         uprimes = np.zeros((self.n_pots, self.natoms))
