@@ -130,12 +130,7 @@ def sgd(parameters, database, template, is_manager, manager,
 
             batch_ids = [e.struct_name for e in entries_batch]
 
-            # min_ni = np.min(np.dstack(mgr_min_ni), axis=2).T
-            # max_ni = np.max(np.dstack(mgr_max_ni), axis=2).T
-
             # shift U domains if desired
-            # print('do_shift, shift_freq:', parameters['DO_SHIFT'], parameters['SHIFT_FREQ'])
-            # print('modulo:', (num_steps_taken + 1) % parameters['SHIFT_FREQ'])
             if parameters['DO_SHIFT'] and ((num_steps_taken + 1) %
                     parameters['SHIFT_FREQ'] == 0):
 
@@ -144,11 +139,6 @@ def sgd(parameters, database, template, is_manager, manager,
                 print("New U domains:", new_u_domains)
 
                 template.u_ranges = new_u_domains
-                # u_domains = np.atleast_2d(
-                #         np.tile(np.concatenate(ud), (potential.shape[0], 1))
-                #     )
-                #
-                # template.u_ranges = ud
         else:
             batch_ids = None
 
@@ -158,7 +148,6 @@ def sgd(parameters, database, template, is_manager, manager,
 
         gradient = np.zeros(
                 (potential.shape[0], template.pvec_len, parameters['SGD_BATCH_SIZE'])
-                # (template.pvec_len, parameters['SGD_BATCH_SIZE'])
             )
 
         if is_manager:
@@ -179,10 +168,8 @@ def sgd(parameters, database, template, is_manager, manager,
             # managers gather from workers
             eng, _, _, _, _, _ = manager.compute_energy(
                     potential
-                    # np.hstack([potential, u_domains])
                 )
 
-            # fcs = manager.compute_forces(np.hstack([potential, u_domains]))
             fcs = manager.compute_forces(potential)
 
             eng_grad = manager.compute_energy_grad(potential)
@@ -242,13 +229,11 @@ def sgd(parameters, database, template, is_manager, manager,
                     comp_ediff = all_eng[s_id, :] - all_eng[r_id, :]
 
                     eng_err = comp_ediff - true_ediff
-                    s_grad = mgr_eng_grad[s_id]#.ravel()
-                    r_grad = mgr_eng_grad[r_id]#.ravel()
+                    s_grad = mgr_eng_grad[s_id]
+                    r_grad = mgr_eng_grad[r_id]
 
                     tmp = (eng_err[:, np.newaxis]*(s_grad - r_grad)*2)*weights[s_id]
-                    # print('tmp[0]:', tmp[0])
                     gradient[:, :, cost_id] += tmp#.ravel()
-                    # gradient[:, cost_id] += tmp.ravel()
 
             # end gradient calculations
 
@@ -262,13 +247,11 @@ def sgd(parameters, database, template, is_manager, manager,
         )
 
         if is_master:
-            print("{} {} {}".format(num_steps_taken, eta, np.sum(cost, axis=1)), flush=True)
-
-            # min_ni = np.min(np.dstack(mgr_min_ni), axis=2).T
-            # max_ni = np.max(np.dstack(mgr_max_ni), axis=2).T
+            cost = np.sum(cost, axis=1)
+            print("{} {} {}".format(num_steps_taken, eta, ), flush=True)
 
             partools.checkpoint(
-                potential, costs, max_ni, min_ni, avg_ni, num_steps_taken,
+                potential, cost, max_ni, min_ni, avg_ni, num_steps_taken,
                 parameters, template, parameters['SGD_NSTEPS']
             )
 
