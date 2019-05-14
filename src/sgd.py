@@ -104,21 +104,15 @@ def sgd(parameters, database, template, is_manager, manager,
     cost = fxn_wrap(potential, weights,)
 
     if is_master:
-        print("{} {}".format(num_steps_taken, np.sum(cost, axis=1)), flush=True)
+        current_cost = np.sum(cost, axis=1)
+
+        print("{} {}".format(num_steps_taken, current_cost), flush=True)
 
     eta = parameters['SGD_STEP_SIZE']
     while (num_steps_taken < parameters['SGD_NSTEPS']):
-        """
-        choose random subset of structures
-        compute gradient of subset
-        update potential
-        """
-
         if is_master:
 
             # choose random subset of structures
-
-            # print(np.random.choice(database.entries, max([1,parameters['SGD_BATCH_SIZE']])))
             choices = np.random.choice(
                         len(database.entries),
                         max([1, parameters['SGD_BATCH_SIZE']])
@@ -134,6 +128,11 @@ def sgd(parameters, database, template, is_manager, manager,
             if parameters['DO_SHIFT'] and ((num_steps_taken + 1) %
                     parameters['SHIFT_FREQ'] == 0):
 
+                current_costs = np.sum(cost, axis=1)
+
+                min_ni = min_ni[np.argsort(current_costs)]
+                max_ni = max_ni[np.argsort(current_costs)]
+
                 new_u_domains = partools.shift_u(min_ni, max_ni)
 
                 print("New U domains:", new_u_domains)
@@ -143,8 +142,6 @@ def sgd(parameters, database, template, is_manager, manager,
             batch_ids = None
 
         batch_ids = world_comm.bcast(batch_ids, root=0)
-
-        # TODO: problem; how do you compare inputs for things like C_ij?
 
         gradient = np.zeros(
                 (potential.shape[0], template.pvec_len, parameters['SGD_BATCH_SIZE'])
@@ -213,10 +210,9 @@ def sgd(parameters, database, template, is_manager, manager,
                     fcs_grad = mgr_fcs_grad[s_id]
 
                     scaled = np.einsum('pna,pnak->pnak', diff, fcs_grad)
-                    summed = scaled.sum(axis=1).sum(axis=1)#.ravel()
+                    summed = scaled.sum(axis=1).sum(axis=1)
 
                     gradient[:, :, cost_id] += (2*summed/10)*weights[s_id]
-                    # gradient[:, cost_id] += (2*summed/10)*weights[s_id]
 
                 elif entry.type == 'energy':
                     r_name = entry.ref_struct
@@ -233,27 +229,31 @@ def sgd(parameters, database, template, is_manager, manager,
                     r_grad = mgr_eng_grad[r_id]
 
                     tmp = (eng_err[:, np.newaxis]*(s_grad - r_grad)*2)*weights[s_id]
-                    gradient[:, :, cost_id] += tmp#.ravel()
+                    gradient[:, :, cost_id] += tmp
 
             # end gradient calculations
 
             tmp = np.atleast_2d(np.average(gradient, axis=2))
             potential -= eta*tmp[:, np.where(template.active_mask)[0]]
 
-            eta *= 0.75
+            # TODO: add better adaptive learning rates
+            # eta *= 0.75
 
         cost, max_ni, min_ni, avg_ni = fxn_wrap(
             potential, weights, return_ni=True,
         )
 
         if is_master:
-            cost = np.sum(cost, axis=1)
+            current_cost = np.sum(cost, axis=1)
 
-            print("{} {} {}".format(num_steps_taken, eta, cost), flush=True)
+            print(
+                "{} {} {}".format(num_steps_taken, eta, current_cost),
+                flush=True
+            )
 
             partools.checkpoint(
-                potential, cost, max_ni, min_ni, avg_ni, num_steps_taken,
-                parameters, template, parameters['SGD_NSTEPS']
+                potential, current_cost, max_ni, min_ni, avg_ni,
+                num_steps_taken, parameters, template, parameters['SGD_NSTEPS']
             )
 
         num_steps_taken += 1

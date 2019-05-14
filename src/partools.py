@@ -509,9 +509,6 @@ def shift_u(min_ni, max_ni):
         atom type
     """
 
-    # scale = np.max(np.abs(np.hstack([min_ni, max_ni])), axis=1)
-    # scale = np.average(scale, axis=0)
-
     tmp_min_ni = min_ni[0]
     tmp_max_ni = max_ni[0]
 
