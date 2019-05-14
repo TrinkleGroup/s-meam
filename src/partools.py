@@ -1,6 +1,7 @@
 import os
 import shutil
 import numpy as np
+from scipy.optimize import least_squares
 from src.database import Database
 from src.potential_templates import Template
 
@@ -112,18 +113,19 @@ def build_evaluation_functions(
             if not penalty:
                 fitnesses = fitnesses[:, :-2]
 
+        if output:
+            if is_master:
+                print(np.sum(fitnesses, axis=1), flush=True)
+                # tmp = np.sum(fitnesses, axis=1)
+                #
+                # print(
+                #     np.min(tmp), np.max(tmp), np.average(tmp),
+                #     flush=True
+                # )
+
         if return_ni:
             return fitnesses, max_ni, min_ni, avg_ni
         else:
-            if output:
-                if is_master:
-                    fitnesses = np.sum(fitnesses, axis=1)
-
-                    print(
-                        np.min(fitnesses), np.max(fitnesses), np.average(fitnesses),
-                        flush=True
-                    )
-
             return fitnesses
 
     def grad_wrap(master_pop, weights):
@@ -748,3 +750,98 @@ def prepare_save_directory(parameters):
         shutil.rmtree(parameters['SAVE_DIRECTORY'])
 
     os.mkdir(parameters['SAVE_DIRECTORY'])
+
+
+def local_minimization(master_pop, u_domains, fxn, grad, weights, world_comm,
+        is_master, nsteps=20, lm_output=False):
+
+    # NOTE: if LM throws size errors, you probaly need to add more padding
+    pad = 100
+
+    def lm_fxn_wrap(raveled_pop, original_shape):
+        # print(raveled_pop)
+
+        if is_master:
+            print('LM step: ', end="", flush=True)
+            tmp = raveled_pop.reshape(original_shape)
+        else:
+            tmp = None
+
+        val = fxn(tmp, weights, output=lm_output)
+
+        val = world_comm.bcast(val, root=0)
+
+        # pad with zeros since num structs is less than num knots
+        tmp = np.concatenate([val.ravel(), np.zeros(pad * original_shape[0])])
+
+        return tmp
+
+    def lm_grad_wrap(raveled_pop, original_shape):
+
+        if is_master:
+            tmp = raveled_pop.reshape(original_shape)
+        else:
+            tmp = None
+
+        grads = grad(tmp, weights)
+
+        grads = world_comm.bcast(grads, root=0)
+
+        num_pots, num_structs_2, num_params = grads.shape
+
+        padded_grad = np.zeros(
+            (num_pots, num_structs_2, num_pots, num_params)
+        )
+
+        for pot_id, g in enumerate(grads):
+            padded_grad[pot_id, :, pot_id, :] = g
+
+        padded_grad = padded_grad.reshape(
+            (num_pots * num_structs_2, num_pots * num_params)
+        )
+
+        # also pad with zeros since num structs is less than num knots
+
+        tmp = np.vstack([
+            padded_grad,
+            np.zeros((pad * num_pots, num_pots * num_params))]
+        )
+
+        return tmp
+
+    # lm_grad_wrap = '2-point'
+
+    master_pop = world_comm.bcast(master_pop, root=0)
+    master_pop = np.array(master_pop)
+
+    opt_results = least_squares(
+        lm_fxn_wrap, master_pop.ravel(), lm_grad_wrap,
+        method='lm', max_nfev=nsteps, args=(master_pop.shape,)
+    )
+
+    if is_master:
+        new_pop = opt_results['x'].reshape(master_pop.shape)
+        tmp = master_pop
+        new_tmp = new_pop
+    else:
+        tmp = None
+        new_tmp = None
+        new_pop = None
+
+    org_fits = fxn(tmp, weights)
+    new_fits = fxn(new_tmp, weights)
+
+    if is_master:
+        updated_master_pop = list(master_pop)
+
+        for i, ind in enumerate(new_pop):
+            if np.sum(new_fits[i]) < np.sum(org_fits[i]):
+                updated_master_pop[i] = new_pop[i]
+            else:
+                updated_master_pop[i] = updated_master_pop[i]
+
+        master_pop = np.array(updated_master_pop)
+
+    master_pop = world_comm.bcast(master_pop, root=0)
+
+    return master_pop

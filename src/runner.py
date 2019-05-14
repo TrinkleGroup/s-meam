@@ -154,24 +154,14 @@ def main(config_name, template_file_name):
                     )
                 )[0]
 
-                print()
+                print('POP_SIZE:', parameters['POP_SIZE'])
+                print('NUM_STRUCTS:', parameters['NUM_STRUCTS'])
+                print('DO_RESCALE:', parameters['DO_RESCALE'])
+                print('DO_LMIN:', parameters['DO_LMIN'])
+                print('DO_SHIFT:', parameters['DO_SHIFT'])
+
                 print("pvec_len:", len(knot_values))
-                print()
                 print("u_domains:", template_args['u_domains'])
-                print()
-                print("spline_ranges:", spline_ranges)
-                print()
-                print("spline_indices:", spline_indices)
-                print()
-                print("scales:", scales)
-                print()
-                print("spline_tags:", spline_tags)
-                print()
-                print("rho_indices:", rho_indices)
-                print()
-                print("f_indices:", f_indices)
-                print()
-                print("g_indices:", g_indices)
                 print()
 
                 template = Template(

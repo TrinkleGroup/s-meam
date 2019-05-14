@@ -6,6 +6,8 @@ import numpy as np
 from mpi4py import MPI
 import src.partools as partools
 
+np.set_printoptions(precision=3)
+
 
 ################################################################################
 
@@ -29,8 +31,6 @@ def sgd(parameters, database, template, is_manager, manager,
 
         print(all_struct_names)
 
-        old_copy_names = list(all_struct_names)
-
         worker_ranks = partools.compute_procs_per_subset(
             struct_natoms, world_size
         )
@@ -43,8 +43,6 @@ def sgd(parameters, database, template, is_manager, manager,
         all_struct_names = None
 
     # TODO: does everyone need all_struct_names?
-
-    num_structs = world_comm.bcast(num_structs, root=0)
 
     fxn_wrap, grad_wrap = partools.build_evaluation_functions(
         template, database, all_struct_names, manager,
@@ -74,6 +72,8 @@ def sgd(parameters, database, template, is_manager, manager,
         potential = None
         u_domains = None
         weights = None
+
+    subset = None  # used later as placeholder during LM
 
     potential = world_comm.bcast(potential, root=0)
     u_domains = world_comm.bcast(u_domains, root=0)
@@ -257,4 +257,37 @@ def sgd(parameters, database, template, is_manager, manager,
             )
 
         num_steps_taken += 1
+
+    if parameters['DO_LMIN']:
+        if is_master:
+            print("Performing Levenberg-Marquardt ...", flush=True)
+
+            potential = potential[np.argsort(current_cost)]
+            subset = potential[:10]
+
+        subset = partools.local_minimization(
+            subset, u_domains, fxn_wrap, grad_wrap, weights, world_comm,
+            is_master, nsteps=parameters['LMIN_NSTEPS'], lm_output=True,
+        )
+
+        if is_master:
+            potential[:10] = subset
+
+    cost, max_ni, min_ni, avg_ni = fxn_wrap(
+        potential, weights, return_ni=True
+    )
+
+    if is_master:
+        current_cost = np.sum(cost, axis=1)
+
+        print(
+            "Final: {} {} {}".format(num_steps_taken, eta, current_cost),
+            flush=True
+        )
+
+        partools.checkpoint(
+            potential, current_cost, max_ni, min_ni, avg_ni,
+            num_steps_taken, parameters, template, parameters['SGD_NSTEPS']
+        )
+
 ################################################################################
