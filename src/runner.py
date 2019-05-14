@@ -154,11 +154,14 @@ def main(config_name, template_file_name):
                     )
                 )[0]
 
+                print()
                 print('POP_SIZE:', parameters['POP_SIZE'])
                 print('NUM_STRUCTS:', parameters['NUM_STRUCTS'])
                 print('DO_RESCALE:', parameters['DO_RESCALE'])
-                print('DO_LMIN:', parameters['DO_LMIN'])
+                print('RESCALE_FREQ:', parameters['RESCALE_FREQ'])
                 print('DO_SHIFT:', parameters['DO_SHIFT'])
+                print('SHIFT_FREQ:', parameters['SHIFT_FREQ'])
+                print('DO_LMIN:', parameters['DO_LMIN'])
 
                 print("pvec_len:", len(knot_values))
                 print("u_domains:", template_args['u_domains'])
@@ -186,6 +189,8 @@ def main(config_name, template_file_name):
 
     parameters = world_comm.bcast(parameters, root=0)
     template = world_comm.bcast(template, root=0)
+
+    # TODO: don't have different 'NSTEP' params for each algorithm type
 
     # convert types of inputs from str
     int_params = [

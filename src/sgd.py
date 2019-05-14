@@ -124,6 +124,23 @@ def sgd(parameters, database, template, is_manager, manager,
 
             batch_ids = [e.struct_name for e in entries_batch]
 
+
+            # rescale by ni if desired
+            if parameters['DO_RESCALE'] and \
+                    ((num_steps_taken + 1) % parameters['RESCALE_FREQ'] == 0):
+                if is_master:
+                    if (num_steps_taken + 1) < parameters['RESCALE_STOP_STEP']:
+                        print("Rescaling ...")
+
+                        potential = partools.rescale_ni(
+                            potential, min_ni, max_ni, template
+                        )
+
+        costs, max_ni, min_ni, avg_ni = fxn_wrap(
+            potential, weights, return_ni=True
+        )
+
+        if is_master:
             # shift U domains if desired
             if parameters['DO_SHIFT'] and ((num_steps_taken + 1) %
                     parameters['SHIFT_FREQ'] == 0):
