@@ -115,13 +115,11 @@ def build_evaluation_functions(
 
         if output:
             if is_master:
-                print(np.sum(fitnesses, axis=1), flush=True)
-                # tmp = np.sum(fitnesses, axis=1)
-                #
-                # print(
-                #     np.min(tmp), np.max(tmp), np.average(tmp),
-                #     flush=True
-                # )
+                tmp = np.sum(fitnesses, axis=1)
+                print("{} {} {}".format(
+                        np.min(tmp), np.max(tmp), np.average(tmp)
+                    ),
+                )
 
         if return_ni:
             return fitnesses, max_ni, min_ni, avg_ni
@@ -536,8 +534,8 @@ def shift_u(min_ni, max_ni):
 
 
 def mcmc(population, weights, cost_fxn, potential_template, T,
-         parameters, active_tags, checkpoint_fxn, is_master, start_step=0,
-         cooling_rate=1, T_min=0, suffix="", max_nsteps=None):
+         parameters, active_tags, is_master, start_step=0,
+         cooling_rate=1, T_min=0, suffix="", max_nsteps=None, penalty=False):
     """
     Runs an MCMC optimization on the given subset of the parameter vectors.
     Stopping criterion is either 20 steps without any improvement,
@@ -635,11 +633,11 @@ def mcmc(population, weights, cost_fxn, potential_template, T,
             trial = None
 
         current_cost, c_max_ni, c_min_ni, c_avg_ni = cost_fxn(
-            tmp, weights, return_ni=True, penalty=True
+            tmp, weights, return_ni=True, penalty=penalty
         )
 
         trial_cost, t_max_ni, t_min_ni, t_avg_ni = cost_fxn(
-            tmp_trial, weights, return_ni=True, penalty=True
+            tmp_trial, weights, return_ni=True, penalty=penalty
         )
 
         if is_master:
@@ -689,9 +687,10 @@ def mcmc(population, weights, cost_fxn, potential_template, T,
                 tmp[:, active_indices] = current
 
                 if (start_step + step_num) % checkpoint_freq == 0:
-                    checkpoint_fxn(
+                    checkpoint(
                         tmp, current_cost, c_max_ni, c_min_ni, c_avg_ni,
-                        start_step + step_num, parameters, potential_template
+                        start_step + step_num, parameters, potential_template,
+                        max_nsteps, suffix='_mc'
                     )
 
             # if current_best == prev_best:
@@ -709,7 +708,7 @@ def mcmc(population, weights, cost_fxn, potential_template, T,
     return population
 
 def checkpoint(population, costs, max_ni, min_ni, avg_ni, i, parameters,
-    potential_template, max_nsteps):
+    potential_template, max_nsteps, suffix=""):
     """Saves information to files for later use"""
 
     # save costs -- assume file is being appended to
@@ -721,13 +720,13 @@ def checkpoint(population, costs, max_ni, min_ni, avg_ni, i, parameters,
 
     format_str = os.path.join(
         parameters['SAVE_DIRECTORY'],
-        'pop_{0:0' + str(int(digits) + 1)+ 'd}.dat'
+        'pop_{0:0' + str(int(digits) + 1)+ 'd}.dat' + suffix
     )
 
     np.savetxt(format_str.format(i), population)
 
     # output ni to file
-    with open(parameters['NI_TRACE_FILE_NAME'], 'ab') as f:
+    with open(parameters['NI_TRACE_FILE_NAME'] + suffix, 'ab') as f:
         np.savetxt(
             f,
             np.concatenate(

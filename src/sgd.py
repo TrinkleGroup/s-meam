@@ -27,7 +27,6 @@ def sgd(parameters, database, template, is_manager, manager,
                             database.unique_structs]
 
         struct_natoms = database.unique_natoms
-        num_structs = len(all_struct_names)
 
         print(all_struct_names)
 
@@ -38,8 +37,6 @@ def sgd(parameters, database, template, is_manager, manager,
         print("worker_ranks:", worker_ranks)
     else:
         database = None
-        num_structs = None
-        worker_ranks = None
         all_struct_names = None
 
     # TODO: does everyone need all_struct_names?
@@ -54,7 +51,6 @@ def sgd(parameters, database, template, is_manager, manager,
     # TODO: print the center of the U[] for each to see when stable
 
     if is_master:
-        potential = np.atleast_2d(template.generate_random_instance())
         potential = np.atleast_2d(
                 [template.generate_random_instance() for _ in
                     range(parameters['POP_SIZE'])
@@ -101,14 +97,29 @@ def sgd(parameters, database, template, is_manager, manager,
 
     num_steps_taken = 0
 
+    T = 1
+
+    potential = partools.mcmc(
+        potential, weights, fxn_wrap, template, T, parameters,
+        np.arange(12), is_master, num_steps_taken, suffix="warm-up",
+        max_nsteps=parameters['MCMC_BLOCK_SIZE'], penalty=True
+    )
+
     cost = fxn_wrap(potential, weights,)
+
+    eta = parameters['SGD_STEP_SIZE']
 
     if is_master:
         current_cost = np.sum(cost, axis=1)
 
-        print("{} {}".format(num_steps_taken, current_cost), flush=True)
+        print(
+            "{} {} {} {} {}".format(
+                num_steps_taken, eta, np.min(current_cost),
+                np.max(current_cost), np.average(current_cost),
+            ),
+            flush=True
+        )
 
-    eta = parameters['SGD_STEP_SIZE']
     while (num_steps_taken < parameters['SGD_NSTEPS']):
         if is_master:
 
@@ -264,7 +275,10 @@ def sgd(parameters, database, template, is_manager, manager,
             current_cost = np.sum(cost, axis=1)
 
             print(
-                "{} {} {}".format(num_steps_taken, eta, current_cost),
+                "{} {} {} {} {}".format(
+                    num_steps_taken, eta, np.min(current_cost),
+                    np.max(current_cost), np.average(current_cost),
+                ),
                 flush=True
             )
 
@@ -298,7 +312,10 @@ def sgd(parameters, database, template, is_manager, manager,
         current_cost = np.sum(cost, axis=1)
 
         print(
-            "Final: {} {} {}".format(num_steps_taken, eta, current_cost),
+            "Final: {} {} {} {} {}".format(
+                num_steps_taken, eta, np.average(current_cost),
+                np.min(current_cost), np.max(current_cost),
+            ),
             flush=True
         )
 
