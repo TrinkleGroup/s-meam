@@ -58,21 +58,17 @@ def sgd(parameters, database, template, is_manager, manager,
                 )
         print('potential.shape:', potential.shape)
         potential = potential[:, np.where(template.active_mask)[0]]
+        print('potential.shape:', potential.shape)
         # potential = np.ones(potential.shape)
-
-        ud = np.concatenate(template.u_ranges)
-        u_domains = np.atleast_2d(np.tile(ud, (potential.shape[0], 1)))
 
         weights = np.ones(len(database.entries))
     else:
         potential = None
-        u_domains = None
         weights = None
 
     subset = None  # used later as placeholder during LM
 
     potential = world_comm.bcast(potential, root=0)
-    u_domains = world_comm.bcast(u_domains, root=0)
     weights = world_comm.bcast(weights, root=0)
 
     init_cost, max_ni, min_ni, avg_ni = fxn_wrap(
@@ -99,11 +95,11 @@ def sgd(parameters, database, template, is_manager, manager,
 
     T = 1
 
-    potential = partools.mcmc(
-        potential, weights, fxn_wrap, template, T, parameters,
-        np.arange(12), is_master, num_steps_taken, suffix="warm-up",
-        max_nsteps=parameters['MCMC_BLOCK_SIZE'], penalty=True
-    )
+    # potential = partools.mcmc(
+    #     potential, weights, fxn_wrap, template, T, parameters,
+    #     np.arange(12), is_master, num_steps_taken, suffix="warm-up",
+    #     max_nsteps=parameters['MCMC_BLOCK_SIZE'], penalty=True
+    # )
 
     cost = fxn_wrap(potential, weights,)
 
@@ -297,7 +293,7 @@ def sgd(parameters, database, template, is_manager, manager,
             subset = potential[:10]
 
         subset = partools.local_minimization(
-            subset, u_domains, fxn_wrap, grad_wrap, weights, world_comm,
+            subset, template.u_ranges, fxn_wrap, grad_wrap, weights, world_comm,
             is_master, nsteps=parameters['LMIN_NSTEPS'], lm_output=True,
         )
 
