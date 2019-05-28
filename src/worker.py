@@ -1,8 +1,10 @@
 import sys
+
 sys.path.append('./');
 
 import time
 import numpy as np
+
 np.set_printoptions(precision=16)
 import logging
 import scipy.sparse
@@ -78,20 +80,20 @@ class Worker:
 
         if load_file: return
 
-        ntypes          = len(types)
-        self.ntypes     = ntypes
-        self.natoms     = len(atoms)
+        ntypes = len(types)
+        self.ntypes = ntypes
+        self.natoms = len(atoms)
         self.pvec_indices = x_indices
 
-        self.len_param_vec = len(knot_xcoords) + 2*len(x_indices)
+        self.len_param_vec = len(knot_xcoords) + 2 * len(x_indices)
 
         f = lambda t: src.lammpsTools.symbol_to_type(t, types)
         self.type_of_each_atom = list(map(f, atoms.get_chemical_symbols()))
 
         # TODO: rename self.nphi to be more clear
         # there are nphi phi functions and nphi g fxns
-        nphi            = int((self.ntypes+1)*self.ntypes/2)
-        self.nphi       = nphi
+        nphi = int((self.ntypes + 1) * self.ntypes / 2)
+        self.nphi = nphi
 
         all_splines = self.build_spline_lists(knot_xcoords, x_indices)
 
@@ -136,14 +138,13 @@ class Worker:
 
             # Stores pair information for phi
             for j, offset in zip(neighbors_noboth, offsets_noboth):
-
                 jtype = self.type_of_each_atom[j]
 
                 # Find displacement vector (with periodic boundary conditions)
                 jpos = atoms[j].position + np.dot(offset, atoms.get_cell())
 
                 jvec = jpos - ipos
-                rij = np.sqrt(jvec[0]**2 + jvec[1]**2 + jvec[2]**2)
+                rij = np.sqrt(jvec[0] ** 2 + jvec[1] ** 2 + jvec[2] ** 2)
                 jvec /= rij
 
                 all_rij.append(rij)
@@ -158,14 +159,14 @@ class Worker:
                 self.phis[phi_idx].add_to_forces_struct_vec(rij, -jvec, j)
 
                 # rho
-                self.rhos[jtype-1].add_to_energy_struct_vec(rij, i)
-                self.rhos[itype-1].add_to_energy_struct_vec(rij, j)
+                self.rhos[jtype - 1].add_to_energy_struct_vec(rij, i)
+                self.rhos[itype - 1].add_to_energy_struct_vec(rij, j)
 
-                self.rhos[jtype-1].add_to_forces_struct_vec(rij, jvec, i, i)
-                self.rhos[jtype-1].add_to_forces_struct_vec(rij, -jvec, j, i)
+                self.rhos[jtype - 1].add_to_forces_struct_vec(rij, jvec, i, i)
+                self.rhos[jtype - 1].add_to_forces_struct_vec(rij, -jvec, j, i)
 
-                self.rhos[itype-1].add_to_forces_struct_vec(rij, jvec, i, j)
-                self.rhos[itype-1].add_to_forces_struct_vec(rij, -jvec, j, j)
+                self.rhos[itype - 1].add_to_forces_struct_vec(rij, jvec, i, j)
+                self.rhos[itype - 1].add_to_forces_struct_vec(rij, -jvec, j, j)
 
             # Store distances, angle, and index info for embedding terms
             # TODO: rename j_idx to be more clear
@@ -178,12 +179,12 @@ class Worker:
                 jpos = atoms[j].position + np.dot(offsetj, atoms.get_cell())
 
                 jvec = jpos - ipos
-                rij = np.sqrt(jvec[0]**2 + jvec[1]**2 + jvec[2]**2)
+                rij = np.sqrt(jvec[0] ** 2 + jvec[1] ** 2 + jvec[2] ** 2)
                 jvec /= rij
 
                 # prepare for angular calculations
                 a = jpos - ipos
-                na = np.sqrt(a[0]**2 + a[1]**2 + a[2]**2)
+                na = np.sqrt(a[0] ** 2 + a[1] ** 2 + a[2] ** 2)
 
                 fj_idx = jtype - 1
 
@@ -195,11 +196,12 @@ class Worker:
                                                           atoms.get_cell())
 
                         kvec = kpos - ipos
-                        rik = np.sqrt(kvec[0]**2 + kvec[1]**2 + kvec[2]**2)
+                        rik = np.sqrt(
+                            kvec[0] ** 2 + kvec[1] ** 2 + kvec[2] ** 2)
                         kvec /= rik
 
                         b = kpos - ipos
-                        nb = np.sqrt(b[0]**2 + b[1]**2 + b[2]**2)
+                        nb = np.sqrt(b[0] ** 2 + b[1] ** 2 + b[2] ** 2)
 
                         cos_theta = np.dot(a, b) / na / nb
                         all_costheta.append(cos_theta)
@@ -238,10 +240,10 @@ class Worker:
         w.type_of_each_atom = np.array(worker_data['type_of_each_atom'])
 
         w.phis = [WorkerSpline.from_hdf5(worker_data["phis"], str(i)) for i in
-                range(w.nphi)]
+                  range(w.nphi)]
 
         w.rhos = [RhoSpline.from_hdf5(worker_data["rhos"], str(i)) for i in
-                range(w.ntypes)]
+                  range(w.ntypes)]
 
         w.us = [USpline.from_hdf5(worker_data["us"], str(i)) for i in
                 range(w.ntypes)]
@@ -253,7 +255,8 @@ class Worker:
                 range(w.nphi)]
 
         w.ffgs = [[ffgSpline.from_hdf5(worker_data["ffgs"][str(i)],
-                str(j)) for j in range(w.ntypes)] for i in range(w.ntypes)]
+                                       str(j)) for j in range(w.ntypes)] for i
+                  in range(w.ntypes)]
 
         return w
 
@@ -273,27 +276,27 @@ class Worker:
         new_group.attrs['len_param_vec'] = self.len_param_vec
 
         new_group.create_dataset("type_of_each_atom",
-                data=self.type_of_each_atom)
+                                 data=self.type_of_each_atom)
 
         phis_group = new_group.create_group("phis")
-        for i,sp in enumerate(self.phis): sp.add_to_hdf5(phis_group, str(i))
+        for i, sp in enumerate(self.phis): sp.add_to_hdf5(phis_group, str(i))
 
         rhos_group = new_group.create_group("rhos")
-        for i,sp in enumerate(self.rhos): sp.add_to_hdf5(rhos_group, str(i))
+        for i, sp in enumerate(self.rhos): sp.add_to_hdf5(rhos_group, str(i))
 
         us_group = new_group.create_group("us")
-        for i,sp in enumerate(self.us): sp.add_to_hdf5(us_group, str(i))
+        for i, sp in enumerate(self.us): sp.add_to_hdf5(us_group, str(i))
 
         fs_group = new_group.create_group("fs")
-        for i,sp in enumerate(self.fs): sp.add_to_hdf5(fs_group, str(i))
+        for i, sp in enumerate(self.fs): sp.add_to_hdf5(fs_group, str(i))
 
         gs_group = new_group.create_group("gs")
-        for i,sp in enumerate(self.gs): sp.add_to_hdf5(gs_group, str(i))
+        for i, sp in enumerate(self.gs): sp.add_to_hdf5(gs_group, str(i))
 
         ffgs_group = new_group.create_group("ffgs")
-        for i,ffg_list in enumerate(self.ffgs):
+        for i, ffg_list in enumerate(self.ffgs):
             mini_group = ffgs_group.create_group(str(i))
-            for j,sp in enumerate(ffg_list):
+            for j, sp in enumerate(ffg_list):
                 sp.add_to_hdf5(mini_group, str(j))
 
     def build_spline_lists(self, knot_xcoords, x_indices):
@@ -319,9 +322,9 @@ class Worker:
         for i, knots in enumerate(knots_split):
             if (i < self.nphi):
                 s = WorkerSpline(knots, bc_type, self.natoms)
-            elif (self.nphi + self.ntypes <= i < self.nphi + 2 *self.ntypes):
+            elif (self.nphi + self.ntypes <= i < self.nphi + 2 * self.ntypes):
                 s = USpline(knots, bc_type, self.natoms)
-            elif (i >= self.nphi + 2*self.ntypes):
+            elif (i >= self.nphi + 2 * self.ntypes):
                 s = WorkerSpline(knots, bc_type, self.natoms)
             else:
                 s = RhoSpline(knots, bc_type, self.natoms)
@@ -330,7 +333,8 @@ class Worker:
             splines.append(s)
 
         split_indices = [self.nphi, self.nphi + self.ntypes,
-                         self.nphi + 2*self.ntypes, self.nphi + 3*self.ntypes]
+                         self.nphi + 2 * self.ntypes,
+                         self.nphi + 3 * self.ntypes]
 
         return np.split(splines, split_indices)
 
@@ -398,7 +402,7 @@ class Worker:
 
         logging.info("total energy: {0}".format(energy))
 
-        return energy, ni#,max_ni, min_ni
+        return energy, ni  # ,max_ni, min_ni
 
     def compute_ni(self, rho_pvecs, f_pvecs, g_pvecs):
         """
@@ -419,9 +423,8 @@ class Worker:
             ni += rho.calc_energy(y).T
 
         # Three-body contribution
-        for j, (y_fj,ffg_list) in enumerate(zip(f_pvecs, self.ffgs)):
-            for k, (y_fk,ffg) in enumerate(zip(f_pvecs, ffg_list)):
-
+        for j, (y_fj, ffg_list) in enumerate(zip(f_pvecs, self.ffgs)):
+            for k, (y_fk, ffg) in enumerate(zip(f_pvecs, ffg_list)):
                 y_g = g_pvecs[src.meam.ij_to_potl(j + 1, k + 1, self.ntypes)]
 
                 ni += ffg.calc_energy(y_fj, y_fk, y_g)
@@ -450,7 +453,8 @@ class Worker:
 
         # Evaluate U, U'
         for i, (y, u) in enumerate(zip(u_pvecs, self.us)):
-            u.structure_vectors['energy'] = np.zeros((self.n_pots, u.knots.shape[0]+2))
+            u.structure_vectors['energy'] = np.zeros(
+                (self.n_pots, u.knots.shape[0] + 2))
 
             # extract ni values for atoms of type i
             ni_sublist = ni[:, self.type_of_each_atom - 1 == i]
@@ -466,7 +470,7 @@ class Worker:
 
                 u.add_to_energy_struct_vec(
                     ni_sublist, u_range[0], u_range[1]
-                    )
+                )
 
                 u_energy += u.calc_energy(y)
 
@@ -499,11 +503,11 @@ class Worker:
             indices = tags[shifted_types == i]
 
             u.structure_vectors['deriv'] = np.zeros(
-                (self.n_pots, self.natoms, u.knots.shape[0]+2))
+                (self.n_pots, self.natoms, u.knots.shape[0] + 2))
 
             if second:
                 u.structure_vectors['2nd_deriv'] = np.zeros(
-                    (self.n_pots, self.natoms, u.knots.shape[0]+2))
+                    (self.n_pots, self.natoms, u.knots.shape[0] + 2))
 
             if indices.shape[0] > 0:
                 u.add_to_deriv_struct_vec(
@@ -515,7 +519,7 @@ class Worker:
                     u.add_to_2nd_deriv_struct_vec(
                         ni[:, shifted_types == i], indices, new_range[0],
                         new_range[1]
-                        )
+                    )
 
         # Evaluate U, U', and compute zero-point energies
         uprimes = np.zeros((self.n_pots, self.natoms))
@@ -527,8 +531,10 @@ class Worker:
 
             if second: uprimes_2 += u.calc_2nd_deriv(y)
 
-        if second: return uprimes, uprimes_2
-        else: return uprimes
+        if second:
+            return uprimes, uprimes_2
+        else:
+            return uprimes
 
     def compute_forces(self, parameters, u_ranges):
         """Calculates the force vectors on each atom using the given spline
@@ -557,7 +563,8 @@ class Worker:
 
         # Electron density embedding (rho)
 
-        embedding_forces = np.zeros((self.n_pots, 3*self.natoms*self.natoms))
+        embedding_forces = np.zeros(
+            (self.n_pots, 3 * self.natoms * self.natoms))
 
         for rho_idx, (rho, y) in enumerate(zip(self.rhos, rho_pvecs)):
             embedding_forces += rho.calc_forces(y)
@@ -565,10 +572,9 @@ class Worker:
         # Angular terms (ffg)
         for j, ffg_list in enumerate(self.ffgs):
             for k, ffg in enumerate(ffg_list):
-
                 y_fj = f_pvecs[j]
                 y_fk = f_pvecs[k]
-                y_g = g_pvecs[src.meam.ij_to_potl(j+1, k+1, self.ntypes)]
+                y_g = g_pvecs[src.meam.ij_to_potl(j + 1, k + 1, self.ntypes)]
 
                 embedding_forces += ffg.calc_forces(y_fj, y_fk, y_g)
 
@@ -608,9 +614,9 @@ class Worker:
 
         phi_pvecs = params_split[:nphi]
         rho_pvecs = params_split[nphi: nphi + ntypes]
-        u_pvecs = params_split[nphi + ntypes:nphi + 2*ntypes]
-        f_pvecs = params_split[nphi + 2*ntypes:nphi + 3*ntypes]
-        g_pvecs = params_split[nphi + 3*ntypes:]
+        u_pvecs = params_split[nphi + ntypes:nphi + 2 * ntypes]
+        f_pvecs = params_split[nphi + 2 * ntypes:nphi + 3 * ntypes]
+        g_pvecs = params_split[nphi + 3 * ntypes:]
 
         return phi_pvecs, rho_pvecs, u_pvecs, f_pvecs, g_pvecs
 
@@ -631,30 +637,31 @@ class Worker:
                 n_fk = len(ffg.fk.knots) + 2
                 n_g = len(ffg.g.knots) + 2
 
-                fj_indices = np.zeros((n_fj, n_fk*n_g))
+                fj_indices = np.zeros((n_fj, n_fk * n_g))
                 for l in range(n_fj):
-                    fj_indices[l] = np.arange(n_fk*n_g) + l*n_fk*n_g
+                    fj_indices[l] = np.arange(n_fk * n_g) + l * n_fk * n_g
 
                 tmp_indices = np.arange(n_g)
 
-                fk_indices = np.zeros((n_fk, n_fj*n_g))
+                fk_indices = np.zeros((n_fk, n_fj * n_g))
                 for l in range(n_fk):
-                    k_indices = np.arange(l*n_g, n_fj*n_fk*n_g, n_fk*n_g)
+                    k_indices = np.arange(l * n_g, n_fj * n_fk * n_g,
+                                          n_fk * n_g)
 
                     gen = itertools.product(k_indices, tmp_indices)
-                    fk_indices[l] = [e1+e2 for e1,e2 in gen]
+                    fk_indices[l] = [e1 + e2 for e1, e2 in gen]
 
-                g_indices = np.zeros((n_g, n_fj*n_fk))
+                g_indices = np.zeros((n_g, n_fj * n_fk))
                 for l in range(n_g):
-                    g_indices[l] = np.arange(l, n_fk*n_fj*n_g, n_g)
+                    g_indices[l] = np.arange(l, n_fk * n_fj * n_g, n_g)
 
                 fj_indices = fj_indices.astype(int)
                 fk_indices = fk_indices.astype(int)
                 g_indices = g_indices.astype(int)
 
-                tmp_list.append({'fj_indices':fj_indices,
-                                 'fk_indices':fk_indices,
-                                 'g_indices':g_indices})
+                tmp_list.append({'fj_indices': fj_indices,
+                                 'fk_indices': fk_indices,
+                                 'g_indices': g_indices})
 
             ffg_indices.append(tmp_list)
 
@@ -683,7 +690,6 @@ class Worker:
         uprimes = self.evaluate_uprimes(ni, u_pvecs, u_ranges)
 
         for y, rho in zip(rho_pvecs, self.rhos):
-
             partial_ni = rho.structure_vectors['energy']
 
             gradient[:, grad_index:grad_index + y.shape[1]] += \
@@ -692,21 +698,21 @@ class Worker:
             grad_index += y.shape[1]
 
         # add in first term of chain rule
-        for i,(y,u) in enumerate(zip(u_pvecs, self.us)):
+        for i, (y, u) in enumerate(zip(u_pvecs, self.us)):
             new_range = u_ranges[i]
 
             ni_sublist = ni[:, self.type_of_each_atom - 1 == i]
 
             u.update_knot_positions(
                 new_range[0], new_range[1], y.shape[0]
-                )
+            )
 
             num_embedded = ni_sublist.shape[1]
 
             if num_embedded > 0:
                 u.add_to_energy_struct_vec(
                     ni_sublist, new_range[0], new_range[1]
-                    )
+                )
 
                 gradient[:, grad_index:grad_index + y.shape[1]] += \
                     u.structure_vectors['energy']
@@ -723,7 +729,7 @@ class Worker:
             n_fj = y_fj.shape[1]
 
             for k, (y_fk, ffg) in enumerate(zip(f_pvecs, ffg_list)):
-                g_idx = src.meam.ij_to_potl(j+1, k+1, self.ntypes)
+                g_idx = src.meam.ij_to_potl(j + 1, k + 1, self.ntypes)
 
                 y_g = g_pvecs[g_idx]
 
@@ -755,7 +761,7 @@ class Worker:
                 # pre-computed indices for outer product indexing
                 indices_tuple = self.ffg_grad_indices[j][k]
 
-                stack = np.zeros((self.n_pots, n_fj, n_fk*n_g))
+                stack = np.zeros((self.n_pots, n_fj, n_fk * n_g))
 
                 # grad(f_j) contribution
                 for l in range(n_fj):
@@ -767,7 +773,7 @@ class Worker:
                 stack = np.einsum('pzk,pk->pz', stack, coeffs_for_fj)
                 gradient[:, ffg_indices[j]:ffg_indices[j] + n_fj] += stack
 
-                stack = np.zeros((self.n_pots, n_fk, n_fj*n_g))
+                stack = np.zeros((self.n_pots, n_fk, n_fj * n_g))
 
                 # grad(f_k) contribution
                 for l in range(n_fk):
@@ -779,7 +785,7 @@ class Worker:
 
                 gradient[:, ffg_indices[k]:ffg_indices[k] + n_fk] += stack
 
-                stack = np.zeros((self.n_pots, n_g, n_fj*n_fk))
+                stack = np.zeros((self.n_pots, n_g, n_fj * n_fk))
 
                 # grad(g) contribution
                 for l in range(n_g):
@@ -802,18 +808,19 @@ class Worker:
         if sparse:
             raise NotImplementedError("Sparsity for gradients needs to be done")
         else:
-            gradient = np.zeros((self.n_pots, self.natoms, 3, self.len_param_vec))
+            gradient = np.zeros(
+                (self.n_pots, self.natoms, 3, self.len_param_vec))
 
         phi_pvecs, rho_pvecs, u_pvecs, f_pvecs, g_pvecs = \
             self.parse_parameters(np.atleast_2d(parameters))
-
 
         grad_index = 0
 
         # gradients of phi are just their structure vectors
         for y, phi in zip(phi_pvecs, self.phis):
             gradient[:, :, :, grad_index:grad_index + y.shape[1]] += \
-                phi.structure_vectors['forces'].reshape((self.natoms, 3, y.shape[1]))
+                phi.structure_vectors['forces'].reshape(
+                    (self.natoms, 3, y.shape[1]))
 
             grad_index += y.shape[1]
 
@@ -824,12 +831,12 @@ class Worker:
 
         uprimes, uprimes_2 = self.evaluate_uprimes(
             ni, u_pvecs, u_ranges, second=True
-            )
+        )
 
         embedding_forces = np.zeros((self.n_pots, 3, self.natoms, self.natoms))
 
         # pre-compute all rho forces
-        for rho_idx, (y_rho,rho) in enumerate(zip(rho_pvecs, self.rhos)):
+        for rho_idx, (y_rho, rho) in enumerate(zip(rho_pvecs, self.rhos)):
             rho_forces = rho.calc_forces(y_rho)
             rho_forces = rho_forces.reshape((self.n_pots, 3, self.natoms,
                                              self.natoms))
@@ -837,9 +844,9 @@ class Worker:
             embedding_forces += rho_forces
 
         # pre-compute all ffg forces
-        for j, (y_fj,ffg_list) in enumerate(zip(f_pvecs, self.ffgs)):
-            for k, (y_fk,ffg) in enumerate(zip(f_pvecs, ffg_list)):
-                y_g = g_pvecs[src.meam.ij_to_potl(j+1, k+1, self.ntypes)]
+        for j, (y_fj, ffg_list) in enumerate(zip(f_pvecs, self.ffgs)):
+            for k, (y_fk, ffg) in enumerate(zip(f_pvecs, ffg_list)):
+                y_g = g_pvecs[src.meam.ij_to_potl(j + 1, k + 1, self.ntypes)]
 
                 ffg_forces = ffg.calc_forces(y_fj, y_fk, y_g)
                 ffg_forces = ffg_forces.reshape((self.n_pots, 3, self.natoms,
@@ -849,7 +856,6 @@ class Worker:
 
         # rho gradient term; there is a U'' and a U' term for each rho
         for rho_index, (y, rho) in enumerate(zip(rho_pvecs, self.rhos)):
-
             rho_e_sv = rho.structure_vectors['energy']
 
             rho_sv = rho.structure_vectors['forces']
@@ -870,7 +876,7 @@ class Worker:
             # U' term
             up_contracted_sv = np.einsum('ijkl,pk->pjil', rho_sv, uprimes)
 
-            gradient[:, :,:,grad_index:grad_index + y.shape[1]] += \
+            gradient[:, :, :, grad_index:grad_index + y.shape[1]] += \
                 up_contracted_sv
 
             grad_index += y.shape[1]
@@ -879,7 +885,7 @@ class Worker:
         tmp_U_indices = []
 
         # prep for U gradient term
-        for i,(y,u) in enumerate(zip(u_pvecs, self.us)):
+        for i, (y, u) in enumerate(zip(u_pvecs, self.us)):
             tmp_U_indices.append((grad_index, grad_index + y.shape[1]))
             grad_index += y.shape[1]
 
@@ -892,14 +898,14 @@ class Worker:
             n_fj = y_fj.shape[1]
 
             for k, (y_fk, ffg) in enumerate(zip(f_pvecs, ffg_list)):
-                g_idx = src.meam.ij_to_potl(j+1, k+1, self.ntypes)
+                g_idx = src.meam.ij_to_potl(j + 1, k + 1, self.ntypes)
 
                 y_g = g_pvecs[g_idx]
 
                 n_fk = y_fk.shape[1]
                 n_g = y_g.shape[1]
 
-                full_len = n_fj*n_fk*n_g
+                full_len = n_fj * n_fk * n_g
 
                 # TODO: uprimes_part() can take large portion of time too
                 # TODO: for inactive splines, wastes lots of time still
@@ -967,32 +973,36 @@ class Worker:
                 # @profile
                 def ffg_gradients():
                     stack_up = np.zeros(
-                        (self.n_pots, self.natoms, 3, n_fj, n_fk*n_g)
+                        (self.n_pots, self.natoms, 3, n_fj, n_fk * n_g)
                     )
 
                     stack_upp = np.zeros(
-                        (self.n_pots, self.natoms, 3, n_fj, n_fk*n_g)
+                        (self.n_pots, self.natoms, 3, n_fj, n_fk * n_g)
                     )
 
                     for l in range(n_fj):
                         sample_indices = indices_tuple['fj_indices'][l]
 
-                        stack_up[:, :, :, l, :] = up_contrib[:, :, :,sample_indices]
-                        stack_upp[:, :, :, l, :] = upp_contrib[:,:,:,sample_indices]
+                        stack_up[:, :, :, l, :] = up_contrib[:, :, :,
+                                                  sample_indices]
+                        stack_upp[:, :, :, l, :] = upp_contrib[:, :, :,
+                                                   sample_indices]
 
-                    stack_up = np.einsum('pzakt,pt->pzak', stack_up, coeffs_for_fj)
-                    stack_upp = np.einsum('pzakt,pt->pzak', stack_upp,coeffs_for_fj)
+                    stack_up = np.einsum('pzakt,pt->pzak', stack_up,
+                                         coeffs_for_fj)
+                    stack_upp = np.einsum('pzakt,pt->pzak', stack_upp,
+                                          coeffs_for_fj)
 
                     tmp_ind = ffg_indices[j]
                     gradient[:, :, :, tmp_ind:tmp_ind + n_fj] += stack_up
                     gradient[:, :, :, tmp_ind:tmp_ind + n_fj] += stack_upp
 
                     stack_up = np.zeros(
-                        (self.n_pots, self.natoms, 3, n_fk, n_fj*n_g)
+                        (self.n_pots, self.natoms, 3, n_fk, n_fj * n_g)
                     )
 
                     stack_upp = np.zeros(
-                        (self.n_pots, self.natoms, 3, n_fk, n_fj*n_g)
+                        (self.n_pots, self.natoms, 3, n_fk, n_fj * n_g)
                     )
 
                     for l in range(n_fk):
@@ -1003,29 +1013,35 @@ class Worker:
                         stack_upp[:, :, :, l, :] = upp_contrib[:, :, :,
                                                    sample_indices]
 
-                    stack_up = np.einsum('pzakt,pt->pzak', stack_up, coeffs_for_fk)
-                    stack_upp = np.einsum('pzakt,pt->pzak', stack_upp,coeffs_for_fk)
+                    stack_up = np.einsum('pzakt,pt->pzak', stack_up,
+                                         coeffs_for_fk)
+                    stack_upp = np.einsum('pzakt,pt->pzak', stack_upp,
+                                          coeffs_for_fk)
 
                     tmp_ind = ffg_indices[k]
                     gradient[:, :, :, tmp_ind:tmp_ind + n_fk] += stack_up
                     gradient[:, :, :, tmp_ind:tmp_ind + n_fk] += stack_upp
 
                     stack_up = np.zeros(
-                        (self.n_pots, self.natoms, 3, n_g, n_fj*n_fk)
+                        (self.n_pots, self.natoms, 3, n_g, n_fj * n_fk)
                     )
 
                     stack_upp = np.zeros(
-                        (self.n_pots, self.natoms, 3, n_g, n_fj*n_fk)
+                        (self.n_pots, self.natoms, 3, n_g, n_fj * n_fk)
                     )
 
                     for l in range(n_g):
                         sample_indices = indices_tuple['g_indices'][l]
 
-                        stack_up[:, :, :, l, :] = up_contrib[:,:,:,sample_indices]
-                        stack_upp[:, :, :, l, :] = upp_contrib[:,:,:,sample_indices]
+                        stack_up[:, :, :, l, :] = up_contrib[:, :, :,
+                                                  sample_indices]
+                        stack_upp[:, :, :, l, :] = upp_contrib[:, :, :,
+                                                   sample_indices]
 
-                    stack_up = np.einsum('pzakt,pt->pzak', stack_up, coeffs_for_g)
-                    stack_upp = np.einsum('pzakt,pt->pzak', stack_upp,coeffs_for_g)
+                    stack_up = np.einsum('pzakt,pt->pzak', stack_up,
+                                         coeffs_for_g)
+                    stack_upp = np.einsum('pzakt,pt->pzak', stack_upp,
+                                          coeffs_for_g)
 
                     tmp_ind = ffg_indices[self.ntypes + g_idx]
                     gradient[:, :, :, tmp_ind:tmp_ind + n_g] += stack_up
@@ -1035,12 +1051,12 @@ class Worker:
 
         # U gradient terms
 
-        for i, (indices,u) in enumerate(zip(tmp_U_indices, self.us)):
+        for i, (indices, u) in enumerate(zip(tmp_U_indices, self.us)):
             tmp_U_indices.append((grad_index, grad_index + y.shape[1]))
             start, stop = indices
 
             u_term = np.einsum('zk,paiz->piak', u.structure_vectors['deriv'][0],
-                        embedding_forces)
+                               embedding_forces)
 
             gradient[:, :, :, start:stop] += u_term
 
@@ -1062,16 +1078,18 @@ class Worker:
 
         return ffg_indices
 
+
 # TODO: replace with JIT outer_prod_simple
 def my_outer_prod(y_fj, y_fk, y_g):
     cart1 = np.einsum("ij,ik->ijk", y_fj, y_fk)
-    cart1 = cart1.reshape((cart1.shape[0], cart1.shape[1]*cart1.shape[2]))
+    cart1 = cart1.reshape((cart1.shape[0], cart1.shape[1] * cart1.shape[2]))
 
     cart2 = np.einsum("ij,ik->ijk", cart1, y_g)
 
-    cart_y = cart2.reshape((cart2.shape[0], cart2.shape[1]*cart2.shape[2]))
+    cart_y = cart2.reshape((cart2.shape[0], cart2.shape[1] * cart2.shape[2]))
 
     return cart_y.ravel()
+
 
 # @profile
 def main():
@@ -1087,11 +1105,11 @@ def main():
     def fd_gradient_eval(y_pvec, worker, type, h=1e-8):
         N = y_pvec.ravel().shape[0]
 
-        cd_points = np.array([y_pvec] * N*2)
+        cd_points = np.array([y_pvec] * N * 2)
 
         for l in range(N):
-            cd_points[2*l, l] += h
-            cd_points[2*l+1, l] -= h
+            cd_points[2 * l, l] += h
+            cd_points[2 * l + 1, l] -= h
 
         if type == 'energy':
             cd_evaluated = worker.compute_energy(np.array(cd_points))
@@ -1101,11 +1119,13 @@ def main():
             fd_gradient = np.zeros((worker.natoms, 3, worker.len_param_vec))
 
         for l in range(N):
-            if type == 'energy': fd_gradient[l] = \
-                (cd_evaluated[2*l] - cd_evaluated[2*l+1]) / h / 2
+            if type == 'energy':
+                fd_gradient[l] = \
+                    (cd_evaluated[2 * l] - cd_evaluated[2 * l + 1]) / h / 2
 
-            elif type == 'forces': fd_gradient[:, :, l] = \
-                (cd_evaluated[2*l] - cd_evaluated[2*l+1]) / h / 2
+            elif type == 'forces':
+                fd_gradient[:, :, l] = \
+                    (cd_evaluated[2 * l] - cd_evaluated[2 * l + 1]) / h / 2
 
         return fd_gradient
 
@@ -1120,15 +1140,17 @@ def main():
         with open("grad_time_normed_final.dat", 'w') as time_outfile:
 
             accuracy_outfile.write("name e_diff f_diff\n")
-            time_outfile.write("name e_speedup e_w_time e_fd_time f_speedup f_w_time f_fd_time\n")
-            for name,atoms in allstructs.items():
+            time_outfile.write(
+                "name e_speedup e_w_time e_fd_time f_speedup f_w_time f_fd_time\n")
+            for name, atoms in allstructs.items():
                 print(name, end="")
                 print()
 
                 # if os.path.isfile('data/workers/' + name + '.pkl'):
                 if False:
                     print(" -- Loading file", end="")
-                    worker = pickle.load(open('data/workers/' + name + '.pkl', 'rb'))
+                    worker = pickle.load(
+                        open('data/workers/' + name + '.pkl', 'rb'))
                     print()
                 else:
                     worker = Worker(atoms, x_pvec, indices, pot.types)
@@ -1197,12 +1219,15 @@ def main():
                     e_speedup = fd_e_time / w_e_time
                     f_speedup = fd_f_time / w_f_time
 
-                    accuracy_outfile.write(name+ ' ' +str(diff_e/final_e_max) +
-                                           ' ' + str(diff_f/final_f_max) + "\n")
+                    accuracy_outfile.write(
+                        name + ' ' + str(diff_e / final_e_max) +
+                        ' ' + str(diff_f / final_f_max) + "\n")
 
                     time_outfile.write(name + ' ' + str(e_speedup) + ' ' +
-                                       str(w_e_time) + ' ' + str(fd_e_time) + ' ' +
-                                       str(f_speedup) + ' ' + str(w_f_time) + ' ' +
+                                       str(w_e_time) + ' ' + str(
+                        fd_e_time) + ' ' +
+                                       str(f_speedup) + ' ' + str(
+                        w_f_time) + ' ' +
                                        str(fd_f_time) + "\n")
 
                 if (diff_e > 1e-5) or (diff_f > 1e-5):
@@ -1210,6 +1235,7 @@ def main():
 
                 print(diff_e / final_e_max)
                 print(diff_f / final_f_max)
+
 
 if __name__ == "__main__":
     main()
