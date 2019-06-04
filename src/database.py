@@ -21,6 +21,7 @@ an HDF5 file containing the structure vectors and metadata of each structure.
 """
 
 import h5py
+import itertools
 import numpy as np
 from ase.neighborlist import NeighborList
 
@@ -936,48 +937,48 @@ class Database(h5py.File):
 
         return gradient
 
-def build_spline_lists(self, knot_xcoords, x_indices):
-        """
-        Builds lists of phi, rho, u, f, and g WorkerSpline objects
+    def build_spline_lists(self, knot_xcoords, x_indices):
+            """
+            Builds lists of phi, rho, u, f, and g WorkerSpline objects
 
-        Args:
-            knot_xcoords: joined array of knot coordinates for all splines
-            x_indices: starting index in knot_xcoords of each spline
+            Args:
+                knot_xcoords: joined array of knot coordinates for all splines
+                x_indices: starting index in knot_xcoords of each spline
 
-        Returns:
-            splines: (list) list of lists of splines; [phis, rhos, us, fs, gs]
-        """
+            Returns:
+                splines: (list) list of lists of splines; [phis, rhos, us, fs, gs]
+            """
 
-        knots_split = np.split(knot_xcoords, x_indices[1:])
+            knots_split = np.split(knot_xcoords, x_indices[1:])
 
-        # TODO: could specify bc outside of Worker and pass in
-        # bc_type = ('natural', 'natural')
-        bc_type = ('fixed', 'fixed')
+            # TODO: could specify bc outside of Worker and pass in
+            # bc_type = ('natural', 'natural')
+            bc_type = ('fixed', 'fixed')
 
-        splines = []
+            splines = []
 
-        for i, knots in enumerate(knots_split):
-            if i < self.attrs['nphi']:
-                s = WorkerSpline(knots, bc_type, self.attrs['natoms'])
+            for i, knots in enumerate(knots_split):
+                if i < self.attrs['nphi']:
+                    s = WorkerSpline(knots, bc_type, self.attrs['natoms'])
 
-            elif (self.attrs['nphi'] + self.attrs['ntypes'] <= i
-                  < self.nphi + 2 * self.attrs['ntypes']):
+                elif (self.attrs['nphi'] + self.attrs['ntypes'] <= i
+                      < self.nphi + 2 * self.attrs['ntypes']):
 
-                s = USpline(knots, bc_type, self.attrs['natoms'])
-            elif i >= self.attrs['nphi'] + 2 * self.attrs['ntypes']:
-                s = WorkerSpline(knots, bc_type, self.attrs['natoms'])
-            else:
-                s = RhoSpline(knots, bc_type, self.attrs['natoms'])
+                    s = USpline(knots, bc_type, self.attrs['natoms'])
+                elif i >= self.attrs['nphi'] + 2 * self.attrs['ntypes']:
+                    s = WorkerSpline(knots, bc_type, self.attrs['natoms'])
+                else:
+                    s = RhoSpline(knots, bc_type, self.attrs['natoms'])
 
-            s.index = self.attrs['x_indices'][i]
-            splines.append(s)
+                s.index = self.attrs['x_indices'][i]
+                splines.append(s)
 
-        split_indices = [self.attrs['nphi'], self.attrs['nphi'] +
-                         self.attrs['ntypes'],
-                         self.attrs['nphi'] + 2 * self.attrs['ntypes'],
-                         self.attrs['nphi'] + 3 * self.attrs['ntypes']]
+            split_indices = [self.attrs['nphi'], self.attrs['nphi'] +
+                             self.attrs['ntypes'],
+                             self.attrs['nphi'] + 2 * self.attrs['ntypes'],
+                             self.attrs['nphi'] + 3 * self.attrs['ntypes']]
 
-        return np.split(np.array(splines), split_indices)
+            return np.split(np.array(splines), split_indices)
 
     def build_ffg_list(self, fs, gs):
         """
