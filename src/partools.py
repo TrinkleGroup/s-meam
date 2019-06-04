@@ -1,6 +1,5 @@
 import os
 import numpy as np
-from src.database import Database
 from src.potential_templates import Template
 
 def build_evaluation_functions(
@@ -226,61 +225,61 @@ def compute_relative_weights(database):
     return work_weights, name_list
 
 
-def group_database_subsets(database, num_managers):
-    """Groups workers based on evaluation time to help with load balancing.
-
-    Returns:
-        distributed_work (list): the partitioned work
-        num_managers (int): desired number of managers to be used
-    """
-    # TODO: record scaling on first run, then redistribute to load balance
-    # TODO: managers should just split Database; determine cost later
-
-    # Number of managers should not exceed the number of structures
-    num_managers = min(num_managers, len(database.structures))
-
-    unassigned_structs = sorted(list(database.structures.keys()))
-
-    work_weights, name_list = compute_relative_weights(database)
-
-    work_per_proc = np.sum(work_weights)  # / num_managers
-
-    # work_weights = work_weights.tolist()
-
-    # Splitting code taken from SO: https://stackoverflow.com/questions/33555496/split-array-into-equally-weighted-chunks-based-on-order
-    cum_arr = np.cumsum(work_weights) / np.sum(work_weights)
-
-    idx = np.searchsorted(cum_arr,
-                          np.linspace(0, 1, num_managers, endpoint=False)[1:])
-    name_chunks = np.split(unassigned_structs, idx)
-    weight_chunks = np.split(work_weights, idx)
-
-    subsets = []
-    grouped_work = []
-
-    for name_chunk, work_chunk in zip(name_chunks, weight_chunks):
-        cumulated_work = 0
-
-        names = []
-
-        # while unassigned_structs and (cumulated_work < work_per_proc):
-        for n, w in zip(name_chunk, work_chunk):
-            names.append(n)
-            cumulated_work += w
-
-        mini_database = Database.manual_init(
-            {name: database.structures[name] for name in names},
-            {name: database.true_energies[name] for name in names},
-            {name: database.true_forces[name] for name in names},
-            {name: database.weights[name] for name in names},
-            database.reference_struct,
-            database.reference_energy
-        )
-
-        subsets.append(mini_database)
-        grouped_work.append(cumulated_work)
-
-    return subsets, grouped_work
+# def group_database_subsets(database, num_managers):
+#     """Groups workers based on evaluation time to help with load balancing.
+# 
+#     Returns:
+#         distributed_work (list): the partitioned work
+#         num_managers (int): desired number of managers to be used
+#     """
+#     # TODO: record scaling on first run, then redistribute to load balance
+#     # TODO: managers should just split Database; determine cost later
+# 
+#     # Number of managers should not exceed the number of structures
+#     num_managers = min(num_managers, len(database.structures))
+# 
+#     unassigned_structs = sorted(list(database.structures.keys()))
+# 
+#     work_weights, name_list = compute_relative_weights(database)
+# 
+#     work_per_proc = np.sum(work_weights)  # / num_managers
+# 
+#     # work_weights = work_weights.tolist()
+# 
+#     # Splitting code taken from SO: https://stackoverflow.com/questions/33555496/split-array-into-equally-weighted-chunks-based-on-order
+#     cum_arr = np.cumsum(work_weights) / np.sum(work_weights)
+# 
+#     idx = np.searchsorted(cum_arr,
+#                           np.linspace(0, 1, num_managers, endpoint=False)[1:])
+#     name_chunks = np.split(unassigned_structs, idx)
+#     weight_chunks = np.split(work_weights, idx)
+# 
+#     subsets = []
+#     grouped_work = []
+# 
+#     for name_chunk, work_chunk in zip(name_chunks, weight_chunks):
+#         cumulated_work = 0
+# 
+#         names = []
+# 
+#         # while unassigned_structs and (cumulated_work < work_per_proc):
+#         for n, w in zip(name_chunk, work_chunk):
+#             names.append(n)
+#             cumulated_work += w
+# 
+#         mini_database = Database.manual_init(
+#             {name: database.structures[name] for name in names},
+#             {name: database.true_energies[name] for name in names},
+#             {name: database.true_forces[name] for name in names},
+#             {name: database.weights[name] for name in names},
+#             database.reference_struct,
+#             database.reference_energy
+#         )
+# 
+#         subsets.append(mini_database)
+#         grouped_work.append(cumulated_work)
+# 
+#     return subsets, grouped_work
 
 
 def compute_procs_per_subset(struct_natoms, total_num_procs, method='natoms'):

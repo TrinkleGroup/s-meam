@@ -1,8 +1,14 @@
+import sys
+sys.path.append('/home/jvita/scripts/s-meam/project/')
+
 import unittest
 import numpy as np
 
 from src.potential_templates import Template
 from src.database import Database
+
+from tests.testStructs import dimers, trimers, bulk_vac_ortho, \
+            bulk_periodic_ortho, bulk_vac_rhombo, bulk_periodic_rhombo, extra
 
 points_per_spline = 7
 
@@ -18,16 +24,19 @@ class DatabaseTests(unittest.TestCase):
             np.tile(np.linspace(-1, 1, points_per_spline), 3)]
         )
 
-        x_indices = range(0, points_per_spline * 12, points_per_spline)
+        x_indices = list(range(0, points_per_spline * 12, points_per_spline))
         types = ["Ti", "Mo"]
 
         template  = build_template()
 
         self.db = Database(
-            'db_delete.hdf5', template.pvec_len, types, x_pvec, x_indices
+            'db_delete.hdf5', template.pvec_len, types, x_pvec, x_indices,
+            [inner_cutoff, outer_cutoff]
         )
 
-    def test_constructor(self):
+        self.db.add_structure('aa', dimers['aa'])
+
+    def test_matches_worker_dimer(self):
         pass
 
 def build_template(version='full', inner_cutoff=1.5, outer_cutoff=5.5):
@@ -122,3 +131,6 @@ def build_template(version='full', inner_cutoff=1.5, outer_cutoff=5.5):
     potential_template.active_mask = mask
 
     return potential_template
+
+if __name__ == "__main__":
+    unittest.main()

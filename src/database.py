@@ -93,7 +93,7 @@ class Database(h5py.File):
         for arg in optional_args:
             if arg not in self.attrs:
                 if arg == 'len_pvec':       new_arg = len_pvec
-                if arg == 'types':          new_arg = types
+                if arg == 'types':          new_arg = np.array(types, dtype='S')
                 if arg == 'ntypes':         new_arg = len(types)
                 if arg == 'knot_xcoords':   new_arg = knot_xcoords
                 if arg == 'x_indices':      new_arg = x_indices
@@ -103,6 +103,8 @@ class Database(h5py.File):
                         (self.attrs["ntypes"] + 1) * self.attrs["ntypes"] / 2
                     )
 
+                print(arg, ':', end="")
+                print(new_arg, type(new_arg))
                 self.attrs[arg] = new_arg
 
         tmp = self.attrs['nphi'] + len(types)
