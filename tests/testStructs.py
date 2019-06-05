@@ -7,7 +7,7 @@ import ase.build
 
 from ase import Atoms
 
-from tests.serial.testVars import a0, r0, vac
+from serial.testVars import a0, r0, vac
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

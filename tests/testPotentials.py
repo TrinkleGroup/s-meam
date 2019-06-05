@@ -22,7 +22,7 @@ rng_rhophis = None
 def get_zero_potential():
     """Zero potential: gives 0.0 in all cases"""
 
-    num_knots = 11
+    num_knots = 7
 
     global zero_potential
 
@@ -49,7 +49,7 @@ def get_constant_potential():
         rhos = 2*#pairs
         rhophi = 3*#pairs"""
 
-    num_knots = 11
+    num_knots = 7
 
     global constant_potential
 
@@ -116,7 +116,7 @@ def get_random_pots(new_n):
         rng_norhophis = [None] * N
         rng_rhophis = [None] * N
 
-        num_knots = 11
+        num_knots = 7
         knots_x = np.linspace(0, a0, num=num_knots)
         for n in range(N):
             # Generate splines with 10 knots, random y-coords of knots, equally

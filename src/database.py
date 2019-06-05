@@ -20,6 +20,7 @@ an HDF5 file containing the structure vectors and metadata of each structure.
             - ffg_grad_indices
 """
 
+import os
 import h5py
 import itertools
 import numpy as np
@@ -33,7 +34,7 @@ from src.workerSplines import WorkerSpline, RhoSpline, ffgSpline, USpline
 class Database(h5py.File):
 
     def __init__(self, file_name, len_pvec=None, types=None, knot_xcoords=None,
-                 x_indices=None, cutoffs=None):
+                 x_indices=None, cutoffs=None, overwrite=False):
         """
         Initializes all of the attributes that are intrinsic to the database.
         Note that the length of the parameter vector _is_ an intrinsic
@@ -80,8 +81,13 @@ class Database(h5py.File):
             cutoffs: (list)
                 [lower, upper] bound cutoff ranges for the potential
 
+            overwrite: (bool)
+                if true, deletes the current copy of the HDF5 file
 
         """
+
+        if overwrite:
+            os.remove(file_name)
 
         super().__init__(file_name, "a")
 
@@ -114,7 +120,6 @@ class Database(h5py.File):
             num_u_knots.append(
                 self.attrs['x_indices'][tmp + 1]
                 - self.attrs['x_indices'][tmp]
-                + 2
             )
 
         self.attrs['num_u_knots'] = num_u_knots
@@ -125,7 +130,7 @@ class Database(h5py.File):
     def build_from_existing_workers(self, path_to_workers):
         pass
 
-    def add_structure(self, new_group_name, atoms):
+    def add_structure(self, new_group_name, atoms, overwrite=False):
         """
         Adds a group to the database and prepares spline structure vectors.
 
@@ -134,13 +139,24 @@ class Database(h5py.File):
             atoms: (ase.Atoms) atomic structure
         """
 
+        # if don't want to overwrite, just return
+        if (new_group_name in self) and (not overwrite):
+            return
+
+        # if overwriting and already exists, delete current copy
+        if new_group_name in self:
+            del self[new_group_name]
+
+        # if group doesn't already exist
         new_group = self.create_group(new_group_name)
 
         new_group.attrs["type_of_each_atom"] = np.array(
             list(
                 map(
                     lambda t: src.lammpsTools.symbol_to_type(
-                        t, self.file.types
+                        # t, self.attrs['types'].tolist()
+                        t, [s.decode('utf-8') for s in self.attrs[
+                            'types'].tolist()]
                     ),
                     atoms.get_chemical_symbols()
                 )
@@ -150,7 +166,7 @@ class Database(h5py.File):
         new_group.attrs["natoms"] = len(atoms)
 
         all_splines = self.build_spline_lists(
-            self.attrs['knot_xcoords'], self.attrs['x_indices']
+            self.attrs['knot_xcoords'], self.attrs['x_indices'], len(atoms)
         )
 
         phis = list(all_splines[0])
@@ -158,7 +174,7 @@ class Database(h5py.File):
         fs = list(all_splines[3])
         gs = list(all_splines[4])
 
-        ffgs = self.build_ffg_list(fs, gs)
+        ffgs = self.build_ffg_list(fs, gs, len(atoms))
 
         ffg_grad_indices = self.compute_grad_indices(ffgs)
 
@@ -167,12 +183,16 @@ class Database(h5py.File):
                 # assumed order: fj_indices, fk_indices, g_indices
 
                 for idx, ind_list in enumerate(ffg_grad_indices[j][k]):
-                    self.attrs['ffg_grad_indices'][str(j)][str(k)][str(idx)] = \
-                        ind_list
+                    string = '/'.join(
+                        [new_group_name, 'ffg_grad_indices', str(j), str(k),
+                         str(idx)]
+                    )
+
+                    self[string] = np.array(ind_list)
 
         # No double counting of bonds; needed for pair interactions
         nl_noboth = NeighborList(
-            np.ones(self.attrs["natoms"]) * (self.attrs["cutoff"] / 2.),
+            np.ones(new_group.attrs["natoms"]) * (self.attrs["cutoffs"] / 2.),
             self_interaction=False, bothways=False, skin=0.0
         )
 
@@ -180,7 +200,7 @@ class Database(h5py.File):
 
         # Allows double counting bonds; needed for embedding energy calculations
         nl = NeighborList(
-            np.ones(self.attrs["natoms"]) * (self.attrs["cutoff"] / 2.),
+            np.ones(new_group.attrs["natoms"]) * (self.attrs["cutoffs"] / 2.),
             self_interaction=False, bothways=True, skin=0.0
         )
 
@@ -200,7 +220,7 @@ class Database(h5py.File):
 
             # Stores pair information for phi
             for j, offset in zip(neighbors_noboth, offsets_noboth):
-                jtype = self.attrs["type_of_each_atom"][j]
+                jtype = new_group.attrs["type_of_each_atom"][j]
 
                 # Find displacement vector (with periodic boundary conditions)
                 jpos = atoms[j].position + np.dot(offset, atoms.get_cell())
@@ -237,7 +257,7 @@ class Database(h5py.File):
             j_idx = 0  # for tracking neighbor
             for j, offsetj in zip(neighbors, offsets):
 
-                jtype = self.attrs["type_of_each_atom"][j]
+                jtype = new_group.attrs["type_of_each_atom"][j]
 
                 # offset accounts for periodic images
                 jpos = atoms[j].position + np.dot(offsetj, atoms.get_cell())
@@ -255,7 +275,7 @@ class Database(h5py.File):
                 j_idx += 1
                 for k, offsetk in zip(neighbors[j_idx:], offsets[j_idx:]):
                     if k != j:
-                        ktype = self.attrs["type_of_each_atom"][k]
+                        ktype = new_group.attrs["type_of_each_atom"][k]
                         kpos = atoms[k].position + np.dot(offsetk,
                                                           atoms.get_cell())
 
@@ -292,9 +312,16 @@ class Database(h5py.File):
         new_group.create_group("rho")
         new_group.create_group("ffg")
 
+        for spline_type in ['phi', 'rho', 'ffg']:
+            new_group[spline_type].create_group('energy')
+            new_group[spline_type].create_group('forces')
+
         # save all energy structure vectors
         for spline_type, splines in zip(['phi', 'rho'], all_splines):
             for i, sp in enumerate(splines):
+
+                # new_group[spline_type]['energy'].create_group(str(i))
+                # new_group[spline_type]['forces'].create_group(str(i))
 
                 new_group[spline_type]['energy'][str(i)] = \
                     sp.structure_vectors['energy']
@@ -303,7 +330,15 @@ class Database(h5py.File):
                     sp.structure_vectors['forces']
 
         for j, ffg_list in enumerate(ffgs):
+
+            new_group['ffg']['energy'].create_group(str(j))
+            new_group['ffg']['forces'].create_group(str(j))
+
             for k, ffg in enumerate(ffg_list):
+
+                # new_group['ffg']['energy'][str(j)].create_group(str(k))
+                # new_group['ffg']['forces'][str(j)].create_group(str(k))
+
                 new_group['ffg']['energy'][str(j)][str(k)] = \
                     ffg.structure_vectors['energy']
 
@@ -345,14 +380,14 @@ class Database(h5py.File):
         Returns:
             ni: embedding values for each potential for each atom
         """
-        n_pots = rho_pvecs.shape[0]
+        n_pots = rho_pvecs[0].shape[0]
 
-        ni = np.zeros((n_pots, self.attrs['natoms']))
+        ni = np.zeros((n_pots, self[struct_name].attrs['natoms']))
 
         # Rho contribution
         # for y, rho in zip(rho_pvecs, self.rhos):
         for i, y in enumerate(rho_pvecs):
-            ni += self[struct_name]['rho']['energy'][str(i)] @ y.T
+            ni += (self[struct_name]['rho']['energy'][str(i)] @ y.T).T
 
         # Three-body contribution
         for j, y_fj in enumerate(f_pvecs):
@@ -371,11 +406,11 @@ class Database(h5py.File):
                     (cart2.shape[0], cart2.shape[1]*cart2.shape[2])
                 )
 
-                ni += (self[struct_name]['ffgs']['energy'][str(j)][str(k)] @ cart_y.T).T
+                ni += (self[struct_name]['ffg']['energy'][str(j)][str(k)] @ cart_y.T).T
 
         return ni
 
-    def embedding_energy(self, ni, u_pvecs, new_range):
+    def embedding_energy(self, struct_name, ni, u_pvecs, new_range):
         n_pots = u_pvecs[0].shape[0]
 
         u_energy = np.zeros(n_pots)
@@ -387,7 +422,9 @@ class Database(h5py.File):
             u_energy_sv = np.zeros((n_pots, num_knots))
 
             # extract ni values for atoms of type i
-            ni_sublist = ni[:, self.attrs['type_of_each_atom'] - 2 == i]
+            ni_sublist = ni[
+                 :, self[struct_name].attrs['type_of_each_atom'] - 2 == i
+             ]
 
             num_embedded = ni_sublist.shape[1]
 
@@ -399,7 +436,10 @@ class Database(h5py.File):
                 knot_spacing = new_knots[1] - new_knots[0]
 
                 # U splines assumed to have fixed derivatives at boundaries
-                M = src.partools.build_M(num_knots, knot_spacing, 'fixed')
+                M = src.partools.build_M(
+                    num_knots, knot_spacing, ['fixed', 'fixed']
+                )
+
                 extrap_dist = (u_range[1] - u_range[0]) / 2
 
                 # end
@@ -441,7 +481,7 @@ class Database(h5py.File):
             num_knots = self.attrs['num_u_knots'][i]
 
             u_deriv_sv = np.zeros(
-                n_pots, self[struct_name].attrs['natoms'], num_knots
+                (n_pots, self[struct_name].attrs['natoms'], num_knots + 2)
             )
 
             u_2nd_deriv_sv = None
@@ -453,17 +493,18 @@ class Database(h5py.File):
             knot_spacing = new_knots[1] - new_knots[0]
 
             # U splines assumed to have fixed derivatives at boundaries
-            M = src.partools.build_M(num_knots, knot_spacing, 'fixed')
+            M = src.partools.build_M(
+                num_knots, knot_spacing, ['fixed', 'fixed']
+            )
             extrap_dist = (u_ranges[i][1] - u_ranges[i][0]) / 2
 
             if second:
                 u_2nd_deriv_sv = np.zeros(
-                    n_pots, self[struct_name].attrs['natoms'],
-                    self.attrs['num_u_knots'][i]
+                    (n_pots, self[struct_name].attrs['natoms'], num_knots + 2)
                 )
 
             if indices.shape[0] > 0:
-                values = ni[:, shifted_types == i]
+                values = ni[:, shifted_types == i].ravel()
 
                 abcd = self.get_abcd(values, new_knots, M, extrap_dist, deriv=1)
 
@@ -487,15 +528,19 @@ class Database(h5py.File):
             if second:
                 uprimes_2 += np.einsum('ijk,ik->ij', u_2nd_deriv_sv, y)
 
-        returns = (uprimes)
+        # if none: return uprimes
+        # if second: return uprimes, uprimes_2
+        # if return_sv:
 
-        if second:
-            returns.append(uprimes_2)
+        # returns = [uprimes]
 
         if return_sv:
-            returns.append(structure_vectors)
+            return uprimes, uprimes_2, structure_vectors
 
-        return tuple(returns)
+        if second:
+            return uprimes, uprimes_2
+
+        return uprimes
 
     def compute_forces(self, struct_name, potentials, u_ranges):
         potentials = np.atleast_2d(potentials)
@@ -580,10 +625,10 @@ class Database(h5py.File):
         )
 
         for rho_idx, y in enumerate(rho_pvecs):
-            partial_ni = self[struct_name]['rho']['energy'][str(rho_idx)] @ y.T
+            partial_ni = self[struct_name]['rho']['energy'][str(rho_idx)]
 
             gradient[:, grad_index:grad_index + y.shape[1]] += \
-                (uprimes @ partial_ni)
+                (uprimes @ np.array(partial_ni))
 
             grad_index += y.shape[1]
 
@@ -601,12 +646,14 @@ class Database(h5py.File):
             knot_spacing = new_knots[1] - new_knots[0]
 
             # U splines assumed to have fixed derivatives at boundaries
-            M = src.partools.build_M(num_knots, knot_spacing, 'fixed')
+            M = src.partools.build_M(
+                num_knots, knot_spacing, ['fixed', 'fixed']
+            )
             extrap_dist = (u_ranges[u_idx][1] - u_ranges[u_idx][0]) / 2
 
-            u_energy_sv = np.zeros((n_pots, num_knots))
+            u_energy_sv = np.zeros((n_pots, num_knots + 2))
 
-            if ni_sublist.shape[0] > 0:
+            if ni_sublist.shape[1] > 0:
 
                 # begin: equivalent to old u.add_to_energy_struct_vec()
                 abcd = self.get_abcd(
@@ -664,13 +711,13 @@ class Database(h5py.File):
                 # every ffgSpline affects grad(f_j), grad(f_k), and grad(g)
 
                 # assumed order: fj_indices, fk_indices, g_indices
-                indices_tuple = self.attrs['ffg_grad_indices'][str(j)][str(k)]
+                indices_tuple = self[struct_name]['ffg_grad_indices'][str(j)][str(k)]
 
                 stack = np.zeros((n_pots, n_fj, n_fk * n_g))
 
                 # grad(f_j) contribution
                 for l in range(n_fj):
-                    stack[:, l, :] = scaled_sv[:, indices_tuple[0][l]]
+                    stack[:, l, :] = scaled_sv[:, indices_tuple['0'][l]]
 
                 # stack = stack @ coeffs_for_fj
                 stack = np.einsum('pzk,pk->pz', stack, coeffs_for_fj)
@@ -680,7 +727,7 @@ class Database(h5py.File):
 
                 # grad(f_k) contribution
                 for l in range(n_fk):
-                    sample_indices = indices_tuple[1][l]
+                    sample_indices = indices_tuple['1'][l]
 
                     stack[:, l, :] = scaled_sv[:, sample_indices]
 
@@ -692,13 +739,13 @@ class Database(h5py.File):
 
                 # grad(g) contribution
                 for l in range(n_g):
-                    sample_indices = indices_tuple[2][l]
+                    sample_indices = indices_tuple['2'][l]
 
                     stack[:, l, :] = scaled_sv[:, sample_indices]
 
                 stack = np.einsum('pzk,pk->pz', stack, coeffs_for_g)
 
-                tmp_idx = ffg_indices[self[struct_name].attrs['ntypes'] + g_idx]
+                tmp_idx = ffg_indices[self.attrs['ntypes'] + g_idx]
                 gradient[:, tmp_idx:tmp_idx + n_g] += stack
 
         return gradient
@@ -726,10 +773,10 @@ class Database(h5py.File):
 
         # gradients of phi are just their structure vectors
         for phi_idx, y in enumerate(phi_pvecs):
-            sv = self[struct_name]['phi']['forces'][str(phi_idx)]
+            sv = np.array(self[struct_name]['phi']['forces'][str(phi_idx)])
             sv = sv.reshape(N, 3, y.shape[1])
 
-            gradient[:, grad_index:grad_index + y.shape[1]] += sv
+            gradient[:, :, :, grad_index:grad_index + y.shape[1]] += sv
 
             grad_index += y.shape[1]
 
@@ -737,7 +784,7 @@ class Database(h5py.File):
         ni = self.compute_ni(struct_name, rho_pvecs, f_pvecs, g_pvecs)
 
         uprimes, uprimes_2, u_deriv_svs = self.evaluate_uprimes(
-            struct_name, ni, u_pvecs, u_ranges, second=False, return_sv=True
+            struct_name, ni, u_pvecs, u_ranges, second=True, return_sv=True
         )
 
         embedding_forces = np.zeros((n_pots, 3, N, N))
@@ -745,7 +792,7 @@ class Database(h5py.File):
         # pre-compute all rho forces
         for rho_idx, y in enumerate(rho_pvecs):
             rho_sv = self[struct_name]['rho']['forces'][str(rho_idx)]
-            embedding_forces += (rho_sv @ y.T).T
+            embedding_forces += (rho_sv @ y.T).T.reshape(n_pots, 3, N, N)
 
         # pre-compute all ffg forces
         for j, y_fj in enumerate(f_pvecs):
@@ -773,7 +820,7 @@ class Database(h5py.File):
             rho_e_sv = self[struct_name]['rho']['energy'][str(rho_idx)]
 
             rho_f_sv = self[struct_name]['rho']['forces'][str(rho_idx)]
-            rho_f_sv = rho_f_sv.reshape((3, N, N, y.shape[1]))
+            rho_f_sv = np.array(rho_f_sv).reshape((3, N, N, y.shape[1]))
 
             # U'' term
             uprimes_scaled = np.einsum('pi,ij->pij', uprimes_2, rho_e_sv)
@@ -799,7 +846,7 @@ class Database(h5py.File):
         tmp_U_indices = []
 
         # prep for U gradient term
-        for i, (y, u) in enumerate(zip(u_pvecs, self.us)):
+        for i, y in enumerate(u_pvecs):
             tmp_U_indices.append((grad_index, grad_index + y.shape[1]))
             grad_index += y.shape[1]
 
@@ -831,11 +878,13 @@ class Database(h5py.File):
                     embedding_forces
                 )
 
+                ffg_sv = self[struct_name]['ffg']['forces'][str(j)][str(k)]
+
                 # U' term
                 up_contrib = np.einsum(
                     'pz,aizk->paik',
                     uprimes,
-                    self[struct_name]['ffg']['forces'][str(j)][str(k)].reshape(
+                    np.array(ffg_sv).reshape(
                         (3, N, N, full_len)
                     )
                 )
@@ -862,13 +911,13 @@ class Database(h5py.File):
 
                 # pre-computed indices for outer product indexing
                 indices_tuple = \
-                    self.attrs['ffg_grad_indices'][str(j)][str(k)]
+                    self[struct_name]['ffg_grad_indices'][str(j)][str(k)]
 
                 stack_up = np.zeros((n_pots, N, 3, n_fj, n_fk * n_g))
                 stack_upp = np.zeros((n_pots, N, 3, n_fj, n_fk * n_g))
 
                 for l in range(n_fj):
-                    sample_indices = indices_tuple[0][l]
+                    sample_indices = indices_tuple['0'][l]
 
                     stack_up[:, :, :, l, :] = up_contrib[:, :, :,
                                               sample_indices]
@@ -888,7 +937,7 @@ class Database(h5py.File):
                 stack_upp = np.zeros((n_pots, N, 3, n_fk, n_fj * n_g))
 
                 for l in range(n_fk):
-                    sample_indices = indices_tuple[1][l]
+                    sample_indices = indices_tuple['1'][l]
 
                     stack_up[:, :, :, l, :] = up_contrib[:, :, :,
                                               sample_indices]
@@ -908,7 +957,7 @@ class Database(h5py.File):
                 stack_upp = np.zeros((n_pots, N, 3, n_g, n_fj * n_fk))
 
                 for l in range(n_g):
-                    sample_indices = indices_tuple[2][l]
+                    sample_indices = indices_tuple['2'][l]
 
                     stack_up[:, :, :, l, :] = up_contrib[:, :, :,
                                               sample_indices]
@@ -939,7 +988,7 @@ class Database(h5py.File):
 
         return gradient
 
-    def build_spline_lists(self, knot_xcoords, x_indices):
+    def build_spline_lists(self, knot_xcoords, x_indices, natoms):
             """
             Builds lists of phi, rho, u, f, and g WorkerSpline objects
 
@@ -961,16 +1010,16 @@ class Database(h5py.File):
 
             for i, knots in enumerate(knots_split):
                 if i < self.attrs['nphi']:
-                    s = WorkerSpline(knots, bc_type, self.attrs['natoms'])
+                    s = WorkerSpline(knots, bc_type, natoms)
 
                 elif (self.attrs['nphi'] + self.attrs['ntypes'] <= i
-                      < self.nphi + 2 * self.attrs['ntypes']):
+                      < self.attrs['nphi'] + 2 * self.attrs['ntypes']):
 
-                    s = USpline(knots, bc_type, self.attrs['natoms'])
+                    s = USpline(knots, bc_type, natoms)
                 elif i >= self.attrs['nphi'] + 2 * self.attrs['ntypes']:
-                    s = WorkerSpline(knots, bc_type, self.attrs['natoms'])
+                    s = WorkerSpline(knots, bc_type, natoms)
                 else:
-                    s = RhoSpline(knots, bc_type, self.attrs['natoms'])
+                    s = RhoSpline(knots, bc_type, natoms)
 
                 s.index = self.attrs['x_indices'][i]
                 splines.append(s)
@@ -982,7 +1031,7 @@ class Database(h5py.File):
 
             return np.split(np.array(splines), split_indices)
 
-    def build_ffg_list(self, fs, gs):
+    def build_ffg_list(self, fs, gs, natoms):
         """
         Creates all combinations of f*f*g splines for use with triplet
         calculations.
@@ -1006,7 +1055,7 @@ class Database(h5py.File):
             for k, fk in enumerate(fs):
                 g = gs[src.meam.ij_to_potl(j + 1, k + 1, self.attrs['ntypes'])]
 
-                ffg_list[j].append(ffgSpline(fj, fk, g, self.attrs['natoms']))
+                ffg_list[j].append(ffgSpline(fj, fk, g, natoms))
 
         return ffg_list
 

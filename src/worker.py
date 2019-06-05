@@ -390,7 +390,7 @@ class Worker:
 
         # Pair interactions
         for y, phi in zip(phi_pvecs, self.phis, ):
-            logging.info("phi.calc_energy(y): {0}".format(phi.calc_energy(y)))
+            # logging.info("phi.calc_energy(y): {0}".format(phi.calc_energy(y)))
             energy += phi.calc_energy(y)
 
         # Embedding terms

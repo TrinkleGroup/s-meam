@@ -1,5 +1,6 @@
 import os
 import numpy as np
+from scipy.sparse import diags
 from src.potential_templates import Template
 
 def build_evaluation_functions(
@@ -746,7 +747,7 @@ def checkpoint(population, costs, max_ni, min_ni, avg_ni, i, parameters,
             )
         )
 
-def build_M(self, num_x, dx, bc_type):
+def build_M(num_x, dx, bc_type):
     """Builds the A and B matrices that are needed to find the function
     derivatives at all knot points. A and B come from the system of equations
     that comes from matching second derivatives at internal spline knots
