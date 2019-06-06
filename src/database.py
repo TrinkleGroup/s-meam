@@ -356,7 +356,7 @@ class Database(h5py.File):
             None; creates and saves an HDF5 file with name 'new_file_name'
 
         """
-        for struct_path in glob.glob(os.path.join(path_to_workers, '*')):
+        for struct_path in glob.glob(os.path.join(path_to_workers, '*.pkl')):
             worker = pickle.load(open(struct_path, 'rb'))
 
             struct_name = os.path.splitext(os.path.split(struct_path)[-1])[0]
