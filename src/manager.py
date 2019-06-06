@@ -73,8 +73,8 @@ class Manager:
         pop = self.comm.scatter(full, root=0)
 
         # eng, max_ni, min_ni = self.struct.compute_energy(pop, self.pot_template.u_ranges)
+        # eng, ni = self.struct.compute_energy(pop)
         eng, ni = self.struct.compute_energy(pop, self.pot_template.u_ranges)
-        # eng = self.struct.compute_energy(pop, self.pot_template.u_ranges)
 
         all_eng = self.comm.gather(eng, root=0)
         all_ni = self.comm.gather(ni, root=0)
@@ -168,9 +168,7 @@ class Manager:
 
         pop = self.comm.scatter(full, root=0)
 
-        eng_grad = self.struct.energy_gradient_wrt_pvec(
-            pop, self.pot_template.u_ranges
-        )
+        eng_grad = self.struct.energy_gradient_wrt_pvec(pop, self.pot_template.u_ranges)
 
         all_eng_grad = self.comm.gather(eng_grad, root=0)
 
@@ -201,9 +199,7 @@ class Manager:
 
         pop = self.comm.scatter(full, root=0)
 
-        fcs_grad = self.struct.forces_gradient_wrt_pvec(
-            pop, self.pot_template.u_ranges
-        )
+        fcs_grad = self.struct.forces_gradient_wrt_pvec(pop, self.pot_template.u_ranges)
 
         all_fcs_grad = self.comm.gather(fcs_grad, root=0)
 

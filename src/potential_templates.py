@@ -33,6 +33,7 @@ class Template:
         else:
             self.active_mask = np.ones(pvec_len)
 
+        self.ntypes = len(u_ranges)
         self.pvec_len = pvec_len
         self.u_ranges = u_ranges
         self.spline_ranges = spline_ranges

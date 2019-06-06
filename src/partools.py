@@ -1,6 +1,8 @@
 import os
+import shutil
 import numpy as np
 from scipy.sparse import diags
+from scipy.optimize import least_squares
 from src.potential_templates import Template
 
 def build_evaluation_functions(
@@ -65,10 +67,8 @@ def build_evaluation_functions(
                 frac_in = np.sum(np.dstack(mgr_frac_in), axis=2).T
 
                 fitnesses = np.zeros(
-                    (len(pop), len(master_database.entries) + 4)
+                    (len(pop), len(master_database.entries) + 2)
                 )
-
-                # maybe make the error U[] - var?
 
                 lambda_pen = 10000
 
@@ -76,9 +76,7 @@ def build_evaluation_functions(
 
                 fitnesses[:, -frac_in.shape[1]:] = lambda_pen*abs(ns - frac_in)
 
-                fitnesses[:, -3] = lambda_pen*np.sum(np.abs(avg_ni), axis=1)
-                fitnesses[:, -4] = lambda_pen*np.sum(np.abs(1 - ni_var), axis=1)
-
+                # maybe make the error U[] - var?
 
                 for fit_id, (entry, weight) in enumerate(
                         zip(master_database.entries, weights)):
@@ -113,20 +111,19 @@ def build_evaluation_functions(
 
         if is_master:
             if not penalty:
-                fitnesses = fitnesses[:, :-4]
+                fitnesses = fitnesses[:, :-2]
+
+        if output:
+            if is_master:
+                tmp = np.sum(fitnesses, axis=1)
+                print("{} {} {}".format(
+                        np.min(tmp), np.max(tmp), np.average(tmp)
+                    ),
+                )
 
         if return_ni:
             return fitnesses, max_ni, min_ni, avg_ni
         else:
-            if output:
-                if is_master:
-                    fitnesses = np.sum(fitnesses, axis=1)
-
-                    print(
-                        np.min(fitnesses), np.max(fitnesses), np.average(fitnesses),
-                        flush=True
-                    )
-
             return fitnesses
 
     def grad_wrap(master_pop, weights):
@@ -512,14 +509,11 @@ def shift_u(min_ni, max_ni):
         atom type
     """
 
-    scale = np.max(np.abs(np.hstack([min_ni, max_ni])), axis=1)
-    scale = np.average(scale, axis=0)
-
-    tmp_min_ni = np.average(min_ni, axis=0)
-    tmp_max_ni = np.average(max_ni, axis=0)
+    tmp_min_ni = min_ni[0]
+    tmp_max_ni = max_ni[0]
 
     new_u_domains = [
-        (tmp_min_ni[i] / scale, tmp_max_ni[i] / scale) for i in range(2)]
+        (tmp_min_ni[i], tmp_max_ni[i]) for i in range(2)]
 
     for k, tup in enumerate(new_u_domains):
         tmp_tup = []
@@ -540,8 +534,8 @@ def shift_u(min_ni, max_ni):
 
 
 def mcmc(population, weights, cost_fxn, potential_template, T,
-         parameters, active_tags, checkpoint_fxn, is_master, start_step=0,
-         cooling_rate=1, T_min=0, suffix="", max_nsteps=None):
+         parameters, active_tags, is_master, start_step=0,
+         cooling_rate=1, T_min=0, suffix="", max_nsteps=None, penalty=False):
     """
     Runs an MCMC optimization on the given subset of the parameter vectors.
     Stopping criterion is either 20 steps without any improvement,
@@ -639,11 +633,11 @@ def mcmc(population, weights, cost_fxn, potential_template, T,
             trial = None
 
         current_cost, c_max_ni, c_min_ni, c_avg_ni = cost_fxn(
-            tmp, weights, return_ni=True, penalty=True
+            tmp, weights, return_ni=True, penalty=penalty
         )
 
         trial_cost, t_max_ni, t_min_ni, t_avg_ni = cost_fxn(
-            tmp_trial, weights, return_ni=True, penalty=True
+            tmp_trial, weights, return_ni=True, penalty=penalty
         )
 
         if is_master:
@@ -693,9 +687,10 @@ def mcmc(population, weights, cost_fxn, potential_template, T,
                 tmp[:, active_indices] = current
 
                 if (start_step + step_num) % checkpoint_freq == 0:
-                    checkpoint_fxn(
+                    checkpoint(
                         tmp, current_cost, c_max_ni, c_min_ni, c_avg_ni,
-                        start_step + step_num, parameters, potential_template
+                        start_step + step_num, parameters, potential_template,
+                        max_nsteps, suffix='_mc'
                     )
 
             # if current_best == prev_best:
@@ -713,7 +708,7 @@ def mcmc(population, weights, cost_fxn, potential_template, T,
     return population
 
 def checkpoint(population, costs, max_ni, min_ni, avg_ni, i, parameters,
-    potential_template):
+    potential_template, max_nsteps, suffix=""):
     """Saves information to files for later use"""
 
     # save costs -- assume file is being appended to
@@ -721,17 +716,17 @@ def checkpoint(population, costs, max_ni, min_ni, avg_ni, i, parameters,
         np.savetxt(f, np.atleast_2d(costs))
 
     # save population
-    digits = np.floor(np.log10(parameters['SA_NSTEPS']))
+    digits = np.floor(np.log10(max_nsteps))
 
     format_str = os.path.join(
         parameters['SAVE_DIRECTORY'],
-        'pop_{0:0' + str(int(digits) + 1)+ 'd}.dat'
+        'pop_{0:0' + str(int(digits) + 1)+ 'd}.dat' + suffix
     )
 
     np.savetxt(format_str.format(i), population)
 
     # output ni to file
-    with open(parameters['NI_TRACE_FILE_NAME'], 'ab') as f:
+    with open(parameters['NI_TRACE_FILE_NAME'] + suffix, 'ab') as f:
         np.savetxt(
             f,
             np.concatenate(
@@ -852,3 +847,106 @@ def build_M(num_x, dx, bc_type):
 
     # M = A^(-1)B
     return np.dot(np.linalg.inv(A), B)
+
+def prepare_save_directory(parameters):
+    """Creates directories to store results"""
+
+    if os.path.isdir(parameters['SAVE_DIRECTORY']):
+        shutil.rmtree(parameters['SAVE_DIRECTORY'])
+
+    os.mkdir(parameters['SAVE_DIRECTORY'])
+
+
+def local_minimization(master_pop, u_domains, fxn, grad, weights, world_comm,
+        is_master, nsteps=20, lm_output=False):
+
+    # NOTE: if LM throws size errors, you probaly need to add more padding
+    pad = 100
+
+    def lm_fxn_wrap(raveled_pop, original_shape):
+        # print(raveled_pop)
+
+        if is_master:
+            print('LM step: ', end="", flush=True)
+            tmp = raveled_pop.reshape(original_shape)
+        else:
+            tmp = None
+
+        val = fxn(tmp, weights, output=lm_output)
+
+        val = world_comm.bcast(val, root=0)
+
+        # pad with zeros since num structs is less than num knots
+        tmp = np.concatenate([val.ravel(), np.zeros(pad * original_shape[0])])
+
+        return tmp
+
+    def lm_grad_wrap(raveled_pop, original_shape):
+
+        if is_master:
+            tmp = raveled_pop.reshape(original_shape)
+        else:
+            tmp = None
+
+        grads = grad(tmp, weights)
+
+        grads = world_comm.bcast(grads, root=0)
+
+        num_pots, num_structs_2, num_params = grads.shape
+
+        padded_grad = np.zeros(
+            (num_pots, num_structs_2, num_pots, num_params)
+        )
+
+        for pot_id, g in enumerate(grads):
+            padded_grad[pot_id, :, pot_id, :] = g
+
+        padded_grad = padded_grad.reshape(
+            (num_pots * num_structs_2, num_pots * num_params)
+        )
+
+        # also pad with zeros since num structs is less than num knots
+
+        tmp = np.vstack([
+            padded_grad,
+            np.zeros((pad * num_pots, num_pots * num_params))]
+        )
+
+        return tmp
+
+    # lm_grad_wrap = '2-point'
+
+    master_pop = world_comm.bcast(master_pop, root=0)
+    master_pop = np.array(master_pop)
+
+    opt_results = least_squares(
+        lm_fxn_wrap, master_pop.ravel(), lm_grad_wrap,
+        method='lm', max_nfev=nsteps, args=(master_pop.shape,)
+    )
+
+    if is_master:
+        new_pop = opt_results['x'].reshape(master_pop.shape)
+        tmp = master_pop
+        new_tmp = new_pop
+    else:
+        tmp = None
+        new_tmp = None
+        new_pop = None
+
+    org_fits = fxn(tmp, weights)
+    new_fits = fxn(new_tmp, weights)
+
+    if is_master:
+        updated_master_pop = list(master_pop)
+
+        for i, ind in enumerate(new_pop):
+            if np.sum(new_fits[i]) < np.sum(org_fits[i]):
+                updated_master_pop[i] = new_pop[i]
+            else:
+                updated_master_pop[i] = updated_master_pop[i]
+
+        master_pop = np.array(updated_master_pop)
+
+    master_pop = world_comm.bcast(master_pop, root=0)
+
+    return master_pop
