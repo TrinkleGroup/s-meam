@@ -22,6 +22,7 @@ an HDF5 file containing the structure vectors and metadata of each structure.
 
 import os
 import h5py
+import logging
 import itertools
 import numpy as np
 from ase.neighborlist import NeighborList
@@ -30,6 +31,8 @@ import src.meam
 import src.partools
 import src.lammpsTools
 from src.workerSplines import WorkerSpline, RhoSpline, ffgSpline, USpline
+
+logger = logging.getLogger(__name__)
 
 class Database(h5py.File):
 
@@ -124,9 +127,6 @@ class Database(h5py.File):
 
         self.attrs['num_u_knots'] = num_u_knots
 
-    def build_from_lammps_files(self, path_to_lammps_files):
-        pass
-
     def build_from_existing_workers(self, path_to_workers):
         pass
 
@@ -192,7 +192,7 @@ class Database(h5py.File):
 
         # No double counting of bonds; needed for pair interactions
         nl_noboth = NeighborList(
-            np.ones(new_group.attrs["natoms"]) * (self.attrs["cutoffs"] / 2.),
+            np.ones(new_group.attrs["natoms"]) * (self.attrs["cutoffs"][-1]/2.),
             self_interaction=False, bothways=False, skin=0.0
         )
 
@@ -200,7 +200,7 @@ class Database(h5py.File):
 
         # Allows double counting bonds; needed for embedding energy calculations
         nl = NeighborList(
-            np.ones(new_group.attrs["natoms"]) * (self.attrs["cutoffs"] / 2.),
+            np.ones(new_group.attrs["natoms"]) * (self.attrs["cutoffs"][-1]/2.),
             self_interaction=False, bothways=True, skin=0.0
         )
 
@@ -419,7 +419,7 @@ class Database(h5py.File):
         for i, y in enumerate(u_pvecs):
             num_knots = self.attrs['num_u_knots'][i]
 
-            u_energy_sv = np.zeros((n_pots, num_knots))
+            u_energy_sv = np.zeros((n_pots, num_knots + 2))
 
             # extract ni values for atoms of type i
             ni_sublist = ni[
@@ -452,9 +452,15 @@ class Database(h5py.File):
                 abcd = abcd.reshape(list(ni_sublist.shape) + [abcd.shape[1]])
 
                 u_energy_sv += np.sum(abcd, axis=1)
-                u_energy += np.einsum("ij,ij->i", u_energy_sv, y)
 
                 # end
+
+                # rzm: db is adding U energy when Worker isn't (for dimer_ab)
+
+                u_energy += np.einsum("ij,ij->i", u_energy_sv, y)
+
+                logging.info("db U energy: {}".format(np.einsum("ij,ij->i", u_energy_sv, y)))
+
 
         return u_energy
 

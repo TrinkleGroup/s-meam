@@ -18,76 +18,1122 @@ points_per_spline = 7
 DECIMALS = 8
 
 class DatabaseTests(unittest.TestCase):
-    def setUp(self):
+    @classmethod
+    def setUpClass(cls):
         inner_cutoff = 2.1
         outer_cutoff = 5.5
 
-        x_pvec = np.concatenate([
+        cls.x_pvec = np.concatenate([
             np.tile(np.linspace(inner_cutoff, outer_cutoff, points_per_spline), 5),
             np.tile(np.linspace(-1, 1, points_per_spline), 2),
             np.tile(np.linspace(inner_cutoff, outer_cutoff, points_per_spline), 2),
             np.tile(np.linspace(-1, 1, points_per_spline), 3)]
         )
 
-        x_indices = list(range(0, points_per_spline * 12, points_per_spline))
-        types = ['H', 'He']
-
-        self.dimer_worker = Worker(dimers['aa'], x_pvec, x_indices, types)
-
-        self.template = build_template()
-
-        self.db = Database(
-            'db_delete.hdf5', self.template.pvec_len, types, x_pvec, x_indices,
-            [inner_cutoff, outer_cutoff]
+        cls.x_indices = list(
+            range(0, points_per_spline * 12, points_per_spline)
         )
 
-        self.db.add_structure('aa', dimers['aa'], overwrite=True)
+        cls.types = ['H', 'He']
 
-        self.pvec = np.ones((1, self.template.pvec_len))
+        cls.template = build_template()
 
-        # self.pot = tests.testPotentials.get_random_pots(1)['meams']
-        # _, self.pvec, _ = src.meam.splines_to_pvec(self.pot[0].splines)
+        cls.db = Database(
+            'db_delete.hdf5', cls.template.pvec_len, cls.types, cls.x_pvec,
+            cls.x_indices, [inner_cutoff, outer_cutoff]
+        )
 
-    def test_energy_dimer(self):
+        cls.db.add_structure('aa', dimers['aa'], overwrite=True)
+        cls.db.add_structure('ab', dimers['ab'], overwrite=True)
+        cls.db.add_structure('aaa', trimers['aaa'], overwrite=True)
+        cls.db.add_structure('aba', trimers['aba'], overwrite=True)
+        cls.db.add_structure('bbb', trimers['bbb'], overwrite=True)
+
+        cls.db.add_structure(
+            'bulk_vac_ortho_type1', bulk_vac_ortho['bulk_vac_ortho_type1'],
+            overwrite=True
+        )
+
+        cls.db.add_structure(
+            'bulk_vac_ortho_type2', bulk_vac_ortho['bulk_vac_ortho_type2'],
+            overwrite=True
+        )
+
+        cls.db.add_structure(
+            'bulk_vac_ortho_mixed', bulk_vac_ortho['bulk_vac_ortho_mixed'],
+            overwrite=True
+        )
+
+        cls.db.add_structure(
+            'bulk_periodic_ortho_type1',
+            bulk_periodic_ortho['bulk_periodic_ortho_type1'],
+            overwrite=True
+        )
+
+        cls.db.add_structure(
+            'bulk_periodic_ortho_type2',
+            bulk_periodic_ortho['bulk_periodic_ortho_type2'],
+            overwrite=True
+        )
+
+        cls.db.add_structure(
+            'bulk_periodic_ortho_mixed',
+            bulk_periodic_ortho['bulk_periodic_ortho_mixed'],
+            overwrite=True
+        )
+
+        cls.db.add_structure(
+            'bulk_vac_rhombo_type1', bulk_vac_rhombo['bulk_vac_rhombo_type1'],
+            overwrite=True
+        )
+
+        cls.db.add_structure(
+            'bulk_vac_rhombo_type2', bulk_vac_rhombo['bulk_vac_rhombo_type2'],
+            overwrite=True
+        )
+
+        cls.db.add_structure(
+            'bulk_vac_rhombo_mixed', bulk_vac_rhombo['bulk_vac_rhombo_mixed'],
+            overwrite=True
+        )
+
+        cls.db.add_structure(
+            'bulk_periodic_rhombo_type1',
+            bulk_periodic_rhombo['bulk_periodic_rhombo_type1'],
+            overwrite=True
+        )
+
+        cls.db.add_structure(
+            'bulk_periodic_rhombo_type2',
+            bulk_periodic_rhombo['bulk_periodic_rhombo_type2'],
+            overwrite=True
+        )
+
+        cls.db.add_structure(
+            'bulk_periodic_rhombo_mixed',
+            bulk_periodic_rhombo['bulk_periodic_rhombo_mixed'],
+            overwrite=True
+        )
+
+        cls.pvec = np.ones((1, cls.template.pvec_len))
+
+        # cls.pot = tests.testPotentials.get_random_pots(1)['meams']
+        # _, cls.pvec, _ = src.meam.splines_to_pvec(cls.pot[0].splines)
+
+    def test_energy_dimer_aa(self):
         db_eng, _ = self.db.compute_energy(
             'aa', self.pvec, self.template.u_ranges
         )
 
-        wk_eng, _ = self.dimer_worker.compute_energy(
+        worker = Worker(dimers['aa'], self.x_pvec, self.x_indices, self.types)
+
+        wk_eng, _ = worker.compute_energy(self.pvec, self.template.u_ranges)
+
+        np.testing.assert_almost_equal(wk_eng, db_eng, decimal=DECIMALS)
+
+    def test_forces_dimer_aa(self):
+        db_fcs = self.db.compute_forces('aa', self.pvec, self.template.u_ranges)
+
+        worker = Worker(dimers['aa'], self.x_pvec, self.x_indices, self.types)
+
+        wk_fcs = worker.compute_forces(self.pvec, self.template.u_ranges)
+
+        np.testing.assert_almost_equal(wk_fcs, db_fcs, decimal=DECIMALS)
+
+    def test_energy_grad_dimer_aa(self):
+        db_grad = self.db.compute_energy_grad(
+            'aa', self.pvec, self.template.u_ranges
+        )
+
+        worker = Worker(dimers['aa'], self.x_pvec, self.x_indices, self.types)
+
+        wk_grad = worker.energy_gradient_wrt_pvec(
+            self.pvec, self.template.u_ranges
+        )
+
+        np.testing.assert_almost_equal(wk_grad, db_grad, decimal=DECIMALS)
+
+    def test_forces_grad_dimer_aa(self):
+        db_grad = self.db.compute_forces_grad(
+            'aa', self.pvec, self.template.u_ranges
+        )
+
+        worker = Worker(dimers['aa'], self.x_pvec, self.x_indices, self.types)
+
+        wk_grad = worker.forces_gradient_wrt_pvec(
+            self.pvec, self.template.u_ranges
+        )
+
+        np.testing.assert_almost_equal(wk_grad, db_grad, decimal=DECIMALS)
+
+    def test_energy_dimer_ab(self):
+        db_eng, _ = self.db.compute_energy(
+            'ab', self.pvec, self.template.u_ranges
+        )
+
+        worker = Worker(dimers['ab'], self.x_pvec, self.x_indices, self.types)
+
+        wk_eng, _ = worker.compute_energy(
             self.pvec, self.template.u_ranges
         )
 
         np.testing.assert_almost_equal(wk_eng, db_eng, decimal=DECIMALS)
 
-    def test_forces_dimer(self):
-        db_fcs = self.db.compute_forces('aa', self.pvec, self.template.u_ranges)
-        wk_fcs = self.dimer_worker.compute_forces(
+    def test_forces_dimer_ab(self):
+        db_fcs = self.db.compute_forces('ab', self.pvec, self.template.u_ranges)
+
+        worker = Worker(dimers['ab'], self.x_pvec, self.x_indices, self.types)
+
+        wk_fcs = worker.compute_forces(
             self.pvec, self.template.u_ranges
         )
 
         np.testing.assert_almost_equal(wk_fcs, db_fcs, decimal=DECIMALS)
 
-    def test_energy_grad(self):
+    def test_energy_grad_dimer_ab(self):
         db_grad = self.db.compute_energy_grad(
-            'aa', self.pvec, self.template.u_ranges
+            'ab', self.pvec, self.template.u_ranges
         )
 
-        wk_grad = self.dimer_worker.energy_gradient_wrt_pvec(
+        worker = Worker(dimers['ab'], self.x_pvec, self.x_indices, self.types)
+
+        wk_grad = worker.energy_gradient_wrt_pvec(
             self.pvec, self.template.u_ranges
         )
 
         np.testing.assert_almost_equal(wk_grad, db_grad, decimal=DECIMALS)
 
-    def test_forces_grad(self):
+    def test_forces_grad_dimer_ab(self):
         db_grad = self.db.compute_forces_grad(
-            'aa', self.pvec, self.template.u_ranges
+            'ab', self.pvec, self.template.u_ranges
         )
 
-        wk_grad = self.dimer_worker.forces_gradient_wrt_pvec(
+        worker = Worker(dimers['ab'], self.x_pvec, self.x_indices, self.types)
+
+        wk_grad = worker.forces_gradient_wrt_pvec(
             self.pvec, self.template.u_ranges
         )
 
         np.testing.assert_almost_equal(wk_grad, db_grad, decimal=DECIMALS)
+
+    def test_energy_trimer_aaa(self):
+        db_eng, _ = self.db.compute_energy(
+            'aaa', self.pvec, self.template.u_ranges
+        )
+
+        worker = Worker(trimers['aaa'], self.x_pvec, self.x_indices, self.types)
+
+        wk_eng, _ = worker.compute_energy(
+            self.pvec, self.template.u_ranges
+        )
+
+        np.testing.assert_almost_equal(wk_eng, db_eng, decimal=DECIMALS)
+
+    def test_forces_trimer_aaa(self):
+        db_fcs = self.db.compute_forces('aaa', self.pvec, self.template.u_ranges)
+
+        worker = Worker(trimers['aaa'], self.x_pvec, self.x_indices, self.types)
+
+        wk_fcs = worker.compute_forces(
+            self.pvec, self.template.u_ranges
+        )
+
+        np.testing.assert_almost_equal(wk_fcs, db_fcs, decimal=DECIMALS)
+
+    def test_energy_grad_trimer_aaa(self):
+        db_grad = self.db.compute_energy_grad(
+            'aaa', self.pvec, self.template.u_ranges
+        )
+
+        worker = Worker(trimers['aaa'], self.x_pvec, self.x_indices, self.types)
+
+        wk_grad = worker.energy_gradient_wrt_pvec(
+            self.pvec, self.template.u_ranges
+        )
+
+        np.testing.assert_almost_equal(wk_grad, db_grad, decimal=DECIMALS)
+
+    def test_forces_grad_trimer_aaa(self):
+        db_grad = self.db.compute_forces_grad(
+            'aaa', self.pvec, self.template.u_ranges
+        )
+
+        worker = Worker(trimers['aaa'], self.x_pvec, self.x_indices, self.types)
+
+        wk_grad = worker.forces_gradient_wrt_pvec(
+            self.pvec, self.template.u_ranges
+        )
+
+        np.testing.assert_almost_equal(wk_grad, db_grad, decimal=DECIMALS)
+
+    def test_energy_trimer_aba(self):
+        db_eng, _ = self.db.compute_energy(
+            'aba', self.pvec, self.template.u_ranges
+        )
+
+        worker = Worker(trimers['aba'], self.x_pvec, self.x_indices, self.types)
+
+        wk_eng, _ = worker.compute_energy(
+            self.pvec, self.template.u_ranges
+        )
+
+        np.testing.assert_almost_equal(wk_eng, db_eng, decimal=DECIMALS)
+
+    def test_forces_trimer_aba(self):
+        db_fcs = self.db.compute_forces('aba', self.pvec, self.template.u_ranges)
+
+        worker = Worker(trimers['aba'], self.x_pvec, self.x_indices, self.types)
+
+        wk_fcs = worker.compute_forces(
+            self.pvec, self.template.u_ranges
+        )
+
+        np.testing.assert_almost_equal(wk_fcs, db_fcs, decimal=DECIMALS)
+
+    def test_energy_grad_trimer_aba(self):
+        db_grad = self.db.compute_energy_grad(
+            'aba', self.pvec, self.template.u_ranges
+        )
+
+        worker = Worker(trimers['aba'], self.x_pvec, self.x_indices, self.types)
+
+        wk_grad = worker.energy_gradient_wrt_pvec(
+            self.pvec, self.template.u_ranges
+        )
+
+        np.testing.assert_almost_equal(wk_grad, db_grad, decimal=DECIMALS)
+
+    def test_forces_grad_trimer_aba(self):
+        db_grad = self.db.compute_forces_grad(
+            'aba', self.pvec, self.template.u_ranges
+        )
+
+        worker = Worker(trimers['aba'], self.x_pvec, self.x_indices, self.types)
+
+        wk_grad = worker.forces_gradient_wrt_pvec(
+            self.pvec, self.template.u_ranges
+        )
+
+        np.testing.assert_almost_equal(wk_grad, db_grad, decimal=DECIMALS)
+
+    def test_energy_trimer_bbb(self):
+        db_eng, _ = self.db.compute_energy(
+            'bbb', self.pvec, self.template.u_ranges
+        )
+
+        worker = Worker(trimers['bbb'], self.x_pvec, self.x_indices, self.types)
+
+        wk_eng, _ = worker.compute_energy(
+            self.pvec, self.template.u_ranges
+        )
+
+        np.testing.assert_almost_equal(wk_eng, db_eng, decimal=DECIMALS)
+
+    def test_forces_trimer_bbb(self):
+        db_fcs = self.db.compute_forces('bbb', self.pvec, self.template.u_ranges)
+
+        worker = Worker(trimers['bbb'], self.x_pvec, self.x_indices, self.types)
+
+        wk_fcs = worker.compute_forces(
+            self.pvec, self.template.u_ranges
+        )
+
+        np.testing.assert_almost_equal(wk_fcs, db_fcs, decimal=DECIMALS)
+
+    def test_energy_grad_trimer_bbb(self):
+        db_grad = self.db.compute_energy_grad(
+            'bbb', self.pvec, self.template.u_ranges
+        )
+
+        worker = Worker(trimers['bbb'], self.x_pvec, self.x_indices, self.types)
+
+        wk_grad = worker.energy_gradient_wrt_pvec(
+            self.pvec, self.template.u_ranges
+        )
+
+        np.testing.assert_almost_equal(wk_grad, db_grad, decimal=DECIMALS)
+
+    def test_forces_grad_trimer_bbb(self):
+        db_grad = self.db.compute_forces_grad(
+            'bbb', self.pvec, self.template.u_ranges
+        )
+
+        worker = Worker(trimers['bbb'], self.x_pvec, self.x_indices, self.types)
+
+        wk_grad = worker.forces_gradient_wrt_pvec(
+            self.pvec, self.template.u_ranges
+        )
+
+        np.testing.assert_almost_equal(wk_grad, db_grad, decimal=DECIMALS)
+
+    def test_energy_bvo_t1(self):
+        db_eng, _ = self.db.compute_energy(
+            'bulk_vac_ortho_type1', self.pvec, self.template.u_ranges
+        )
+
+        worker = Worker(
+            bulk_vac_ortho['bulk_vac_ortho_type1'], self.x_pvec, self.x_indices,
+            self.types
+        )
+
+        wk_eng, _ = worker.compute_energy(
+            self.pvec, self.template.u_ranges
+        )
+
+        np.testing.assert_almost_equal(wk_eng, db_eng, decimal=DECIMALS)
+
+    def test_forces_bvo_t1(self):
+        db_fcs = self.db.compute_forces(
+            'bulk_vac_ortho_type1', self.pvec, self.template.u_ranges
+        )
+
+        worker = Worker(
+            bulk_vac_ortho['bulk_vac_ortho_type1'], self.x_pvec, self.x_indices,
+            self.types
+        )
+
+        wk_fcs = worker.compute_forces(
+            self.pvec, self.template.u_ranges
+        )
+
+        np.testing.assert_almost_equal(wk_fcs, db_fcs, decimal=DECIMALS)
+
+    def test_energy_grad_bvo_t1(self):
+        db_grad = self.db.compute_energy_grad(
+            'bulk_vac_ortho_type1', self.pvec, self.template.u_ranges
+        )
+
+        worker = Worker(
+            bulk_vac_ortho['bulk_vac_ortho_type1'], self.x_pvec, self.x_indices,
+            self.types
+        )
+
+        wk_grad = worker.energy_gradient_wrt_pvec(
+            self.pvec, self.template.u_ranges
+        )
+
+        np.testing.assert_almost_equal(wk_grad, db_grad, decimal=DECIMALS)
+
+    def test_forces_grad_bvo_t1(self):
+        db_grad = self.db.compute_forces_grad(
+            'bulk_vac_ortho_type1', self.pvec, self.template.u_ranges
+        )
+
+        worker = Worker(
+            bulk_vac_ortho['bulk_vac_ortho_type1'], self.x_pvec, self.x_indices,
+            self.types
+        )
+
+        wk_grad = worker.forces_gradient_wrt_pvec(
+            self.pvec, self.template.u_ranges
+        )
+
+        np.testing.assert_almost_equal(wk_grad, db_grad, decimal=DECIMALS)
+
+    def test_energy_bvo_t2(self):
+        db_eng, _ = self.db.compute_energy(
+            'bulk_vac_ortho_type2', self.pvec, self.template.u_ranges
+        )
+
+        worker = Worker(
+            bulk_vac_ortho['bulk_vac_ortho_type2'], self.x_pvec, self.x_indices,
+            self.types
+        )
+
+        wk_eng, _ = worker.compute_energy(
+            self.pvec, self.template.u_ranges
+        )
+
+        np.testing.assert_almost_equal(wk_eng, db_eng, decimal=DECIMALS)
+
+    def test_forces_bvo_t2(self):
+        db_fcs = self.db.compute_forces(
+            'bulk_vac_ortho_type2', self.pvec, self.template.u_ranges
+        )
+
+        worker = Worker(
+            bulk_vac_ortho['bulk_vac_ortho_type2'], self.x_pvec, self.x_indices,
+            self.types
+        )
+
+        wk_fcs = worker.compute_forces(
+            self.pvec, self.template.u_ranges
+        )
+
+        np.testing.assert_almost_equal(wk_fcs, db_fcs, decimal=DECIMALS)
+
+    def test_energy_grad_bvo_t2(self):
+        db_grad = self.db.compute_energy_grad(
+            'bulk_vac_ortho_type2', self.pvec, self.template.u_ranges
+        )
+
+        worker = Worker(
+            bulk_vac_ortho['bulk_vac_ortho_type2'], self.x_pvec, self.x_indices,
+            self.types
+        )
+
+        wk_grad = worker.energy_gradient_wrt_pvec(
+            self.pvec, self.template.u_ranges
+        )
+
+        np.testing.assert_almost_equal(wk_grad, db_grad, decimal=DECIMALS)
+
+    def test_forces_grad_bvo_t2(self):
+        db_grad = self.db.compute_forces_grad(
+            'bulk_vac_ortho_type2', self.pvec, self.template.u_ranges
+        )
+
+        worker = Worker(
+            bulk_vac_ortho['bulk_vac_ortho_type2'], self.x_pvec, self.x_indices,
+            self.types
+        )
+
+        wk_grad = worker.forces_gradient_wrt_pvec(
+            self.pvec, self.template.u_ranges
+        )
+
+        np.testing.assert_almost_equal(wk_grad, db_grad, decimal=DECIMALS)
+
+    def test_energy_bvo_mx(self):
+        db_eng, _ = self.db.compute_energy(
+            'bulk_vac_ortho_mixed', self.pvec, self.template.u_ranges
+        )
+
+        worker = Worker(
+            bulk_vac_ortho['bulk_vac_ortho_mixed'], self.x_pvec, self.x_indices,
+            self.types
+        )
+
+        wk_eng, _ = worker.compute_energy(
+            self.pvec, self.template.u_ranges
+        )
+
+        np.testing.assert_almost_equal(wk_eng, db_eng, decimal=DECIMALS)
+
+    def test_forces_bvo_mx(self):
+        db_fcs = self.db.compute_forces(
+            'bulk_vac_ortho_mixed', self.pvec, self.template.u_ranges
+        )
+
+        worker = Worker(
+            bulk_vac_ortho['bulk_vac_ortho_mixed'], self.x_pvec, self.x_indices,
+            self.types
+        )
+
+        wk_fcs = worker.compute_forces(
+            self.pvec, self.template.u_ranges
+        )
+
+        np.testing.assert_almost_equal(wk_fcs, db_fcs, decimal=DECIMALS)
+
+    def test_energy_grad_bvo_mx(self):
+        db_grad = self.db.compute_energy_grad(
+            'bulk_vac_ortho_mixed', self.pvec, self.template.u_ranges
+        )
+
+        worker = Worker(
+            bulk_vac_ortho['bulk_vac_ortho_mixed'], self.x_pvec, self.x_indices,
+            self.types
+        )
+
+        wk_grad = worker.energy_gradient_wrt_pvec(
+            self.pvec, self.template.u_ranges
+        )
+
+        np.testing.assert_almost_equal(wk_grad, db_grad, decimal=DECIMALS)
+
+    def test_forces_grad_bvo_mx(self):
+        db_grad = self.db.compute_forces_grad(
+            'bulk_vac_ortho_mixed', self.pvec, self.template.u_ranges
+        )
+
+        worker = Worker(
+            bulk_vac_ortho['bulk_vac_ortho_mixed'], self.x_pvec, self.x_indices,
+            self.types
+        )
+
+        wk_grad = worker.forces_gradient_wrt_pvec(
+            self.pvec, self.template.u_ranges
+        )
+
+        np.testing.assert_almost_equal(wk_grad, db_grad, decimal=DECIMALS)
+
+    def test_energy_bpo_t1(self):
+        db_eng, _ = self.db.compute_energy(
+            'bulk_periodic_ortho_type1', self.pvec, self.template.u_ranges
+        )
+
+        worker = Worker(
+            bulk_periodic_ortho['bulk_periodic_ortho_type1'], self.x_pvec,
+            self.x_indices, self.types
+        )
+
+        wk_eng, _ = worker.compute_energy(
+            self.pvec, self.template.u_ranges
+        )
+
+        np.testing.assert_almost_equal(wk_eng, db_eng, decimal=DECIMALS)
+
+    def test_forces_bpo_t1(self):
+        db_fcs = self.db.compute_forces(
+            'bulk_periodic_ortho_type1', self.pvec, self.template.u_ranges
+        )
+
+        worker = Worker(
+            bulk_periodic_ortho['bulk_periodic_ortho_type1'], self.x_pvec,
+            self.x_indices, self.types
+        )
+
+        wk_fcs = worker.compute_forces(
+            self.pvec, self.template.u_ranges
+        )
+
+        np.testing.assert_almost_equal(wk_fcs, db_fcs, decimal=DECIMALS)
+
+    def test_energy_grad_bpo_t1(self):
+        db_grad = self.db.compute_energy_grad(
+            'bulk_periodic_ortho_type1', self.pvec, self.template.u_ranges
+        )
+
+        worker = Worker(
+            bulk_periodic_ortho['bulk_periodic_ortho_type1'], self.x_pvec,
+            self.x_indices, self.types
+        )
+
+        wk_grad = worker.energy_gradient_wrt_pvec(
+            self.pvec, self.template.u_ranges
+        )
+
+        np.testing.assert_almost_equal(wk_grad, db_grad, decimal=DECIMALS)
+
+    def test_forces_grad_bpo_t1(self):
+        db_grad = self.db.compute_forces_grad(
+            'bulk_periodic_ortho_type1', self.pvec, self.template.u_ranges
+        )
+
+        worker = Worker(
+            bulk_periodic_ortho['bulk_periodic_ortho_type1'], self.x_pvec,
+            self.x_indices, self.types
+        )
+
+        wk_grad = worker.forces_gradient_wrt_pvec(
+            self.pvec, self.template.u_ranges
+        )
+
+        np.testing.assert_almost_equal(wk_grad, db_grad, decimal=DECIMALS)
+
+    def test_energy_bpo_t2(self):
+        db_eng, _ = self.db.compute_energy(
+            'bulk_periodic_ortho_type2', self.pvec, self.template.u_ranges
+        )
+
+        worker = Worker(
+            bulk_periodic_ortho['bulk_periodic_ortho_type2'], self.x_pvec,
+            self.x_indices, self.types
+        )
+
+        wk_eng, _ = worker.compute_energy(
+            self.pvec, self.template.u_ranges
+        )
+
+        np.testing.assert_almost_equal(wk_eng, db_eng, decimal=DECIMALS)
+
+    def test_forces_bpo_t2(self):
+        db_fcs = self.db.compute_forces(
+            'bulk_periodic_ortho_type2', self.pvec, self.template.u_ranges
+        )
+
+        worker = Worker(
+            bulk_periodic_ortho['bulk_periodic_ortho_type2'], self.x_pvec,
+            self.x_indices, self.types
+        )
+
+        wk_fcs = worker.compute_forces(
+            self.pvec, self.template.u_ranges
+        )
+
+        np.testing.assert_almost_equal(wk_fcs, db_fcs, decimal=DECIMALS)
+
+    def test_energy_grad_bpo_t2(self):
+        db_grad = self.db.compute_energy_grad(
+            'bulk_periodic_ortho_type2', self.pvec, self.template.u_ranges
+        )
+
+        worker = Worker(
+            bulk_periodic_ortho['bulk_periodic_ortho_type2'], self.x_pvec,
+            self.x_indices, self.types
+        )
+
+        wk_grad = worker.energy_gradient_wrt_pvec(
+            self.pvec, self.template.u_ranges
+        )
+
+        np.testing.assert_almost_equal(wk_grad, db_grad, decimal=DECIMALS)
+
+    def test_forces_grad_bpo_t2(self):
+        db_grad = self.db.compute_forces_grad(
+            'bulk_periodic_ortho_type2', self.pvec, self.template.u_ranges
+        )
+
+        worker = Worker(
+            bulk_periodic_ortho['bulk_periodic_ortho_type2'], self.x_pvec,
+            self.x_indices, self.types
+        )
+
+        wk_grad = worker.forces_gradient_wrt_pvec(
+            self.pvec, self.template.u_ranges
+        )
+
+        np.testing.assert_almost_equal(wk_grad, db_grad, decimal=DECIMALS)
+
+    def test_energy_bpo_mx(self):
+        db_eng, _ = self.db.compute_energy(
+            'bulk_periodic_ortho_mixed', self.pvec, self.template.u_ranges
+        )
+
+        worker = Worker(
+            bulk_periodic_ortho['bulk_periodic_ortho_mixed'], self.x_pvec,
+            self.x_indices, self.types
+        )
+
+        wk_eng, _ = worker.compute_energy(
+            self.pvec, self.template.u_ranges
+        )
+
+        np.testing.assert_almost_equal(wk_eng, db_eng, decimal=DECIMALS)
+
+    def test_forces_bpo_mx(self):
+        db_fcs = self.db.compute_forces(
+            'bulk_periodic_ortho_mixed', self.pvec, self.template.u_ranges
+        )
+
+        worker = Worker(
+            bulk_periodic_ortho['bulk_periodic_ortho_mixed'], self.x_pvec,
+            self.x_indices, self.types
+        )
+
+        wk_fcs = worker.compute_forces(
+            self.pvec, self.template.u_ranges
+        )
+
+        np.testing.assert_almost_equal(wk_fcs, db_fcs, decimal=DECIMALS)
+
+    def test_energy_grad_bpo_mx(self):
+        db_grad = self.db.compute_energy_grad(
+            'bulk_periodic_ortho_mixed', self.pvec, self.template.u_ranges
+        )
+
+        worker = Worker(
+            bulk_periodic_ortho['bulk_periodic_ortho_mixed'], self.x_pvec,
+            self.x_indices, self.types
+        )
+
+        wk_grad = worker.energy_gradient_wrt_pvec(
+            self.pvec, self.template.u_ranges
+        )
+
+        np.testing.assert_almost_equal(wk_grad, db_grad, decimal=DECIMALS)
+
+    def test_forces_grad_bpo_mx(self):
+        db_grad = self.db.compute_forces_grad(
+            'bulk_periodic_ortho_mixed', self.pvec, self.template.u_ranges
+        )
+
+        worker = Worker(
+            bulk_periodic_ortho['bulk_periodic_ortho_mixed'], self.x_pvec,
+            self.x_indices, self.types
+        )
+
+        wk_grad = worker.forces_gradient_wrt_pvec(
+            self.pvec, self.template.u_ranges
+        )
+
+        np.testing.assert_almost_equal(wk_grad, db_grad, decimal=DECIMALS)
+
+    def test_energy_bvr_t1(self):
+        db_eng, _ = self.db.compute_energy(
+            'bulk_vac_rhombo_type1', self.pvec, self.template.u_ranges
+        )
+
+        worker = Worker(
+            bulk_vac_rhombo['bulk_vac_rhombo_type1'], self.x_pvec, self.x_indices,
+            self.types
+        )
+
+        wk_eng, _ = worker.compute_energy(
+            self.pvec, self.template.u_ranges
+        )
+
+        np.testing.assert_almost_equal(wk_eng, db_eng, decimal=DECIMALS)
+
+    def test_forces_bvr_t1(self):
+        db_fcs = self.db.compute_forces(
+            'bulk_vac_rhombo_type1', self.pvec, self.template.u_ranges
+        )
+
+        worker = Worker(
+            bulk_vac_rhombo['bulk_vac_rhombo_type1'], self.x_pvec, self.x_indices,
+            self.types
+        )
+
+        wk_fcs = worker.compute_forces(
+            self.pvec, self.template.u_ranges
+        )
+
+        np.testing.assert_almost_equal(wk_fcs, db_fcs, decimal=DECIMALS)
+
+    def test_energy_grad_bvr_t1(self):
+        db_grad = self.db.compute_energy_grad(
+            'bulk_vac_rhombo_type1', self.pvec, self.template.u_ranges
+        )
+
+        worker = Worker(
+            bulk_vac_rhombo['bulk_vac_rhombo_type1'], self.x_pvec, self.x_indices,
+            self.types
+        )
+
+        wk_grad = worker.energy_gradient_wrt_pvec(
+            self.pvec, self.template.u_ranges
+        )
+
+        np.testing.assert_almost_equal(wk_grad, db_grad, decimal=DECIMALS)
+
+    def test_forces_grad_bvr_t1(self):
+        db_grad = self.db.compute_forces_grad(
+            'bulk_vac_rhombo_type1', self.pvec, self.template.u_ranges
+        )
+
+        worker = Worker(
+            bulk_vac_rhombo['bulk_vac_rhombo_type1'], self.x_pvec, self.x_indices,
+            self.types
+        )
+
+        wk_grad = worker.forces_gradient_wrt_pvec(
+            self.pvec, self.template.u_ranges
+        )
+
+        np.testing.assert_almost_equal(wk_grad, db_grad, decimal=DECIMALS)
+
+    def test_energy_bvr_t2(self):
+        db_eng, _ = self.db.compute_energy(
+            'bulk_vac_rhombo_type2', self.pvec, self.template.u_ranges
+        )
+
+        worker = Worker(
+            bulk_vac_rhombo['bulk_vac_rhombo_type2'], self.x_pvec, self.x_indices,
+            self.types
+        )
+
+        wk_eng, _ = worker.compute_energy(
+            self.pvec, self.template.u_ranges
+        )
+
+        np.testing.assert_almost_equal(wk_eng, db_eng, decimal=DECIMALS)
+
+    def test_forces_bvr_t2(self):
+        db_fcs = self.db.compute_forces(
+            'bulk_vac_rhombo_type2', self.pvec, self.template.u_ranges
+        )
+
+        worker = Worker(
+            bulk_vac_rhombo['bulk_vac_rhombo_type2'], self.x_pvec, self.x_indices,
+            self.types
+        )
+
+        wk_fcs = worker.compute_forces(
+            self.pvec, self.template.u_ranges
+        )
+
+        np.testing.assert_almost_equal(wk_fcs, db_fcs, decimal=DECIMALS)
+
+    def test_energy_grad_bvr_t2(self):
+        db_grad = self.db.compute_energy_grad(
+            'bulk_vac_rhombo_type2', self.pvec, self.template.u_ranges
+        )
+
+        worker = Worker(
+            bulk_vac_rhombo['bulk_vac_rhombo_type2'], self.x_pvec, self.x_indices,
+            self.types
+        )
+
+        wk_grad = worker.energy_gradient_wrt_pvec(
+            self.pvec, self.template.u_ranges
+        )
+
+        np.testing.assert_almost_equal(wk_grad, db_grad, decimal=DECIMALS)
+
+    def test_forces_grad_bvr_t2(self):
+        db_grad = self.db.compute_forces_grad(
+            'bulk_vac_rhombo_type2', self.pvec, self.template.u_ranges
+        )
+
+        worker = Worker(
+            bulk_vac_rhombo['bulk_vac_rhombo_type2'], self.x_pvec, self.x_indices,
+            self.types
+        )
+
+        wk_grad = worker.forces_gradient_wrt_pvec(
+            self.pvec, self.template.u_ranges
+        )
+
+        np.testing.assert_almost_equal(wk_grad, db_grad, decimal=DECIMALS)
+
+    def test_energy_bvr_mx(self):
+        db_eng, _ = self.db.compute_energy(
+            'bulk_vac_rhombo_mixed', self.pvec, self.template.u_ranges
+        )
+
+        worker = Worker(
+            bulk_vac_rhombo['bulk_vac_rhombo_mixed'], self.x_pvec, self.x_indices,
+            self.types
+        )
+
+        wk_eng, _ = worker.compute_energy(
+            self.pvec, self.template.u_ranges
+        )
+
+        np.testing.assert_almost_equal(wk_eng, db_eng, decimal=DECIMALS)
+
+    def test_forces_bvr_mx(self):
+        db_fcs = self.db.compute_forces(
+            'bulk_vac_rhombo_mixed', self.pvec, self.template.u_ranges
+        )
+
+        worker = Worker(
+            bulk_vac_rhombo['bulk_vac_rhombo_mixed'], self.x_pvec, self.x_indices,
+            self.types
+        )
+
+        wk_fcs = worker.compute_forces(
+            self.pvec, self.template.u_ranges
+        )
+
+        np.testing.assert_almost_equal(wk_fcs, db_fcs, decimal=DECIMALS)
+
+    def test_energy_grad_bvr_mx(self):
+        db_grad = self.db.compute_energy_grad(
+            'bulk_vac_rhombo_mixed', self.pvec, self.template.u_ranges
+        )
+
+        worker = Worker(
+            bulk_vac_rhombo['bulk_vac_rhombo_mixed'], self.x_pvec, self.x_indices,
+            self.types
+        )
+
+        wk_grad = worker.energy_gradient_wrt_pvec(
+            self.pvec, self.template.u_ranges
+        )
+
+        np.testing.assert_almost_equal(wk_grad, db_grad, decimal=DECIMALS)
+
+    def test_forces_grad_bvr_mx(self):
+        db_grad = self.db.compute_forces_grad(
+            'bulk_vac_rhombo_mixed', self.pvec, self.template.u_ranges
+        )
+
+        worker = Worker(
+            bulk_vac_rhombo['bulk_vac_rhombo_mixed'], self.x_pvec, self.x_indices,
+            self.types
+        )
+
+        wk_grad = worker.forces_gradient_wrt_pvec(
+            self.pvec, self.template.u_ranges
+        )
+
+        np.testing.assert_almost_equal(wk_grad, db_grad, decimal=DECIMALS)
+
+    def test_energy_bpr_t1(self):
+        db_eng, _ = self.db.compute_energy(
+            'bulk_periodic_rhombo_type1', self.pvec, self.template.u_ranges
+        )
+
+        worker = Worker(
+            bulk_periodic_rhombo['bulk_periodic_rhombo_type1'], self.x_pvec,
+            self.x_indices, self.types
+        )
+
+        wk_eng, _ = worker.compute_energy(
+            self.pvec, self.template.u_ranges
+        )
+
+        np.testing.assert_almost_equal(wk_eng, db_eng, decimal=DECIMALS)
+
+    def test_forces_bpr_t1(self):
+        db_fcs = self.db.compute_forces(
+            'bulk_periodic_rhombo_type1', self.pvec, self.template.u_ranges
+        )
+
+        worker = Worker(
+            bulk_periodic_rhombo['bulk_periodic_rhombo_type1'], self.x_pvec,
+            self.x_indices, self.types
+        )
+
+        wk_fcs = worker.compute_forces(
+            self.pvec, self.template.u_ranges
+        )
+
+        np.testing.assert_almost_equal(wk_fcs, db_fcs, decimal=DECIMALS)
+
+    def test_energy_grad_bpr_t1(self):
+        db_grad = self.db.compute_energy_grad(
+            'bulk_periodic_rhombo_type1', self.pvec, self.template.u_ranges
+        )
+
+        worker = Worker(
+            bulk_periodic_rhombo['bulk_periodic_rhombo_type1'], self.x_pvec,
+            self.x_indices, self.types
+        )
+
+        wk_grad = worker.energy_gradient_wrt_pvec(
+            self.pvec, self.template.u_ranges
+        )
+
+        np.testing.assert_almost_equal(wk_grad, db_grad, decimal=DECIMALS)
+
+    def test_forces_grad_bpr_t1(self):
+        db_grad = self.db.compute_forces_grad(
+            'bulk_periodic_rhombo_type1', self.pvec, self.template.u_ranges
+        )
+
+        worker = Worker(
+            bulk_periodic_rhombo['bulk_periodic_rhombo_type1'], self.x_pvec,
+            self.x_indices, self.types
+        )
+
+        wk_grad = worker.forces_gradient_wrt_pvec(
+            self.pvec, self.template.u_ranges
+        )
+
+        np.testing.assert_almost_equal(wk_grad, db_grad, decimal=DECIMALS)
+
+    def test_energy_bpr_t2(self):
+        db_eng, _ = self.db.compute_energy(
+            'bulk_periodic_rhombo_type2', self.pvec, self.template.u_ranges
+        )
+
+        worker = Worker(
+            bulk_periodic_rhombo['bulk_periodic_rhombo_type2'], self.x_pvec,
+            self.x_indices, self.types
+        )
+
+        wk_eng, _ = worker.compute_energy(
+            self.pvec, self.template.u_ranges
+        )
+
+        np.testing.assert_almost_equal(wk_eng, db_eng, decimal=DECIMALS)
+
+    def test_forces_bpr_t2(self):
+        db_fcs = self.db.compute_forces(
+            'bulk_periodic_rhombo_type2', self.pvec, self.template.u_ranges
+        )
+
+        worker = Worker(
+            bulk_periodic_rhombo['bulk_periodic_rhombo_type2'], self.x_pvec,
+            self.x_indices, self.types
+        )
+
+        wk_fcs = worker.compute_forces(
+            self.pvec, self.template.u_ranges
+        )
+
+        np.testing.assert_almost_equal(wk_fcs, db_fcs, decimal=DECIMALS)
+
+    def test_energy_grad_bpr_t2(self):
+        db_grad = self.db.compute_energy_grad(
+            'bulk_periodic_rhombo_type2', self.pvec, self.template.u_ranges
+        )
+
+        worker = Worker(
+            bulk_periodic_rhombo['bulk_periodic_rhombo_type2'], self.x_pvec,
+            self.x_indices, self.types
+        )
+
+        wk_grad = worker.energy_gradient_wrt_pvec(
+            self.pvec, self.template.u_ranges
+        )
+
+        np.testing.assert_almost_equal(wk_grad, db_grad, decimal=DECIMALS)
+
+    def test_forces_grad_bpr_t2(self):
+        db_grad = self.db.compute_forces_grad(
+            'bulk_periodic_rhombo_type2', self.pvec, self.template.u_ranges
+        )
+
+        worker = Worker(
+            bulk_periodic_rhombo['bulk_periodic_rhombo_type2'], self.x_pvec,
+            self.x_indices, self.types
+        )
+
+        wk_grad = worker.forces_gradient_wrt_pvec(
+            self.pvec, self.template.u_ranges
+        )
+
+        np.testing.assert_almost_equal(wk_grad, db_grad, decimal=DECIMALS)
+
+    def test_energy_bpr_mx(self):
+        db_eng, _ = self.db.compute_energy(
+            'bulk_periodic_rhombo_mixed', self.pvec, self.template.u_ranges
+        )
+
+        worker = Worker(
+            bulk_periodic_rhombo['bulk_periodic_rhombo_mixed'], self.x_pvec,
+            self.x_indices, self.types
+        )
+
+        wk_eng, _ = worker.compute_energy(
+            self.pvec, self.template.u_ranges
+        )
+
+        np.testing.assert_almost_equal(wk_eng, db_eng, decimal=DECIMALS)
+
+    def test_forces_bpr_mx(self):
+        db_fcs = self.db.compute_forces(
+            'bulk_periodic_rhombo_mixed', self.pvec, self.template.u_ranges
+        )
+
+        worker = Worker(
+            bulk_periodic_rhombo['bulk_periodic_rhombo_mixed'], self.x_pvec,
+            self.x_indices, self.types
+        )
+
+        wk_fcs = worker.compute_forces(
+            self.pvec, self.template.u_ranges
+        )
+
+        np.testing.assert_almost_equal(wk_fcs, db_fcs, decimal=DECIMALS)
+
+    def test_energy_grad_bpr_mx(self):
+        db_grad = self.db.compute_energy_grad(
+            'bulk_periodic_rhombo_mixed', self.pvec, self.template.u_ranges
+        )
+
+        worker = Worker(
+            bulk_periodic_rhombo['bulk_periodic_rhombo_mixed'], self.x_pvec,
+            self.x_indices, self.types
+        )
+
+        wk_grad = worker.energy_gradient_wrt_pvec(
+            self.pvec, self.template.u_ranges
+        )
+
+        np.testing.assert_almost_equal(wk_grad, db_grad, decimal=DECIMALS)
+
+    def test_forces_grad_bpr_mx(self):
+        db_grad = self.db.compute_forces_grad(
+            'bulk_periodic_rhombo_mixed', self.pvec, self.template.u_ranges
+        )
+
+        worker = Worker(
+            bulk_periodic_rhombo['bulk_periodic_rhombo_mixed'], self.x_pvec,
+            self.x_indices, self.types
+        )
+
+        wk_grad = worker.forces_gradient_wrt_pvec(
+            self.pvec, self.template.u_ranges
+        )
+
+        np.testing.assert_almost_equal(wk_grad, db_grad, decimal=DECIMALS)
+
 
 def build_template(version='full', inner_cutoff=1.5, outer_cutoff=5.5):
 
