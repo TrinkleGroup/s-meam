@@ -22,6 +22,8 @@ an HDF5 file containing the structure vectors and metadata of each structure.
 
 import os
 import h5py
+import glob
+import pickle
 import logging
 import itertools
 import numpy as np
@@ -33,6 +35,7 @@ import src.lammpsTools
 from src.workerSplines import WorkerSpline, RhoSpline, ffgSpline, USpline
 
 logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.DEBUG)
 
 class Database(h5py.File):
 
@@ -90,7 +93,8 @@ class Database(h5py.File):
         """
 
         if overwrite:
-            os.remove(file_name)
+            if os.path.isfile(file_name):
+                os.remove(file_name)
 
         super().__init__(file_name, "a")
 
@@ -112,8 +116,6 @@ class Database(h5py.File):
                         (self.attrs["ntypes"] + 1) * self.attrs["ntypes"] / 2
                     )
 
-                print(arg, ':', end="")
-                print(new_arg, type(new_arg))
                 self.attrs[arg] = new_arg
 
         tmp = self.attrs['nphi'] + len(types)
@@ -126,9 +128,6 @@ class Database(h5py.File):
             )
 
         self.attrs['num_u_knots'] = num_u_knots
-
-    def build_from_existing_workers(self, path_to_workers):
-        pass
 
     def add_structure(self, new_group_name, atoms, overwrite=False):
         """
@@ -178,6 +177,8 @@ class Database(h5py.File):
 
         ffg_grad_indices = self.compute_grad_indices(ffgs)
 
+        keys = ['fj_indices', 'fk_indices', 'g_indices']
+
         for j, ffg_list in enumerate(ffgs):
             for k, ffg in enumerate(ffg_list):
                 # assumed order: fj_indices, fk_indices, g_indices
@@ -185,7 +186,7 @@ class Database(h5py.File):
                 for idx, ind_list in enumerate(ffg_grad_indices[j][k]):
                     string = '/'.join(
                         [new_group_name, 'ffg_grad_indices', str(j), str(k),
-                         str(idx)]
+                         keys[idx]]
                     )
 
                     self[string] = np.array(ind_list)
@@ -320,9 +321,6 @@ class Database(h5py.File):
         for spline_type, splines in zip(['phi', 'rho'], all_splines):
             for i, sp in enumerate(splines):
 
-                # new_group[spline_type]['energy'].create_group(str(i))
-                # new_group[spline_type]['forces'].create_group(str(i))
-
                 new_group[spline_type]['energy'][str(i)] = \
                     sp.structure_vectors['energy']
 
@@ -336,14 +334,86 @@ class Database(h5py.File):
 
             for k, ffg in enumerate(ffg_list):
 
-                # new_group['ffg']['energy'][str(j)].create_group(str(k))
-                # new_group['ffg']['forces'][str(j)].create_group(str(k))
-
                 new_group['ffg']['energy'][str(j)][str(k)] = \
                     ffg.structure_vectors['energy']
 
                 new_group['ffg']['forces'][str(j)][str(k)] = \
                     ffg.structure_vectors['forces']
+
+    def add_from_existing_workers(self, path_to_workers):
+        """
+        Assumes that pickled Worker objects already exist and are stored in
+        'path_to_workers'.
+
+        Args:
+            new_file_name: (str)
+                the name of the HDF5 file to be constructed
+
+            path_to_workers: (str)
+                full path to directory containing pickled Worker objects
+
+        Returns:
+            None; creates and saves an HDF5 file with name 'new_file_name'
+
+        """
+        for struct_path in glob.glob(os.path.join(path_to_workers, '*')):
+            worker = pickle.load(open(struct_path, 'rb'))
+
+            struct_name = os.path.splitext(os.path.split(struct_path)[-1])[0]
+
+            logging.debug(struct_name)
+
+            new_group = self.create_group(struct_name)
+
+            new_group.attrs['type_of_each_atom'] = np.array(
+                worker.type_of_each_atom
+            )
+
+            new_group.attrs['natoms'] = worker.natoms
+
+            for j, ffg_list in enumerate(worker.ffg_grad_indices):
+                for k, ffg_indices in enumerate(ffg_list):
+                    for idx, key in enumerate(['fj_indices', 'fk_indices',
+                                               'g_indices']):
+                        string = '/'.join(
+                            [struct_name, 'ffg_grad_indices', str(j), str(k),
+                             key]
+                        )
+
+                        self[string] = np.array(ffg_indices[key])
+
+            # prepare groups for structures vectors
+            new_group.create_group("phi")
+            new_group.create_group("rho")
+            new_group.create_group("ffg")
+
+            for spline_type in ['phi', 'rho', 'ffg']:
+                new_group[spline_type].create_group('energy')
+                new_group[spline_type].create_group('forces')
+
+            # save all energy structure vectors
+            for spline_type, splines in zip(['phi', 'rho'], [worker.phis,
+                                                             worker.rhos]):
+                for i, sp in enumerate(splines):
+
+                    new_group[spline_type]['energy'][str(i)] = \
+                        sp.structure_vectors['energy']
+
+                    new_group[spline_type]['forces'][str(i)] = \
+                        sp.structure_vectors['forces']
+
+            for j, ffg_list in enumerate(worker.ffgs):
+
+                new_group['ffg']['energy'].create_group(str(j))
+                new_group['ffg']['forces'].create_group(str(j))
+
+                for k, ffg in enumerate(ffg_list):
+
+                    new_group['ffg']['energy'][str(j)][str(k)] = \
+                        ffg.structure_vectors['energy']
+
+                    new_group['ffg']['forces'][str(j)][str(k)] = \
+                        ffg.structure_vectors['forces']
 
     def compute_energy(self, struct_name, potentials, u_ranges):
         potentials = np.atleast_2d(potentials)
@@ -373,9 +443,10 @@ class Database(h5py.File):
         Computes ni values for all atoms
 
         Args:
-            rho_pvecs: parameter vectors for rho splines
-            f_pvecs: parameter vectors for f splines
-            g_pvecs: parameter vectors for g splines
+            struct_name: (str) struct name key
+            rho_pvecs: (list) parameter vectors for rho splines
+            f_pvecs: (list) parameter vectors for f splines
+            g_pvecs: (list) parameter vectors for g splines
 
         Returns:
             ni: embedding values for each potential for each atom
@@ -723,7 +794,9 @@ class Database(h5py.File):
 
                 # grad(f_j) contribution
                 for l in range(n_fj):
-                    stack[:, l, :] = scaled_sv[:, indices_tuple['0'][l]]
+                    sample_indices = indices_tuple['fj_indices'][l]
+
+                    stack[:, l, :] = scaled_sv[:, sample_indices]
 
                 # stack = stack @ coeffs_for_fj
                 stack = np.einsum('pzk,pk->pz', stack, coeffs_for_fj)
@@ -733,7 +806,7 @@ class Database(h5py.File):
 
                 # grad(f_k) contribution
                 for l in range(n_fk):
-                    sample_indices = indices_tuple['1'][l]
+                    sample_indices = indices_tuple['fk_indices'][l]
 
                     stack[:, l, :] = scaled_sv[:, sample_indices]
 
@@ -745,7 +818,7 @@ class Database(h5py.File):
 
                 # grad(g) contribution
                 for l in range(n_g):
-                    sample_indices = indices_tuple['2'][l]
+                    sample_indices = indices_tuple['g_indices'][l]
 
                     stack[:, l, :] = scaled_sv[:, sample_indices]
 
@@ -755,7 +828,6 @@ class Database(h5py.File):
                 gradient[:, tmp_idx:tmp_idx + n_g] += stack
 
         return gradient
-
 
     def compute_forces_grad(self, struct_name, potentials, u_ranges):
         potentials = np.atleast_2d(potentials)
@@ -923,7 +995,7 @@ class Database(h5py.File):
                 stack_upp = np.zeros((n_pots, N, 3, n_fj, n_fk * n_g))
 
                 for l in range(n_fj):
-                    sample_indices = indices_tuple['0'][l]
+                    sample_indices = indices_tuple['fj_indices'][l]
 
                     stack_up[:, :, :, l, :] = up_contrib[:, :, :,
                                               sample_indices]
@@ -943,7 +1015,7 @@ class Database(h5py.File):
                 stack_upp = np.zeros((n_pots, N, 3, n_fk, n_fj * n_g))
 
                 for l in range(n_fk):
-                    sample_indices = indices_tuple['1'][l]
+                    sample_indices = indices_tuple['fk_indices'][l]
 
                     stack_up[:, :, :, l, :] = up_contrib[:, :, :,
                                               sample_indices]
@@ -963,7 +1035,7 @@ class Database(h5py.File):
                 stack_upp = np.zeros((n_pots, N, 3, n_g, n_fj * n_fk))
 
                 for l in range(n_g):
-                    sample_indices = indices_tuple['2'][l]
+                    sample_indices = indices_tuple['g_indices'][l]
 
                     stack_up[:, :, :, l, :] = up_contrib[:, :, :,
                                               sample_indices]
@@ -1284,4 +1356,5 @@ class Database(h5py.File):
             ffg_indices.append(tmp_list)
 
         return ffg_indices
+
 

@@ -304,9 +304,6 @@ def read_config(config_name):
 
     return parameters
 
-def load_manager_structs(database_file_name):
-    pass
-
 def kill_and_write(msg):
     print(msg, flush=True)
     MPI.COMM_WORLD.Abort(1)
@@ -379,9 +376,6 @@ def prepare_managers(is_master, parameters, potential_template, database):
         struct_name = None
         manager_rank = None
 
-    if is_master:
-        all_struct_names = list(old_copy_names)
-
     worker_group = world_group.Incl(worker_ranks)
     worker_comm = world_comm.Create(worker_group)
 
@@ -395,6 +389,7 @@ def prepare_managers(is_master, parameters, potential_template, database):
         manager.struct_name, parameters['STRUCTURE_DIRECTORY'] + "/"
     )
 
+    # TODO: shouldn't have to broadcast once using shared mem
     manager.struct = manager.broadcast_struct(manager.struct)
 
     return is_manager, manager, manager_comm

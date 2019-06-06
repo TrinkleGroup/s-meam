@@ -2,6 +2,9 @@ import sys
 sys.path.append('/home/jvita/scripts/s-meam/project/')
 sys.path.append('/home/jvita/scripts/s-meam/project/tests/')
 
+import os
+import glob
+import pickle
 import unittest
 import numpy as np
 
@@ -36,7 +39,7 @@ class DatabaseTests(unittest.TestCase):
 
         cls.types = ['H', 'He']
 
-        cls.template = build_template()
+        cls.template = build_template('full', inner_cutoff, outer_cutoff)
 
         cls.db = Database(
             'db_delete.hdf5', cls.template.pvec_len, cls.types, cls.x_pvec,
@@ -1134,6 +1137,100 @@ class DatabaseTests(unittest.TestCase):
 
         np.testing.assert_almost_equal(wk_grad, db_grad, decimal=DECIMALS)
 
+class FromExisting(unittest.TestCase):
+
+    @classmethod
+    def setUpClass(cls):
+        inner_cutoff = 2.1
+        outer_cutoff = 5.5
+
+        cls.x_pvec = np.concatenate([
+            np.tile(np.linspace(inner_cutoff, outer_cutoff, points_per_spline), 5),
+            np.tile(np.linspace(-1, 1, points_per_spline), 2),
+            np.tile(np.linspace(inner_cutoff, outer_cutoff, points_per_spline), 2),
+            np.tile(np.linspace(-1, 1, points_per_spline), 3)]
+        )
+
+        cls.x_indices = list(
+            range(0, points_per_spline * 12, points_per_spline)
+        )
+
+        cls.types = ['H', 'He']
+
+        cls.template = build_template('full', inner_cutoff, outer_cutoff)
+
+        cls.db = Database(
+            'db_delete_existing.hdf5', cls.template.pvec_len, cls.types,
+            cls.x_pvec, cls.x_indices, [inner_cutoff, outer_cutoff],
+            overwrite=True
+        )
+
+        cls.path_to_workers = \
+            '/home/jvita/scripts/s-meam/data/fitting_databases/hyojung/structures'
+
+        cls.db.add_from_existing_workers(cls.path_to_workers)
+
+        cls.pvec = np.ones((1, cls.template.pvec_len))
+
+    def test_energy(self):
+        for struct_path in glob.glob(os.path.join(self.path_to_workers, '*')):
+            worker = pickle.load(open(struct_path, 'rb'))
+
+            struct_name = os.path.splitext(os.path.split(struct_path)[-1])[0]
+
+            db_eng, _ = self.db.compute_energy(
+                struct_name, self.pvec, self.template.u_ranges
+            )
+
+            wk_eng, _ = worker.compute_energy(self.pvec, self.template.u_ranges)
+
+            np.testing.assert_almost_equal(wk_eng, db_eng, decimal=DECIMALS)
+
+    def test_forces(self):
+        for struct_path in glob.glob(os.path.join(self.path_to_workers, '*')):
+            worker = pickle.load(open(struct_path, 'rb'))
+
+            struct_name = os.path.splitext(os.path.split(struct_path)[-1])[0]
+
+            db_fcs = self.db.compute_forces(
+                struct_name, self.pvec, self.template.u_ranges
+            )
+
+            wk_fcs = worker.compute_forces(self.pvec, self.template.u_ranges)
+
+            np.testing.assert_almost_equal(wk_fcs, db_fcs, decimal=DECIMALS)
+
+    def test_energy_grad(self):
+        for struct_path in glob.glob(os.path.join(self.path_to_workers, '*')):
+            worker = pickle.load(open(struct_path, 'rb'))
+
+            struct_name = os.path.splitext(os.path.split(struct_path)[-1])[0]
+
+            db_grad = self.db.compute_energy_grad(
+                struct_name, self.pvec, self.template.u_ranges
+            )
+
+            wk_grad = worker.energy_gradient_wrt_pvec(
+                self.pvec, self.template.u_ranges
+            )
+
+            np.testing.assert_almost_equal(wk_grad, db_grad, decimal=DECIMALS)
+
+    def test_forces_grad(self):
+        for struct_path in glob.glob(os.path.join(self.path_to_workers, '*')):
+            worker = pickle.load(open(struct_path, 'rb'))
+
+            struct_name = os.path.splitext(os.path.split(struct_path)[-1])[0]
+
+            db_grad = self.db.compute_forces_grad(
+                struct_name, self.pvec, self.template.u_ranges
+            )
+
+            wk_grad = worker.forces_gradient_wrt_pvec(
+                self.pvec, self.template.u_ranges
+            )
+
+            np.testing.assert_almost_equal(wk_grad, db_grad, decimal=DECIMALS)
 
 def build_template(version='full', inner_cutoff=1.5, outer_cutoff=5.5):
 
