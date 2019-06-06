@@ -14,30 +14,17 @@ import shutil
 np.set_printoptions(precision=8, suppress=True)
 
 import pickle
-import glob
-import array
-import h5py
 import time
-import datetime
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 from scipy.optimize import least_squares
 from scipy.interpolate import CubicSpline
-# from scipy.sparse import csr_matrix
 from mpi4py import MPI
-# from memory_profiler import profile
 
-from deap import base, creator, tools, algorithms
+from deap import base, creator, tools
 
-import src.meam
 import src.partools as partools
-from src.meam import MEAM
-from src.worker import Worker
-from src.meam import MEAM
-from src.spline import Spline
 from src.database import Database
-from src.potential_templates import Template
-from src.node import Node
 from src.manager import Manager
 
 
@@ -94,7 +81,6 @@ def ga(parameters, template):
         all_struct_names = None
 
     potential_template = world_comm.bcast(potential_template, root=0)
-    num_structs = world_comm.bcast(num_structs, root=0)
 
     # each Manager is in charge of a single structure
     world_group = world_comm.Get_group()

@@ -24,168 +24,10 @@ def main(config_name, template_file_name):
 
     is_master = (world_rank == 0)
 
+    # read config and template files
     if is_master:
-        parameters = {}
-        # read parameters from config file
-        if os.path.isfile(config_name):
-            with open(config_name, 'r') as f:
-                    i = 0
-                    for line in f:
-                        i += 1
-                        stripped = line.strip()
-
-                        if len(stripped) > 0: # ignore empty lines
-                            try:
-                                if stripped[0] != "#": # ignore comments
-                                    p, v = stripped.split(" ")
-                                    parameters[p] = v
-                            except:
-                                kill_and_write(
-                                    "Formatting issue with line "
-                                    "%d in config file" % i,
-                                    )
-        else:
-            kill_and_write("Config file does not exist")
-
-        # TODO: make template reading more dynamic; ignore blanks and comments
-
-        template_args = {}
-
-        # read potential template
-        if os.path.isfile(template_file_name):
-            with open(template_file_name, 'r') as f:
-                # atom types
-                template_args['types'] = f.readline().strip().split(" ")
-                template_args['ntypes'] = len(template_args['types'])
-
-                # radial function cutoffs
-                v1, v2 = f.readline().strip().split(" ")
-                template_args['cutoffs'] = (float(v1), float(v2))
-
-                # u domains
-                v1, v2, v3, v4 = f.readline().strip().split(" ")
-                tmp = np.array([float(v1), float(v2), float(v3), float(v4)])
-                template_args['u_domains'] = np.split(tmp, len(tmp) // 2)
-
-                f.readline()
-
-                # read spline information
-                nsplines = template_args['ntypes']*(template_args['ntypes'] + 4)
-
-                # knot_positions = []
-                spline_ranges = []
-                spline_npts = []
-
-                for _ in range(nsplines):
-                    entries = f.readline().strip().split(" ")
-                    x_lo, x_hi, y_lo, y_hi, nknots = [np.float(e) for e in
-                        entries]
-
-                    nknots = int(nknots)
-                    spline_npts.append(nknots)
-
-                    # knot_positions.append(np.linspace(x_lo, x_hi, nknots))
-                    spline_ranges.append((y_lo, y_hi))
-
-                spline_npts = np.array(spline_npts)
-
-                end_indices = np.cumsum([n + 2 for n in spline_npts])
-
-                start_indices = end_indices - spline_npts - 2
-
-                spline_indices = list(zip(start_indices, end_indices))
-
-                scales = np.zeros(end_indices[-1])
-                spline_tags = []
-
-                index = 0
-                for j, (rng, npts) in enumerate(zip(spline_ranges, spline_npts)):
-                    scales[index:index + npts] = rng[1] - rng[0]
-                    spline_tags.append(np.ones(npts + 2)*j)
-
-                    index += npts + 2
-
-                f.readline()
-
-                spline_tags = np.concatenate(spline_tags)
-
-                # should a potential be loaded from a file? randomly generated?
-                if f.readline().strip().split(" ")[-1] == "True":
-                    fname = f.readline().strip().split(" ")[-1]
-                    print("Loading mask and parameter vector from:", fname)
-
-                    data = np.genfromtxt(fname)
-                else:
-                    print(
-                        "Loading mask and parameter vector from:",
-                        template_file_name
-                    )
-
-                    data = np.genfromtxt(
-                        template_file_name, skip_header=8+nsplines
-                    )
-
-                mask = data[:, 0]
-                knot_values = data[:, 1]
-
-                spline_tags = spline_tags[np.where(mask)[0]]
-
-                nphi = template_args['ntypes']*(template_args['ntypes'] + 1) / 2
-
-                rho_indices = np.where(
-                    np.logical_or(
-                        spline_tags == nphi,
-                        spline_tags == nphi + 1
-                    )
-                )[0]
-
-                g_indices = np.where(
-                    spline_tags >= nphi + 3*template_args['ntypes']
-                )[0]
-
-                f_indices = np.where(
-                    np.logical_and(
-                        spline_tags >= nphi + 2*template_args['ntypes'],
-                        spline_tags < nphi + 3*template_args['ntypes']
-                    )
-                )[0]
-
-                print()
-                print("pvec_len:", len(knot_values))
-                print()
-                print("u_domains:", template_args['u_domains'])
-                print()
-                print("spline_ranges:", spline_ranges)
-                print()
-                print("spline_indices:", spline_indices)
-                print()
-                print("scales:", scales)
-                print()
-                print("spline_tags:", spline_tags)
-                print()
-                print("rho_indices:", rho_indices)
-                print()
-                print("f_indices:", f_indices)
-                print()
-                print("g_indices:", g_indices)
-                print()
-
-                template = Template(
-                    pvec_len=len(knot_values),
-                    u_ranges=template_args['u_domains'],
-                    spline_ranges=spline_ranges,
-                    spline_indices=spline_indices
-                )
-
-                template.active_mask = mask
-                template.pvec = knot_values
-                template.scales = scales
-                template.spline_tags = spline_tags
-                template.rho_indices = rho_indices
-                template.g_indices = g_indices
-                template.f_indices = f_indices
-        else:
-            kill_and_write("Config file does not exist")
+        parameters = read_config(config_name)
+        template = read_template(template_file_name)
     else:
         parameters = None
         template = None
@@ -218,6 +60,7 @@ def main(config_name, template_file_name):
         elif key in bool_params:
             parameters[key] = (val == 'True')
 
+    # prepare save directories
     if os.path.isdir(parameters['SAVE_DIRECTORY']) and \
             not parameters['OVERWRITE_OLD_FILES']:
 
@@ -270,6 +113,167 @@ def main(config_name, template_file_name):
     else:
         if is_master:
             kill_and_write("Invalid optimization type (OPT_TYPE)")
+
+def read_template(template_file_name):
+
+    # TODO: make template reading more dynamic; ignore blanks and comments
+
+    template_args = {}
+
+    # read potential template
+    if os.path.isfile(template_file_name):
+        with open(template_file_name, 'r') as f:
+            # atom types
+            template_args['types'] = f.readline().strip().split(" ")
+            template_args['ntypes'] = len(template_args['types'])
+
+            # radial function cutoffs
+            v1, v2 = f.readline().strip().split(" ")
+            template_args['cutoffs'] = (float(v1), float(v2))
+
+            # u domains
+            v1, v2, v3, v4 = f.readline().strip().split(" ")
+            tmp = np.array([float(v1), float(v2), float(v3), float(v4)])
+            template_args['u_domains'] = np.split(tmp, len(tmp) // 2)
+
+            f.readline()
+
+            # read spline information
+            nsplines = template_args['ntypes']*(template_args['ntypes'] + 4)
+
+            # knot_positions = []
+            spline_ranges = []
+            spline_npts = []
+
+            for _ in range(nsplines):
+                entries = f.readline().strip().split(" ")
+                x_lo, x_hi, y_lo, y_hi, nknots = [np.float(e) for e in
+                    entries]
+
+                nknots = int(nknots)
+                spline_npts.append(nknots)
+
+                # knot_positions.append(np.linspace(x_lo, x_hi, nknots))
+                spline_ranges.append((y_lo, y_hi))
+
+            spline_npts = np.array(spline_npts)
+
+            end_indices = np.cumsum([n + 2 for n in spline_npts])
+
+            start_indices = end_indices - spline_npts - 2
+
+            spline_indices = list(zip(start_indices, end_indices))
+
+            scales = np.zeros(end_indices[-1])
+            spline_tags = []
+
+            index = 0
+            for j, (rng, npts) in enumerate(zip(spline_ranges, spline_npts)):
+                scales[index:index + npts] = rng[1] - rng[0]
+                spline_tags.append(np.ones(npts + 2)*j)
+
+                index += npts + 2
+
+            f.readline()
+
+            spline_tags = np.concatenate(spline_tags)
+
+            # should a potential be loaded from a file? randomly generated?
+            if f.readline().strip().split(" ")[-1] == "True":
+                fname = f.readline().strip().split(" ")[-1]
+                print("Loading mask and parameter vector from:", fname)
+
+                data = np.genfromtxt(fname)
+            else:
+                print(
+                    "Loading mask and parameter vector from:",
+                    template_file_name
+                )
+
+                data = np.genfromtxt(
+                    template_file_name, skip_header=8+nsplines
+                )
+
+            mask = data[:, 0]
+            knot_values = data[:, 1]
+
+            spline_tags = spline_tags[np.where(mask)[0]]
+
+            nphi = template_args['ntypes']*(template_args['ntypes'] + 1) / 2
+
+            rho_indices = np.where(
+                np.logical_or(
+                    spline_tags == nphi,
+                    spline_tags == nphi + 1
+                )
+            )[0]
+
+            g_indices = np.where(
+                spline_tags >= nphi + 3*template_args['ntypes']
+            )[0]
+
+            f_indices = np.where(
+                np.logical_and(
+                    spline_tags >= nphi + 2*template_args['ntypes'],
+                    spline_tags < nphi + 3*template_args['ntypes']
+                )
+            )[0]
+
+            print()
+            print("pvec_len:", len(knot_values))
+            print()
+            print("u_domains:", template_args['u_domains'])
+            print()
+            print("spline_ranges:", spline_ranges)
+            print()
+            print("spline_indices:", spline_indices)
+
+            template = Template(
+                pvec_len=len(knot_values),
+                u_ranges=template_args['u_domains'],
+                spline_ranges=spline_ranges,
+                spline_indices=spline_indices
+            )
+
+            template.active_mask = mask
+            template.pvec = knot_values
+            template.scales = scales
+            template.spline_tags = spline_tags
+            template.rho_indices = rho_indices
+            template.g_indices = g_indices
+            template.f_indices = f_indices
+    else:
+        kill_and_write("Config file does not exist")
+
+    return template
+
+def read_config(config_name):
+    parameters = {}
+    # read parameters from config file
+    if os.path.isfile(config_name):
+        with open(config_name, 'r') as f:
+                i = 0
+                for line in f:
+                    i += 1
+                    stripped = line.strip()
+
+                    if len(stripped) > 0: # ignore empty lines
+                        try:
+                            if stripped[0] != "#": # ignore comments
+                                p, v = stripped.split(" ")
+                                parameters[p] = v
+                        except:
+                            kill_and_write(
+                                "Formatting issue with line "
+                                "%d in config file" % i,
+                                )
+    else:
+        kill_and_write("Config file does not exist")
+
+    return parameters
+
+def load_manager_structs(database_file_name):
+    pass
 
 def kill_and_write(msg):
     print(msg, flush=True)

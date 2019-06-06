@@ -1,6 +1,6 @@
 import os
 import numpy as np
-from src.database import Database
+from scipy.sparse import diags
 from src.potential_templates import Template
 
 def build_evaluation_functions(
@@ -226,61 +226,61 @@ def compute_relative_weights(database):
     return work_weights, name_list
 
 
-def group_database_subsets(database, num_managers):
-    """Groups workers based on evaluation time to help with load balancing.
-
-    Returns:
-        distributed_work (list): the partitioned work
-        num_managers (int): desired number of managers to be used
-    """
-    # TODO: record scaling on first run, then redistribute to load balance
-    # TODO: managers should just split Database; determine cost later
-
-    # Number of managers should not exceed the number of structures
-    num_managers = min(num_managers, len(database.structures))
-
-    unassigned_structs = sorted(list(database.structures.keys()))
-
-    work_weights, name_list = compute_relative_weights(database)
-
-    work_per_proc = np.sum(work_weights)  # / num_managers
-
-    # work_weights = work_weights.tolist()
-
-    # Splitting code taken from SO: https://stackoverflow.com/questions/33555496/split-array-into-equally-weighted-chunks-based-on-order
-    cum_arr = np.cumsum(work_weights) / np.sum(work_weights)
-
-    idx = np.searchsorted(cum_arr,
-                          np.linspace(0, 1, num_managers, endpoint=False)[1:])
-    name_chunks = np.split(unassigned_structs, idx)
-    weight_chunks = np.split(work_weights, idx)
-
-    subsets = []
-    grouped_work = []
-
-    for name_chunk, work_chunk in zip(name_chunks, weight_chunks):
-        cumulated_work = 0
-
-        names = []
-
-        # while unassigned_structs and (cumulated_work < work_per_proc):
-        for n, w in zip(name_chunk, work_chunk):
-            names.append(n)
-            cumulated_work += w
-
-        mini_database = Database.manual_init(
-            {name: database.structures[name] for name in names},
-            {name: database.true_energies[name] for name in names},
-            {name: database.true_forces[name] for name in names},
-            {name: database.weights[name] for name in names},
-            database.reference_struct,
-            database.reference_energy
-        )
-
-        subsets.append(mini_database)
-        grouped_work.append(cumulated_work)
-
-    return subsets, grouped_work
+# def group_database_subsets(database, num_managers):
+#     """Groups workers based on evaluation time to help with load balancing.
+# 
+#     Returns:
+#         distributed_work (list): the partitioned work
+#         num_managers (int): desired number of managers to be used
+#     """
+#     # TODO: record scaling on first run, then redistribute to load balance
+#     # TODO: managers should just split Database; determine cost later
+# 
+#     # Number of managers should not exceed the number of structures
+#     num_managers = min(num_managers, len(database.structures))
+# 
+#     unassigned_structs = sorted(list(database.structures.keys()))
+# 
+#     work_weights, name_list = compute_relative_weights(database)
+# 
+#     work_per_proc = np.sum(work_weights)  # / num_managers
+# 
+#     # work_weights = work_weights.tolist()
+# 
+#     # Splitting code taken from SO: https://stackoverflow.com/questions/33555496/split-array-into-equally-weighted-chunks-based-on-order
+#     cum_arr = np.cumsum(work_weights) / np.sum(work_weights)
+# 
+#     idx = np.searchsorted(cum_arr,
+#                           np.linspace(0, 1, num_managers, endpoint=False)[1:])
+#     name_chunks = np.split(unassigned_structs, idx)
+#     weight_chunks = np.split(work_weights, idx)
+# 
+#     subsets = []
+#     grouped_work = []
+# 
+#     for name_chunk, work_chunk in zip(name_chunks, weight_chunks):
+#         cumulated_work = 0
+# 
+#         names = []
+# 
+#         # while unassigned_structs and (cumulated_work < work_per_proc):
+#         for n, w in zip(name_chunk, work_chunk):
+#             names.append(n)
+#             cumulated_work += w
+# 
+#         mini_database = Database.manual_init(
+#             {name: database.structures[name] for name in names},
+#             {name: database.true_energies[name] for name in names},
+#             {name: database.true_forces[name] for name in names},
+#             {name: database.weights[name] for name in names},
+#             database.reference_struct,
+#             database.reference_energy
+#         )
+# 
+#         subsets.append(mini_database)
+#         grouped_work.append(cumulated_work)
+# 
+#     return subsets, grouped_work
 
 
 def compute_procs_per_subset(struct_natoms, total_num_procs, method='natoms'):
@@ -746,3 +746,109 @@ def checkpoint(population, costs, max_ni, min_ni, avg_ni, i, parameters,
                 ]
             )
         )
+
+def build_M(num_x, dx, bc_type):
+    """Builds the A and B matrices that are needed to find the function
+    derivatives at all knot points. A and B come from the system of equations
+    that comes from matching second derivatives at internal spline knots
+    (using Hermitian cubic splines) and specifying boundary conditions
+
+        Ap' = Bk
+
+    where p' is the vector of derivatives for the interpolant at each knot
+    point and k is the vector of parameters for the spline (y-coordinates of
+    knots and second derivatives at endpoints).
+
+    Let N be the number of knot points
+
+    In addition to N equations from internal knots and 2 equations from boundary
+    conditions, there are an additional 2 equations for requiring linear
+    extrapolation outside of the spline range. Linear extrapolation is
+    achieved by specifying a spline who's first derivatives match at each end
+    and whose endpoints lie in a line with that derivative.
+
+    With these specifications, A and B are both (N+2, N+2) matrices
+
+    A's core is a tridiagonal matrix with [h''_10(1), h''_11(1)-h''_10(0),
+    -h''_11(0)] on the diagonal which is dx*[2, 8, 2] based on their definitions
+
+    B's core is tridiagonal matrix with [-h''_00(1), h''_00(0)-h''_01(1),
+    h''_01(0)] on the diagonal which is [-6, 0, 6] based on their definitions
+
+    Note that the dx is a scaling factor defined as dx = x_k+1 - x_k, assuming
+    uniform grid points and is needed to correct for the change into the
+    variable t, defined below.
+
+    and functions h_ij are defined as:
+
+        h_00 = (1+2t)(1-t)^2
+        h_10 = t (1-t)^2
+        h_01 = t^2 (3-2t)
+        h_11 = t^2 (t-1)
+
+        with t = (x-x_k)/dx
+
+    which means that the h''_ij functions are:
+
+        h''_00 = 12t - 6
+        h''_10 = 6t - 4
+        h''_01 = -12t + 6
+        h''_11 = 6t - 2
+
+    Args:
+        num_x (int): the total number of knots
+
+        dx (float): knot spacing (assuming uniform spacing)
+
+        bc_type (tuple): tuple of 'natural' or 'fixed'
+
+    Returns:
+        M (np.arr):
+            A^(-1)B
+    """
+
+    n = num_x - 2
+
+    if n <= 0:
+        raise ValueError("the number of knots must be greater than 2")
+
+    # note that values for h''_ij(0) and h''_ij(1) are substituted in
+    # TODO: add checks for non-grid x-coordinates
+
+    bc_lhs, bc_rhs = bc_type
+    bc_lhs = bc_lhs.lower()
+    bc_rhs = bc_rhs.lower()
+
+    A = np.zeros((n + 2, n + 2))
+    B = np.zeros((n + 2, n + 4))
+
+    # match 2nd deriv for internal knots
+    fillA = diags(np.array([2, 8, 2]), [0, 1, 2], (n, n + 2))
+    fillB = diags([-6, 0, 6], [0, 1, 2], (n, n + 2))
+    A[1:n+1, :n+2] = fillA.toarray()
+    B[1:n+1, :n+2] = fillB.toarray()
+
+    # equation accounting for lhs bc
+    if bc_lhs == 'natural':
+        A[0,0] = -4; A[0,1] = -2
+        B[0,0] = 6; B[0,1] = -6; B[0,-2] = 1
+    elif bc_lhs == 'fixed':
+        A[0,0] = 1/dx;
+        B[0,-2] = 1
+    else:
+        raise ValueError("Invalid boundary condition. Must be 'natural' or 'fixed'")
+
+    # equation accounting for rhs bc
+    if bc_rhs == 'natural':
+        A[-1,-2] = 2; A[-1,-1] = 4
+        B[-1,-4] = -6; B[-1,-3] = 6; B[-1,-1] = 1
+    elif bc_rhs == 'fixed':
+        A[-1,-1] = 1/dx
+        B[-1,-1] = 1
+    else:
+        raise ValueError("Invalid boundary condition. Must be 'natural' or 'fixed'")
+
+    A *= dx
+
+    # M = A^(-1)B
+    return np.dot(np.linalg.inv(A), B)
