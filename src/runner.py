@@ -2,6 +2,7 @@ import os
 import sys
 sys.path.append('./')
 import numpy as np
+import mpi4py
 from mpi4py import MPI
 # from src.ga import ga
 from src.sa import sa
@@ -94,11 +95,9 @@ def main(config_name, template_file_name):
         f.close()
 
         database = Database(
-            parameters['STRUCTURE_DIRECTORY'], parameters['INFO_DIRECTORY'],
-            "Ti48Mo80_type1_c18"
+            parameters['DATABASE_FILE'], driver="mpio", comm=world_comm
         )
 
-        database.load_structures(parameters['NUM_STRUCTS'])
     else:
         database = None
 
@@ -317,9 +316,9 @@ def prepare_managers(is_master, parameters, potential_template, database):
 
     if is_master:
         all_struct_names = [s.encode('utf-8').strip().decode('utf-8') for s in
-                            database.unique_structs]
+                            list(database.keys())]
 
-        struct_natoms = database.unique_natoms
+        struct_natoms = [database[key].attrs['natoms'] for key in database]
         num_structs = len(all_struct_names)
 
         print(all_struct_names)

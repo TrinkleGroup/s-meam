@@ -40,7 +40,7 @@ logging.basicConfig(level=logging.DEBUG)
 class Database(h5py.File):
 
     def __init__(self, file_name, len_pvec=None, types=None, knot_xcoords=None,
-                 x_indices=None, cutoffs=None, overwrite=False):
+                 x_indices=None, cutoffs=None, overwrite=False, *args, **kwargs):
         """
         Initializes all of the attributes that are intrinsic to the database.
         Note that the length of the parameter vector _is_ an intrinsic
@@ -96,7 +96,7 @@ class Database(h5py.File):
             if os.path.isfile(file_name):
                 os.remove(file_name)
 
-        super().__init__(file_name, "a")
+        super().__init__(file_name, "a", *args, **kwargs)
 
         optional_args = ['len_pvec', 'types', 'ntypes', 'nphi',
                          'knot_xcoords', 'x_indices', 'cutoffs']
@@ -118,10 +118,10 @@ class Database(h5py.File):
 
                 self.attrs[arg] = new_arg
 
-        tmp = self.attrs['nphi'] + len(types)
+        tmp = self.attrs['nphi'] + len(self.attrs['types'])
 
         num_u_knots = []
-        for i in range(len(types)):
+        for i in range(len(self.attrs['types'])):
             num_u_knots.append(
                 self.attrs['x_indices'][tmp + 1]
                 - self.attrs['x_indices'][tmp]
@@ -1356,5 +1356,3 @@ class Database(h5py.File):
             ffg_indices.append(tmp_list)
 
         return ffg_indices
-
-

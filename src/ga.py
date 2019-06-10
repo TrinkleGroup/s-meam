@@ -41,7 +41,7 @@ def ga(parameters, database, potential_template, is_manager, manager,
         stats, logbook = build_stats_and_log()
 
         all_struct_names = [s.encode('utf-8').strip().decode('utf-8') for s in
-                            database.unique_structs]
+                            list(database.keys())]
 
         struct_natoms = database.unique_natoms
         num_structs = len(all_struct_names)
@@ -153,7 +153,7 @@ def ga(parameters, database, potential_template, is_manager, manager,
                 for pot_num in range(len(master_pop) // 2, len(master_pop)):
                     mom_idx = np.random.randint(1, len(master_pop) // 2)
 
-                    # TODO: add a check to make sure GA popsize is large enough 
+                    # TODO: add a check to make sure GA popsize is large enough
                     dad_idx = mom_idx
                     while dad_idx == mom_idx:
                         dad_idx = np.random.randint(1, len(master_pop) // 2)
