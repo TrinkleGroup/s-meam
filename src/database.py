@@ -39,8 +39,9 @@ logging.basicConfig(level=logging.DEBUG)
 
 class Database(h5py.File):
 
-    def __init__(self, file_name, len_pvec=None, types=None, knot_xcoords=None,
-                 x_indices=None, cutoffs=None, overwrite=False, *args, **kwargs):
+    def __init__(self, file_name, open_type, len_pvec=None, types=None,
+                 knot_xcoords=None, x_indices=None, cutoffs=None,
+                 overwrite=False, *args, **kwargs):
         """
         Initializes all of the attributes that are intrinsic to the database.
         Note that the length of the parameter vector _is_ an intrinsic
@@ -54,6 +55,9 @@ class Database(h5py.File):
         Args:
             file_name: (str)
                 file name
+
+            open_type: (str)
+                'r', 'w', 'a'
 
             len_pvec: (int)
                 the number of elements in the full vector of spline parameters
@@ -96,7 +100,7 @@ class Database(h5py.File):
             if os.path.isfile(file_name):
                 os.remove(file_name)
 
-        super().__init__(file_name, "a", *args, **kwargs)
+        super().__init__(file_name, open_type, *args, **kwargs)
 
         optional_args = ['len_pvec', 'types', 'ntypes', 'nphi',
                          'knot_xcoords', 'x_indices', 'cutoffs']
@@ -526,8 +530,6 @@ class Database(h5py.File):
 
                 # end
 
-                # rzm: db is adding U energy when Worker isn't (for dimer_ab)
-
                 u_energy += np.einsum("ij,ij->i", u_energy_sv, y)
 
                 logging.info("db U energy: {}".format(np.einsum("ij,ij->i", u_energy_sv, y)))
@@ -586,6 +588,9 @@ class Database(h5py.File):
                 abcd = self.get_abcd(values, new_knots, M, extrap_dist, deriv=1)
 
                 abcd = abcd.reshape(list(values.shape) + [abcd.shape[1]])
+                abcd = abcd.reshape(
+                    (n_pots, abcd.shape[0]//n_pots, abcd.shape[-1])
+                )
 
                 u_deriv_sv[:, indices, :] = abcd
 
@@ -595,6 +600,9 @@ class Database(h5py.File):
                     )
 
                     abcd = abcd.reshape(list(values.shape) + [abcd.shape[1]])
+                    abcd = abcd.reshape(
+                        (n_pots, abcd.shape[0]//n_pots, abcd.shape[-1])
+                    )
 
                     u_2nd_deriv_sv[:, indices, :] = abcd
 

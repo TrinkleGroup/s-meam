@@ -8,12 +8,10 @@ import pickle
 import unittest
 import numpy as np
 
-import src.meam
 from src.worker import Worker
 from src.database import Database
 from src.potential_templates import Template
 
-import tests.testPotentials
 from tests.testStructs import dimers, trimers, bulk_vac_ortho, \
             bulk_periodic_ortho, bulk_vac_rhombo, bulk_periodic_rhombo, extra
 
@@ -42,7 +40,7 @@ class DatabaseTests(unittest.TestCase):
         cls.template = build_template('full', inner_cutoff, outer_cutoff)
 
         cls.db = Database(
-            'db_delete.hdf5', cls.template.pvec_len, cls.types, cls.x_pvec,
+            'db_delete.hdf5', 'w', cls.template.pvec_len, cls.types, cls.x_pvec,
             cls.x_indices, [inner_cutoff, outer_cutoff]
         )
 
@@ -118,10 +116,8 @@ class DatabaseTests(unittest.TestCase):
             overwrite=True
         )
 
-        cls.pvec = np.ones((1, cls.template.pvec_len))
-
-        # cls.pot = tests.testPotentials.get_random_pots(1)['meams']
-        # _, cls.pvec, _ = src.meam.splines_to_pvec(cls.pot[0].splines)
+        cls.pvec = np.ones((5, cls.template.pvec_len))
+        cls.pvec *= np.arange(1, 6)[:, np.newaxis]
 
     def test_energy_dimer_aa(self):
         db_eng, _ = self.db.compute_energy(
@@ -1160,7 +1156,7 @@ class FromExisting(unittest.TestCase):
         cls.template = build_template('full', inner_cutoff, outer_cutoff)
 
         cls.db = Database(
-            'db_delete_existing.hdf5', cls.template.pvec_len, cls.types,
+            'db_delete_existing.hdf5', 'w', cls.template.pvec_len, cls.types,
             cls.x_pvec, cls.x_indices, [inner_cutoff, outer_cutoff],
             overwrite=True
         )

@@ -94,16 +94,13 @@ def main(config_name, template_file_name):
         f = open(parameters['COST_FILE_NAME'], 'ab')
         f.close()
 
-        database = Database(
-            parameters['DATABASE_FILE'], driver="mpio", comm=world_comm
-        )
-
-    else:
-        database = None
-
-    if is_master:
         print("MASTER: Preparing save directory/files ... ", flush=True)
         partools.prepare_save_directory(parameters)
+
+    # TODO: for now pure-mpi, so each proc has access
+    database = Database(
+        parameters['DATABASE_FILE'], driver="mpio", comm=world_comm
+    )
 
     # prepare managers
     is_manager, manager, manager_comm = prepare_managers(

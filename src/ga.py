@@ -44,17 +44,9 @@ def ga(parameters, database, potential_template, is_manager, manager,
                             list(database.keys())]
 
         struct_natoms = database.unique_natoms
-        num_structs = len(all_struct_names)
 
         print(all_struct_names)
 
-        old_copy_names = list(all_struct_names)
-
-        worker_ranks = partools.compute_procs_per_subset(
-            struct_natoms, world_size
-        )
-
-        print("worker_ranks:", worker_ranks)
     else:
         database = None
         num_structs = None
