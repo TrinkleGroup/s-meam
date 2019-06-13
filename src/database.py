@@ -27,6 +27,7 @@ import pickle
 import logging
 import itertools
 import numpy as np
+from ase.io import read
 from ase.neighborlist import NeighborList
 
 import src.meam
@@ -39,7 +40,7 @@ logging.basicConfig(level=logging.DEBUG)
 
 class Database(h5py.File):
 
-    def __init__(self, file_name, open_type, len_pvec=None, types=None,
+    def __init__(self, file_name, open_type='a', len_pvec=None, types=None,
                  knot_xcoords=None, x_indices=None, cutoffs=None,
                  overwrite=False, *args, **kwargs):
         """
@@ -132,6 +133,20 @@ class Database(h5py.File):
             )
 
         self.attrs['num_u_knots'] = num_u_knots
+
+    def add_true_value(self, info_file_name, ref_name):
+        # TODO: needs to be able to able to handle diff refs for each struct
+
+        energy = np.genfromtxt(info_file_name, max_rows=1)
+        forces = np.genfromtxt(info_file_name, skip_header=1)
+
+        struct_name = os.path.split(info_file_name)[-1].split('.')[-1]
+
+        self[struct_name].attrs['ref_struct'] = ref_name
+        true_values_group = self[struct_name].create_group('true_values')
+
+        true_values_group['energy'] = energy
+        true_values_group['forces'] = forces
 
     def add_structure(self, new_group_name, atoms, overwrite=False):
         """
@@ -1364,3 +1379,55 @@ class Database(h5py.File):
             ffg_indices.append(tmp_list)
 
         return ffg_indices
+
+# def format_true_values(input_path, output_path, ref_config_name):
+#     """
+#     Reads values from VASP OUTCAR files and writes into the proper format for
+#     use by add_true_value()
+#
+#     Args:
+#         input_path: (str)
+#             path to folder containing all OUTCAR files
+#
+#         output_path: (str)
+#             path to write info.* files to
+#
+#         ref_config_name: (str)
+#             name of reference configuration to be used as for energy differences
+#
+#     # TODO: need a way to note reference configurations for energy differences
+#
+#     Returns:
+#         None; creates info files in proper format
+#
+#     Output file format:
+#
+#     info.<structure_name>
+#         # header comment line; should specify reference structure
+#
+#     """
+#
+#     ref_struct = read(
+#         os.path.join(input_path, ref_config_name), format='vasp-out'
+#     )
+#
+#     # TODO: when multiple ref structs are available, move this into for loop
+#     header_str = "# ref_name = {}".format(ref_config_name)
+#
+#     # assumes that OUTCAR files are renamed to be the desired structure name
+#     for vasp_file in glob.glob(os.path.join(input_path, '*')):
+#         struct_name = os.path.split(vasp_file)[-1]
+#
+#         atoms = read(vasp_file, format='vasp-out')
+#
+#         ref_energy = ref_struct.get_potential_energy()
+#
+#         struct_energy = atoms.get_potential_energy() - ref_energy
+#         struct_forces = atoms.get_forces()
+#
+#         with open(os.path.join(output_path, "info", "info." + struct))
+#
+#
+#
+#     # available attrs: cutoffs, knot_xcoords, x_indices, types
+#     pass

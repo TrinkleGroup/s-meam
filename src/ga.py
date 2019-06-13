@@ -43,14 +43,12 @@ def ga(parameters, database, potential_template, is_manager, manager,
         all_struct_names = [s.encode('utf-8').strip().decode('utf-8') for s in
                             list(database.keys())]
 
-        struct_natoms = database.unique_natoms
+        # TODO: should only use a selection of the keys
 
         print(all_struct_names)
 
     else:
         database = None
-        num_structs = None
-        worker_ranks = None
         all_struct_names = None
 
     potential_template = world_comm.bcast(potential_template, root=0)

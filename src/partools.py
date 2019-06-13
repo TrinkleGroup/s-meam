@@ -7,8 +7,7 @@ from src.potential_templates import Template
 
 def build_evaluation_functions(
         potential_template, master_database, all_struct_names, manager,
-        is_master,
-        is_manager, manager_comm, ref_name
+        is_master, is_manager, manager_comm, ref_name
 ):
     """Builds the function to evaluate populations. Wrapped here for readability
     of main code."""

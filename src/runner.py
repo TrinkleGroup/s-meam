@@ -98,9 +98,7 @@ def main(config_name, template_file_name):
         partools.prepare_save_directory(parameters)
 
     # TODO: for now pure-mpi, so each proc has access
-    database = Database(
-        parameters['DATABASE_FILE'], driver="mpio", comm=world_comm
-    )
+    database = Database(parameters['DATABASE_FILE'])
 
     # prepare managers
     is_manager, manager, manager_comm = prepare_managers(
