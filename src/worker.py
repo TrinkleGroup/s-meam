@@ -15,7 +15,6 @@ from operator import itemgetter
 import collections
 
 from ase.neighborlist import NeighborList
-from pympler import muppy, summary
 
 import src.lammpsTools
 import src.meam

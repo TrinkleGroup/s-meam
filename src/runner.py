@@ -44,10 +44,11 @@ def main(config_name, template_file_name):
 
     # convert types of inputs from str
     int_params = [
-        'NUM_STRUCTS', 'POP_SIZE', 'GA_NSTEPS', 'LMIN_FREQ',
+        'NUM_STRUCTS', 'POP_SIZE', 'NSTEPS', 'LMIN_FREQ',
         'INIT_NSTEPS', 'LMIN_NSTEPS', 'FINAL_NSTEPS', 'CHECKPOINT_FREQ',
-        'SA_NSTEPS', 'RESCALE_FREQ', 'RESCALE_STOP_STEP', 'U_NSTEPS',
-        'MCMC_BLOCK_SIZE', 'SGD_NSTEPS', 'SGD_BATCH_SIZE', 'SHIFT_FREQ'
+        'NSTEPS', 'RESCALE_FREQ', 'RESCALE_STOP_STEP', 'U_NSTEPS',
+        'MCMC_BLOCK_SIZE', 'NSTEPS', 'SGD_BATCH_SIZE', 'SHIFT_FREQ',
+        'TOGGLE_FREQ', 'TOGGLE_DURATION'
     ]
 
     float_params = [
@@ -57,7 +58,7 @@ def main(config_name, template_file_name):
 
     bool_params = [
         'RUN_NEW_GA', 'DO_LMIN', 'DEBUG', 'DO_RESCALE', 'OVERWRITE_OLD_FILES',
-        'DO_SHIFT'
+        'DO_SHIFT', 'DO_TOGGLE'
     ]
 
     for key, val in parameters.items():

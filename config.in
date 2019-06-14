@@ -1,8 +1,9 @@
 OPT_TYPE GA
 POP_SIZE 6
 
-GA_NSTEPS 2000
-SA_NSTEPS 5000
+NSTEPS 2000
+
+DATABASE_FILE ../data/fitting_databases/hyojung/hyojung.hdf5
 
 STRUCTURE_DIRECTORY ../data/fitting_databases/hyojung/mini_structs
 INFO_DIRECTORY ../data/fitting_databases/hyojung/mini_info
@@ -21,7 +22,10 @@ SA_MOVE_SCALE 0.3
 DEBUG False
 DEBUG_FILE src.misc.generate_starters
 
-#  comment line
+DO_TOGGLE True
+TOGGLE_FREQ 500
+TOGGLE_DURATION 200
+
 RUN_NEW_GA True
 DO_LMIN True
 LMIN_FREQ 200

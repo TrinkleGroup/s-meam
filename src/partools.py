@@ -7,8 +7,7 @@ from src.potential_templates import Template
 
 def build_evaluation_functions(
         potential_template, master_database, all_struct_names, manager,
-        is_master,
-        is_manager, manager_comm, ref_name
+        is_master, is_manager, manager_comm, ref_name
 ):
     """Builds the function to evaluate populations. Wrapped here for readability
     of main code."""
@@ -27,14 +26,15 @@ def build_evaluation_functions(
         else:
             pop = None
 
-        # eng = manager.compute_energy(pop)
-        # eng, c_max_ni, c_min_ni = manager.compute_energy(pop)
-        # eng, c_ni = manager.compute_energy(pop)
-        # eng, c_min_ni, c_max_ni, c_avg_ni, c_ni_var = manager.compute_energy(
-        #     pop)
+        manager_results = manager.compute_energy(pop)
 
-        eng, c_min_ni, c_max_ni, c_avg_ni, c_ni_var, c_frac_in = manager.compute_energy(
-            pop)
+        eng = manager_results[0]
+        c_min_ni = manager_results[0]
+        c_max_ni = manager_results[0]
+        c_avg_ni = manager_results[0]
+        c_ni_var = manager_results[0]
+        c_frac_in = manager_results[0]
+
         fcs = manager.compute_forces(pop)
 
         fitnesses = 0
@@ -857,7 +857,7 @@ def prepare_save_directory(parameters):
     os.mkdir(parameters['SAVE_DIRECTORY'])
 
 
-def local_minimization(master_pop, u_domains, fxn, grad, weights, world_comm,
+def local_minimization(master_pop, fxn, grad, weights, world_comm,
         is_master, nsteps=20, lm_output=False):
 
     # NOTE: if LM throws size errors, you probaly need to add more padding

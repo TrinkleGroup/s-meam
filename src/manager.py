@@ -86,15 +86,13 @@ class Manager:
         frac_in = None
 
         if self.proc_rank == 0:
-            # all_max_ni = np.vstack(all_max_ni)
-            # all_min_ni = np.vstack(all_max_ni)
             all_ni = np.vstack(all_ni)
 
             per_type_ni = []
             frac_in = []
 
             for i in range(self.struct.ntypes):
-                type_ni = all_ni[:, self.struct.type_of_each_atom - 1 == i ]
+                type_ni = all_ni[:, self.struct.type_of_each_atom - 1 == i]
 
                 per_type_ni.append(
                     type_ni
