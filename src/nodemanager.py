@@ -25,11 +25,15 @@ class NodeManager:
 
         self.pool = mp.Pool(self.node_size)
 
-        # self.struct_vecs = {}
-        # self.ffg_grad_indices = {}
-        # self.ntypes = None
-        # self.num_u_knots = []
-        # self.type_of_each_atoms = {}
+        self.struct_vecs = {}
+        self.ffg_grad_indices = {}
+        self.ntypes = None
+        self.num_u_knots = []
+        self.type_of_each_atoms = {}
+
+    def initialize_shared_memory(self):
+        # TODO: after loading, structures should be put into shared memory
+        pass
 
     def parallel_compute(self, struct_name, potentials, u_domains,
                          compute_type):
@@ -57,6 +61,7 @@ class NodeManager:
 
         """
 
+        # TODO: instead of reading from Database, take from shared memory
         with Database(self.database_file_name, 'r') as database:
             if compute_type == 'energy':
                 # ret = (energy, ni)
@@ -135,88 +140,88 @@ class NodeManager:
 
         return dict(zip(struct_list, return_values))
 
-    # def load_structures(self, struct_list, hdf5_file):
-    #     """
-    #     Loads the structures from the HDF5 file into shared memory.
-    #
-    #     Args:
-    #         struct_list: (list[str])
-    #             list of structures to be loaded
-    #
-    #         hdf5_file: (h5py.File)
-    #             HDF5 file to load structures from
-    #
-    #     Returns:
-    #         None. Updates class variables, loading structure vectors into
-    #         shared memory.
-    #
-    #     """
-    #
-    #     # TODO: can write to an HDF5 file in /dev/shm
-    #     # things to load: ntypes, num_u_knots, phi, rho, ffg, types_per_atom
-    #     # TODO: do you need to use Dataset.value on attributes?
-    #     self.ntypes = hdf5_file.attrs['ntypes']
-    #     self.num_u_knots = hdf5_file.attrs['num_u_knots']
-    #
-    #     # TODO: when deleting, try to delete the smallest struct
-    #
-    #     # doing it this way so that it only loads a certain amount at once
-    #     for struct_name in struct_list:
-    #         self.load_one_struct(struct_name, hdf5_file)
-    #
-    # def load_one_struct(self, struct_name, hdf5_file):
-    #     atom_types = hdf5_file[struct_name].attrs['type_of_each_atom'].value
-    #     self.type_of_each_atoms[struct_name] = atom_types
-    #
-    #     self.struct_vecs[struct_name] = {'phi': {}, 'rho': {}, 'ffg': {}}
-    #
-    #     # load phi structure vectors
-    #     for idx in hdf5_file[struct_name]['phi']['energy']:
-    #
-    #         # TODO: may have to use Dataset.value to keep in memory?
-    #         # https://stackoverflow.com/questions/26517795/how-do-i-keep-an-h5py-group-in-memory-after-closing-the-file
-    #
-    #         eng = hdf5_file[struct_name]['phi']['energy'][idx].value
-    #         fcs = hdf5_file[struct_name]['phi']['forces'][idx].value
-    #
-    #         self.struct_vecs[struct_name]['phi']['energy'] = eng
-    #         self.struct_vecs[struct_name]['phi']['forces'] = fcs
-    #
-    #     # load rho structure vectors
-    #     for idx in hdf5_file[struct_name]['rho']['energy']:
-    #
-    #         eng = hdf5_file[struct_name]['rho']['energy'][idx].value
-    #         fcs = hdf5_file[struct_name]['rho']['forces'][idx].value
-    #
-    #         self.struct_vecs[struct_name]['rho']['energy'] = eng
-    #         self.struct_vecs[struct_name]['rho']['forces'] = fcs
-    #
-    #     # load ffg structure vectors and indices
-    #     for j in hdf5_file[struct_name]['ffg']['energy']:
-    #         self.struct_vecs[struct_name]['ffg']['energy'][j] = {}
-    #         self.struct_vecs[struct_name]['ffg']['forces'][j] = {}
-    #
-    #         self.ffg_grad_indices[struct_name]['ffg_grad_indices'][j] = {}
-    #
-    #         for k in hdf5_file[struct_name]['ffg']['energy'][j]:
-    #
-    #             # structure vectors
-    #             eng = hdf5_file[struct_name]['ffg']['energy'][j][k].value
-    #             fcs = hdf5_file[struct_name]['ffg']['forces'][j][k].value
-    #
-    #             self.struct_vecs[struct_name]['ffg']['energy'][j][k] = eng
-    #             self.struct_vecs[struct_name]['ffg']['forces'][j][k] = fcs
-    #
-    #             # indices for indexing gradients
-    #             indices_group = hdf5_file[struct_name]['ffg_grad_indices'][j][k]
-    #
-    #             fj = indices_group['fj_indices']
-    #             fk = indices_group['fk_indices']
-    #             g = indices_group['g_indices']
-    #
-    #             self.ffg_grad_indices[struct_name][j][k]['fj_indices'] = fj
-    #             self.ffg_grad_indices[struct_name][j][k]['fk_indices'] = fk
-    #             self.ffg_grad_indices[struct_name][j][k]['g_indices'] = g
+    def load_structures(self, struct_list, hdf5_file):
+        """
+        Loads the structures from the HDF5 file into shared memory.
+
+        Args:
+            struct_list: (list[str])
+                list of structures to be loaded
+
+            hdf5_file: (h5py.File)
+                HDF5 file to load structures from
+
+        Returns:
+            None. Updates class variables, loading structure vectors into
+            shared memory.
+
+        """
+
+        # TODO: can write to an HDF5 file in /dev/shm
+        # things to load: ntypes, num_u_knots, phi, rho, ffg, types_per_atom
+        # TODO: do you need to use Dataset.value on attributes?
+        self.ntypes = hdf5_file.attrs['ntypes']
+        self.num_u_knots = hdf5_file.attrs['num_u_knots']
+
+        # TODO: when deleting, try to delete the smallest struct
+
+        # doing it this way so that it only loads a certain amount at once
+        for struct_name in struct_list:
+            self.load_one_struct(struct_name, hdf5_file)
+
+    def load_one_struct(self, struct_name, hdf5_file):
+        atom_types = hdf5_file[struct_name].attrs['type_of_each_atom'].value
+        self.type_of_each_atoms[struct_name] = atom_types
+
+        self.struct_vecs[struct_name] = {'phi': {}, 'rho': {}, 'ffg': {}}
+
+        # load phi structure vectors
+        for idx in hdf5_file[struct_name]['phi']['energy']:
+
+            # TODO: may have to use Dataset.value to keep in memory?
+            # https://stackoverflow.com/questions/26517795/how-do-i-keep-an-h5py-group-in-memory-after-closing-the-file
+
+            eng = hdf5_file[struct_name]['phi']['energy'][idx].value
+            fcs = hdf5_file[struct_name]['phi']['forces'][idx].value
+
+            self.struct_vecs[struct_name]['phi']['energy'] = eng
+            self.struct_vecs[struct_name]['phi']['forces'] = fcs
+
+        # load rho structure vectors
+        for idx in hdf5_file[struct_name]['rho']['energy']:
+
+            eng = hdf5_file[struct_name]['rho']['energy'][idx].value
+            fcs = hdf5_file[struct_name]['rho']['forces'][idx].value
+
+            self.struct_vecs[struct_name]['rho']['energy'] = eng
+            self.struct_vecs[struct_name]['rho']['forces'] = fcs
+
+        # load ffg structure vectors and indices
+        for j in hdf5_file[struct_name]['ffg']['energy']:
+            self.struct_vecs[struct_name]['ffg']['energy'][j] = {}
+            self.struct_vecs[struct_name]['ffg']['forces'][j] = {}
+
+            self.ffg_grad_indices[struct_name]['ffg_grad_indices'][j] = {}
+
+            for k in hdf5_file[struct_name]['ffg']['energy'][j]:
+
+                # structure vectors
+                eng = hdf5_file[struct_name]['ffg']['energy'][j][k].value
+                fcs = hdf5_file[struct_name]['ffg']['forces'][j][k].value
+
+                self.struct_vecs[struct_name]['ffg']['energy'][j][k] = eng
+                self.struct_vecs[struct_name]['ffg']['forces'][j][k] = fcs
+
+                # indices for indexing gradients
+                indices_group = hdf5_file[struct_name]['ffg_grad_indices'][j][k]
+
+                fj = indices_group['fj_indices']
+                fk = indices_group['fk_indices']
+                g = indices_group['g_indices']
+
+                self.ffg_grad_indices[struct_name][j][k]['fj_indices'] = fj
+                self.ffg_grad_indices[struct_name][j][k]['fk_indices'] = fk
+                self.ffg_grad_indices[struct_name][j][k]['g_indices'] = g
 
     def __getstate__(self):
         """Can't pickle Pool objects. _getstate_ says what to pickle"""

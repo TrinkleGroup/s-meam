@@ -41,7 +41,6 @@ def ga(parameters, database, template, is_manager, manager,
         all_struct_names = [s.encode('utf-8').strip().decode('utf-8') for s in
                             list(database.keys())]
 
-
         if is_master:
             original_mask = template.active_mask.copy()
     else:
