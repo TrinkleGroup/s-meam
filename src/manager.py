@@ -57,10 +57,11 @@ class Manager:
         """Evaluates the structure energy for the whole population"""
 
         # TODO: handle evaluating one potential at a time
+        # TODO: insert_active should happen in ga instead of in each fxn
 
         if self.proc_rank == 0:
             full = np.atleast_2d(master_pop)
-            full = self.pot_template.insert_active_splines(full)
+            # full = self.pot_template.insert_active_splines(full)
 
             only_one_pot = (full.shape[0] == 1)
 
@@ -88,15 +89,13 @@ class Manager:
         frac_in = None
 
         if self.proc_rank == 0:
-            # all_max_ni = np.vstack(all_max_ni)
-            # all_min_ni = np.vstack(all_max_ni)
             all_ni = np.vstack(all_ni)
 
             per_type_ni = []
             frac_in = []
 
             for i in range(self.struct.ntypes):
-                type_ni = all_ni[:, self.struct.type_of_each_atom - 1 == i ]
+                type_ni = all_ni[:, self.struct.type_of_each_atom - 1 == i]
 
                 per_type_ni.append(
                     type_ni
@@ -125,7 +124,7 @@ class Manager:
 
         if self.proc_rank == 0:
             full = np.atleast_2d(master_pop)
-            full = self.pot_template.insert_active_splines(full)
+            # full = self.pot_template.insert_active_splines(full)
 
             only_one_pot = (full.shape[0] == 1)
 
@@ -157,7 +156,7 @@ class Manager:
 
         if self.proc_rank == 0:
             full = np.atleast_2d(master_pop)
-            full = self.pot_template.insert_active_splines(full)
+            # full = self.pot_template.insert_active_splines(full)
 
             only_one_pot = (full.shape[0] == 1)
 
@@ -188,7 +187,7 @@ class Manager:
 
         if self.proc_rank == 0:
             full = np.atleast_2d(master_pop)
-            full = self.pot_template.insert_active_splines(full)
+            # full = self.pot_template.insert_active_splines(full)
 
             only_one_pot = (full.shape[0] == 1)
 

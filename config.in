@@ -1,8 +1,31 @@
 OPT_TYPE GA
-POP_SIZE 6
 
-GA_NSTEPS 2000
-SA_NSTEPS 5000
+POP_SIZE 6
+NSTEPS 220
+
+PENALTY_ON False
+
+DO_TOGGLE True
+DO_LMIN False
+DO_RESCALE True
+DO_SHIFT False
+
+TOGGLE_FREQ 30
+LMIN_FREQ 30
+RESCALE_FREQ 30
+SHIFT_FREQ 30
+
+LMIN_NSTEPS 25
+TOGGLE_DURATION 25
+
+RESCALE_STOP_STEP 1000
+
+# NAMES_FILE ../names.txt
+NUM_STRUCTS 5
+
+DATABASE_FILE ../data/fitting_databases/hyojung/hyojung.hdf5
+
+OVERWRITE_OLD_FILES True
 
 STRUCTURE_DIRECTORY ../data/fitting_databases/hyojung/mini_structs
 INFO_DIRECTORY ../data/fitting_databases/hyojung/mini_info
@@ -12,35 +35,16 @@ TRACE_FILE_NAME ../data/results/delete/trace.dat
 
 REFERENCE_STRUCT Ti48Mo80_type1_c18
 
-NUM_STRUCTS 5
-
 MUT_PB 0.5
-SA_MOVE_PROB 0.1
-SA_MOVE_SCALE 0.3
+
+# SA_MOVE_PROB 0.1
+# SA_MOVE_SCALE 0.3
 
 DEBUG False
 DEBUG_FILE src.misc.generate_starters
 
-#  comment line
-RUN_NEW_GA True
-DO_LMIN True
-LMIN_FREQ 200
-INIT_NSTEPS 10
-LMIN_NSTEPS 10
-FINAL_NSTEPS 10
+# TSTART 1
+# TMIN 0.001
+# COOLING_RATE 0.9
+
 CHECKPOINT_FREQ 1
-
-DO_RESCALE True
-RESCALE_FREQ 50
-RESCALE_STOP_STEP 1000
-
-# LOAD_DIRECTORY hyojung
-# NAMES_FILE ../names.txt
-
-TSTART 1
-TMIN 0.001
-COOLING_RATE 0.9
-
-OVERWRITE_OLD_FILES True
-
-# add checks to only load valid parameters

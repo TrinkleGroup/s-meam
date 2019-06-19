@@ -45,10 +45,11 @@ def main(config_name, template_file_name):
 
     # convert types of inputs from str
     int_params = [
-        'NUM_STRUCTS', 'POP_SIZE', 'GA_NSTEPS', 'LMIN_FREQ',
+        'NUM_STRUCTS', 'POP_SIZE', 'NSTEPS', 'LMIN_FREQ',
         'INIT_NSTEPS', 'LMIN_NSTEPS', 'FINAL_NSTEPS', 'CHECKPOINT_FREQ',
-        'SA_NSTEPS', 'RESCALE_FREQ', 'RESCALE_STOP_STEP', 'U_NSTEPS',
-        'MCMC_BLOCK_SIZE', 'SGD_NSTEPS', 'SGD_BATCH_SIZE', 'SHIFT_FREQ'
+        'RESCALE_FREQ', 'RESCALE_STOP_STEP', 'U_NSTEPS',
+        'MCMC_BLOCK_SIZE', 'SGD_BATCH_SIZE', 'SHIFT_FREQ',
+        'TOGGLE_FREQ', 'TOGGLE_DURATION'
     ]
 
     float_params = [
@@ -58,7 +59,7 @@ def main(config_name, template_file_name):
 
     bool_params = [
         'RUN_NEW_GA', 'DO_LMIN', 'DEBUG', 'DO_RESCALE', 'OVERWRITE_OLD_FILES',
-        'DO_SHIFT'
+        'DO_SHIFT', 'DO_TOGGLE', 'PENALTY_ON'
     ]
 
     for key, val in parameters.items():
@@ -105,7 +106,8 @@ def main(config_name, template_file_name):
             is_master, parameters, template, database
         )
 
-    print("Rank {} manager:".format(world_rank), manager.struct_name)
+    if is_master:
+        print()
 
     # run the optimizer
     if parameters.get('DEBUG', False):
@@ -220,7 +222,7 @@ def read_template(template_file_name):
                     template_file_name, skip_header=8+nsplines
                 )
 
-            mask = data[:, 0]
+            mask = data[:, 0].astype(int)
             knot_values = data[:, 1]
 
             spline_tags = spline_tags[np.where(mask)[0]]
@@ -245,14 +247,14 @@ def read_template(template_file_name):
                 )
             )[0]
 
-            print()
-            print("pvec_len:", len(knot_values))
-            print()
-            print("u_domains:", template_args['u_domains'])
-            print()
-            print("spline_ranges:", spline_ranges)
-            print()
-            print("spline_indices:", spline_indices)
+            # print()
+            # print("pvec_len:", len(knot_values))
+            # print()
+            # print("u_domains:", template_args['u_domains'])
+            # print()
+            # print("spline_ranges:", spline_ranges)
+            # print()
+            # print("spline_indices:", spline_indices)
 
             template = Template(
                 pvec_len=len(knot_values),
@@ -316,15 +318,11 @@ def prepare_managers(is_master, parameters, potential_template, database):
         struct_natoms = [database[key].attrs['natoms'] for key in database]
         num_structs = len(all_struct_names)
 
-        print(all_struct_names)
-
         old_copy_names = list(all_struct_names)
 
         worker_ranks = partools.compute_procs_per_subset(
             struct_natoms, world_size
         )
-
-        print("worker_ranks:", worker_ranks)
     else:
         potential_template = None
         num_structs = None
