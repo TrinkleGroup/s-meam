@@ -55,10 +55,11 @@ class Manager:
         """Evaluates the structure energy for the whole population"""
 
         # TODO: handle evaluating one potential at a time
+        # TODO: insert_active should happen in ga instead of in each fxn
 
         if self.proc_rank == 0:
             full = np.atleast_2d(master_pop)
-            full = self.pot_template.insert_active_splines(full)
+            # full = self.pot_template.insert_active_splines(full)
 
             only_one_pot = (full.shape[0] == 1)
 
@@ -121,7 +122,7 @@ class Manager:
 
         if self.proc_rank == 0:
             full = np.atleast_2d(master_pop)
-            full = self.pot_template.insert_active_splines(full)
+            # full = self.pot_template.insert_active_splines(full)
 
             only_one_pot = (full.shape[0] == 1)
 
@@ -153,7 +154,7 @@ class Manager:
 
         if self.proc_rank == 0:
             full = np.atleast_2d(master_pop)
-            full = self.pot_template.insert_active_splines(full)
+            # full = self.pot_template.insert_active_splines(full)
 
             only_one_pot = (full.shape[0] == 1)
 
@@ -184,7 +185,7 @@ class Manager:
 
         if self.proc_rank == 0:
             full = np.atleast_2d(master_pop)
-            full = self.pot_template.insert_active_splines(full)
+            # full = self.pot_template.insert_active_splines(full)
 
             only_one_pot = (full.shape[0] == 1)
 

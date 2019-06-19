@@ -29,11 +29,11 @@ def build_evaluation_functions(
         manager_results = manager.compute_energy(pop)
 
         eng = manager_results[0]
-        c_min_ni = manager_results[0]
-        c_max_ni = manager_results[0]
-        c_avg_ni = manager_results[0]
-        c_ni_var = manager_results[0]
-        c_frac_in = manager_results[0]
+        c_min_ni = manager_results[1]
+        c_max_ni = manager_results[2]
+        c_avg_ni = manager_results[3]
+        c_ni_var = manager_results[4]
+        c_frac_in = manager_results[5]
 
         fcs = manager.compute_forces(pop)
 
@@ -464,7 +464,8 @@ def rescale_ni(pots, min_ni, max_ni, potential_template):
     [-1, 1].
 
     Note:
-        order of min_ni and max_ni is assumed to be the same as pots
+        - order of min_ni and max_ni is assumed to be the same as pots
+        - pots is assumed to be only the active parameters of the potentials
 
     Args:
         pots: (NxP array) the N starting potentials of P parameters
@@ -497,7 +498,9 @@ def rescale_ni(pots, min_ni, max_ni, potential_template):
 
 def shift_u(min_ni, max_ni):
     """
-    Computes the new U domains for all N potentials
+    Computes the new U domains using the min/max ni from the best potential.
+    Assumes that 'min_ni' and 'max_ni' are sorted so that the best potentials
+    are first.
 
     Args:
         min_ni: (Nx1 array) the minimum ni sampled for each of the N potential
@@ -857,8 +860,10 @@ def prepare_save_directory(parameters):
     os.mkdir(parameters['SAVE_DIRECTORY'])
 
 
-def local_minimization(master_pop, fxn, grad, weights, world_comm,
-        is_master, nsteps=20, lm_output=False):
+def local_minimization(
+        pop_to_opt, master_pop, template, fxn, grad, weights, world_comm,
+        is_master, nsteps=20, lm_output=False
+    ):
 
     # NOTE: if LM throws size errors, you probaly need to add more padding
     pad = 100
@@ -867,12 +872,16 @@ def local_minimization(master_pop, fxn, grad, weights, world_comm,
         # print(raveled_pop)
 
         if is_master:
-            print('LM step: ', end="", flush=True)
-            tmp = raveled_pop.reshape(original_shape)
-        else:
-            tmp = None
+            if lm_output:
+                print('LM step: ', end="", flush=True)
 
-        val = fxn(tmp, weights, output=lm_output)
+            full = template.insert_active_splines(
+                raveled_pop.reshape(original_shape)
+            )
+        else:
+            full = None
+
+        val = fxn(full, weights, output=lm_output)
 
         val = world_comm.bcast(val, root=0)
 
@@ -884,11 +893,13 @@ def local_minimization(master_pop, fxn, grad, weights, world_comm,
     def lm_grad_wrap(raveled_pop, original_shape):
 
         if is_master:
-            tmp = raveled_pop.reshape(original_shape)
+            full = template.insert_active_splines(
+                raveled_pop.reshape(original_shape)
+            )
         else:
-            tmp = None
+            full = None
 
-        grads = grad(tmp, weights)
+        grads = grad(full, weights)
 
         grads = world_comm.bcast(grads, root=0)
 
@@ -914,20 +925,21 @@ def local_minimization(master_pop, fxn, grad, weights, world_comm,
 
         return tmp
 
+    # uncomment if want to use centered differences for gradient approximation
     # lm_grad_wrap = '2-point'
 
-    master_pop = world_comm.bcast(master_pop, root=0)
-    master_pop = np.array(master_pop)
+    pop_to_opt = world_comm.bcast(pop_to_opt, root=0)
+    pop_to_opt = np.array(pop_to_opt)
 
     opt_results = least_squares(
-        lm_fxn_wrap, master_pop.ravel(), lm_grad_wrap,
-        method='lm', max_nfev=nsteps, args=(master_pop.shape,)
+        lm_fxn_wrap, pop_to_opt.ravel(), lm_grad_wrap,
+        method='lm', max_nfev=nsteps, args=(pop_to_opt.shape,)
     )
 
     if is_master:
-        new_pop = opt_results['x'].reshape(master_pop.shape)
-        tmp = master_pop
-        new_tmp = new_pop
+        new_pop = opt_results['x'].reshape(pop_to_opt.shape)
+        tmp = template.insert_active_splines(pop_to_opt)
+        new_tmp = template.insert_active_splines(new_pop)
     else:
         tmp = None
         new_tmp = None
@@ -937,16 +949,14 @@ def local_minimization(master_pop, fxn, grad, weights, world_comm,
     new_fits = fxn(new_tmp, weights)
 
     if is_master:
-        updated_master_pop = list(master_pop)
+        updated_pop = list(pop_to_opt)
 
         for i, ind in enumerate(new_pop):
             if np.sum(new_fits[i]) < np.sum(org_fits[i]):
-                updated_master_pop[i] = new_pop[i]
+                updated_pop[i] = new_pop[i]
             else:
-                updated_master_pop[i] = updated_master_pop[i]
+                updated_pop[i] = updated_pop[i]
 
-        master_pop = np.array(updated_master_pop)
-
-    master_pop = world_comm.bcast(master_pop, root=0)
+        master_pop = np.array(updated_pop)
 
     return master_pop
