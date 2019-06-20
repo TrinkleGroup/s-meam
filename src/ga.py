@@ -253,7 +253,7 @@ def ga(parameters, database, template, is_manager, manager,
                     new_u_domains = None
 
                 if is_manager:
-                    new_u_domains = world_comm.bcast(new_u_domains, root=0)
+                    new_u_domains = manager_comm.bcast(new_u_domains, root=0)
                     template.u_ranges = new_u_domains
 
                     manager.pot_template.u_ranges = template.u_ranges
