@@ -231,8 +231,6 @@ def read_template(template_file_name):
             mask = data[:, 0].astype(int)
             knot_values = data[:, 1]
 
-            spline_tags = spline_tags[np.where(mask)[0]]
-
             nphi = template_args['ntypes']*(template_args['ntypes'] + 1) / 2
 
             rho_indices = np.where(

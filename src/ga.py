@@ -43,6 +43,9 @@ def ga(parameters, database, template, is_manager, manager,
 
         if is_master:
             original_mask = template.active_mask.copy()
+
+            print('original_mask:', np.where(template.active_mask)[0])
+            print('spline_tags:', template.spline_tags)
     else:
         database = None
         all_struct_names = None
@@ -92,9 +95,8 @@ def ga(parameters, database, template, is_manager, manager,
     if is_master:
         print('init min/max ni', min_ni[0], max_ni[0])
 
-        ga_pop = partools.rescale_ni(ga_pop, min_ni, max_ni, template)
-
-        master_pop[:, np.where(template.active_mask)[0]] = np.array(ga_pop)
+        master_pop = partools.rescale_ni(master_pop, min_ni, max_ni, template)
+        ga_pop = master_pop[:, np.where(template.active_mask)[0]]
 
         subset = ga_pop[:10]
     else:
@@ -219,13 +221,13 @@ def ga(parameters, database, template, is_manager, manager,
 
                         new_fit = np.sum(fitnesses, axis=1)
 
-                        ga_pop = partools.rescale_ni(
-                            ga_pop, min_ni, max_ni, template
+                        master_pop = partools.rescale_ni(
+                            master_pop, min_ni, max_ni, template
                         )
 
-                        # re-compute the ni data for use with shifting U domains
-                        master_pop[:, np.where(template.active_mask)[0]] = np.array(ga_pop)
+                        ga_pop = master_pop[:, np.where(template.active_mask)[0]]
 
+                    # re-compute the ni data for use with shifting U domains
                     fitnesses, max_ni, min_ni, avg_ni = toolbox.evaluate_population(
                         master_pop, weights, return_ni=True,
                         penalty=parameters['PENALTY_ON']
@@ -592,6 +594,8 @@ def toggle_u_only_optimization(toggle_type, master_pop, ga_pop, template,
 
     # extract the new population
     ga_pop = master_pop[:, np.where(template.active_mask)[0]]
+
+    print('new mask:', np.where(template.active_mask)[0])
 
     return master_pop, ga_pop, template
 
