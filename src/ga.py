@@ -43,9 +43,6 @@ def ga(parameters, database, template, is_manager, manager,
 
         if is_master:
             original_mask = template.active_mask.copy()
-
-            print('original_mask:', np.where(template.active_mask)[0])
-            print('spline_tags:', template.spline_tags)
     else:
         database = None
         all_struct_names = None
@@ -140,13 +137,32 @@ def ga(parameters, database, template, is_manager, manager,
 
         ga_start = time.time()
 
-    toggle_time = parameters['TOGGLE_FREQ']
     lmin_time = parameters['LMIN_FREQ']
     resc_time = parameters['RESCALE_FREQ']
     shift_time = parameters['SHIFT_FREQ']
 
-    # tracks if U-only optimization is being performed
-    u_only_status = 'off'
+    # turn U-only option on at beginning to try to stabilize U early
+    u_only_status = 'on'
+    toggle_time = parameters['TOGGLE_DURATION'] - 1
+
+    if is_master:
+        print("Toggling U-only mode to:", u_only_status)
+
+        master_pop, ga_pop, template = toggle_u_only_optimization(
+            u_only_status, master_pop, ga_pop, template, [5, 6],
+            original_mask
+            # TODO: shouldn't hard-code [5,6]; use nphi to find tags
+        )
+
+        new_mask = template.active_mask
+    else:
+        new_mask = None
+
+    if is_manager:
+        new_mask = manager_comm.bcast(new_mask, root=0)
+
+        template.active_mask = new_mask
+        manager.pot_template.active_mask = template.active_mask
 
     # begin GA
     generation_number = 1
@@ -217,7 +233,7 @@ def ga(parameters, database, template, is_manager, manager,
             if generation_number < parameters['RESCALE_STOP_STEP']:
                 if resc_time == 0:
                     if is_master:
-                        print("Rescaling ...")
+                        print("Rescaling ...", flush=True)
 
                         new_fit = np.sum(fitnesses, axis=1)
 
@@ -248,7 +264,7 @@ def ga(parameters, database, template, is_manager, manager,
                     tmp_max_ni = max_ni[np.argsort(new_fit)]
 
                     new_u_domains = partools.shift_u(tmp_min_ni, tmp_max_ni)
-                    print("new_u_domains:", new_u_domains)
+                    print("new_u_domains:", new_u_domains, flush=True)
                 else:
                     new_u_domains = None
 
@@ -280,7 +296,7 @@ def ga(parameters, database, template, is_manager, manager,
                 toggle_time = parameters['TOGGLE_FREQ'] - 1
 
             if is_master:
-                print("Toggling U-only mode to:", u_only_status)
+                print("Toggling U-only mode to:", u_only_status, flush=True)
 
                 master_pop, ga_pop, template = toggle_u_only_optimization(
                     u_only_status, master_pop, ga_pop, template, [5, 6],
@@ -342,6 +358,35 @@ def ga(parameters, database, template, is_manager, manager,
         generation_number += 1
 
     # end of GA loop
+
+    # make sure that U-only mode is turned off before final LM
+    if u_only_status == 'on':
+        u_only_status = 'off'
+
+        if is_master:
+            print(
+                "Toggling U-only mode off for final LM",
+                flush=True
+            )
+
+            master_pop, ga_pop, template = toggle_u_only_optimization(
+                u_only_status, master_pop, ga_pop, template, [5, 6],
+                original_mask
+                # TODO: shouldn't hard-code [5,6]; use nphi to find tags
+            )
+
+            new_mask = template.active_mask
+        else:
+            new_mask = None
+
+        if is_manager:
+            new_mask = manager_comm.bcast(new_mask, root=0)
+
+            template.active_mask = new_mask
+            manager.pot_template.active_mask = template.active_mask
+    else:
+        if is_master:
+            print("U-only mode is off; ready for final LM", flush=True)
 
     # Perform a final local optimization on the final results of the GA
     if is_master:
@@ -594,8 +639,6 @@ def toggle_u_only_optimization(toggle_type, master_pop, ga_pop, template,
 
     # extract the new population
     ga_pop = master_pop[:, np.where(template.active_mask)[0]]
-
-    print('new mask:', np.where(template.active_mask)[0])
 
     return master_pop, ga_pop, template
 

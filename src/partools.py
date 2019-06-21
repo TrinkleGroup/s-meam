@@ -481,7 +481,7 @@ def rescale_ni(pots, min_ni, max_ni, potential_template):
 
     ni = np.hstack([max_ni, min_ni])
     indices = np.argmax(abs(ni), axis=1)
-    scale = np.choose(indices, ni.T)
+    scale = np.choose(indices, ni.T) / 1.5  # 1.5 to try to get U domain overlap
     signs = np.sign(scale)
 
     pots[:, potential_template.rho_indices] /= \
