@@ -479,9 +479,25 @@ def rescale_ni(pots, min_ni, max_ni, potential_template):
 
     pots = np.array(pots)
 
+    # ni row format: [max_A, max_B, ..., min_A, min_B, ...]
     ni = np.hstack([max_ni, min_ni])
-    indices = np.argmax(abs(ni), axis=1)
-    scale = np.choose(indices, ni.T) / 1.5  # 1.5 to try to get U domain overlap
+
+    nt = potential_template.ntypes
+
+    per_type_slice = [abs(ni[:, i::nt]) for i in range(nt)]
+
+    per_type_argmax = [
+        np.argmax(ni_slice, axis=1) for ni_slice in per_type_slice
+    ]
+
+    per_type_extracted = np.vstack([
+        np.choose(argmax, ni_slice.T) for (argmax, ni_slice) in
+        zip(per_type_argmax, per_type_slice)
+    ])
+
+    scale = np.min(per_type_extracted, axis=0)
+
+    scale /= 1.5  # 1.5 to try to get U domain overlap
     signs = np.sign(scale)
 
     pots[:, potential_template.rho_indices] /= \
