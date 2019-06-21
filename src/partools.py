@@ -501,7 +501,9 @@ def rescale_ni(pots, min_ni, max_ni, potential_template):
     signs = np.sign(scale)
 
     pots[:, potential_template.rho_indices] /= \
-        scale[:, np.newaxis]
+        signs[:, np.newaxis]*scale[:, np.newaxis]
+
+    # note: 'scale' is already positive, leaving abs() for clarity/emphasis
 
     pots[:, potential_template.f_indices] /= \
         abs(scale[:, np.newaxis]) ** (1. / 3)
