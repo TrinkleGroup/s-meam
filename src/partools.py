@@ -70,7 +70,7 @@ def build_evaluation_functions(
                     (len(pop), len(master_database.entries) + 2)
                 )
 
-                lambda_pen = 10000
+                lambda_pen = 1000
 
                 ns = len(master_database.unique_structs)
 
