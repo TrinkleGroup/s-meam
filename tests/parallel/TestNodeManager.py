@@ -48,78 +48,84 @@ class NodeManagerTests(unittest.TestCase):
         cls.db.add_structure('aba', trimers['aba'], overwrite=True)
         cls.db.add_structure('bbb', trimers['bbb'], overwrite=True)
 
-        cls.db.add_structure(
-            'bulk_vac_ortho_type1', bulk_vac_ortho['bulk_vac_ortho_type1'],
-            overwrite=True
-        )
+        # cls.db.add_structure(
+        #     'bulk_vac_ortho_type1', bulk_vac_ortho['bulk_vac_ortho_type1'],
+        #     overwrite=True
+        # )
+        #
+        # cls.db.add_structure(
+        #     'bulk_vac_ortho_type2', bulk_vac_ortho['bulk_vac_ortho_type2'],
+        #     overwrite=True
+        # )
+        #
+        # cls.db.add_structure(
+        #     'bulk_vac_ortho_mixed', bulk_vac_ortho['bulk_vac_ortho_mixed'],
+        #     overwrite=True
+        # )
 
-        cls.db.add_structure(
-            'bulk_vac_ortho_type2', bulk_vac_ortho['bulk_vac_ortho_type2'],
-            overwrite=True
-        )
-
-        cls.db.add_structure(
-            'bulk_vac_ortho_mixed', bulk_vac_ortho['bulk_vac_ortho_mixed'],
-            overwrite=True
-        )
-
-        cls.db.add_structure(
-            'bulk_periodic_ortho_type1',
-            bulk_periodic_ortho['bulk_periodic_ortho_type1'],
-            overwrite=True
-        )
-
-        cls.db.add_structure(
-            'bulk_periodic_ortho_type2',
-            bulk_periodic_ortho['bulk_periodic_ortho_type2'],
-            overwrite=True
-        )
-
-        cls.db.add_structure(
-            'bulk_periodic_ortho_mixed',
-            bulk_periodic_ortho['bulk_periodic_ortho_mixed'],
-            overwrite=True
-        )
-
-        cls.db.add_structure(
-            'bulk_vac_rhombo_type1', bulk_vac_rhombo['bulk_vac_rhombo_type1'],
-            overwrite=True
-        )
-
-        cls.db.add_structure(
-            'bulk_vac_rhombo_type2', bulk_vac_rhombo['bulk_vac_rhombo_type2'],
-            overwrite=True
-        )
-
-        cls.db.add_structure(
-            'bulk_vac_rhombo_mixed', bulk_vac_rhombo['bulk_vac_rhombo_mixed'],
-            overwrite=True
-        )
-
-        cls.db.add_structure(
-            'bulk_periodic_rhombo_type1',
-            bulk_periodic_rhombo['bulk_periodic_rhombo_type1'],
-            overwrite=True
-        )
-
-        cls.db.add_structure(
-            'bulk_periodic_rhombo_type2',
-            bulk_periodic_rhombo['bulk_periodic_rhombo_type2'],
-            overwrite=True
-        )
-
-        cls.db.add_structure(
-            'bulk_periodic_rhombo_mixed',
-            bulk_periodic_rhombo['bulk_periodic_rhombo_mixed'],
-            overwrite=True
-        )
+        # cls.db.add_structure(
+        #     'bulk_periodic_ortho_type1',
+        #     bulk_periodic_ortho['bulk_periodic_ortho_type1'],
+        #     overwrite=True
+        # )
+        #
+        # cls.db.add_structure(
+        #     'bulk_periodic_ortho_type2',
+        #     bulk_periodic_ortho['bulk_periodic_ortho_type2'],
+        #     overwrite=True
+        # )
+        #
+        # cls.db.add_structure(
+        #     'bulk_periodic_ortho_mixed',
+        #     bulk_periodic_ortho['bulk_periodic_ortho_mixed'],
+        #     overwrite=True
+        # )
+        #
+        # cls.db.add_structure(
+        #     'bulk_vac_rhombo_type1', bulk_vac_rhombo['bulk_vac_rhombo_type1'],
+        #     overwrite=True
+        # )
+        #
+        # cls.db.add_structure(
+        #     'bulk_vac_rhombo_type2', bulk_vac_rhombo['bulk_vac_rhombo_type2'],
+        #     overwrite=True
+        # )
+        #
+        # cls.db.add_structure(
+        #     'bulk_vac_rhombo_mixed', bulk_vac_rhombo['bulk_vac_rhombo_mixed'],
+        #     overwrite=True
+        # )
+        #
+        # cls.db.add_structure(
+        #     'bulk_periodic_rhombo_type1',
+        #     bulk_periodic_rhombo['bulk_periodic_rhombo_type1'],
+        #     overwrite=True
+        # )
+        #
+        # cls.db.add_structure(
+        #     'bulk_periodic_rhombo_type2',
+        #     bulk_periodic_rhombo['bulk_periodic_rhombo_type2'],
+        #     overwrite=True
+        # )
+        #
+        # cls.db.add_structure(
+        #     'bulk_periodic_rhombo_mixed',
+        #     bulk_periodic_rhombo['bulk_periodic_rhombo_mixed'],
+        #     overwrite=True
+        # )
 
         cls.pvec = np.ones((5, cls.template.pvec_len))
         cls.pvec *= np.arange(1, 6)[:, np.newaxis]
 
-        cls.node_manager = NodeManager(0, cls.template, 'db_delete.hdf5')
-
         cls.struct_list = list(cls.db.keys())
+
+        cls.node_manager = NodeManager(0, cls.template)
+        cls.node_manager.initialize_shared_space()
+        cls.node_manager.load_structures(list(cls.struct_list), cls.db)
+        cls.node_manager.start_pool()
+
+        cls.db.close()  # close to make sure NodeManager is using local data
+
 
     def test_compute_type_error(self):
         self.assertRaises(
