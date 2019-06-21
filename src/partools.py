@@ -484,10 +484,10 @@ def rescale_ni(pots, min_ni, max_ni, potential_template):
 
     nt = potential_template.ntypes
 
-    per_type_slice = [abs(ni[:, i::nt]) for i in range(nt)]
+    per_type_slice = [ni[:, i::nt] for i in range(nt)]
 
     per_type_argmax = [
-        np.argmax(ni_slice, axis=1) for ni_slice in per_type_slice
+        np.argmax(abs(ni_slice), axis=1) for ni_slice in per_type_slice
     ]
 
     per_type_extracted = np.vstack([
@@ -501,9 +501,7 @@ def rescale_ni(pots, min_ni, max_ni, potential_template):
     signs = np.sign(scale)
 
     pots[:, potential_template.rho_indices] /= \
-        signs[:, np.newaxis]*scale[:, np.newaxis]
-
-    # note: 'scale' is already positive, leaving abs() for clarity/emphasis
+        signs[:, np.newaxis]*abs(scale[:, np.newaxis])
 
     pots[:, potential_template.f_indices] /= \
         abs(scale[:, np.newaxis]) ** (1. / 3)
