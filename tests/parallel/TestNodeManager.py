@@ -41,77 +41,79 @@ class NodeManagerTests(unittest.TestCase):
             cls.x_indices, [inner_cutoff, outer_cutoff]
         )
 
-        cls.db.add_structure('aa', dimers['aa'], overwrite=True)
-        cls.db.add_structure('ab', dimers['ab'], overwrite=True)
-        cls.db.add_structure('bb', dimers['bb'], overwrite=True)
-        cls.db.add_structure('aaa', trimers['aaa'], overwrite=True)
-        cls.db.add_structure('aba', trimers['aba'], overwrite=True)
-        cls.db.add_structure('bbb', trimers['bbb'], overwrite=True)
+        ow = False
+
+        cls.db.add_structure('aa', dimers['aa'], overwrite=ow)
+        cls.db.add_structure('ab', dimers['ab'], overwrite=ow)
+        cls.db.add_structure('bb', dimers['bb'], overwrite=ow)
+        cls.db.add_structure('aaa', trimers['aaa'], overwrite=ow)
+        cls.db.add_structure('aba', trimers['aba'], overwrite=ow)
+        cls.db.add_structure('bbb', trimers['bbb'], overwrite=ow)
 
         # cls.db.add_structure(
         #     'bulk_vac_ortho_type1', bulk_vac_ortho['bulk_vac_ortho_type1'],
-        #     overwrite=True
+        #     overwrite=ow
         # )
         #
         # cls.db.add_structure(
         #     'bulk_vac_ortho_type2', bulk_vac_ortho['bulk_vac_ortho_type2'],
-        #     overwrite=True
+        #     overwrite=ow
         # )
         #
         # cls.db.add_structure(
         #     'bulk_vac_ortho_mixed', bulk_vac_ortho['bulk_vac_ortho_mixed'],
-        #     overwrite=True
+        #     overwrite=ow
         # )
-
+        #
         # cls.db.add_structure(
         #     'bulk_periodic_ortho_type1',
         #     bulk_periodic_ortho['bulk_periodic_ortho_type1'],
-        #     overwrite=True
+        #     overwrite=ow
         # )
         #
         # cls.db.add_structure(
         #     'bulk_periodic_ortho_type2',
         #     bulk_periodic_ortho['bulk_periodic_ortho_type2'],
-        #     overwrite=True
+        #     overwrite=ow
         # )
         #
         # cls.db.add_structure(
         #     'bulk_periodic_ortho_mixed',
         #     bulk_periodic_ortho['bulk_periodic_ortho_mixed'],
-        #     overwrite=True
+        #     overwrite=ow
         # )
         #
         # cls.db.add_structure(
         #     'bulk_vac_rhombo_type1', bulk_vac_rhombo['bulk_vac_rhombo_type1'],
-        #     overwrite=True
+        #     overwrite=ow
         # )
         #
         # cls.db.add_structure(
         #     'bulk_vac_rhombo_type2', bulk_vac_rhombo['bulk_vac_rhombo_type2'],
-        #     overwrite=True
+        #     overwrite=ow
         # )
         #
         # cls.db.add_structure(
         #     'bulk_vac_rhombo_mixed', bulk_vac_rhombo['bulk_vac_rhombo_mixed'],
-        #     overwrite=True
+        #     overwrite=ow
         # )
         #
         # cls.db.add_structure(
         #     'bulk_periodic_rhombo_type1',
         #     bulk_periodic_rhombo['bulk_periodic_rhombo_type1'],
-        #     overwrite=True
+        #     overwrite=ow
         # )
         #
         # cls.db.add_structure(
         #     'bulk_periodic_rhombo_type2',
         #     bulk_periodic_rhombo['bulk_periodic_rhombo_type2'],
-        #     overwrite=True
+        #     overwrite=ow
         # )
         #
         # cls.db.add_structure(
         #     'bulk_periodic_rhombo_mixed',
         #     bulk_periodic_rhombo['bulk_periodic_rhombo_mixed'],
-        #     overwrite=True
+        #     overwrite=ow
         # )
 
         cls.pvec = np.ones((5, cls.template.pvec_len))
@@ -120,9 +122,9 @@ class NodeManagerTests(unittest.TestCase):
         cls.struct_list = list(cls.db.keys())
 
         cls.node_manager = NodeManager(0, cls.template)
-        cls.node_manager.initialize_shared_space()
         cls.node_manager.load_structures(list(cls.struct_list), cls.db)
-        cls.node_manager.start_pool()
+        cls.node_manager.initialize_shared_memory()
+        cls.node_manager.start_pool(4)
 
         cls.db.close()  # close to make sure NodeManager is using local data
 
@@ -360,8 +362,8 @@ class NodeManagerTests(unittest.TestCase):
     def test_energy_bvo(self):
         struct_list = [
             'bulk_vac_ortho_type1',
-            'bulk_vac_ortho_type2',
-            'bulk_vac_ortho_mixed'
+            # 'bulk_vac_ortho_type2',
+            # 'bulk_vac_ortho_mixed'
         ]
 
         nd_energies = self.node_manager.compute(

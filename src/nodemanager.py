@@ -5,10 +5,13 @@ Each NodeManager object handles the set of processes on a single compute node.
 """
 
 import numpy as np
+import ctypes as c
 import multiprocessing as mp
 import src.partools
 from itertools import repeat
 from multiprocessing import Manager
+
+struct_vecs = {}
 
 class NodeManager:
     def __init__(self, node_id, template):
@@ -18,11 +21,11 @@ class NodeManager:
         self.template = template
 
         # self.rank_on_node = comm.Get_rank()
-        self.node_size = mp.cpu_count()
+        # self.node_size = mp.cpu_count()
 
         self.pool = None  # should only be started once local data is loaded
 
-        # self.struct_vecs = {}
+        # struct_vecs = {}
 
         self.x_indices = None
         self.ntypes = None
@@ -34,12 +37,15 @@ class NodeManager:
         self.natoms = {}
         self.type_of_each_atom = {}
 
-    def start_pool(self):
-        self.pool = mp.Pool(self.node_size)
+    def start_pool(self, node_size=None):
+        if node_size is None:
+            node_size = mp.cpu_count()
 
-    def initialize_shared_space(self):
+        self.pool = mp.Pool(node_size)
+
+    def initialize_shared_memory(self):
         manager = Manager()
-        self.struct_vecs = manager.dict()
+        struct_vecs = manager.dict(struct_vecs)
 
     def parallel_compute(self, struct_name, potentials, u_domains,
                          compute_type):
@@ -181,7 +187,7 @@ class NodeManager:
         atom_types = hdf5_file[struct_name].attrs['type_of_each_atom']#.value
         self.type_of_each_atom[struct_name] = atom_types
 
-        self.struct_vecs[struct_name] = {
+        struct_vecs[struct_name] = {
             'phi': {'energy': {}, 'forces': {}},
             'rho': {'energy': {}, 'forces': {}},
             'ffg': {'energy': {}, 'forces': {}}
@@ -196,8 +202,18 @@ class NodeManager:
             eng = hdf5_file[struct_name]['phi']['energy'][idx][()]
             fcs = hdf5_file[struct_name]['phi']['forces'][idx][()]
 
-            self.struct_vecs[struct_name]['phi']['energy'][idx] = eng
-            self.struct_vecs[struct_name]['phi']['forces'][idx] = fcs
+            eng_loc = mp.Array('d', eng, lock=False)
+
+            ni, nj, nk = fcs.shape
+
+            fcs_shm = mp.Array('d', ni*nj*nk, lock=False)
+            # fcs_loc = np.frombuffer(fcs_shm.get_obj())
+            fcs_loc = np.frombuffer(fcs_shm)
+            fcs_loc = fcs_loc.reshape((ni, nj, nk))
+            fcs_loc[:] = fcs[:]
+
+            struct_vecs[struct_name]['phi']['energy'][idx] = eng_loc
+            struct_vecs[struct_name]['phi']['forces'][idx] = fcs_loc
 
         # load rho structure vectors
         for idx in hdf5_file[struct_name]['rho']['energy']:
@@ -205,16 +221,30 @@ class NodeManager:
             eng = hdf5_file[struct_name]['rho']['energy'][idx][()]
             fcs = hdf5_file[struct_name]['rho']['forces'][idx][()]
 
-            self.struct_vecs[struct_name]['rho']['energy'][idx] = eng
-            self.struct_vecs[struct_name]['rho']['forces'][idx] = fcs
+            ni, nj = eng.shape
+            eng_shm = mp.Array('d', ni*nj, lock=False)
+            # eng_loc = np.frombuffer(eng_shm.get_obj())
+            eng_loc = np.frombuffer(eng_shm)
+            eng_loc = eng_loc.reshape((ni, nj))
+            eng_loc[:] = eng[:]
+
+            ni, nj = fcs.shape
+            fcs_shm = mp.Array('d', ni*nj, lock=False)
+            # fcs_loc = np.frombuffer(fcs_shm.get_obj())
+            fcs_loc = np.frombuffer(fcs_shm)
+            fcs_loc = fcs_loc.reshape((ni, nj))
+            fcs_loc[:] = fcs[:]
+
+            struct_vecs[struct_name]['rho']['energy'][idx] = eng_loc
+            struct_vecs[struct_name]['rho']['forces'][idx] = fcs_loc
 
         self.ffg_grad_indices[struct_name] = {}
         self.ffg_grad_indices[struct_name]['ffg_grad_indices'] = {}
 
         # load ffg structure vectors and indices
         for j in hdf5_file[struct_name]['ffg']['energy']:
-            self.struct_vecs[struct_name]['ffg']['energy'][j] = {}
-            self.struct_vecs[struct_name]['ffg']['forces'][j] = {}
+            struct_vecs[struct_name]['ffg']['energy'][j] = {}
+            struct_vecs[struct_name]['ffg']['forces'][j] = {}
 
             self.ffg_grad_indices[struct_name][j] = {}
 
@@ -224,8 +254,22 @@ class NodeManager:
                 eng = hdf5_file[struct_name]['ffg']['energy'][j][k][()]
                 fcs = hdf5_file[struct_name]['ffg']['forces'][j][k][()]
 
-                self.struct_vecs[struct_name]['ffg']['energy'][j][k] = eng
-                self.struct_vecs[struct_name]['ffg']['forces'][j][k] = fcs
+                ni, nj = eng.shape
+                eng_shm = mp.Array('d', ni*nj, lock=False)
+                # eng_loc = np.frombuffer(eng_shm.get_obj())
+                eng_loc = np.frombuffer(eng_shm)
+                eng_loc = eng_loc.reshape((ni, nj))
+                eng_loc[:] = eng[:]
+
+                ni, nj = fcs.shape
+                fcs_shm = mp.Array('d', ni*nj, lock=False)
+                # fcs_loc = np.frombuffer(fcs_shm.get_obj())
+                fcs_loc = np.frombuffer(fcs_shm)
+                fcs_loc = fcs_loc.reshape((ni, nj))
+                fcs_loc[:] = fcs[:]
+
+                struct_vecs[struct_name]['ffg']['energy'][j][k] = eng_loc
+                struct_vecs[struct_name]['ffg']['forces'][j][k] = fcs_loc
 
                 # indices for indexing gradients
                 indices_group = hdf5_file[struct_name]['ffg_grad_indices'][j][k]
@@ -252,7 +296,7 @@ class NodeManager:
 
         # pair interactions
         for i, y in enumerate(phi_pvecs):
-            sv = self.struct_vecs[struct_name]['phi']['energy'][str(i)]
+            sv = struct_vecs[struct_name]['phi']['energy'][str(i)]
             energy += sv @ y.T
 
         # embedding terms
@@ -280,7 +324,7 @@ class NodeManager:
         for phi_idx, y in enumerate(phi_pvecs):
             forces += np.einsum(
                 'ijk,pk->pij',
-                self.struct_vecs[struct_name]['phi']['forces'][str(phi_idx)],
+                struct_vecs[struct_name]['phi']['forces'][str(phi_idx)],
                 y
             )
 
@@ -293,7 +337,7 @@ class NodeManager:
         embedding_forces = np.zeros((n_pots, 3*(N**2)))
 
         for rho_idx, y in enumerate(rho_pvecs):
-            sv = self.struct_vecs[struct_name]['rho']['forces'][str(rho_idx)]
+            sv = struct_vecs[struct_name]['rho']['forces'][str(rho_idx)]
             embedding_forces += (sv @ y.T).T
 
         for j, y_fj in enumerate(f_pvecs):
@@ -311,7 +355,7 @@ class NodeManager:
                     (cart2.shape[0], cart2.shape[1]*cart2.shape[2])
                 )
 
-                sv = self.struct_vecs[struct_name]['ffg']['forces'][str(j)][str(k)]
+                sv = struct_vecs[struct_name]['ffg']['forces'][str(j)][str(k)]
                 embedding_forces += (sv @ cart_y.T).T
 
         embedding_forces = embedding_forces.reshape((n_pots, 3, N, N))
@@ -334,7 +378,7 @@ class NodeManager:
         # gradients of phi are just their structure vectors
         for phi_idx, y in enumerate(phi_pvecs):
             gradient[:, grad_index:grad_index + y.shape[1]] += \
-                self.struct_vecs[struct_name]['phi']['energy'][str(phi_idx)]
+                struct_vecs[struct_name]['phi']['energy'][str(phi_idx)]
 
             grad_index += y.shape[1]
 
@@ -346,7 +390,7 @@ class NodeManager:
         )
 
         for rho_idx, y in enumerate(rho_pvecs):
-            partial_ni = self.struct_vecs[struct_name]['rho']['energy'][str(rho_idx)]
+            partial_ni = struct_vecs[struct_name]['rho']['energy'][str(rho_idx)]
 
             gradient[:, grad_index:grad_index + y.shape[1]] += \
                 (uprimes @ np.array(partial_ni))
@@ -414,7 +458,7 @@ class NodeManager:
                 scaled_sv = np.einsum(
                     'pz,zk->pk',
                     uprimes,
-                    self.struct_vecs[struct_name]['ffg']['energy'][str(j)][str(k)]
+                    struct_vecs[struct_name]['ffg']['energy'][str(j)][str(k)]
                 )
 
                 coeffs_for_fj = np.einsum("pi,pk->pik", y_fk, y_g)
@@ -500,7 +544,7 @@ class NodeManager:
         # gradients of phi are just their structure vectors
         for phi_idx, y in enumerate(phi_pvecs):
             sv = np.array(
-                self.struct_vecs[struct_name]['phi']['forces'][str(phi_idx)]
+                struct_vecs[struct_name]['phi']['forces'][str(phi_idx)]
             )
 
             sv = sv.reshape(N, 3, y.shape[1])
@@ -520,7 +564,7 @@ class NodeManager:
 
         # pre-compute all rho forces
         for rho_idx, y in enumerate(rho_pvecs):
-            rho_sv = self.struct_vecs[struct_name]['rho']['forces'][str(rho_idx)]
+            rho_sv = struct_vecs[struct_name]['rho']['forces'][str(rho_idx)]
             embedding_forces += (rho_sv @ y.T).T.reshape(n_pots, 3, N, N)
 
         # pre-compute all ffg forces
@@ -539,16 +583,16 @@ class NodeManager:
                     (cart2.shape[0], cart2.shape[1]*cart2.shape[2])
                 )
 
-                sv = self.struct_vecs[struct_name]['ffg']['forces'][str(j)][str(k)]
+                sv = struct_vecs[struct_name]['ffg']['forces'][str(j)][str(k)]
                 ffg_forces = (sv @ cart_y.T).T
 
                 embedding_forces += ffg_forces.reshape((n_pots, 3, N, N))
 
         # rho gradient term; there's a U'' and a U' term for each rho
         for rho_idx, y in enumerate(rho_pvecs):
-            rho_e_sv = self.struct_vecs[struct_name]['rho']['energy'][str(rho_idx)]
+            rho_e_sv = struct_vecs[struct_name]['rho']['energy'][str(rho_idx)]
 
-            rho_f_sv = self.struct_vecs[struct_name]['rho']['forces'][str(rho_idx)]
+            rho_f_sv = struct_vecs[struct_name]['rho']['forces'][str(rho_idx)]
             rho_f_sv = np.array(rho_f_sv).reshape((3, N, N, y.shape[1]))
 
             # U'' term
@@ -603,12 +647,12 @@ class NodeManager:
                     np.einsum(
                         'pz,zk->pzk',
                         uprimes_2,
-                        self.struct_vecs[struct_name]['ffg']['energy'][str(j)][str(k)]
+                        struct_vecs[struct_name]['ffg']['energy'][str(j)][str(k)]
                     ),
                     embedding_forces
                 )
 
-                ffg_sv = self.struct_vecs[struct_name]['ffg']['forces'][str(j)][str(k)]
+                ffg_sv = struct_vecs[struct_name]['ffg']['forces'][str(j)][str(k)]
 
                 # U' term
                 up_contrib = np.einsum(
@@ -737,7 +781,7 @@ class NodeManager:
         # Rho contribution
         # for y, rho in zip(rho_pvecs, self.rhos):
         for i, y in enumerate(rho_pvecs):
-            sv = self.struct_vecs[struct_name]['rho']['energy'][str(i)]
+            sv = struct_vecs[struct_name]['rho']['energy'][str(i)]
             ni += (sv @ y.T).T
 
         if self.natoms[struct_name] < 3:
@@ -764,7 +808,7 @@ class NodeManager:
                     (cart2.shape[0], cart2.shape[1]*cart2.shape[2])
                 )
 
-                sv = self.struct_vecs[struct_name]['ffg']['energy'][str(j)][str(k)]
+                sv = struct_vecs[struct_name]['ffg']['energy'][str(j)][str(k)]
                 ni += (sv @ cart_y.T).T
 
         return ni
