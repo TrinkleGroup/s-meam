@@ -15,12 +15,8 @@ from src.manager import Manager
 np.set_printoptions(linewidth=1000)
 
 import random
-np.random.seed(42)
-random.seed(42)
 
-# TODO: print settings before running anything
 # TODO: have a script that checks the validity of an input script befor qsub
-# TODO: store directories with SAVE_DIRECTORY prepended to avoid doing later
 
 def main(config_name, template_file_name):
     world_comm = MPI.COMM_WORLD
