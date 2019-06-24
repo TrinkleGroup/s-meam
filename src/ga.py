@@ -141,28 +141,31 @@ def ga(parameters, database, template, is_manager, manager,
     resc_time = parameters['RESCALE_FREQ']
     shift_time = parameters['SHIFT_FREQ']
 
-    # turn U-only option on at beginning to try to stabilize U early
-    u_only_status = 'on'
-    toggle_time = parameters['TOGGLE_DURATION'] - 1
+    u_only_status = 'off'
+    toggle_time = parameters['TOGGLE_FREQ']
 
-    if is_master:
-        print("Toggling U-only mode to:", u_only_status)
+    # # turn U-only option on at beginning to try to stabilize U early
+    # u_only_status = 'on'
+    # toggle_time = parameters['TOGGLE_DURATION'] - 1
 
-        master_pop, ga_pop, template = toggle_u_only_optimization(
-            u_only_status, master_pop, ga_pop, template, [5, 6],
-            original_mask
-            # TODO: shouldn't hard-code [5,6]; use nphi to find tags
-        )
+    # if is_master:
+    #     print("Toggling U-only mode to:", u_only_status)
 
-        new_mask = template.active_mask
-    else:
-        new_mask = None
+    #     master_pop, ga_pop, template = toggle_u_only_optimization(
+    #         u_only_status, master_pop, ga_pop, template, [5, 6],
+    #         original_mask
+    #         # TODO: shouldn't hard-code [5,6]; use nphi to find tags
+    #     )
 
-    if is_manager:
-        new_mask = manager_comm.bcast(new_mask, root=0)
+    #     new_mask = template.active_mask
+    # else:
+    #     new_mask = None
 
-        template.active_mask = new_mask
-        manager.pot_template.active_mask = template.active_mask
+    # if is_manager:
+    #     new_mask = manager_comm.bcast(new_mask, root=0)
+
+    #     template.active_mask = new_mask
+    #     manager.pot_template.active_mask = template.active_mask
 
     # begin GA
     generation_number = 1
