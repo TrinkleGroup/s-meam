@@ -99,7 +99,7 @@ def ga(parameters, database, template, is_manager, manager,
     else:
         subset = None
 
-    new_fit, max_ni, min_ni, avg_ni = toolbox.evaluate_population(
+    fitnesses, max_ni, min_ni, avg_ni = toolbox.evaluate_population(
         master_pop, weights, return_ni=True, penalty=parameters['PENALTY_ON']
     )
 
@@ -107,7 +107,7 @@ def ga(parameters, database, template, is_manager, manager,
     if is_master:
         print('rescaled min/max ni', min_ni[0], max_ni[0])
 
-        new_fit = np.sum(new_fit, axis=1)
+        new_fit = np.sum(fitnesses, axis=1)
 
         pop_copy = []
         for ind in ga_pop:
@@ -151,6 +151,26 @@ def ga(parameters, database, template, is_manager, manager,
     generation_number = 1
     while (generation_number < parameters['NSTEPS']):
         if is_master:
+            new_fit = np.sum(fitnesses, axis=1)
+
+            tmp_min_ni = min_ni[np.argsort(new_fit)]
+            tmp_max_ni = max_ni[np.argsort(new_fit)]
+            tmp_avg_ni = avg_ni[np.argsort(new_fit)]
+
+            pop_copy = []
+            for ind in ga_pop:
+                pop_copy.append(creator.Individual(ind))
+
+            ga_pop = pop_copy
+
+            for ind, fit in zip(ga_pop, new_fit):
+                ind.fitness.values = fit,
+
+            # Sort
+            ga_pop = tools.selBest(ga_pop, len(ga_pop))
+
+            master_pop = master_pop[np.argsort(new_fit)]
+            master_pop[:, np.where(template.active_mask)[0]] = np.array(ga_pop)
 
             # Preserve top 50%, breed survivors
             for pot_num in range(len(ga_pop) // 2, len(ga_pop)):
@@ -224,8 +244,6 @@ def ga(parameters, database, template, is_manager, manager,
                             master_pop, min_ni, max_ni, template
                         )
 
-                        ga_pop = master_pop[:, np.where(template.active_mask)[0]]
-
                     # re-compute the ni data for use with shifting U domains
                     fitnesses, max_ni, min_ni, avg_ni = toolbox.evaluate_population(
                         master_pop, weights, return_ni=True,
@@ -233,6 +251,7 @@ def ga(parameters, database, template, is_manager, manager,
                     )
 
                     resc_time = parameters['RESCALE_FREQ'] - 1
+
                 else:
                     if u_only_status == 'off':  # don't decrement counter if U-only
                         resc_time -= 1
@@ -242,6 +261,22 @@ def ga(parameters, database, template, is_manager, manager,
             if shift_time == 0:
                 if is_master:
                     new_fit = np.sum(fitnesses, axis=1)
+
+                    ga_pop = master_pop[:, np.where(template.active_mask)[0]].copy()
+
+                    pop_copy = []
+                    for ind in ga_pop:
+                        pop_copy.append(creator.Individual(ind))
+
+                    ga_pop = pop_copy
+
+                    for ind, fit in zip(ga_pop, new_fit):
+                        ind.fitness.values = fit,
+
+                    ga_pop = tools.selBest(ga_pop, len(ga_pop))
+
+                    master_pop = master_pop[np.argsort(new_fit)]
+                    master_pop[:, np.where(template.active_mask)[0]] = np.array(ga_pop)
 
                     tmp_min_ni = min_ni[np.argsort(new_fit)]
                     tmp_max_ni = max_ni[np.argsort(new_fit)]
@@ -293,7 +328,7 @@ def ga(parameters, database, template, is_manager, manager,
                     ind.fitness.values = fit,
 
             mcmc_step += parameters['MCMC_NSTEPS']
-            mcmc_time = parameters['MCMC_FREQ']
+            mcmc_time = parameters['MCMC_FREQ'] - 1
 
         else:
             mcmc_time -= 1
@@ -340,26 +375,7 @@ def ga(parameters, database, template, is_manager, manager,
         if is_master:
             new_fit = np.sum(fitnesses, axis=1)
 
-            tmp_min_ni = min_ni[np.argsort(new_fit)]
-            tmp_max_ni = max_ni[np.argsort(new_fit)]
-            tmp_avg_ni = avg_ni[np.argsort(new_fit)]
-
-            pop_copy = []
-            for ind in ga_pop:
-                pop_copy.append(creator.Individual(ind))
-
-            ga_pop = pop_copy
-
-            for ind, fit in zip(ga_pop, new_fit):
-                ind.fitness.values = fit,
-
-            # Sort
-            ga_pop = tools.selBest(ga_pop, len(ga_pop))
-
-            master_pop = master_pop[np.argsort(new_fit)]
-            master_pop[:, np.where(template.active_mask)[0]] = np.array(ga_pop)
-
-            new_fit = new_fit[np.argsort(new_fit)]
+            # new_fit = new_fit[np.argsort(new_fit)]
 
             # checkpoint; save population, cost, and ni trace
             if generation_number % parameters['CHECKPOINT_FREQ'] == 0:
