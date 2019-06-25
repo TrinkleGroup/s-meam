@@ -1,5 +1,6 @@
 ## Authors
 Josh Vita (University of Illinois at Urbana-Champaign)
+
 Dallas Trinkle (University of Illinois at Urbana-Champaign)
 
 Contact: jvita2@illinois.edu
