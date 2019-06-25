@@ -16,6 +16,12 @@ np.set_printoptions(linewidth=1000)
 
 import random
 
+seed = np.random.randint(10000)
+# seed = 2462
+
+np.random.seed(seed)
+random.seed(seed)
+
 # TODO: have a script that checks the validity of an input script befor qsub
 
 def main(config_name, template_file_name):
@@ -26,6 +32,8 @@ def main(config_name, template_file_name):
 
     # read config and template files
     if is_master:
+        print("Random seed:", seed)
+
         parameters = read_config(config_name)
         template = read_template(template_file_name)
 
