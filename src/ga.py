@@ -262,11 +262,6 @@ def ga(parameters, database, template, is_manager, manager,
                 if u_only_status == 'off':  # don't decrement counter if U-only
                     shift_time -= 1
 
-        fitnesses, max_ni, min_ni, avg_ni = toolbox.evaluate_population(
-            master_pop, weights, return_ni=True,
-            penalty=parameters['PENALTY_ON']
-        )
-
         if parameters['DO_MCMC'] and (mcmc_time == 0):
             if is_master: 
                 print("Performing U-only MCMC...")
@@ -278,11 +273,35 @@ def ga(parameters, database, template, is_manager, manager,
                     suffix="U"
             )
 
+            fitnesses, max_ni, min_ni, avg_ni = toolbox.evaluate_population(
+                master_pop, weights, return_ni=True,
+                penalty=parameters['PENALTY_ON']
+            )
+
+            if is_master:
+                new_fit = np.sum(fitnesses, axis=1)
+
+                ga_pop = master_pop[:, np.where(template.active_mask)[0]].copy()
+
+                pop_copy = []
+                for ind in ga_pop:
+                    pop_copy.append(creator.Individual(ind))
+
+                ga_pop = pop_copy
+
+                for ind, fit in zip(ga_pop, new_fit):
+                    ind.fitness.values = fit,
+
             mcmc_step += parameters['MCMC_NSTEPS']
             mcmc_time = parameters['MCMC_FREQ']
 
         else:
             mcmc_time -= 1
+
+        fitnesses, max_ni, min_ni, avg_ni = toolbox.evaluate_population(
+            master_pop, weights, return_ni=True,
+            penalty=parameters['PENALTY_ON']
+        )
 
         # TODO: errors will occur if you try to resc/shift with U-only on
         if parameters['DO_TOGGLE'] and (toggle_time == 0):

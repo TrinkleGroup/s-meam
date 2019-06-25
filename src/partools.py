@@ -709,7 +709,7 @@ def mcmc(population, weights, cost_fxn, potential_template, T,
                     checkpoint(
                         tmp, current_cost, c_max_ni, c_min_ni, c_avg_ni,
                         start_step + step_num, parameters, potential_template,
-                        max_nsteps, suffix='_mc'
+                        max_nsteps
                     )
 
             # if current_best == prev_best:
