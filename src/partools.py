@@ -554,7 +554,7 @@ def shift_u(min_ni, max_ni):
 
 def mcmc(population, weights, cost_fxn, potential_template, T,
          parameters, active_tags, is_master, start_step=0,
-         cooling_rate=1, T_min=0, suffix="", max_nsteps=None, penalty=False):
+         cooling_rate=1, T_min=0, suffix="", max_nsteps=None):
     """
     Runs an MCMC optimization on the given subset of the parameter vectors.
     Stopping criterion is either 20 steps without any improvement,
@@ -581,10 +581,10 @@ def mcmc(population, weights, cost_fxn, potential_template, T,
     """
 
     if max_nsteps is None:
-        max_nsteps = parameters['MCMC_BLOCK_SIZE']
+        max_nsteps = parameters['MCMC_NSTEPS']
 
-    move_prob = parameters['SA_MOVE_PROB']
-    move_scale = parameters['SA_MOVE_SCALE']
+    move_prob = parameters['MCMC_MOVE_PROB']
+    move_scale = parameters['MCMC_MOVE_SCALE']
     checkpoint_freq = parameters['CHECKPOINT_FREQ']
 
     if is_master:
@@ -623,7 +623,7 @@ def mcmc(population, weights, cost_fxn, potential_template, T,
             rnd_indices = np.random.randint(
                 inp.shape[1], size=inp.shape[0]
             )
-            
+
             trial_position = inp.copy()
             trial_position[:, rnd_indices] += np.random.normal(
                 scale=move_scale, size=inp.shape[0]
@@ -652,11 +652,11 @@ def mcmc(population, weights, cost_fxn, potential_template, T,
             trial = None
 
         current_cost, c_max_ni, c_min_ni, c_avg_ni = cost_fxn(
-            tmp, weights, return_ni=True, penalty=penalty
+            tmp, weights, return_ni=True, penalty=parameters['PENALTY_ON']
         )
 
         trial_cost, t_max_ni, t_min_ni, t_avg_ni = cost_fxn(
-            tmp_trial, weights, return_ni=True, penalty=penalty
+            tmp_trial, weights, return_ni=True, penalty=parameters['PENALTY_ON']
         )
 
         if is_master:
@@ -976,3 +976,50 @@ def local_minimization(
         master_pop = np.array(updated_pop)
 
     return master_pop
+
+def convert_domains(old_u_knots, new_type):
+    """
+    Converts between [0, 1] and [-1, 1] type potentials. If 'new_type' == 0, it
+    is assumed that the current type is [-1, 1] and you want to convert to
+    [0, 1] type. Otherwise, it's assumed that [0, 1] is current and [-1, 1] is
+    desired.
+
+    Intended for use as part of a GA mutation operation.
+
+    If converting [0, 1] -> [-1, 1], then the current U knots are sampled to be
+    used by the right half of the new U splines, then the LHS derivative value
+    is used to sample a line that intercepts the leftmost knot.
+
+    If converting [-1, 1], then the right half of the current U splines are used
+    for the new U splines, and the new LHS deriv is taken as the slope between
+    the new leftmost knot and its old neighbor to the left.
+
+    Args:
+        old_u_knots: (list[np.arr])
+            List of U knots for a single potential. Each entry in the list
+            corresponds to all of the knots for a single U spline.
+
+        new_type: (int)
+            0 or 1. 0 means convert to [0, 1]; 1 means convert to [-1, 1]
+
+    Returns:
+        new_u_knots: (list[np.arr])
+            the new u knots, transformed as described above
+    """
+
+    new_u_knots = []
+
+    for old in old_u_knots:
+        if new_type == 0:  # convert to [0, 1]
+            # assumes current type is [-1, 1] and knots are evenly-spaced
+
+            # gets the first non-negative knot point
+            midpoint = np.where(np.linspace(-1, 1, len(old)) > 0)[0]
+
+            new = np.zeros(old.shape)
+            new[0] = old[midpoint]
+
+            n = old.shape[0]
+            while i < n:
+                # resample 
+                pass

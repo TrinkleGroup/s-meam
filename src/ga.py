@@ -140,32 +140,12 @@ def ga(parameters, database, template, is_manager, manager,
     lmin_time = parameters['LMIN_FREQ']
     resc_time = parameters['RESCALE_FREQ']
     shift_time = parameters['SHIFT_FREQ']
+    mcmc_time = parameters['MCMC_FREQ']
+
+    mcmc_step = 0
 
     u_only_status = 'off'
     toggle_time = parameters['TOGGLE_FREQ']
-
-    # # turn U-only option on at beginning to try to stabilize U early
-    # u_only_status = 'on'
-    # toggle_time = parameters['TOGGLE_DURATION'] - 1
-
-    # if is_master:
-    #     print("Toggling U-only mode to:", u_only_status)
-
-    #     master_pop, ga_pop, template = toggle_u_only_optimization(
-    #         u_only_status, master_pop, ga_pop, template, [5, 6],
-    #         original_mask
-    #         # TODO: shouldn't hard-code [5,6]; use nphi to find tags
-    #     )
-
-    #     new_mask = template.active_mask
-    # else:
-    #     new_mask = None
-
-    # if is_manager:
-    #     new_mask = manager_comm.bcast(new_mask, root=0)
-
-    #     template.active_mask = new_mask
-    #     manager.pot_template.active_mask = template.active_mask
 
     # begin GA
     generation_number = 1
@@ -236,7 +216,7 @@ def ga(parameters, database, template, is_manager, manager,
             if generation_number < parameters['RESCALE_STOP_STEP']:
                 if resc_time == 0:
                     if is_master:
-                        print("Rescaling ...", flush=True)
+                        print("Rescaling ...")
 
                         new_fit = np.sum(fitnesses, axis=1)
 
@@ -267,7 +247,7 @@ def ga(parameters, database, template, is_manager, manager,
                     tmp_max_ni = max_ni[np.argsort(new_fit)]
 
                     new_u_domains = partools.shift_u(tmp_min_ni, tmp_max_ni)
-                    print("new_u_domains:", new_u_domains, flush=True)
+                    print("new_u_domains:", new_u_domains)
                 else:
                     new_u_domains = None
 
@@ -287,6 +267,22 @@ def ga(parameters, database, template, is_manager, manager,
             penalty=parameters['PENALTY_ON']
         )
 
+        if parameters['DO_MCMC'] and (mcmc_time == 0):
+            print("Performing U-only MCMC...")
+
+            master_pop = partools.mcmc(
+                    master_pop, weights, toolbox.evaluate_population,
+                    template, 1, parameters, [5, 6], is_master,
+                    start_step=mcmc_step, max_nsteps=parameters['MCMC_NSTEPS'],
+                    suffix="U"
+            )
+
+            mcmc_step += parameters['MCMC_NSTEPS']
+            mcmc_time = parameters['MCMC_FREQ']
+
+        else:
+            mcmc_time -= 1
+
         # TODO: errors will occur if you try to resc/shift with U-only on
         if parameters['DO_TOGGLE'] and (toggle_time == 0):
             # optionally toggle splines on/off to allow U-only optimization
@@ -299,7 +295,7 @@ def ga(parameters, database, template, is_manager, manager,
                 toggle_time = parameters['TOGGLE_FREQ'] - 1
 
             if is_master:
-                print("Toggling U-only mode to:", u_only_status, flush=True)
+                print("Toggling U-only mode to:", u_only_status)
 
                 master_pop, ga_pop, template = toggle_u_only_optimization(
                     u_only_status, master_pop, ga_pop, template, [5, 6],
@@ -565,7 +561,7 @@ def build_stats_and_log():
     stats.register("max", np.max)
 
     logbook = tools.Logbook()
-    logbook.header = "gen", "size", "min", "max", "avg", "std", "num_active"
+    logbook.header = "gen", "size", "min", "max", "avg", "std"#, "num_active"
 
     return stats, logbook
 
@@ -576,7 +572,7 @@ def print_statistics(pop, gen_num, stats, logbook, active_knots):
     record = stats.compile(pop)
 
     logbook.record(
-        gen=gen_num, size=len(pop), **record, num_active=active_knots
+        gen=gen_num, size=len(pop), **record#, num_active=active_knots
     )
 
     print(logbook.stream, flush=True)

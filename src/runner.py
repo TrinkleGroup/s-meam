@@ -44,17 +44,17 @@ def main(config_name, template_file_name):
         'INIT_NSTEPS', 'LMIN_NSTEPS', 'FINAL_NSTEPS', 'CHECKPOINT_FREQ',
         'RESCALE_FREQ', 'RESCALE_STOP_STEP', 'U_NSTEPS',
         'MCMC_BLOCK_SIZE', 'SGD_BATCH_SIZE', 'SHIFT_FREQ',
-        'TOGGLE_FREQ', 'TOGGLE_DURATION'
+        'TOGGLE_FREQ', 'TOGGLE_DURATION', 'MCMC_FREQ', 'MCMC_NSTEPS',
     ]
 
     float_params = [
-        'MUT_PB', 'COOLING_RATE', 'TMIN', 'TSTART', 'SA_MOVE_PROB',
-        'SA_MOVE_SCALE', 'SGD_STEP_SIZE'
+        'MUT_PB', 'COOLING_RATE', 'TMIN', 'TSTART', 'SGD_STEP_SIZE',
+        'MCMC_MOVE_PROB', 'MCMC_MOVE_SCALE'
     ]
 
     bool_params = [
         'RUN_NEW_GA', 'DO_LMIN', 'DEBUG', 'DO_RESCALE', 'OVERWRITE_OLD_FILES',
-        'DO_SHIFT', 'DO_TOGGLE', 'PENALTY_ON'
+        'DO_SHIFT', 'DO_TOGGLE', 'PENALTY_ON', 'DO_MCMC'
     ]
 
     for key, val in parameters.items():
