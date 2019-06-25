@@ -268,7 +268,8 @@ def ga(parameters, database, template, is_manager, manager,
         )
 
         if parameters['DO_MCMC'] and (mcmc_time == 0):
-            print("Performing U-only MCMC...")
+            if is_master: 
+                print("Performing U-only MCMC...")
 
             master_pop = partools.mcmc(
                     master_pop, weights, toolbox.evaluate_population,
