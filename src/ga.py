@@ -379,6 +379,8 @@ def ga(parameters, database, template, is_manager, manager,
             master_pop = master_pop[np.argsort(new_fit)]
             master_pop[:, np.where(template.active_mask)[0]] = np.array(ga_pop)
 
+            new_fit = new_fit[np.argsort(new_fit)]
+
             # checkpoint; save population, cost, and ni trace
             if generation_number % parameters['CHECKPOINT_FREQ'] == 0:
                 partools.checkpoint(
