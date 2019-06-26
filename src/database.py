@@ -58,14 +58,14 @@ class Database:
 
         to_add = additional_names.tolist()
 
-        # to_add = []
-        # with open("../names.txt", "r") as f:
-        #     for line in f:
-        #         # clean = "_".join(line.strip().split("/")[1:])
-        #         clean = line.strip()
-        #         to_add.append(
-        #             os.path.join(self.true_values_folder_path, "info."+ clean)
-        #         )
+        to_add = []
+        with open("../names_fatso.txt", "r") as f:
+            for line in f:
+                # clean = "_".join(line.strip().split("/")[1:])
+                clean = line.strip()
+                to_add.append(
+                    os.path.join(self.true_values_folder_path, "info."+ clean)
+                )
 
         ref_path = os.path.join(
             self.true_values_folder_path, "info." + self.ref_name

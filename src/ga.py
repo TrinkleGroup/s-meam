@@ -151,26 +151,6 @@ def ga(parameters, database, template, is_manager, manager,
     generation_number = 1
     while (generation_number < parameters['NSTEPS']):
         if is_master:
-            new_fit = np.sum(fitnesses, axis=1)
-
-            tmp_min_ni = min_ni[np.argsort(new_fit)]
-            tmp_max_ni = max_ni[np.argsort(new_fit)]
-            tmp_avg_ni = avg_ni[np.argsort(new_fit)]
-
-            pop_copy = []
-            for ind in ga_pop:
-                pop_copy.append(creator.Individual(ind))
-
-            ga_pop = pop_copy
-
-            for ind, fit in zip(ga_pop, new_fit):
-                ind.fitness.values = fit,
-
-            # Sort
-            ga_pop = tools.selBest(ga_pop, len(ga_pop))
-
-            master_pop = master_pop[np.argsort(new_fit)]
-            master_pop[:, np.where(template.active_mask)[0]] = np.array(ga_pop)
 
             # Preserve top 50%, breed survivors
             for pot_num in range(len(ga_pop) // 2, len(ga_pop)):
@@ -240,8 +220,11 @@ def ga(parameters, database, template, is_manager, manager,
 
                         new_fit = np.sum(fitnesses, axis=1)
 
+                        tmp_min_ni = min_ni[np.argsort(new_fit)]
+                        tmp_max_ni = max_ni[np.argsort(new_fit)]
+
                         master_pop = partools.rescale_ni(
-                            master_pop, min_ni, max_ni, template
+                            master_pop, tmp_min_ni, tmp_max_ni, template
                         )
 
                     # re-compute the ni data for use with shifting U domains
@@ -333,11 +316,6 @@ def ga(parameters, database, template, is_manager, manager,
         else:
             mcmc_time -= 1
 
-        fitnesses, max_ni, min_ni, avg_ni = toolbox.evaluate_population(
-            master_pop, weights, return_ni=True,
-            penalty=parameters['PENALTY_ON']
-        )
-
         # TODO: errors will occur if you try to resc/shift with U-only on
         if parameters['DO_TOGGLE'] and (toggle_time == 0):
             # optionally toggle splines on/off to allow U-only optimization
@@ -371,11 +349,35 @@ def ga(parameters, database, template, is_manager, manager,
         else:
             toggle_time -= 1
 
+        fitnesses, max_ni, min_ni, avg_ni = toolbox.evaluate_population(
+            master_pop, weights, return_ni=True,
+            penalty=parameters['PENALTY_ON']
+        )
+
         # update GA Individuals with new costs; sort
         if is_master:
             new_fit = np.sum(fitnesses, axis=1)
 
-            # new_fit = new_fit[np.argsort(new_fit)]
+            tmp_min_ni = min_ni[np.argsort(new_fit)]
+            tmp_max_ni = max_ni[np.argsort(new_fit)]
+            tmp_avg_ni = avg_ni[np.argsort(new_fit)]
+
+            ga_pop = master_pop[:, np.where(template.active_mask)[0]]
+
+            pop_copy = []
+            for ind in ga_pop:
+                pop_copy.append(creator.Individual(ind))
+
+            ga_pop = pop_copy
+
+            for ind, fit in zip(ga_pop, new_fit):
+                ind.fitness.values = fit,
+
+            # Sort
+            ga_pop = tools.selBest(ga_pop, len(ga_pop))
+
+            master_pop = master_pop[np.argsort(new_fit)]
+            master_pop[:, np.where(template.active_mask)[0]] = np.array(ga_pop)
 
             # checkpoint; save population, cost, and ni trace
             if generation_number % parameters['CHECKPOINT_FREQ'] == 0:

@@ -100,7 +100,7 @@ class Manager:
                 )
 
                 # num_in = np.where(np.logical_and(ni <= 1, ni >= -1))
-                num_in = np.logical_and(type_ni >= -1, type_ni <= 1).sum(axis=1)
+                num_in = np.logical_and(type_ni >= -1.2, type_ni <= 1.2).sum(axis=1)
 
                 frac_in.append(num_in / type_ni.shape[1])
 
