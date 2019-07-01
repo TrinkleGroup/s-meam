@@ -456,7 +456,7 @@ class Worker:
                 (self.n_pots, u.knots.shape[0] + 2))
 
             # extract ni values for atoms of type i
-            ni_sublist = ni[:, self.type_of_each_atom - 2 == i]
+            ni_sublist = ni[:, self.type_of_each_atom - 1 == i]
 
             if ni_sublist.shape[1] > 0:
                 max_ni[:, i] = np.max(ni_sublist)
