@@ -4,11 +4,13 @@ import src.partools as partools
 from src.database import Database
 from src.potential_templates import Template
 
+# NOTE: the use of 336 throught this file was arbitrary...
+
 class PartoolsTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         BASE_PATH = "/home/jvita/scripts/s-meam/"
-        LOAD_PATH = BASE_PATH + "data/fitting_databases/leno-redo/"
+        LOAD_PATH = BASE_PATH + "data/fitting_databases/hyojung/"
         DB_PATH = LOAD_PATH + 'structures'
         DB_INFO_FILE_NAME = LOAD_PATH + 'rhophi/info'
 
@@ -19,83 +21,81 @@ class PartoolsTests(unittest.TestCase):
         cls.true_val_sum = 1986832.9815369176
         cls.true_grad_sum = 5762089.574448535
 
-    def test_build_fxns(self):
-        fxn, grad = partools.build_evaluation_functions(
-            self.database, self.pot_template
-        )
+    # def test_build_fxns(self):
+    #     fxn, grad = partools.build_evaluation_functions(
+    #         self.database, self.pot_template
+    #     )
+    # 
+    # def test_eval_fxns_one_pot(self):
+    #     fxn, grad = partools.build_evaluation_functions(
+    #         self.database, self.pot_template
+    #     )
+    # 
+    #     eng, fcs = fxn(np.ones(len(np.where(self.pot_template.active_mask)[0])))
+    # 
+    #     val = np.concatenate([eng, fcs], axis=1)
+    # 
+    #     np.testing.assert_almost_equal(np.sum(val), self.true_val_sum)
+    # 
+    # def test_eval_fxns_many_pots(self):
+    #     fxn, grad = partools.build_evaluation_functions(
+    #         self.database, self.pot_template
+    #     )
+    # 
+    #     eng, fcs = fxn(
+    #         np.ones((10, len(np.where(self.pot_template.active_mask)[0])))
+    #     )
+    # 
+    #     val = np.concatenate([eng, fcs], axis=1)
+    # 
+    #     np.testing.assert_allclose(
+    #         np.sum(val, axis=1), np.ones(10)*self.true_val_sum
+    #     )
 
-    def test_eval_fxns_one_pot(self):
-        fxn, grad = partools.build_evaluation_functions(
-            self.database, self.pot_template
-        )
-
-        eng, fcs = fxn(np.ones(len(np.where(self.pot_template.active_mask)[0])))
-
-        val = np.concatenate([eng, fcs], axis=1)
-
-        np.testing.assert_almost_equal(np.sum(val), self.true_val_sum)
-
-    def test_eval_fxns_many_pots(self):
-        fxn, grad = partools.build_evaluation_functions(
-            self.database, self.pot_template
-        )
-
-        eng, fcs = fxn(
-            np.ones((10, len(np.where(self.pot_template.active_mask)[0])))
-        )
-
-        val = np.concatenate([eng, fcs], axis=1)
-
-        np.testing.assert_allclose(
-            np.sum(val, axis=1), np.ones(10)*self.true_val_sum
-        )
-
-    def test_eval_grad_one_pot(self):
-        fxn, grad = partools.build_evaluation_functions(
-            self.database, self.pot_template
-        )
-
-        e_grad, f_grad = grad(
-            np.ones(len(np.where(self.pot_template.active_mask)[0]))
-        )
-
-        grad = np.dstack([e_grad, f_grad])
-
-        np.testing.assert_almost_equal(
-            np.sum(np.sum(grad, axis=2),axis=1), self.true_grad_sum
-        )
-
-    def test_eval_grad_many_pots(self):
-        fxn, grad = partools.build_evaluation_functions(
-            self.database, self.pot_template
-        )
-
-        e_grad, f_grad = grad(
-            np.ones((10, len(np.where(self.pot_template.active_mask)[0])))
-        )
-
-        grad = np.dstack([e_grad, f_grad])
-
-        np.testing.assert_allclose(
-            np.sum(np.sum(grad, axis=2), axis=1), self.true_grad_sum
-        )
+    # def test_eval_grad_one_pot(self):
+    #     fxn, grad = partools.build_evaluation_functions(
+    #         self.database, self.pot_template
+    #     )
+    # 
+    #     e_grad, f_grad = grad(
+    #         np.ones(len(np.where(self.pot_template.active_mask)[0]))
+    #     )
+    # 
+    #     grad = np.dstack([e_grad, f_grad])
+    # 
+    #     np.testing.assert_almost_equal(
+    #         np.sum(np.sum(grad, axis=2),axis=1), self.true_grad_sum
+    #     )
+    # 
+    # def test_eval_grad_many_pots(self):
+    #     fxn, grad = partools.build_evaluation_functions(
+    #         self.database, self.pot_template
+    #     )
+    # 
+    #     e_grad, f_grad = grad(
+    #         np.ones((10, len(np.where(self.pot_template.active_mask)[0])))
+    #     )
+    # 
+    #     grad = np.dstack([e_grad, f_grad])
+    # 
+    #     np.testing.assert_allclose(
+    #         np.sum(np.sum(grad, axis=2), axis=1), self.true_grad_sum
+    #     )
 
     def test_proc_assignment_one_per(self):
-        procs_to_use = len(self.database.structures)
+        procs_to_use = len(self.database.unique_structs)
 
         assignments = partools.compute_procs_per_subset(
-            self.database.structures.values(),
-            total_num_procs=procs_to_use
+            np.ones(336)*5, total_num_procs=procs_to_use
         )
 
         self.assertEqual(np.concatenate(assignments).shape[0], procs_to_use)
 
     def test_proc_assignment_many_per(self):
-        procs_to_use = len(self.database.structures) * 3 + np.random.randint(30)
+        procs_to_use = 336*3 + np.random.randint(30)
 
         assignments = partools.compute_procs_per_subset(
-            self.database.structures.values(),
-            total_num_procs=procs_to_use
+            np.ones(336)*5, total_num_procs=procs_to_use
         )
 
         self.assertEqual(np.concatenate(assignments).shape[0], procs_to_use)
@@ -104,19 +104,17 @@ class PartoolsTests(unittest.TestCase):
 
         # subsets, work = partools.group_database_subsets(self.database, 336)
         ranks_per_subset = partools.compute_procs_per_subset(
-            self.database.structures.values(), 336
+            np.ones(336)*5, 336
         )
 
-        # print(ranks_per_subset)
         np.testing.assert_allclose(
-            ranks_per_subset, np.ones(len(self.database.structures))
+                ranks_per_subset, np.arange(336).reshape((336, 1))
         )
 
     def test_procs_invalid_method(self):
         self.assertRaises(
-            ValueError, partools.compute_procs_per_subset(
-                self.database.structures.values(), 'bad_arg'
-            )
+            ValueError, partools.compute_procs_per_subset,
+            np.random.randint(200, size=30), 336, 'bad_arg'
         )
 
 def initialize_potential_template():

@@ -444,10 +444,10 @@ class USplineTests(unittest.TestCase):
         self.s = USpline(self.x, ('fixed', 'fixed'), 5)
         self.s.y = self.y
 
-    def test_zero_point_energy(self):
-        # Should evaluate to # of evaluations (e.g. 4 fake atoms = result of 4)
-        self.s.atoms_embedded = 3
-        self.assertEqual(np.sum(self.s.compute_zero_potential(self.y, 3)), 3)
+    # def test_zero_point_energy(self):
+    #     # Should evaluate to # of evaluations (e.g. 4 fake atoms = result of 4)
+    #     self.s.atoms_embedded = 3
+    #     self.assertEqual(np.sum(self.s.compute_zero_potential(self.y, 3)), 3)
 
 class RhoSplineTests(unittest.TestCase):
 

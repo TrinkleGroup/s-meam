@@ -389,7 +389,7 @@ class Worker:
 
         # Pair interactions
         for y, phi in zip(phi_pvecs, self.phis, ):
-            logging.info("phi.calc_energy(y): {0}".format(phi.calc_energy(y)))
+            # logging.info("phi.calc_energy(y): {0}".format(phi.calc_energy(y)))
             energy += phi.calc_energy(y)
 
         # Embedding terms
@@ -399,7 +399,7 @@ class Worker:
         # tmp_eng = self.embedding_energy(ni, u_pvecs, u_ranges)
         energy += tmp_eng
 
-        logging.info("total energy: {0}".format(energy))
+        # logging.info("total energy: {0}".format(energy))
 
         return energy, ni  # ,max_ni, min_ni
 
@@ -471,7 +471,6 @@ class Worker:
                     ni_sublist, u_range[0], u_range[1]
                 )
 
-                logging.info("u.calc_energy(): {}".format(u.calc_energy(y)))
                 u_energy += u.calc_energy(y)
 
             u.reset()

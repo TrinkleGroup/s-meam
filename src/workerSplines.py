@@ -610,7 +610,7 @@ class USpline(WorkerSpline):
         us.rhs_extrap_dist = np.array(spline_data.attrs['rhs_extrap_dist'])
         us.index = int(spline_data.attrs['index'])
 
-        us.zero_abcd = np.array(spline_data['zero_abcd'])
+        # us.zero_abcd = np.array(spline_data['zero_abcd'])
         us.atoms_embedded = np.array(spline_data.attrs['atoms_embedded'])
 
         us.n_knots = len(x)
@@ -625,7 +625,7 @@ class USpline(WorkerSpline):
         uspline_group.create_dataset('deriv_struct_vec',
              data=self.structure_vectors['deriv'])
 
-        uspline_group.create_dataset('zero_abcd', data=self.zero_abcd)
+        # uspline_group.create_dataset('zero_abcd', data=self.zero_abcd)
         uspline_group.attrs['atoms_embedded'] = self.atoms_embedded
 
     def update_knot_positions(self, lhs_knot, rhs_knot, npots):

@@ -14,7 +14,6 @@ np.set_printoptions(precision=16, suppress=True)
 from scipy.optimize import fmin_cg, fmin_powell
 
 import h5py
-from parsl import *
 from deap import base, creator, tools, algorithms
 
 from src.worker import Worker

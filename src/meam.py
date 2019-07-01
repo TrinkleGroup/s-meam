@@ -253,7 +253,7 @@ class MEAM:
 
                     phi_idx = ij_to_potl(itype, jtype, self.ntypes)
                     # logging.info("MEAM: phi_idx = {}".format(phi_idx))
-                    logging.info("MEAM: phi({0}) = {1}".format(r_ij, phi(r_ij)))
+                    # logging.info("MEAM: phi({0}) = {1}".format(r_ij, phi(r_ij)))
                     total_phi += phi(r_ij)
                 # end phi loop
 
@@ -309,7 +309,7 @@ class MEAM:
                     all_ffg_ni.append(fj_val * partialsum)
                 # end u loop
 
-                logging.info("MEAM: u({0}) = {1}".format(total_ni,u(total_ni)))
+                # logging.info("MEAM: u({0}) = {1}".format(total_ni,u(total_ni)))
                 atom_e = total_phi + u(total_ni)
 
                 all_ni.append(total_ni)
@@ -632,9 +632,11 @@ class MEAM:
 
         original = self.phis + self.rhos + self.us + self.fs + self.gs
 
-        splines = [original[i] if (i < (nphi + N + N)) else ZeroSpline(original[
-                                                                           i].x)
-                   for i in range(N * (N + 4))]
+        splines = [
+                original[i] if (i < (nphi + N + N))
+                else ZeroSpline(original[i].x)
+                for i in range(N * (N + 4))
+        ]
 
         return MEAM(splines=splines, types=self.types)
 
@@ -725,7 +727,7 @@ class MEAM:
         original = self.phis + self.rhos + self.us + self.fs + self.gs
 
         splines = [
-            original[i] if ((i >= nphi) and (i < nphi + N + N)) else ZeroSpline(
+            original[i] if (i < nphi + 3*N) else ZeroSpline(
                 original[i].x) for i in range(N * (N + 4))]
 
         return MEAM(splines=splines, types=self.types)

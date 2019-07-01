@@ -121,7 +121,7 @@ def get_lammps_results(pots, structs):
             # lmp_energies[name][pnum] = results['energy'] / len(atoms)
             # lmp_forces[name].append(results['forces'] / len(atoms))
 
-            lmp_energies[name][pnum] = lmp_p.compute_energy(atoms) / len(atoms)
+            lmp_energies[name][pnum] = lmp_p.compute_energy(atoms)[0] / len(atoms)
             lmp_forces[name].append(lmp_p.compute_forces(atoms) / len(atoms))
 
     return lmp_energies, lmp_forces
@@ -138,10 +138,10 @@ def runner_energy(pots, structs, u_ranges):
     for name in structs.keys():
         atoms = structs[name]
 
-        logging.info("COMPUTING: {0}".format(name))
+        # logging.info("COMPUTING: {0}".format(name))
         w = Worker(atoms, x_pvec, indices, pots[0].types)
         # TODO: to optimize, preserve workers for each struct
-        wrk_energies[name] = w.compute_energy(y_pvec, u_ranges) / len(atoms)
+        wrk_energies[name] = w.compute_energy(y_pvec, u_ranges)[0] / len(atoms)
 
     return wrk_energies
 
@@ -156,7 +156,7 @@ def runner_forces(pots, structs, u_ranges):
 
         w = Worker(atoms, x_pvec, indices, pots[0].types)
         wrk_forces[name] = np.array(w.compute_forces(y_pvec, u_ranges) / len(atoms))
-    logging.info(" ...... {0} second(s)".format(time.time() - start))
+    # logging.info(" ...... {0} second(s)".format(time.time() - start))
 
     return wrk_forces
 
@@ -364,8 +364,8 @@ if rand_pots_flag:
 
             @parameterized.expand(loader_energy('', calc_energies, energies))
             def test_random_potential_meam_energy(name, a, b):
-                logging.info("a: {0}".format(a))
-                logging.info("b: {0}".format(b))
+                # logging.info("a: {0}".format(a))
+                # logging.info("b: {0}".format(b))
                 diff = np.abs(a - b)
                 np.testing.assert_almost_equal(diff, 0.0, decimal=DECIMAL)
 
@@ -576,7 +576,7 @@ class GradientTests(unittest.TestCase):
                 cd_points[2*l+1, l] -= h
 
             if type == 'energy':
-                cd_evaluated = worker.compute_energy(np.array(cd_points), [(0, a0)]*2)
+                cd_evaluated = worker.compute_energy(np.array(cd_points), [(0,a0)]*2)[0]
                 fd_gradient = np.zeros(N)
             elif type == 'forces':
                 cd_evaluated = worker.compute_forces(np.array(cd_points), [(0, a0)]*2)
@@ -727,4 +727,4 @@ class GradientTests(unittest.TestCase):
 
 ################################################################################
 
-logging.info("Total runtime: {0}".format(time.time() - full_start))
+# logging.info("Total runtime: {0}".format(time.time() - full_start))
