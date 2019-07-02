@@ -131,9 +131,6 @@ class ConstructorTests(unittest.TestCase):
             s_splines = group_splines[i]
             s_pvec = group_pvec[i]
 
-            print(s_splines.d0, s_pvec.d0)
-            print(s_splines.dN, s_pvec.dN)
-
             self.assertTrue(s_splines == s_pvec)
 
 
@@ -354,7 +351,6 @@ class MethodTests(unittest.TestCase):
         all_splines = p.phis + p.rhos + p.us + p.fs + p.gs
 
         for i in range(12):
-            print(i, type(all_splines[i]))
             if i < 9:
                 self.assertTrue(isinstance(all_splines[i], src.spline.Spline))
             else:
