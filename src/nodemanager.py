@@ -4,20 +4,21 @@ Handles energy/forces/etc evaluation with hybrid OpenMP/MPI.
 Each NodeManager object handles the set of processes on a single compute node.
 """
 
+import time
 import numpy as np
-import ctypes as c
 import multiprocessing as mp
 import src.partools
 from itertools import repeat
 from multiprocessing import Manager
+import logging
+
+logger = logging.getLogger(__name__)
 
 struct_vecs = {}
 
 class NodeManager:
     def __init__(self, node_id, template):
         self.node_id = node_id
-        # TODO: only need world_comm?
-        # self.comm = comm
         self.template = template
 
         # self.rank_on_node = comm.Get_rank()
@@ -43,9 +44,9 @@ class NodeManager:
 
         self.pool = mp.Pool(node_size)
 
-    def initialize_shared_memory(self):
-        manager = Manager()
-        struct_vecs = manager.dict(struct_vecs)
+    # def initialize_shared_memory(self):
+    #     manager = Manager()
+    #     struct_vecs = manager.dict(struct_vecs)
 
     def parallel_compute(self, struct_name, potentials, u_domains,
                          compute_type):
@@ -141,6 +142,9 @@ class NodeManager:
         if type(struct_list) is not list:
             raise ValueError("struct_list must be a list of keys")
 
+        print("Beginning parallel evaluation...", flush=True)
+
+        start = time.time()
         return_values = self.pool.starmap(
             self.parallel_compute,
             zip(
@@ -148,6 +152,8 @@ class NodeManager:
                 repeat(compute_type)
             )
         )
+
+        print("Evaluation time:", time.time() - start)
 
         return dict(zip(struct_list, return_values))
 
@@ -296,8 +302,8 @@ class NodeManager:
 
         # pair interactions
         for i, y in enumerate(phi_pvecs):
-            sv = struct_vecs[struct_name]['phi']['energy'][str(i)]
-            energy += sv @ y.T
+            energy += \
+                struct_vecs[struct_name]['phi']['energy'][str(i)] @ y.T
 
         # embedding terms
         ni = self.compute_ni(struct_name, rho_pvecs, f_pvecs, g_pvecs)
@@ -311,14 +317,14 @@ class NodeManager:
     def compute_forces(self, struct_name, potentials, u_ranges):
         potentials = np.atleast_2d(potentials)
 
-        N = self.natoms[struct_name]
+        # N = self.natoms[struct_name]
 
         n_pots = potentials.shape[0]
 
         phi_pvecs, rho_pvecs, u_pvecs, f_pvecs, g_pvecs = \
             self.parse_parameters(potentials)
 
-        forces = np.zeros((n_pots, N, 3))
+        forces = np.zeros((n_pots, self.natoms[struct_name], 3))
 
         # pair forces (phi)
         for phi_idx, y in enumerate(phi_pvecs):
@@ -328,17 +334,21 @@ class NodeManager:
                 y
             )
 
+        logging.info("NODE phi forces[0]: {}".format(forces[:, :, 0]))
+
         ni = self.compute_ni(struct_name, rho_pvecs, f_pvecs, g_pvecs)
         uprimes = self.evaluate_uprimes(
             struct_name, ni, u_pvecs, u_ranges, second=False
         )
 
+        logging.info("NODE uprimes: {}".format(uprimes))
+
         # electron density embedding term (rho)
-        embedding_forces = np.zeros((n_pots, 3*(N**2)))
+        embedding_forces = np.zeros((n_pots, 3*(self.natoms[struct_name]**2)))
 
         for rho_idx, y in enumerate(rho_pvecs):
-            sv = struct_vecs[struct_name]['rho']['forces'][str(rho_idx)]
-            embedding_forces += (sv @ y.T).T
+            embedding_forces += \
+                (struct_vecs[struct_name]['rho']['forces'][str(rho_idx)] @ y.T).T
 
         for j, y_fj in enumerate(f_pvecs):
             for k, y_fk in enumerate(f_pvecs):
@@ -355,10 +365,13 @@ class NodeManager:
                     (cart2.shape[0], cart2.shape[1]*cart2.shape[2])
                 )
 
-                sv = struct_vecs[struct_name]['ffg']['forces'][str(j)][str(k)]
-                embedding_forces += (sv @ cart_y.T).T
+                embedding_forces += \
+                    (struct_vecs[struct_name]['ffg']['forces'][str(j)][str(k)] @ cart_y.T).T
 
-        embedding_forces = embedding_forces.reshape((n_pots, 3, N, N))
+        embedding_forces = embedding_forces.reshape(
+            (n_pots, 3, self.natoms[struct_name], self.natoms[struct_name])
+        )
+
         embedding_forces = np.einsum('pijk,pk->pji', embedding_forces, uprimes)
 
         return forces + embedding_forces
@@ -539,15 +552,13 @@ class NodeManager:
 
         grad_index = 0
 
-        N = self.natoms[struct_name]
+        # N = self.natoms[struct_name]
 
         # gradients of phi are just their structure vectors
         for phi_idx, y in enumerate(phi_pvecs):
-            sv = np.array(
-                struct_vecs[struct_name]['phi']['forces'][str(phi_idx)]
-            )
+            sv = struct_vecs[struct_name]['phi']['forces'][str(phi_idx)]
 
-            sv = sv.reshape(N, 3, y.shape[1])
+            sv = sv.reshape(self.natoms[struct_name], 3, y.shape[1])
 
             gradient[:, :, :, grad_index:grad_index + y.shape[1]] += sv
 
@@ -560,12 +571,16 @@ class NodeManager:
             struct_name, ni, u_pvecs, u_ranges, second=True, return_sv=True
         )
 
-        embedding_forces = np.zeros((n_pots, 3, N, N))
+        embedding_forces = np.zeros(
+            (n_pots, 3, self.natoms[struct_name], self.natoms[struct_name])
+        )
 
         # pre-compute all rho forces
         for rho_idx, y in enumerate(rho_pvecs):
             rho_sv = struct_vecs[struct_name]['rho']['forces'][str(rho_idx)]
-            embedding_forces += (rho_sv @ y.T).T.reshape(n_pots, 3, N, N)
+            embedding_forces += (rho_sv @ y.T).T.reshape(
+                n_pots, 3, self.natoms[struct_name], self.natoms[struct_name]
+            )
 
         # pre-compute all ffg forces
         for j, y_fj in enumerate(f_pvecs):
@@ -586,19 +601,25 @@ class NodeManager:
                 sv = struct_vecs[struct_name]['ffg']['forces'][str(j)][str(k)]
                 ffg_forces = (sv @ cart_y.T).T
 
-                embedding_forces += ffg_forces.reshape((n_pots, 3, N, N))
+                embedding_forces += ffg_forces.reshape(
+                    (n_pots, 3, self.natoms[struct_name], self.natoms[struct_name])
+                )
 
         # rho gradient term; there's a U'' and a U' term for each rho
         for rho_idx, y in enumerate(rho_pvecs):
             rho_e_sv = struct_vecs[struct_name]['rho']['energy'][str(rho_idx)]
 
             rho_f_sv = struct_vecs[struct_name]['rho']['forces'][str(rho_idx)]
-            rho_f_sv = np.array(rho_f_sv).reshape((3, N, N, y.shape[1]))
+            rho_f_sv = np.array(rho_f_sv).reshape(
+                (3, self.natoms[struct_name], self.natoms[struct_name], y.shape[1])
+            )
 
             # U'' term
             uprimes_scaled = np.einsum('pi,ij->pij', uprimes_2, rho_e_sv)
 
-            stacking_results = np.zeros((n_pots, N, 3, y.shape[1]))
+            stacking_results = np.zeros(
+                (n_pots, self.natoms[struct_name], 3, y.shape[1])
+            )
 
             stacking_results += np.einsum(
                 'pij,pkli->plkj', uprimes_scaled, embedding_forces
@@ -659,7 +680,7 @@ class NodeManager:
                     'pz,aizk->paik',
                     uprimes,
                     np.array(ffg_sv).reshape(
-                        (3, N, N, full_len)
+                        (3, self.natoms[struct_name], self.natoms[struct_name], full_len)
                     )
                 )
 
@@ -687,8 +708,13 @@ class NodeManager:
                 indices_tuple = \
                     self.ffg_grad_indices[struct_name][str(j)][str(k)]
 
-                stack_up = np.zeros((n_pots, N, 3, n_fj, n_fk * n_g))
-                stack_upp = np.zeros((n_pots, N, 3, n_fj, n_fk * n_g))
+                stack_up = np.zeros(
+                    (n_pots, self.natoms[struct_name], 3, n_fj, n_fk * n_g)
+                )
+
+                stack_upp = np.zeros(
+                    (n_pots, self.natoms[struct_name], 3, n_fj, n_fk * n_g)
+                )
 
                 for l in range(n_fj):
                     sample_indices = indices_tuple['fj_indices'][l]
@@ -707,8 +733,13 @@ class NodeManager:
                 gradient[:, :, :, tmp_ind:tmp_ind + n_fj] += stack_up
                 gradient[:, :, :, tmp_ind:tmp_ind + n_fj] += stack_upp
 
-                stack_up = np.zeros((n_pots, N, 3, n_fk, n_fj * n_g))
-                stack_upp = np.zeros((n_pots, N, 3, n_fk, n_fj * n_g))
+                stack_up = np.zeros(
+                    (n_pots, self.natoms[struct_name], 3, n_fk, n_fj * n_g)
+                )
+
+                stack_upp = np.zeros(
+                    (n_pots, self.natoms[struct_name], 3, n_fk, n_fj * n_g)
+                )
 
                 for l in range(n_fk):
                     sample_indices = indices_tuple['fk_indices'][l]
@@ -727,8 +758,13 @@ class NodeManager:
                 gradient[:, :, :, tmp_ind:tmp_ind + n_fk] += stack_up
                 gradient[:, :, :, tmp_ind:tmp_ind + n_fk] += stack_upp
 
-                stack_up = np.zeros((n_pots, N, 3, n_g, n_fj * n_fk))
-                stack_upp = np.zeros((n_pots, N, 3, n_g, n_fj * n_fk))
+                stack_up = np.zeros(
+                    (n_pots, self.natoms[struct_name], 3, n_g, n_fj * n_fk)
+                )
+
+                stack_upp = np.zeros(
+                    (n_pots, self.natoms[struct_name], 3, n_g, n_fj * n_fk)
+                )
 
                 for l in range(n_g):
                     sample_indices = indices_tuple['g_indices'][l]
@@ -781,8 +817,7 @@ class NodeManager:
         # Rho contribution
         # for y, rho in zip(rho_pvecs, self.rhos):
         for i, y in enumerate(rho_pvecs):
-            sv = struct_vecs[struct_name]['rho']['energy'][str(i)]
-            ni += (sv @ y.T).T
+            ni += (struct_vecs[struct_name]['rho']['energy'][str(i)] @ y.T).T
 
         if self.natoms[struct_name] < 3:
             return ni
@@ -808,8 +843,7 @@ class NodeManager:
                     (cart2.shape[0], cart2.shape[1]*cart2.shape[2])
                 )
 
-                sv = struct_vecs[struct_name]['ffg']['energy'][str(j)][str(k)]
-                ni += (sv @ cart_y.T).T
+                ni += (struct_vecs[struct_name]['ffg']['energy'][str(j)][str(k)] @ cart_y.T).T
 
         return ni
 
@@ -825,7 +859,7 @@ class NodeManager:
             u_energy_sv = np.zeros((n_pots, num_knots + 2))
 
             # extract ni values for atoms of type i
-            ni_sublist = ni[:, self.type_of_each_atom[struct_name] - 2 == i]
+            ni_sublist = ni[:, self.type_of_each_atom[struct_name] - 1 == i]
 
             num_embedded = ni_sublist.shape[1]
 

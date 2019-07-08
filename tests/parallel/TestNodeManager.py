@@ -2,6 +2,9 @@ import sys
 sys.path.append('/home/jvita/scripts/s-meam/project/')
 sys.path.append('/home/jvita/scripts/s-meam/project/tests/')
 
+import os
+import pickle
+
 import unittest
 import numpy as np
 from src.worker import Worker
@@ -37,8 +40,8 @@ class NodeManagerTests(unittest.TestCase):
         cls.template = build_template('full', inner_cutoff, outer_cutoff)
 
         cls.db = Database(
-            'db_delete.hdf5', 'w', cls.template.pvec_len, cls.types, cls.x_pvec,
-            cls.x_indices, [inner_cutoff, outer_cutoff]
+            'db_delete.hdf5', 'w', cls.template.pvec_len, cls.types,
+            cls.x_pvec, cls.x_indices, [inner_cutoff, outer_cutoff]
         )
 
         ow = False
@@ -50,21 +53,29 @@ class NodeManagerTests(unittest.TestCase):
         cls.db.add_structure('aba', trimers['aba'], overwrite=ow)
         cls.db.add_structure('bbb', trimers['bbb'], overwrite=ow)
 
-        # cls.db.add_structure(
-        #     'bulk_vac_ortho_type1', bulk_vac_ortho['bulk_vac_ortho_type1'],
-        #     overwrite=ow
-        # )
-        #
-        # cls.db.add_structure(
-        #     'bulk_vac_ortho_type2', bulk_vac_ortho['bulk_vac_ortho_type2'],
-        #     overwrite=ow
-        # )
-        #
-        # cls.db.add_structure(
-        #     'bulk_vac_ortho_mixed', bulk_vac_ortho['bulk_vac_ortho_mixed'],
-        #     overwrite=ow
-        # )
-        #
+        cls.db.add_structure('8_atoms', extra['8_atoms'], overwrite=ow)
+
+        print("Adding bvo_t1", flush=True)
+
+        cls.db.add_structure(
+            'bulk_vac_ortho_type1', bulk_vac_ortho['bulk_vac_ortho_type1'],
+            overwrite=ow
+        )
+
+        print("Adding bvo_t2", flush=True)
+
+        cls.db.add_structure(
+            'bulk_vac_ortho_type2', bulk_vac_ortho['bulk_vac_ortho_type2'],
+            overwrite=ow
+        )
+
+        print("Adding bvo_m", flush=True)
+
+        cls.db.add_structure(
+            'bulk_vac_ortho_mixed', bulk_vac_ortho['bulk_vac_ortho_mixed'],
+            overwrite=ow
+        )
+
         # cls.db.add_structure(
         #     'bulk_periodic_ortho_type1',
         #     bulk_periodic_ortho['bulk_periodic_ortho_type1'],
@@ -116,18 +127,46 @@ class NodeManagerTests(unittest.TestCase):
         #     overwrite=ow
         # )
 
-        cls.pvec = np.ones((5, cls.template.pvec_len))
-        cls.pvec *= np.arange(1, 6)[:, np.newaxis]
+        cls.pvec = np.ones((10, cls.template.pvec_len))
+        # cls.pvec *= np.arange(1, cls.pvec.shape[0] + 1)[:, np.newaxis]
+        cls.pvec[:5, :] = 331.
+        cls.pvec[5:10, :] = 100
 
         cls.struct_list = list(cls.db.keys())
 
+        print("Loading structures...", flush=True)
+
         cls.node_manager = NodeManager(0, cls.template)
         cls.node_manager.load_structures(list(cls.struct_list), cls.db)
-        cls.node_manager.initialize_shared_memory()
-        cls.node_manager.start_pool(4)
+        # cls.node_manager.initialize_shared_memory()
+
+        print("Starting pool...", flush=True)
+        cls.node_manager.start_pool(1)
 
         cls.db.close()  # close to make sure NodeManager is using local data
 
+        print("Finishing setup...", flush=True)
+
+
+    def test_forces_8_atoms(self):
+        struct_list = ['8_atoms']
+
+        nd_forces = self.node_manager.compute(
+            'forces', struct_list, self.pvec, self.template.u_ranges
+        )
+
+        for key in struct_list:
+            worker = Worker(
+                extra[key], self.x_pvec, self.x_indices, self.types
+            )
+
+            wk_fcs = worker.compute_forces(
+                self.pvec, self.template.u_ranges
+            )
+
+            np.testing.assert_almost_equal(
+                wk_fcs, nd_forces[key], decimal=DECIMALS
+            )
 
     def test_compute_type_error(self):
         self.assertRaises(
@@ -173,26 +212,6 @@ class NodeManagerTests(unittest.TestCase):
 
             np.testing.assert_almost_equal(
                 wk_ni, nd_energies[key][1], decimal=DECIMALS
-            )
-
-    def test_forces_dimers(self):
-        struct_list = ['aa', 'ab', 'bb']
-
-        nd_forces = self.node_manager.compute(
-            'forces', struct_list, self.pvec, self.template.u_ranges
-        )
-
-        for key in struct_list:
-            worker = Worker(
-                dimers[key], self.x_pvec, self.x_indices, self.types
-            )
-
-            wk_fcs = worker.compute_forces(
-                self.pvec, self.template.u_ranges
-            )
-
-            np.testing.assert_almost_equal(
-                wk_fcs, nd_forces[key], decimal=DECIMALS
             )
 
     def test_forces_dimers(self):
@@ -299,26 +318,6 @@ class NodeManagerTests(unittest.TestCase):
                 wk_fcs, nd_forces[key], decimal=DECIMALS
             )
 
-    def test_forces_trimers(self):
-        struct_list = ['aaa', 'aba', 'bbb']
-
-        nd_forces = self.node_manager.compute(
-            'forces', struct_list, self.pvec, self.template.u_ranges
-        )
-
-        for key in struct_list:
-            worker = Worker(
-                trimers[key], self.x_pvec, self.x_indices, self.types
-            )
-
-            wk_fcs = worker.compute_forces(
-                self.pvec, self.template.u_ranges
-            )
-
-            np.testing.assert_almost_equal(
-                wk_fcs, nd_forces[key], decimal=DECIMALS
-            )
-
     def test_energy_grad_trimers(self):
         struct_list = ['aaa', 'aba', 'bbb']
 
@@ -361,9 +360,9 @@ class NodeManagerTests(unittest.TestCase):
 
     def test_energy_bvo(self):
         struct_list = [
-            'bulk_vac_ortho_type1',
+            # 'bulk_vac_ortho_type1',
             # 'bulk_vac_ortho_type2',
-            # 'bulk_vac_ortho_mixed'
+            'bulk_vac_ortho_mixed'
         ]
 
         nd_energies = self.node_manager.compute(
@@ -371,9 +370,14 @@ class NodeManagerTests(unittest.TestCase):
         )
 
         for key in struct_list:
-            worker = Worker(
-                bulk_vac_ortho[key], self.x_pvec, self.x_indices, self.types
-            )
+            if os.path.isfile(key + ".pkl"):
+                worker = pickle.load(open(key + ".pkl", 'rb'))
+            else:
+                worker = Worker(
+                    bulk_vac_ortho[key], self.x_pvec, self.x_indices, self.types
+                )
+
+                pickle.dump(worker, open(key + ".pkl", 'wb'))
 
             wk_eng, wk_ni = worker.compute_energy(
                 self.pvec, self.template.u_ranges
@@ -383,53 +387,40 @@ class NodeManagerTests(unittest.TestCase):
                 wk_eng, nd_energies[key][0], decimal=DECIMALS
             )
 
-            np.testing.assert_almost_equal(
-                wk_ni, nd_energies[key][1], decimal=DECIMALS
-            )
+            # np.testing.assert_almost_equal(
+            #     wk_ni, nd_energies[key][1], decimal=DECIMALS
+            # )
 
     def test_forces_bvo(self):
         struct_list = [
-            'bulk_vac_ortho_type1',
-            'bulk_vac_ortho_type2',
+            # 'bulk_vac_ortho_type1',
+            # 'bulk_vac_ortho_type2',
             'bulk_vac_ortho_mixed'
         ]
+
+        print("Entering test...", flush=True)
 
         nd_forces = self.node_manager.compute(
             'forces', struct_list, self.pvec, self.template.u_ranges
         )
 
+        print("Comparing results...", flush=True)
+
         for key in struct_list:
-            worker = Worker(
-                bulk_vac_ortho[key], self.x_pvec, self.x_indices, self.types
-            )
+            if os.path.isfile(key + ".pkl"):
+                worker = pickle.load(open(key + ".pkl", 'rb'))
+            else:
+                worker = Worker(
+                    bulk_vac_ortho[key], self.x_pvec, self.x_indices, self.types
+                )
+
+                pickle.dump(worker, open(key + ".pkl", 'wb'))
 
             wk_fcs = worker.compute_forces(
                 self.pvec, self.template.u_ranges
             )
 
-            np.testing.assert_almost_equal(
-                wk_fcs, nd_forces[key], decimal=DECIMALS
-            )
-
-    def test_forces_bvo(self):
-        struct_list = [
-            'bulk_vac_ortho_type1',
-            'bulk_vac_ortho_type2',
-            'bulk_vac_ortho_mixed'
-        ]
-
-        nd_forces = self.node_manager.compute(
-            'forces', struct_list, self.pvec, self.template.u_ranges
-        )
-
-        for key in struct_list:
-            worker = Worker(
-                bulk_vac_ortho[key], self.x_pvec, self.x_indices, self.types
-            )
-
-            wk_fcs = worker.compute_forces(
-                self.pvec, self.template.u_ranges
-            )
+            print(key, ":", np.sum(abs(wk_fcs - nd_forces[key])), flush=True)
 
             np.testing.assert_almost_equal(
                 wk_fcs, nd_forces[key], decimal=DECIMALS
@@ -483,377 +474,305 @@ class NodeManagerTests(unittest.TestCase):
                 wk_fcs, nd_forces[key], decimal=DECIMALS
             )
 
-    def test_energy_bpo(self):
-        struct_list = [
-            'bulk_periodic_ortho_type1',
-            'bulk_periodic_ortho_type2',
-            'bulk_periodic_ortho_mixed'
-        ]
-
-        nd_energies = self.node_manager.compute(
-            'energy', struct_list, self.pvec, self.template.u_ranges
-        )
-
-        for key in struct_list:
-            worker = Worker(
-                bulk_periodic_ortho[key], self.x_pvec, self.x_indices, self.types
-            )
-
-            wk_eng, wk_ni = worker.compute_energy(
-                self.pvec, self.template.u_ranges
-            )
-
-            np.testing.assert_almost_equal(
-                wk_eng, nd_energies[key][0], decimal=DECIMALS
-            )
-
-            np.testing.assert_almost_equal(
-                wk_ni, nd_energies[key][1], decimal=DECIMALS
-            )
-
-    def test_forces_bpo(self):
-        struct_list = [
-            'bulk_periodic_ortho_type1',
-            'bulk_periodic_ortho_type2',
-            'bulk_periodic_ortho_mixed'
-        ]
-
-        nd_forces = self.node_manager.compute(
-            'forces', struct_list, self.pvec, self.template.u_ranges
-        )
-
-        for key in struct_list:
-            worker = Worker(
-                bulk_periodic_ortho[key], self.x_pvec, self.x_indices, self.types
-            )
-
-            wk_fcs = worker.compute_forces(
-                self.pvec, self.template.u_ranges
-            )
-
-            np.testing.assert_almost_equal(
-                wk_fcs, nd_forces[key], decimal=DECIMALS
-            )
-
-    def test_forces_bpo(self):
-        struct_list = [
-            'bulk_periodic_ortho_type1',
-            'bulk_periodic_ortho_type2',
-            'bulk_periodic_ortho_mixed'
-        ]
-
-        nd_forces = self.node_manager.compute(
-            'forces', struct_list, self.pvec, self.template.u_ranges
-        )
-
-        for key in struct_list:
-            worker = Worker(
-                bulk_periodic_ortho[key], self.x_pvec, self.x_indices, self.types
-            )
-
-            wk_fcs = worker.compute_forces(
-                self.pvec, self.template.u_ranges
-            )
-
-            np.testing.assert_almost_equal(
-                wk_fcs, nd_forces[key], decimal=DECIMALS
-            )
-
-    def test_energy_grad_bpo(self):
-        struct_list = [
-            'bulk_periodic_ortho_type1',
-            'bulk_periodic_ortho_type2',
-            'bulk_periodic_ortho_mixed'
-        ]
-
-        nd_forces = self.node_manager.compute(
-            'energy_grad', struct_list, self.pvec, self.template.u_ranges
-        )
-
-        for key in struct_list:
-            worker = Worker(
-                bulk_periodic_ortho[key], self.x_pvec, self.x_indices, self.types
-            )
-
-            wk_fcs = worker.energy_gradient_wrt_pvec(
-                self.pvec, self.template.u_ranges
-            )
-
-            np.testing.assert_almost_equal(
-                wk_fcs, nd_forces[key], decimal=DECIMALS
-            )
-
-    def test_forces_grad_bpo(self):
-        struct_list = [
-            'bulk_periodic_ortho_type1',
-            'bulk_periodic_ortho_type2',
-            'bulk_periodic_ortho_mixed'
-        ]
-
-        nd_forces = self.node_manager.compute(
-            'forces_grad', struct_list, self.pvec, self.template.u_ranges
-        )
-
-        for key in struct_list:
-            worker = Worker(
-                bulk_periodic_ortho[key], self.x_pvec, self.x_indices, self.types
-            )
-
-            wk_fcs = worker.forces_gradient_wrt_pvec(
-                self.pvec, self.template.u_ranges
-            )
-
-            np.testing.assert_almost_equal(
-                wk_fcs, nd_forces[key], decimal=DECIMALS
-            )
-
-    def test_energy_bvr(self):
-        struct_list = [
-            'bulk_vac_ortho_type1',
-            'bulk_vac_ortho_type2',
-            'bulk_vac_ortho_mixed'
-        ]
-
-        nd_energies = self.node_manager.compute(
-            'energy', struct_list, self.pvec, self.template.u_ranges
-        )
-
-        for key in struct_list:
-            worker = Worker(
-                bulk_vac_ortho[key], self.x_pvec, self.x_indices, self.types
-            )
-
-            wk_eng, wk_ni = worker.compute_energy(
-                self.pvec, self.template.u_ranges
-            )
-
-            np.testing.assert_almost_equal(
-                wk_eng, nd_energies[key][0], decimal=DECIMALS
-            )
-
-            np.testing.assert_almost_equal(
-                wk_ni, nd_energies[key][1], decimal=DECIMALS
-            )
-
-    def test_forces_bvr(self):
-        struct_list = [
-            'bulk_vac_ortho_type1',
-            'bulk_vac_ortho_type2',
-            'bulk_vac_ortho_mixed'
-        ]
-
-        nd_forces = self.node_manager.compute(
-            'forces', struct_list, self.pvec, self.template.u_ranges
-        )
-
-        for key in struct_list:
-            worker = Worker(
-                bulk_vac_ortho[key], self.x_pvec, self.x_indices, self.types
-            )
-
-            wk_fcs = worker.compute_forces(
-                self.pvec, self.template.u_ranges
-            )
-
-            np.testing.assert_almost_equal(
-                wk_fcs, nd_forces[key], decimal=DECIMALS
-            )
-
-    def test_forces_bvr(self):
-        struct_list = [
-            'bulk_vac_ortho_type1',
-            'bulk_vac_ortho_type2',
-            'bulk_vac_ortho_mixed'
-        ]
-
-        nd_forces = self.node_manager.compute(
-            'forces', struct_list, self.pvec, self.template.u_ranges
-        )
-
-        for key in struct_list:
-            worker = Worker(
-                bulk_vac_ortho[key], self.x_pvec, self.x_indices, self.types
-            )
-
-            wk_fcs = worker.compute_forces(
-                self.pvec, self.template.u_ranges
-            )
-
-            np.testing.assert_almost_equal(
-                wk_fcs, nd_forces[key], decimal=DECIMALS
-            )
-
-    def test_energy_grad_bvr(self):
-        struct_list = [
-            'bulk_vac_ortho_type1',
-            'bulk_vac_ortho_type2',
-            'bulk_vac_ortho_mixed'
-        ]
-
-        nd_forces = self.node_manager.compute(
-            'energy_grad', struct_list, self.pvec, self.template.u_ranges
-        )
-
-        for key in struct_list:
-            worker = Worker(
-                bulk_vac_ortho[key], self.x_pvec, self.x_indices, self.types
-            )
-
-            wk_fcs = worker.energy_gradient_wrt_pvec(
-                self.pvec, self.template.u_ranges
-            )
-
-            np.testing.assert_almost_equal(
-                wk_fcs, nd_forces[key], decimal=DECIMALS
-            )
-
-    def test_forces_grad_bvr(self):
-        struct_list = [
-            'bulk_vac_ortho_type1',
-            'bulk_vac_ortho_type2',
-            'bulk_vac_ortho_mixed'
-        ]
-
-        nd_forces = self.node_manager.compute(
-            'forces_grad', struct_list, self.pvec, self.template.u_ranges
-        )
-
-        for key in struct_list:
-            worker = Worker(
-                bulk_vac_ortho[key], self.x_pvec, self.x_indices, self.types
-            )
-
-            wk_fcs = worker.forces_gradient_wrt_pvec(
-                self.pvec, self.template.u_ranges
-            )
-
-            np.testing.assert_almost_equal(
-                wk_fcs, nd_forces[key], decimal=DECIMALS
-            )
-
-    def test_energy_bpr(self):
-        struct_list = [
-            'bulk_periodic_ortho_type1',
-            'bulk_periodic_ortho_type2',
-            'bulk_periodic_ortho_mixed'
-        ]
-
-        nd_energies = self.node_manager.compute(
-            'energy', struct_list, self.pvec, self.template.u_ranges
-        )
-
-        for key in struct_list:
-            worker = Worker(
-                bulk_periodic_ortho[key], self.x_pvec, self.x_indices, self.types
-            )
-
-            wk_eng, wk_ni = worker.compute_energy(
-                self.pvec, self.template.u_ranges
-            )
-
-            np.testing.assert_almost_equal(
-                wk_eng, nd_energies[key][0], decimal=DECIMALS
-            )
-
-            np.testing.assert_almost_equal(
-                wk_ni, nd_energies[key][1], decimal=DECIMALS
-            )
-
-    def test_forces_bpr(self):
-        struct_list = [
-            'bulk_periodic_ortho_type1',
-            'bulk_periodic_ortho_type2',
-            'bulk_periodic_ortho_mixed'
-        ]
-
-        nd_forces = self.node_manager.compute(
-            'forces', struct_list, self.pvec, self.template.u_ranges
-        )
-
-        for key in struct_list:
-            worker = Worker(
-                bulk_periodic_ortho[key], self.x_pvec, self.x_indices, self.types
-            )
-
-            wk_fcs = worker.compute_forces(
-                self.pvec, self.template.u_ranges
-            )
-
-            np.testing.assert_almost_equal(
-                wk_fcs, nd_forces[key], decimal=DECIMALS
-            )
-
-    def test_forces_bpr(self):
-        struct_list = [
-            'bulk_periodic_ortho_type1',
-            'bulk_periodic_ortho_type2',
-            'bulk_periodic_ortho_mixed'
-        ]
-
-        nd_forces = self.node_manager.compute(
-            'forces', struct_list, self.pvec, self.template.u_ranges
-        )
-
-        for key in struct_list:
-            worker = Worker(
-                bulk_periodic_ortho[key], self.x_pvec, self.x_indices, self.types
-            )
-
-            wk_fcs = worker.compute_forces(
-                self.pvec, self.template.u_ranges
-            )
-
-            np.testing.assert_almost_equal(
-                wk_fcs, nd_forces[key], decimal=DECIMALS
-            )
-
-    def test_energy_grad_bpr(self):
-        struct_list = [
-            'bulk_periodic_ortho_type1',
-            'bulk_periodic_ortho_type2',
-            'bulk_periodic_ortho_mixed'
-        ]
-
-        nd_forces = self.node_manager.compute(
-            'energy_grad', struct_list, self.pvec, self.template.u_ranges
-        )
-
-        for key in struct_list:
-            worker = Worker(
-                bulk_periodic_ortho[key], self.x_pvec, self.x_indices, self.types
-            )
-
-            wk_fcs = worker.energy_gradient_wrt_pvec(
-                self.pvec, self.template.u_ranges
-            )
-
-            np.testing.assert_almost_equal(
-                wk_fcs, nd_forces[key], decimal=DECIMALS
-            )
-
-    def test_forces_grad_bpr(self):
-        struct_list = [
-            'bulk_periodic_ortho_type1',
-            'bulk_periodic_ortho_type2',
-            'bulk_periodic_ortho_mixed'
-        ]
-
-        nd_forces = self.node_manager.compute(
-            'forces_grad', struct_list, self.pvec, self.template.u_ranges
-        )
-
-        for key in struct_list:
-            worker = Worker(
-                bulk_periodic_ortho[key], self.x_pvec, self.x_indices, self.types
-            )
-
-            wk_fcs = worker.forces_gradient_wrt_pvec(
-                self.pvec, self.template.u_ranges
-            )
-
-            np.testing.assert_almost_equal(
-                wk_fcs, nd_forces[key], decimal=DECIMALS
-            )
+    # def test_energy_bpo(self):
+    #     struct_list = [
+    #         'bulk_periodic_ortho_type1',
+    #         'bulk_periodic_ortho_type2',
+    #         'bulk_periodic_ortho_mixed'
+    #     ]
+    #
+    #     nd_energies = self.node_manager.compute(
+    #         'energy', struct_list, self.pvec, self.template.u_ranges
+    #     )
+    #
+    #     for key in struct_list:
+    #         worker = Worker(
+    #             bulk_periodic_ortho[key], self.x_pvec, self.x_indices, self.types
+    #         )
+    #
+    #         wk_eng, wk_ni = worker.compute_energy(
+    #             self.pvec, self.template.u_ranges
+    #         )
+    #
+    #         np.testing.assert_almost_equal(
+    #             wk_eng, nd_energies[key][0], decimal=DECIMALS
+    #         )
+    #
+    #         np.testing.assert_almost_equal(
+    #             wk_ni, nd_energies[key][1], decimal=DECIMALS
+    #         )
+    #
+    # def test_forces_bpo(self):
+    #     struct_list = [
+    #         'bulk_periodic_ortho_type1',
+    #         'bulk_periodic_ortho_type2',
+    #         'bulk_periodic_ortho_mixed'
+    #     ]
+    #
+    #     nd_forces = self.node_manager.compute(
+    #         'forces', struct_list, self.pvec, self.template.u_ranges
+    #     )
+    #
+    #     for key in struct_list:
+    #         worker = Worker(
+    #             bulk_periodic_ortho[key], self.x_pvec, self.x_indices, self.types
+    #         )
+    #
+    #         wk_fcs = worker.compute_forces(
+    #             self.pvec, self.template.u_ranges
+    #         )
+    #
+    #         np.testing.assert_almost_equal(
+    #             wk_fcs, nd_forces[key], decimal=DECIMALS
+    #         )
+    #
+    # def test_energy_grad_bpo(self):
+    #     struct_list = [
+    #         'bulk_periodic_ortho_type1',
+    #         'bulk_periodic_ortho_type2',
+    #         'bulk_periodic_ortho_mixed'
+    #     ]
+    #
+    #     nd_forces = self.node_manager.compute(
+    #         'energy_grad', struct_list, self.pvec, self.template.u_ranges
+    #     )
+    #
+    #     for key in struct_list:
+    #         worker = Worker(
+    #             bulk_periodic_ortho[key], self.x_pvec, self.x_indices, self.types
+    #         )
+    #
+    #         wk_fcs = worker.energy_gradient_wrt_pvec(
+    #             self.pvec, self.template.u_ranges
+    #         )
+    #
+    #         np.testing.assert_almost_equal(
+    #             wk_fcs, nd_forces[key], decimal=DECIMALS
+    #         )
+    #
+    # def test_forces_grad_bpo(self):
+    #     struct_list = [
+    #         'bulk_periodic_ortho_type1',
+    #         'bulk_periodic_ortho_type2',
+    #         'bulk_periodic_ortho_mixed'
+    #     ]
+    #
+    #     nd_forces = self.node_manager.compute(
+    #         'forces_grad', struct_list, self.pvec, self.template.u_ranges
+    #     )
+    #
+    #     for key in struct_list:
+    #         worker = Worker(
+    #             bulk_periodic_ortho[key], self.x_pvec, self.x_indices, self.types
+    #         )
+    #
+    #         wk_fcs = worker.forces_gradient_wrt_pvec(
+    #             self.pvec, self.template.u_ranges
+    #         )
+    #
+    #         np.testing.assert_almost_equal(
+    #             wk_fcs, nd_forces[key], decimal=DECIMALS
+    #         )
+    #
+    # def test_energy_bvr(self):
+    #     struct_list = [
+    #         'bulk_vac_ortho_type1',
+    #         'bulk_vac_ortho_type2',
+    #         'bulk_vac_ortho_mixed'
+    #     ]
+    #
+    #     nd_energies = self.node_manager.compute(
+    #         'energy', struct_list, self.pvec, self.template.u_ranges
+    #     )
+    #
+    #     for key in struct_list:
+    #         worker = Worker(
+    #             bulk_vac_ortho[key], self.x_pvec, self.x_indices, self.types
+    #         )
+    #
+    #         wk_eng, wk_ni = worker.compute_energy(
+    #             self.pvec, self.template.u_ranges
+    #         )
+    #
+    #         np.testing.assert_almost_equal(
+    #             wk_eng, nd_energies[key][0], decimal=DECIMALS
+    #         )
+    #
+    #         np.testing.assert_almost_equal(
+    #             wk_ni, nd_energies[key][1], decimal=DECIMALS
+    #         )
+    #
+    # def test_forces_bvr(self):
+    #     struct_list = [
+    #         'bulk_vac_ortho_type1',
+    #         'bulk_vac_ortho_type2',
+    #         'bulk_vac_ortho_mixed'
+    #     ]
+    #
+    #     nd_forces = self.node_manager.compute(
+    #         'forces', struct_list, self.pvec, self.template.u_ranges
+    #     )
+    #
+    #     for key in struct_list:
+    #         worker = Worker(
+    #             bulk_vac_ortho[key], self.x_pvec, self.x_indices, self.types
+    #         )
+    #
+    #         wk_fcs = worker.compute_forces(
+    #             self.pvec, self.template.u_ranges
+    #         )
+    #
+    #         np.testing.assert_almost_equal(
+    #             wk_fcs, nd_forces[key], decimal=DECIMALS
+    #         )
+    #
+    # def test_energy_grad_bvr(self):
+    #     struct_list = [
+    #         'bulk_vac_ortho_type1',
+    #         'bulk_vac_ortho_type2',
+    #         'bulk_vac_ortho_mixed'
+    #     ]
+    #
+    #     nd_forces = self.node_manager.compute(
+    #         'energy_grad', struct_list, self.pvec, self.template.u_ranges
+    #     )
+    #
+    #     for key in struct_list:
+    #         worker = Worker(
+    #             bulk_vac_ortho[key], self.x_pvec, self.x_indices, self.types
+    #         )
+    #
+    #         wk_fcs = worker.energy_gradient_wrt_pvec(
+    #             self.pvec, self.template.u_ranges
+    #         )
+    #
+    #         np.testing.assert_almost_equal(
+    #             wk_fcs, nd_forces[key], decimal=DECIMALS
+    #         )
+    #
+    # def test_forces_grad_bvr(self):
+    #     struct_list = [
+    #         'bulk_vac_ortho_type1',
+    #         'bulk_vac_ortho_type2',
+    #         'bulk_vac_ortho_mixed'
+    #     ]
+    #
+    #     nd_forces = self.node_manager.compute(
+    #         'forces_grad', struct_list, self.pvec, self.template.u_ranges
+    #     )
+    #
+    #     for key in struct_list:
+    #         worker = Worker(
+    #             bulk_vac_ortho[key], self.x_pvec, self.x_indices, self.types
+    #         )
+    #
+    #         wk_fcs = worker.forces_gradient_wrt_pvec(
+    #             self.pvec, self.template.u_ranges
+    #         )
+    #
+    #         np.testing.assert_almost_equal(
+    #             wk_fcs, nd_forces[key], decimal=DECIMALS
+    #         )
+    #
+    # def test_energy_bpr(self):
+    #     struct_list = [
+    #         'bulk_periodic_ortho_type1',
+    #         'bulk_periodic_ortho_type2',
+    #         'bulk_periodic_ortho_mixed'
+    #     ]
+    #
+    #     nd_energies = self.node_manager.compute(
+    #         'energy', struct_list, self.pvec, self.template.u_ranges
+    #     )
+    #
+    #     for key in struct_list:
+    #         worker = Worker(
+    #             bulk_periodic_ortho[key], self.x_pvec, self.x_indices, self.types
+    #         )
+    #
+    #         wk_eng, wk_ni = worker.compute_energy(
+    #             self.pvec, self.template.u_ranges
+    #         )
+    #
+    #         np.testing.assert_almost_equal(
+    #             wk_eng, nd_energies[key][0], decimal=DECIMALS
+    #         )
+    #
+    #         np.testing.assert_almost_equal(
+    #             wk_ni, nd_energies[key][1], decimal=DECIMALS
+    #         )
+    #
+    # def test_forces_bpr(self):
+    #     struct_list = [
+    #         'bulk_periodic_ortho_type1',
+    #         'bulk_periodic_ortho_type2',
+    #         'bulk_periodic_ortho_mixed'
+    #     ]
+    #
+    #     nd_forces = self.node_manager.compute(
+    #         'forces', struct_list, self.pvec, self.template.u_ranges
+    #     )
+    #
+    #     for key in struct_list:
+    #         worker = Worker(
+    #             bulk_periodic_ortho[key], self.x_pvec, self.x_indices, self.types
+    #         )
+    #
+    #         wk_fcs = worker.compute_forces(
+    #             self.pvec, self.template.u_ranges
+    #         )
+    #
+    #         np.testing.assert_almost_equal(
+    #             wk_fcs, nd_forces[key], decimal=DECIMALS
+    #         )
+    #
+    # def test_energy_grad_bpr(self):
+    #     struct_list = [
+    #         'bulk_periodic_ortho_type1',
+    #         'bulk_periodic_ortho_type2',
+    #         'bulk_periodic_ortho_mixed'
+    #     ]
+    #
+    #     nd_forces = self.node_manager.compute(
+    #         'energy_grad', struct_list, self.pvec, self.template.u_ranges
+    #     )
+    #
+    #     for key in struct_list:
+    #         worker = Worker(
+    #             bulk_periodic_ortho[key], self.x_pvec, self.x_indices, self.types
+    #         )
+    #
+    #         wk_fcs = worker.energy_gradient_wrt_pvec(
+    #             self.pvec, self.template.u_ranges
+    #         )
+    #
+    #         np.testing.assert_almost_equal(
+    #             wk_fcs, nd_forces[key], decimal=DECIMALS
+    #         )
+    #
+    # def test_forces_grad_bpr(self):
+    #     struct_list = [
+    #         'bulk_periodic_ortho_type1',
+    #         'bulk_periodic_ortho_type2',
+    #         'bulk_periodic_ortho_mixed'
+    #     ]
+    #
+    #     nd_forces = self.node_manager.compute(
+    #         'forces_grad', struct_list, self.pvec, self.template.u_ranges
+    #     )
+    #
+    #     for key in struct_list:
+    #         worker = Worker(
+    #             bulk_periodic_ortho[key], self.x_pvec, self.x_indices, self.types
+    #         )
+    #
+    #         wk_fcs = worker.forces_gradient_wrt_pvec(
+    #             self.pvec, self.template.u_ranges
+    #         )
+    #
+    #         np.testing.assert_almost_equal(
+    #             wk_fcs, nd_forces[key], decimal=DECIMALS
+    #         )
 
 def build_template(version='full', inner_cutoff=1.5, outer_cutoff=5.5):
 

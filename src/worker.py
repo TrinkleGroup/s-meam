@@ -389,8 +389,9 @@ class Worker:
 
         # Pair interactions
         for y, phi in zip(phi_pvecs, self.phis, ):
-            logging.info("phi.calc_energy(y): {0}".format(phi.calc_energy(y)))
             energy += phi.calc_energy(y)
+
+        # logging.info("phi.calc_energy(y): {0}".format(phi.calc_energy(y)))
 
         # Embedding terms
         ni = self.compute_ni(rho_pvecs, f_pvecs, g_pvecs)
@@ -456,7 +457,7 @@ class Worker:
                 (self.n_pots, u.knots.shape[0] + 2))
 
             # extract ni values for atoms of type i
-            ni_sublist = ni[:, self.type_of_each_atom - 2 == i]
+            ni_sublist = ni[:, self.type_of_each_atom - 1 == i]
 
             if ni_sublist.shape[1] > 0:
                 max_ni[:, i] = np.max(ni_sublist)
@@ -558,8 +559,12 @@ class Worker:
         for phi_idx, (phi, y) in enumerate(zip(self.phis, phi_pvecs)):
             forces += phi.calc_forces(y)
 
+        logging.info("WORKER phi forces[0]: {}".format(forces[:, :, 0]))
+
         ni = self.compute_ni(rho_pvecs, f_pvecs, g_pvecs)
         uprimes = self.evaluate_uprimes(ni, u_pvecs, u_ranges)
+
+        logging.info("WORKER uprimes: {}".format(uprimes))
 
         # Electron density embedding (rho)
 
