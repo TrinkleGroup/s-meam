@@ -220,11 +220,11 @@ def ga(parameters, database, template, is_manager, manager,
 
                         new_fit = np.sum(fitnesses, axis=1)
 
-                        tmp_min_ni = min_ni[np.argsort(new_fit)]
-                        tmp_max_ni = max_ni[np.argsort(new_fit)]
+                        # tmp_min_ni = min_ni[np.argsort(new_fit)]
+                        # tmp_max_ni = max_ni[np.argsort(new_fit)]
 
                         master_pop = partools.rescale_ni(
-                            master_pop, tmp_min_ni, tmp_max_ni, template
+                            master_pop, min_ni, max_ni, template
                         )
 
                     # re-compute the ni data for use with shifting U domains
