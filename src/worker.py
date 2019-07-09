@@ -391,6 +391,14 @@ class Worker:
         for y, phi in zip(phi_pvecs, self.phis, ):
             energy += phi.calc_energy(y)
 
+            logging.info(
+                "WORKER phi_sv in compute_energy: {}".format(
+                    phi.structure_vectors['energy']
+                )
+            )
+
+            logging.info("WORKER phi energy: {}".format(phi.calc_energy(y)))
+
         # logging.info("phi.calc_energy(y): {0}".format(phi.calc_energy(y)))
 
         # Embedding terms
@@ -400,7 +408,9 @@ class Worker:
         # tmp_eng = self.embedding_energy(ni, u_pvecs, u_ranges)
         energy += tmp_eng
 
-        logging.info("total energy: {0}".format(energy))
+        logging.info("WORKER embedding energy: {}".format(tmp_eng))
+
+        logging.info("WORKER total energy: {0}".format(energy))
 
         return energy, ni  # ,max_ni, min_ni
 
@@ -574,6 +584,8 @@ class Worker:
         for rho_idx, (rho, y) in enumerate(zip(self.rhos, rho_pvecs)):
             embedding_forces += rho.calc_forces(y)
 
+        logging.info("WORKER rho forces[0]: {}".format(embedding_forces))
+
         # Angular terms (ffg)
         for j, ffg_list in enumerate(self.ffgs):
             for k, ffg in enumerate(ffg_list):
@@ -585,9 +597,14 @@ class Worker:
 
         N = self.natoms
 
+        logging.info("WORKER ffg forces[0]: {}".format(embedding_forces))
+
         embedding_forces = embedding_forces.reshape((self.n_pots, 3, N, N))
         embedding_forces = np.einsum('pijk,pk->pji', embedding_forces, uprimes)
 
+        logging.info("WORKER post-up forces[0]: {}".format(embedding_forces[:, :, 0]))
+
+        logging.info("WORKER final forces: {}".format(forces + embedding_forces))
         return forces + embedding_forces
 
     def parse_parameters(self, parameters):
@@ -688,7 +705,11 @@ class Worker:
             gradient[:, grad_index:grad_index + y.shape[1]] += \
                 phi.structure_vectors['energy']
 
+            logging.info("WORKER phi sv: {}".format(phi.structure_vectors['energy']))
+
             grad_index += y.shape[1]
+
+        logging.info("WORKER phi e_grad: {}".format(gradient))
 
         # chain rule on U functions means dU/dn values are needed
         ni = self.compute_ni(rho_pvecs, f_pvecs, g_pvecs)
@@ -701,6 +722,8 @@ class Worker:
                 (uprimes @ partial_ni)
 
             grad_index += y.shape[1]
+
+        logging.info("WORKER rho e_grad: {}".format(gradient))
 
         # add in first term of chain rule
         for i, (y, u) in enumerate(zip(u_pvecs, self.us)):

@@ -44,6 +44,8 @@ class NodeManager:
 
         self.pool = mp.Pool(node_size)
 
+        self.struct_vecs = struct_vecs
+
     # def initialize_shared_memory(self):
     #     manager = Manager()
     #     struct_vecs = manager.dict(struct_vecs)
@@ -305,12 +307,26 @@ class NodeManager:
             energy += \
                 struct_vecs[struct_name]['phi']['energy'][str(i)] @ y.T
 
+            logging.info("NODE phi sv in compute_energy: {}".format(
+                np.array(struct_vecs[struct_name]['phi']['energy'][str(i)])
+            ))
+
+            logging.info("NODE phi energy: {}".format(
+                np.array(struct_vecs[struct_name]['phi']['energy'][str(i)])@ y.T
+            ))
+
         # embedding terms
         ni = self.compute_ni(struct_name, rho_pvecs, f_pvecs, g_pvecs)
 
         energy += self.embedding_energy(
             struct_name, ni, u_pvecs, u_ranges
         )
+
+        logging.info("NODE embedding energy: {}".format(
+            self.embedding_energy(struct_name, ni, u_pvecs, u_ranges)
+        ))
+
+        logging.info("NODE total energy: {}".format(energy))
 
         return energy, ni
 
@@ -350,6 +366,8 @@ class NodeManager:
             embedding_forces += \
                 (struct_vecs[struct_name]['rho']['forces'][str(rho_idx)] @ y.T).T
 
+        logging.info("NODE rho forces[0]: {}".format(embedding_forces))
+
         for j, y_fj in enumerate(f_pvecs):
             for k, y_fk in enumerate(f_pvecs):
                 g_idx = src.meam.ij_to_potl(j + 1, k + 1, self.ntypes)
@@ -368,11 +386,17 @@ class NodeManager:
                 embedding_forces += \
                     (struct_vecs[struct_name]['ffg']['forces'][str(j)][str(k)] @ cart_y.T).T
 
+        logging.info("NODE ffg forces[0]: {}".format(embedding_forces))
+
         embedding_forces = embedding_forces.reshape(
             (n_pots, 3, self.natoms[struct_name], self.natoms[struct_name])
         )
 
         embedding_forces = np.einsum('pijk,pk->pji', embedding_forces, uprimes)
+
+        logging.info("NODE post-up forces[0]: {}".format(embedding_forces[:, :, 0]))
+
+        logging.info("NODE final forces: {}".format(forces + embedding_forces))
 
         return forces + embedding_forces
 
@@ -393,7 +417,15 @@ class NodeManager:
             gradient[:, grad_index:grad_index + y.shape[1]] += \
                 struct_vecs[struct_name]['phi']['energy'][str(phi_idx)]
 
+            # logging.info(
+            #     "NODE phi sv: {}".format(
+            #         struct_vecs[struct_name]['phi']['energy'][str(phi_idx)]
+            #     )
+            # )
+
             grad_index += y.shape[1]
+
+        # logging.info("NODE phi e_grad: {}".format(gradient))
 
         # chain rule on U means dU/dn values are needed
         ni = self.compute_ni(struct_name, rho_pvecs, f_pvecs, g_pvecs)
@@ -409,6 +441,8 @@ class NodeManager:
                 (uprimes @ np.array(partial_ni))
 
             grad_index += y.shape[1]
+
+        logging.info("NODE rho e_grad: {}".format(gradient))
 
         # add in first term of chain rule
         for u_idx, y in enumerate(u_pvecs):
@@ -427,6 +461,7 @@ class NodeManager:
             M = src.partools.build_M(
                 num_knots, knot_spacing, ['fixed', 'fixed']
             )
+
             extrap_dist = (u_ranges[u_idx][1] - u_ranges[u_idx][0]) / 2
 
             u_energy_sv = np.zeros((n_pots, num_knots + 2))
@@ -1157,5 +1192,6 @@ class NodeManager:
 
         self_dict = self.__dict__.copy()
         del self_dict['pool']
+        del self_dict['struct_vecs']
 
         return self_dict
