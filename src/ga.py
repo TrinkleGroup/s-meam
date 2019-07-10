@@ -23,8 +23,7 @@ from partools import local_minimization
 
 ################################################################################
 
-def ga(parameters, database, template, is_manager, manager,
-        manager_comm):
+def ga(parameters, database, template, is_manager, manager, manager_comm):
     # Record MPI settings
     world_comm = MPI.COMM_WORLD
     world_rank = world_comm.Get_rank()

@@ -7,6 +7,7 @@ from mpi4py import MPI
 from src.sa import sa
 from src.ga import ga
 from src.sgd import sgd
+from src.mcmc import mcmc
 from src.potential_templates import Template
 import src.partools as partools
 from src.database import Database
@@ -57,7 +58,7 @@ def main(config_name, template_file_name):
 
     float_params = [
         'MUT_PB', 'COOLING_RATE', 'TMIN', 'TSTART', 'SGD_STEP_SIZE',
-        'MCMC_MOVE_PROB', 'MCMC_MOVE_SCALE'
+        'MOVE_PROB', 'MOVE_SCALE'
     ]
 
     bool_params = [
@@ -144,6 +145,11 @@ def main(config_name, template_file_name):
             print("Running SA", flush=True)
             print()
         sa(parameters, database, template, is_manager, manager, manager_comm)
+    elif parameters['OPT_TYPE'] == 'MCMC':
+        if is_master:
+            print("Running MCMC", flush=True)
+            print()
+        mcmc(parameters, database, template, is_manager, manager, manager_comm)
     elif parameters['OPT_TYPE'] == 'SGD':
         if is_master:
             print("Running SGD", flush=True)

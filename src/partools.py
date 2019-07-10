@@ -4,6 +4,7 @@ import numpy as np
 from scipy.sparse import diags
 from scipy.optimize import least_squares
 from src.potential_templates import Template
+from scipy.interpolate import CubicSpline
 
 def build_evaluation_functions(
         potential_template, master_database, all_struct_names, manager,
@@ -1028,4 +1029,4 @@ def cs_convert_domains(old_u_knots, new_type):
 
         new_u_knots.append(new)
 
-return new_u_knots
+    return new_u_knots

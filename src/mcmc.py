@@ -15,7 +15,7 @@ from src.manager import Manager
 np.set_printoptions(precision=3)
 
 ################################################################################
-def mcmc(parameters, template):
+def mcmc(parameters, database, template, is_manager, manager, manager_comm):
     """
     Runs a simulated annealing run. The Metropolis-Hastings acception/rejection
     criterion sampling from a normally-distributed P-dimensional vector for move
@@ -45,175 +45,79 @@ def mcmc(parameters, template):
     is_master = (world_rank == 0)
 
     if is_master:
-
-        # set up logging
-        prepare_save_directory(parameters)
-
-        # prepare database and template
-        potential_template = template
-
-        master_database = Database(
-            parameters['STRUCTURE_DIRECTORY'],
-            parameters['INFO_DIRECTORY'],
-            parameters['REFERENCE_STRUCT']
-        )
-
-        master_database.load_structures(parameters['NUM_STRUCTS'])
-
         # identify unique structures for creating managers
         all_struct_names = [s.encode('utf-8').strip().decode('utf-8') for s in
-                master_database.unique_structs]
+                database.unique_structs]
 
-        struct_natoms = master_database.unique_natoms
-        num_structs = len(all_struct_names)
+        struct_natoms = database.unique_natoms
 
-        print(all_struct_names)
-
-        old_copy_names = list(all_struct_names)
-
-        worker_ranks = partools.compute_procs_per_subset(
-            struct_natoms, world_size
-        )
-
-        weights = np.ones(len(master_database.entries))
-        print("worker_ranks:", worker_ranks)
+        if is_master:
+            original_mask = template.active_mask.copy()
     else:
-        potential_template = None
-        master_database = None
-        num_structs = None
-        worker_ranks = None
+        database = None
         all_struct_names = None
 
-        weights = None
-
     # send setup info to all workers
-    weights = world_comm.bcast(weights, root=0)
-    potential_template = world_comm.bcast(potential_template, root=0)
-    num_structs = world_comm.bcast(num_structs, root=0)
-
-    # each Manager is in charge of a single structure
-    world_group = world_comm.Get_group()
-
-    all_rank_lists = world_comm.bcast(worker_ranks, root=0)
-    all_struct_names = world_comm.bcast(all_struct_names, root=0)
-
-    # Tell workers which manager they are a part of
-    worker_ranks = None
-    manager_ranks = []
-    for per_manager_ranks in all_rank_lists:
-        manager_ranks.append(per_manager_ranks[0])
-
-        if world_rank in per_manager_ranks:
-            worker_ranks = per_manager_ranks
-
-    # manager_comm connects all manager processes
-    manager_group = world_group.Incl(manager_ranks)
-    manager_comm = world_comm.Create(manager_group)
-
-    is_manager = (manager_comm != MPI.COMM_NULL)
-
-    # One manager per structure
-    if is_manager:
-        manager_rank = manager_comm.Get_rank()
-
-        struct_name = manager_comm.scatter(list(all_struct_names), root=0)
-
-        print(
-            "Manager", manager_rank, "received structure", struct_name, "plus",
-            len(worker_ranks), "processors for evaluation", flush=True
-        )
-    else:
-        struct_name = None
-        manager_rank = None
-
-    if is_master:
-        all_struct_names = list(old_copy_names)
-
-    # set up comms between managers and their workers
-    worker_group = world_group.Incl(worker_ranks)
-    worker_comm = world_comm.Create(worker_group)
-
-    struct_name = worker_comm.bcast(struct_name, root=0)
-    manager_rank = worker_comm.bcast(manager_rank, root=0)
-
-    manager = Manager(manager_rank, worker_comm, potential_template)
-
-    # load structures on managers and their workers
-    manager.struct_name = struct_name
-    manager.struct = manager.load_structure(
-        manager.struct_name, parameters['STRUCTURE_DIRECTORY'] + "/"
-    )
-
-    manager.struct = manager.broadcast_struct(manager.struct)
+    template = world_comm.bcast(template, root=0)
 
     # prepare evaluation functions
     cost_fxn, grad_wrap = partools.build_evaluation_functions(
-        potential_template, master_database, all_struct_names, manager,
+        template, database, all_struct_names, manager,
         is_master, is_manager, manager_comm, "Ti48Mo80_type1_c18"
     )
 
     # set up starting population
     if is_master:
         chain = np.zeros(
-            (parameters['SA_NSTEPS'] + 1, parameters['POP_SIZE'],
-                np.where(potential_template.active_mask)[0].shape[0])
+            (parameters['NSTEPS']+1, parameters['POP_SIZE'], template.pvec_len)
         )
 
         for i in range(parameters['POP_SIZE']):
-            tmp = potential_template.generate_random_instance()
-            chain[0, i, :] = tmp[np.where(potential_template.active_mask)[0]]
+            chain[0, i, :] = template.generate_random_instance() 
 
         current = chain[0]
 
-        ud = np.concatenate(potential_template.u_ranges)
-        u_domains = np.tile(ud, (current.shape[0], 1))
-
+        weights = np.ones(len(database.entries))
     else:
         current = np.zeros(1)
-        u_domains = np.zeros(1)
         chain = None
+        weights = None
         trace = None
 
+    weights = world_comm.bcast(weights, root=0)
+
     current_cost, max_ni, min_ni, avg_ni = cost_fxn(
-        np.hstack([current, u_domains]), weights,
-        return_ni=True
+        current, weights, return_ni=True, penalty=parameters['PENALTY_ON']
     )
 
     # perform initial rescaling
     if is_master:
-        current = partools.rescale_ni(
-            current, min_ni, max_ni,
-            potential_template
-        )
+        current = partools.rescale_ni(current, min_ni, max_ni, template)
 
     current_cost, max_ni, min_ni, avg_ni = cost_fxn(
-        np.hstack([current, u_domains]), weights,
-        return_ni=True
+        current, weights, return_ni=True, penalty=parameters['PENALTY_ON']
     )
 
     if is_master:
-        current_cost = np.sum(current_cost, axis=1)
+        new_costs = np.sum(current_cost, axis=1)
 
-        trace = np.zeros((parameters['SA_NSTEPS'] + 1, parameters['POP_SIZE']))
+        trace = np.zeros((parameters['NSTEPS'] + 1, parameters['POP_SIZE']))
 
-        trace[0] = current_cost
+        trace[0] = new_costs
 
-        T = parameters['TSTART']
-        T_min = parameters['TMIN']
+        T = 10.
+        # T_min = parameters['TMIN']
 
         print("step T min_cost avg_cost avg_accepted")
         print(
-            0, "{:.2}".format(T), np.min(current_cost),
-            np.average(current_cost), "--", flush=True
+            0, "{:.2}".format(T), np.min(new_costs),
+            np.average(new_costs), "--", flush=True
         )
 
-        tmp_min_ni = min_ni[np.argsort(current_cost)]
-        tmp_max_ni = max_ni[np.argsort(current_cost)]
-        tmp_avg_ni = avg_ni[np.argsort(current_cost)]
-
         partools.checkpoint(
-            current, current_cost, tmp_max_ni, tmp_min_ni, tmp_avg_ni, -1,
-            parameters, potential_template
+            current, new_costs, max_ni,
+            min_ni, avg_ni, 0, parameters, template,
+            parameters['NSTEPS']
         )
 
         num_accepted = 0
@@ -237,7 +141,7 @@ def mcmc(parameters, template):
             # choose a random collection of knots from each potential
             mask = np.random.choice(
                 [True, False], size=(inp.shape[0], inp.shape[1]),
-                p=[parameters['SA_MOVE_PROB'], 1 - parameters['SA_MOVE_PROB']]
+                p=[parameters['MOVE_PROB'], 1 - parameters['MOVE_PROB']]
             )
 
             trial = inp.copy()
@@ -247,50 +151,165 @@ def mcmc(parameters, template):
 
     num_without_improvement = 0
 
+    lmin_time = parameters['LMIN_FREQ']
+    shift_time = parameters['SHIFT_FREQ']
+    resc_time = parameters['RESCALE_FREQ']
+    toggle_time = parameters['TOGGLE_FREQ']
+
+    u_only_status = 'off'
+
     # start run
-    for step_num in range(parameters['SA_NSTEPS']):
+    for step_num in range(parameters['NSTEPS']):
 
-        # check if shifting should be done
-        if step_num % parameters['SHIFT_FREQ'] == 0:
-            if is_master:
-                print("Shifting U[] ...")
-                u_domains = np.concatenate(
-                        partools.shift_u(tmp_min_ni, tmp_max_ni)
+        # optionally run local minimization on best individual
+        if parameters['DO_LMIN']:
+            if lmin_time == 0:
+                if is_master:
+                    print(
+                        "Performing local minimization on top 10 potentials...",
+                        flush=True
                     )
-                u_domains = np.tile(u_domains, (current.shape[0], 1))
 
-        # check if rescaling should be done
-        if step_num % parameters['RESCALE_FREQ'] == 0:
-            if is_master:
-                print("Rescaling rho/f/g ...")
-                current = partools.rescale_ni(
-                    current, min_ni, max_ni,
-                    potential_template
+                    subset = current[:10, np.where(template.active_mask)[0]]
+                else:
+                    subset = None
+
+                subset = local_minimization(
+                    subset, current, template, cost_fxn, grad_wrap, weights,
+                    world_comm, is_master, nsteps=parameters['LMIN_NSTEPS']
                 )
 
-        if is_master:
-            trial = move_proposal(current, parameters['SA_MOVE_SCALE'])
+                if is_master:
+                    current[:10, np.where(template.active_mask)[0]] = subset
+
+                current_cost, max_ni, min_ni, avg_ni = cost_fxn(
+                    current, weights, return_ni=True,
+                    penalty=parameters['PENALTY_ON']
+                )
+
+                lmin_time = parameters['LMIN_FREQ'] - 1
+            else:
+                if u_only_status == 'off':  # don't decrement counter if U-only
+                    lmin_time -= 1
+
+        # optionally rescale potentials to put ni into [-1, 1]
+        if parameters['DO_RESCALE']:
+            if step_num < parameters['RESCALE_STOP_STEP']:
+                if resc_time == 0:
+                    if is_master:
+                        print("Rescaling ...")
+
+                        new_costs = np.sum(current_cost, axis=1)
+
+                        current = partools.rescale_ni(
+                            current, min_ni, max_ni, template
+                        )
+
+                    # re-compute the ni data for use with shifting U domains
+                    current_cost, max_ni, min_ni, avg_ni = cost_fxn(
+                        current, weights, return_ni=True,
+                        penalty=parameters['PENALTY_ON']
+                    )
+
+                    resc_time = parameters['RESCALE_FREQ'] - 1
+
+                else:
+                    if u_only_status == 'off':  # don't decrement counter if U-only
+                        resc_time -= 1
+
+        # optionally shift the U domains to encompass the rescaled ni
+        if parameters['DO_SHIFT']:
+            if shift_time == 0:
+                if is_master:
+                    new_costs = np.sum(current_cost, axis=1)
+
+                    tmp_min_ni = min_ni[np.argsort(new_costs)]
+                    tmp_max_ni = max_ni[np.argsort(new_costs)]
+
+                    new_u_domains = partools.shift_u(tmp_min_ni, tmp_max_ni)
+                    print("New U domains:", new_u_domains)
+                else:
+                    new_u_domains = None
+
+                if is_manager:
+                    new_u_domains = manager_comm.bcast(new_u_domains, root=0)
+                    template.u_ranges = new_u_domains
+
+                    manager.pot_template.u_ranges = template.u_ranges
+
+                shift_time = parameters['SHIFT_FREQ'] - 1
+            else:
+                if u_only_status == 'off':  # don't decrement counter if U-only
+                    shift_time -= 1
+
+        # TODO: errors will occur if you try to resc/shift with U-only on
+        if parameters['DO_TOGGLE'] and (toggle_time == 0):
+            # optionally toggle splines on/off to allow U-only optimization
+
+            if u_only_status == 'off':
+                u_only_status = 'on'
+                toggle_time = parameters['TOGGLE_DURATION'] - 1
+            else:
+                u_only_status = 'off'
+                toggle_time = parameters['TOGGLE_FREQ'] - 1
+
+            if is_master:
+                print("Toggling U-only mode to:", u_only_status)
+
+                # TODO: shouldn't hard-code [5,6]; use nphi to find tags
+                current, template = toggle_u_only_optimization(
+                    u_only_status, current, template, [5, 6], original_mask
+                )
+
+                new_mask = template.active_mask
+            else:
+                new_mask = None
+
+            if is_manager:
+                new_mask = manager_comm.bcast(new_mask, root=0)
+
+                template.active_mask = new_mask
+                manager.pot_template.active_mask = template.active_mask
+
         else:
-            trial = np.zeros(1)
+            toggle_time -= 1
+
+        # propose a move
+        if is_master:
+            current_active = current[:, np.where(template.active_mask)[0]]
+
+            trial_move = move_proposal(current_active, parameters['MOVE_SCALE'])
+            trial = current.copy()
+            print(type(trial_move))
+            print(type(trial))
+            print(type(np.where(template.active_mask)[0]))
+            print(trial_move.dtype)
+            print(trial.dtype)
+            print(np.where(template.active_mask)[0].dtype)
+            # print(trial.shape)
+            # print(np.where(template.active_mask)[0])
+            # print(type(trial))
+            # print(type(np.where(template.active_mask)[0]))
+            # print('boop:', trial[:, [0, 1, 3, 6, 8]], flush=True)
+            trial[: np.where(template.active_mask)[0]] = trial_move
+            # trial[: np.array([0, 1, 2, 3,4])] = trial_move
+        else:
+            trial = None
 
         # compute costs of current population and proposed moves
         current_cost, c_max_ni, c_min_ni, c_avg_ni = cost_fxn(
-            np.hstack([current, u_domains]),
-            weights, return_ni=True, penalty=True
+            current, weights, return_ni=True, penalty=parameters['PENALTY_ON']
         )
 
         trial_cost, t_max_ni, t_min_ni, t_avg_ni = cost_fxn(
-            np.hstack([trial, u_domains]),
-            weights, return_ni=True, penalty=True
+            trial, weights, return_ni=True, penalty=parameters['PENALTY_ON']
         )
 
         if is_master:
-            # prev_best = current_best
+            new_cost_c = np.sum(current_cost, axis=1)
+            new_cost_t = np.sum(trial_cost, axis=1)
 
-            current_cost = np.sum(current_cost, axis=1)
-            trial_cost = np.sum(trial_cost, axis=1)
-
-            ratio = np.exp((current_cost - trial_cost) / T)
+            ratio = np.exp((new_cost_c - new_cost_t) / T)
             where_auto_accept = np.where(ratio >= 1)[0]
 
             where_cond_accept = np.where(
@@ -302,8 +321,8 @@ def mcmc(parameters, template):
             current[where_cond_accept] = trial[where_cond_accept]
 
             # update costs
-            current_cost[where_auto_accept] = trial_cost[where_auto_accept]
-            current_cost[where_cond_accept] = trial_cost[where_cond_accept]
+            new_cost_c[where_auto_accept] = new_cost_t[where_auto_accept]
+            new_cost_c[where_cond_accept] = new_cost_t[where_cond_accept]
 
             # update ni
             c_max_ni[where_auto_accept] = t_max_ni[where_auto_accept]
@@ -317,60 +336,59 @@ def mcmc(parameters, template):
 
             num_accepted += len(where_auto_accept) + len(where_cond_accept)
 
-            current_best = current_cost[np.argmin(current_cost)]
+            current_best = new_cost_c[np.argmin(new_cost_c)]
 
             print(
                 step_num, "{:.3f}".format(T),
-                np.min(current_cost), 
-                np.average(current_cost),
+                np.min(new_cost_c), 
+                np.average(new_cost_c),
                 num_accepted / (step_num + 1) / parameters['POP_SIZE'],
                 np.average(u_domains, axis=0),
                 flush=True
             )
 
-            T = np.max([T_min, T*parameters['COOLING_RATE']])
+            # T = np.max([T_min, T*parameters['COOLING_RATE']])
 
             if is_master:
                 if (step_num) % parameters['CHECKPOINT_FREQ'] == 0:
 
                     partools.checkpoint(
-                        current, current_cost, c_max_ni, c_min_ni, c_avg_ni, -1,
-                        parameters, potential_template
+                        current, new_cost_c, c_max_ni, c_min_ni, c_avg_ni,
+                        step_num, parameters, template, parameters['NSTEPS']
                     )
-
-            # if current_best == prev_best:
-            #     num_without_improvement += 1
-            #
-            #     if num_without_improvement == 20:
-            #         break
-            #
-            # else:
-            #     num_without_improvement = 0
+    # end MCMC loop
 
     if parameters['DO_LMIN' ]:
         if is_master:
             print("Performing final local minimization ...", flush=True)
-            print("Before", np.sum(current_cost, axis=1))
+            print("Before:", np.sum(current_cost, axis=1)[:10])
 
-            minimized = current.copy()
+            subset = current[:10, np.where(template.active_mask)[0]]
         else:
-            minimized = None
+            subset = None
 
-        minimized = local_minimization(
-            minimized, u_domains, cost_fxn, grad_wrap, weights, world_comm, is_master,
-            nsteps=parameters['LMIN_NSTEPS']
+        subset = local_minimization(
+            subset, current, template, cost_fxn, grad_wrap, weights,
+            world_comm, is_master, nsteps=parameters['LMIN_NSTEPS']
+        )
+
+        if is_master:
+            current[:10, np.where(template.active_mask)[0]] = subset
+
+        lm_cost, max_ni, min_ni, avg_ni = cost_fxn(
+            current, weights, return_ni=True,
+            penalty=parameters['PENALTY_ON']
         )
 
         lm_cost = cost_fxn(minimized, weights)
 
         if is_master:
-            current = minimized.copy()
-            current_cost = np.sum(lm_cost, axis=1)
-            print("After", current_cost)
+            new_cost = np.sum(lm_cost, axis=1)
+            print("After:", new_cost[:10])
 
             partools.checkpoint(
-                current, tmp_max_ni, tmp_min_ni, tmp_avg_ni,
-                parameters['SA_NSTEPS'], parameters, potential_template
+                current, new_cost, max_ni, min_ni, avg_ni,
+                step_num, parameters, template, parameters['NSTEPS']
             )
 
     return chain, trace
@@ -477,5 +495,57 @@ def local_minimization(current, u_domains, fxn, grad, weights, world_comm, is_ma
 
     return current
 
+def toggle_u_only_optimization(toggle_type, master_pop, template,
+                               spline_tags, original_mask):
+    """
+
+    Args:
+        toggle_type: (str)
+            'on' or 'off'
+
+        master_pop: (np.arr)
+            array of full potentials (un-masked)
+
+        template: (Template)
+            potential template object
+
+        spline_tags: (list[int])
+            which splines to toggle on/off
+
+        original_mask: (np.arr)
+            the original mask used before U-only was toggled on
+
+    Returns:
+
+        master_pop: (np.arr)
+            the updated master population
+
+    """
+
+    if toggle_type == 'on':
+        # find the indices that should be toggled
+        active_indices = []
+
+        for tag in spline_tags:
+            active_indices.append(np.where(template.spline_tags == tag)[0])
+
+        active_indices = np.concatenate(active_indices)
+
+        # TODO: in the future, make this able to toggle arbitrary splines on/off
+
+        # toggle all indices off
+        template.active_mask[:] = 0
+
+        # toggle the specified indices on
+        template.active_mask[active_indices] = np.bitwise_not(
+            template.active_mask[active_indices]
+        )
+
+        template.active_mask = template.active_mask.astype(int)
+    else:
+        template.active_mask = original_mask
+
+    return master_pop, template
+
 if __name__ == "__main__":
-    sa(SA_NSTEPS, COOLING_RATE)
+    mcmc(SA_NSTEPS, COOLING_RATE)
