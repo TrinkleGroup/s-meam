@@ -11,7 +11,8 @@ from src.sgd import sgd
 from src.potential_templates import Template
 import src.partools as partools
 from src.database import Database
-from src.manager import Manager
+from src.nodemanager import NodeManager
+# from src.manager import Manager
 
 np.set_printoptions(linewidth=1000)
 
@@ -98,13 +99,14 @@ def main(config_name, template_file_name):
 
     # Note: assumed that there is only 1 MPI rank per compute node
     database = Database(
-        parameters['DATABASE_FILE'], driver='mpio', comm=world_comm
+        parameters['DATABASE_FILE'], 'r', template.pvec_len,
+        driver='mpio', comm=world_comm
     )
 
-    # prepare managers
-    is_manager, manager, manager_comm = prepare_managers(
-            is_master, parameters, template, database
-        )
+    # # prepare managers
+    # is_manager, manager, manager_comm = prepare_managers(
+    #         is_master, parameters, template, database
+    #     )
 
     if is_master:
         print()

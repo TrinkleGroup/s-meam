@@ -1,10 +1,8 @@
-import os
 import sys
 sys.path.append('/home/jvita/scripts/s-meam/project/')
 import numpy as np
 np.random.seed(42)
 
-import logging
 import time
 import unittest
 import collections
@@ -18,7 +16,7 @@ from src.worker import Worker
 #np.random.seed(237907459)
 
 import tests.testPotentials
-from tests.serial.testVars import a0
+from tests.testVars import a0
 
 from tests.testStructs import dimers, trimers, bulk_vac_ortho, \
     bulk_periodic_ortho, bulk_vac_rhombo, bulk_periodic_rhombo, extra
