@@ -977,49 +977,55 @@ def local_minimization(
 
     return master_pop
 
-def convert_domains(old_u_knots, new_type):
-    """
-    Converts between [0, 1] and [-1, 1] type potentials. If 'new_type' == 0, it
-    is assumed that the current type is [-1, 1] and you want to convert to
-    [0, 1] type. Otherwise, it's assumed that [0, 1] is current and [-1, 1] is
-    desired.
-
-    Intended for use as part of a GA mutation operation.
-
-    If converting [0, 1] -> [-1, 1], then the current U knots are sampled to be
-    used by the right half of the new U splines, then the LHS derivative value
-    is used to sample a line that intercepts the leftmost knot.
-
-    If converting [-1, 1], then the right half of the current U splines are used
-    for the new U splines, and the new LHS deriv is taken as the slope between
-    the new leftmost knot and its old neighbor to the left.
-
-    Args:
-        old_u_knots: (list[np.arr])
-            List of U knots for a single potential. Each entry in the list
-            corresponds to all of the knots for a single U spline.
-
-        new_type: (int)
-            0 or 1. 0 means convert to [0, 1]; 1 means convert to [-1, 1]
-
-    Returns:
-        new_u_knots: (list[np.arr])
-            the new u knots, transformed as described above
-    """
+def cs_convert_domains(old_u_knots, new_type):
 
     new_u_knots = []
 
     for old in old_u_knots:
-        if new_type == 0:  # convert to [0, 1]
-            # assumes current type is [-1, 1] and knots are evenly-spaced
+        if new_type == 0:
+            old_x = np.linspace(-1, 1, len(old) - 2)
+            new_x = np.linspace(0, 1, len(old) - 2)
 
-            # gets the first non-negative knot point
-            midpoint = np.where(np.linspace(-1, 1, len(old)) > 0)[0]
+            old_cs = CubicSpline(
+                old_x, old[:-2],
+                bc_type=((1, old[-2]), (1, old[-1]))
+            )
 
-            new = np.zeros(old.shape)
-            new[0] = old[midpoint]
+            new_y = old_cs(new_x)
+            new_bc = [old_cs(new_x[0], 1), old_cs(new_x[-1], 1)]
 
-            n = old.shape[0]
-            while i < n:
-                # resample 
-                pass
+            new = np.concatenate([new_y, new_bc])
+
+        if new_type == 1:
+            old_x = np.linspace(0, 1, len(old) - 2)
+            new_x = np.linspace(-1, 1, len(old) - 2)
+
+            old_cs = CubicSpline(
+                old_x, old[:-2],
+                bc_type=((2, 0), (1, old[-1]))
+            )
+
+            new_y = old_cs(new_x)
+
+            old_spacing = old_x[1] - old_x[0]
+            new_spacing = new_x[1] - new_x[0]
+
+            midpoint = len(new_y)//2
+
+            if len(new_y) % 2 == 0:
+                shift = new_spacing
+            else:
+                shift = 2*new_spacing
+
+            new_y[:midpoint] = np.linspace(
+                old[0] - (midpoint+1)*new_spacing*old[-2],
+                old[0] + shift, midpoint
+            )
+
+            new_bc = old[-2:]
+
+            new = np.concatenate([new_y, new_bc])
+
+        new_u_knots.append(new)
+
+return new_u_knots
