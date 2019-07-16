@@ -6,11 +6,14 @@ from scipy.optimize import least_squares
 from src.potential_templates import Template
 
 def build_evaluation_functions(
-        potential_template, master_database, all_struct_names, manager,
-        is_master, is_manager, manager_comm, ref_name
+        template, database, all_struct_names, node_manager,
+        world_comm, is_master, ref_name
 ):
     """Builds the function to evaluate populations. Wrapped here for readability
     of main code."""
+
+    # TODO: is this the best place for this?
+    node_manager.ref_name = ref_name
 
     def fxn_wrap(master_pop, weights, return_ni=False, output=False,
             penalty=False):
@@ -20,94 +23,111 @@ def build_evaluation_functions(
         entries
 
         """
-        if is_manager:
-            pop = manager_comm.bcast(master_pop, root=0)
-            pop = np.atleast_2d(pop)
-        else:
-            pop = None
 
-        manager_results = manager.compute_energy(pop)
+        # NOTE: master is full program master; manager is just every rank
+        pop = world_comm.bcast(master_pop, root=0)
+        pop = np.atleast_2d(pop)
 
-        eng = manager_results[0]
-        c_min_ni = manager_results[1]
-        c_max_ni = manager_results[2]
-        c_avg_ni = manager_results[3]
-        c_ni_var = manager_results[4]
-        c_frac_in = manager_results[5]
+        # TODO: shouldn't update these every time, only when dbOpt needs to
+        node_manager.weights = dict(zip(
+            node_manager.loaded_structures,
+            weights[:len(node_manager.loaded_structures)]
+        ))
 
-        fcs = manager.compute_forces(pop)
+        manager_energies = node_manager.compute(
+            'energy', all_struct_names, pop, template.u_ranges
+        )
+
+        # note: node_manager returns dictionaries (struct_name: ret_values)
+        # eng = [retval[0] for retval in manager_energies.values()]
+        # eng = manager_energies[0]
+
+        # TODO: make sure this is working as expected
+        ni = [retval[1] for retval in manager_energies.values()]
+
+        ni_stats = calculate_ni_stats(ni, template)
+
+        c_min_ni = ni_stats[0]
+        c_max_ni = ni_stats[1]
+        c_avg_ni = ni_stats[2]
+        c_ni_var = ni_stats[3]
+        c_frac_in = ni_stats[4]
+
+        force_costs = np.array(list(node_manager.compute(
+            'forces', all_struct_names, pop, template.u_ranges
+        ).values()))
 
         fitnesses = 0
         max_ni = 0
         min_ni = 0
         avg_ni = 0
 
-        if is_manager:
-            # gathers everything on master process
+        # mgr_eng = world_comm.gather(eng, root=0)
+        mgr_eng = world_comm.gather(manager_energies, root=0)
+        # mgr_fcs = world_comm.gather(fcs, root=0)
+        mgr_force_costs = world_comm.gather(force_costs, root=0)
 
-            mgr_eng = manager_comm.gather(eng, root=0)
-            mgr_fcs = manager_comm.gather(fcs, root=0)
+        mgr_min_ni = world_comm.gather(c_min_ni, root=0)
+        mgr_max_ni = world_comm.gather(c_max_ni, root=0)
+        mgr_avg_ni = world_comm.gather(c_avg_ni, root=0)
+        mgr_ni_var = world_comm.gather(c_ni_var, root=0)
+        mgr_frac_in = world_comm.gather(c_frac_in, root=0)
 
-            mgr_min_ni = manager_comm.gather(c_min_ni, root=0)
-            mgr_max_ni = manager_comm.gather(c_max_ni, root=0)
-            mgr_avg_ni = manager_comm.gather(c_avg_ni, root=0)
-            mgr_ni_var = manager_comm.gather(c_ni_var, root=0)
-            mgr_frac_in = manager_comm.gather(c_frac_in, root=0)
+        if is_master:
+            # note: can't stack mgr_fcs b/c different dimensions per struct
+            # all_eng = np.vstack(mgr_eng)
+            all_eng = {k: v for d in mgr_eng for k, v in d.items()}
+            # all_fcs = mgr_fcs
+            all_force_costs = np.vstack(mgr_force_costs)
 
-            if is_master:
-                # note: can't stack mgr_fcs b/c different dimensions per struct
-                all_eng = np.vstack(mgr_eng)
-                all_fcs = mgr_fcs
+            # do operations so that the final shape is (2, num_pots)
+            min_ni = np.min(np.dstack(mgr_min_ni), axis=2).T
+            max_ni = np.max(np.dstack(mgr_max_ni), axis=2).T
+            avg_ni = np.average(np.dstack(mgr_avg_ni), axis=2).T
+            ni_var = np.min(np.dstack(mgr_ni_var), axis=2).T
+            frac_in = np.sum(np.dstack(mgr_frac_in), axis=2).T
 
-                # do operations so that the final shape is (2, num_pots)
-                min_ni = np.min(np.dstack(mgr_min_ni), axis=2).T
-                max_ni = np.max(np.dstack(mgr_max_ni), axis=2).T
-                avg_ni = np.average(np.dstack(mgr_avg_ni), axis=2).T
-                ni_var = np.min(np.dstack(mgr_ni_var), axis=2).T
-                frac_in = np.sum(np.dstack(mgr_frac_in), axis=2).T
+            fitnesses = np.zeros(
+                (len(pop), len(all_struct_names)*2 + 2)
+            )
 
-                fitnesses = np.zeros(
-                    (len(pop), len(master_database.entries) + 2)
-                )
+            lambda_pen = 10000
 
-                lambda_pen = 10000
+            ns = len(node_manager.loaded_structures)
 
-                ns = len(master_database.unique_structs)
+            fitnesses[:, -frac_in.shape[1]:] = lambda_pen*abs(ns - frac_in)
 
-                fitnesses[:, -frac_in.shape[1]:] = lambda_pen*abs(ns - frac_in)
+            # assumes that 'weights' has the same order as all_struct_names
+            for fit_id, (name, weight) in enumerate(zip(
+                all_struct_names, weights
+                )):
 
-                # maybe make the error U[] - var?
+                # TODO: for now, assumes that all structs need energy AND forces
 
-                for fit_id, (entry, weight) in enumerate(
-                        zip(master_database.entries, weights)):
+                # TODO: should be returning a dict here?
+                # w_fcs = all_fcs[fit_id]
+                # true_fcs = entry.value
 
-                    name = entry.struct_name
-                    s_id = all_struct_names.index(name)
+                # w_fcs = all_fcs[name]
+                # true_fcs = database['true_values']['forces'][name]
+                # 
+                # diff = w_fcs - true_fcs
+                # 
+                # # zero out interactions outside of range of O atom
+                # epsilon = np.linalg.norm(
+                #     diff, 'fro',axis=(1, 2)
+                # )/np.sqrt(10)
+                # 
+                # fitnesses[:, 2*fit_id] = epsilon*epsilon*weight
 
-                    if entry.type == 'forces':
+                fitnesses[:, 2*fit_id] = all_force_costs[fit_id]
 
-                        w_fcs = all_fcs[s_id]
-                        true_fcs = entry.value
+                # TODO: are you sure the database holds the subtracted values?
+                true_ediff = database[name]['true_values']['energy']
+                comp_ediff = all_eng[name][0] - all_eng[ref_name][0]
 
-                        diff = w_fcs - true_fcs
-
-                        # zero out interactions outside of range of O atom
-                        epsilon = np.linalg.norm(diff, 'fro',
-                                                 axis=(1, 2)) / np.sqrt(10)
-                        fitnesses[:, fit_id] = epsilon * epsilon * weight
-
-                    elif entry.type == 'energy':
-
-                        r_name = entry.ref_struct
-                        true_ediff = entry.value
-
-                        # find index of structures to know which energies to use
-                        r_id = all_struct_names.index(r_name)
-
-                        comp_ediff = all_eng[s_id, :] - all_eng[r_id, :]
-
-                        tmp = (comp_ediff - true_ediff) ** 2
-                        fitnesses[:, fit_id] = tmp * weight
+                tmp = (comp_ediff - true_ediff) ** 2
+                fitnesses[:, 2*fit_id + 1] = tmp * weight
 
         if is_master:
             if not penalty:
@@ -135,72 +155,88 @@ def build_evaluation_functions(
         else:
             pop = None
 
-        # eng = manager.compute_energy(pop)
-        eng, _, _, _, _, _ = manager.compute_energy(pop)
-        fcs = manager.compute_forces(pop)
+        node_manager.weights = dict(zip(all_struct_names, weights))
 
-        eng_grad = manager.compute_energy_grad(pop)
-        fcs_grad = manager.compute_forces_grad(pop)
+        manager_energies = node_manager.compute(
+            'energy', all_struct_names, pop, template.u_ranges
+        )
+
+        # note: node_manager returns dictionaries (struct_name: ret_values)
+        eng = [retval[0] for retval in manager_energies.values()]
+        # eng = manager_energies[0]
+
+        # fcs = list(node_manager.compute(
+        #     'forces', all_struct_names, pop, template.u_ranges
+        # ).values())
+
+        force_costs = list(node_manager.compute(
+            'forces', all_struct_names, pop, template.u_ranges
+        ))
+
+        eng_grad = list(node_manager.compute(
+            'energy_grad', all_struct_names, pop, template.u_ranges
+        ).values())
+
+        fcs_grad = list(node_manager.compute(
+            'forces_grad', all_struct_names, pop, template.u_ranges
+        ).values())
 
         gradient = 0
 
         if is_manager:
             mgr_eng = manager_comm.gather(eng, root=0)
-            mgr_fcs = manager_comm.gather(fcs, root=0)
+            # mgr_fcs = manager_comm.gather(fcs, root=0)
+            mgr_force_costs = manager_comm.gather(force_costs, root=0)
 
             mgr_eng_grad = manager_comm.gather(eng_grad, root=0)
             mgr_fcs_grad = manager_comm.gather(fcs_grad, root=0)
 
             if is_master:
                 # note: can't stack mgr_fcs b/c different dimensions per struct
-                all_eng = np.vstack(mgr_eng)
-                all_fcs = mgr_fcs
+                # all_eng = np.vstack(mgr_eng)
+                all_eng = {k: v for d in mgr_eng for k, v in d.items()}
+                # all_fcs = mgr_fcs
+                all_fcs = mgr_force_costs
 
                 gradient = np.zeros((
-                    len(pop), potential_template.pvec_len,
-                    len(master_database.entries)
+                    len(pop), template.pvec_len,
+                    len(node_manager.loaded_structures)*2
                 ))
 
-                for fit_id, (entry, weight) in enumerate(
-                        zip(master_database.entries, weights)):
+                for fit_id, (name, weight) in enumerate(zip(
+                        all_struct_names, weights
+                    )):
 
-                    name = entry.struct_name
+                    # w_fcs = all_fcs[fit_id]
+                    # true_fcs = entry.value
 
-                    if entry.type == 'forces':
+                    w_fcs = all_fcs[name]
+                    true_fcs = database[name]['true_values']['forces']
 
-                        s_id = all_struct_names.index(name)
+                    diff = w_fcs - true_fcs
 
-                        w_fcs = all_fcs[s_id]
-                        true_fcs = entry.value
+                    # zero out interactions outside of range of O atom
+                    # fcs_grad = mgr_fcs_grad[name]
+                    # 
+                    # scaled = np.einsum('pna,pnak->pnak', diff, fcs_grad)
+                    # summed = scaled.sum(axis=1).sum(axis=1)
+                    # 
+                    # gradient[:, :, 2*fit_id] += (2 * summed / 10) * weight
+                    gradient[:, :, 2*fit_id] += mgr_fcs_gad[fit_id]
 
-                        diff = w_fcs - true_fcs
+                    true_ediff = database[name]['true_values']['energy']
 
-                        # zero out interactions outside of range of O atom
-                        fcs_grad = mgr_fcs_grad[s_id]
+                    # find index of structures to know which energies to use
+                    comp_ediff = all_eng[name][0] - all_eng[ref_name][0]
 
-                        scaled = np.einsum('pna,pnak->pnak', diff, fcs_grad)
-                        summed = scaled.sum(axis=1).sum(axis=1)
+                    eng_err = comp_ediff - true_ediff
+                    s_grad = mgr_eng_grad[name]
+                    r_grad = mgr_eng_grad[ref_name]
 
-                        gradient[:, :, fit_id] += (2 * summed / 10) * weight
+                    gradient[:, :, 2*fit_id + 1] += \
+                        (eng_err[:, np.newaxis]*(s_grad - r_grad)*2)*weight
 
-                    elif entry.type == 'energy':
-                        r_name = entry.ref_struct
-                        true_ediff = entry.value
-
-                        # find index of structures to know which energies to use
-                        s_id = all_struct_names.index(name)
-                        r_id = all_struct_names.index(r_name)
-
-                        comp_ediff = all_eng[s_id, :] - all_eng[r_id, :]
-
-                        eng_err = comp_ediff - true_ediff
-                        s_grad = mgr_eng_grad[s_id]
-                        r_grad = mgr_eng_grad[r_id]
-
-                        gradient[:, :, fit_id] += \
-                            (eng_err[:, np.newaxis]*(s_grad - r_grad)*2)*weight
-
-                indices = np.where(potential_template.active_mask)[0]
+                indices = np.where(template.active_mask)[0]
                 gradient = gradient[:, indices, :].swapaxes(1, 2)
 
         return gradient
@@ -347,7 +383,7 @@ def compute_procs_per_subset(struct_natoms, total_num_procs, method='natoms'):
 
     return np.split(np.arange(total_num_procs), split_indices)[:-1]
 
-# def initialize_potential_template(load_path):
+# def initialize_template(load_path):
 #     # TODO: BW settings
 #     inner_cutoff = 1.5
 #     outer_cutoff = 5.5
@@ -364,7 +400,7 @@ def compute_procs_per_subset(struct_natoms, total_num_procs, method='natoms'):
 #     x_indices = range(0, points_per_spline * 12, points_per_spline)
 #     types = ["Ti", "Mo"]
 #
-#     potential_template = Template(
+#     template = Template(
 #         pvec_len=108,
 #         u_ranges=[(-1, 1), (-1, 1)],
 #         # Ranges taken from Lou Ti-Mo (phis) or from old TiO (other)
@@ -376,46 +412,46 @@ def compute_procs_per_subset(struct_natoms, total_num_procs, method='natoms'):
 #                         (81, 90), (90, 99), (99, 108)]
 #     )
 #
-#     mask = np.ones(potential_template.pvec_len)
+#     mask = np.ones(template.pvec_len)
 #
-#     potential_template.pvec[6] = 0
+#     template.pvec[6] = 0
 #     mask[6] = 0  # rhs value phi_Ti
-#     potential_template.pvec[8] = 0
+#     template.pvec[8] = 0
 #     mask[8] = 0  # rhs deriv phi_Ti
 #
-#     potential_template.pvec[15] = 0
+#     template.pvec[15] = 0
 #     mask[15] = 0  # rhs value phi_TiMo
-#     potential_template.pvec[17] = 0
+#     template.pvec[17] = 0
 #     mask[17] = 0  # rhs deriv phi_TiMo
 #
-#     potential_template.pvec[24] = 0
+#     template.pvec[24] = 0
 #     mask[24] = 0  # rhs value phi_Mo
-#     potential_template.pvec[26] = 0
+#     template.pvec[26] = 0
 #     mask[26] = 0  # rhs deriv phi_Mo
 #
-#     potential_template.pvec[33] = 0
+#     template.pvec[33] = 0
 #     mask[33] = 0  # rhs value rho_Ti
-#     potential_template.pvec[35] = 0
+#     template.pvec[35] = 0
 #     mask[35] = 0  # rhs deriv rho_Ti
 #
-#     potential_template.pvec[42] = 0
+#     template.pvec[42] = 0
 #     mask[42] = 0  # rhs value rho_Mo
-#     potential_template.pvec[44] = 0
+#     template.pvec[44] = 0
 #     mask[44] = 0  # rhs deriv rho_Mo
 #
-#     potential_template.pvec[69] = 0
+#     template.pvec[69] = 0
 #     mask[69] = 0  # rhs value f_Ti
-#     potential_template.pvec[71] = 0
+#     template.pvec[71] = 0
 #     mask[71] = 0  # rhs deriv f_Ti
 #
-#     potential_template.pvec[78] = 0
+#     template.pvec[78] = 0
 #     mask[78] = 0  # rhs value f_Mo
-#     potential_template.pvec[80] = 0
+#     template.pvec[80] = 0
 #     mask[80] = 0  # rhs deriv f_Mo
 #
-#     potential_template.active_mask = mask
+#     template.active_mask = mask
 #
-#     return potential_template
+#     return template
 
 
 def build_objective_function(testing_database, error_fxn, is_master):
@@ -458,7 +494,7 @@ def build_objective_function(testing_database, error_fxn, is_master):
     return objective_fxn
 
 
-def rescale_ni(pots, min_ni, max_ni, potential_template):
+def rescale_ni(pots, min_ni, max_ni, template):
     """
     Rescales the rho/f/g splines to try to fit it all ni into the U domain of
     [-1, 1].
@@ -471,7 +507,7 @@ def rescale_ni(pots, min_ni, max_ni, potential_template):
         pots: (NxP array) the N starting potentials of P parameters
         min_ni: (Nx1 array) the minimum ni sampled for each of the N potential
         max_ni: (Nx1 array) the maximum ni sampled for each of the N potential
-        potential_template: (Template) template object, used for indexing
+        template: (Template) template object, used for indexing
 
     Returns:
         updated_pots: (NxP array) the potentials with rescaled rho/f/g splines
@@ -481,16 +517,16 @@ def rescale_ni(pots, min_ni, max_ni, potential_template):
 
     ni = np.hstack([max_ni, min_ni])
     indices = np.argmax(abs(ni), axis=1)
-    scale = np.choose(indices, ni.T)
+    scale = np.choose(indices, ni.T) / 1.2
     signs = np.sign(scale)
 
-    pots[:, potential_template.rho_indices] /= \
+    pots[:, template.rho_indices] /= \
         scale[:, np.newaxis]
 
-    pots[:, potential_template.f_indices] /= \
+    pots[:, template.f_indices] /= \
         abs(scale[:, np.newaxis]) ** (1. / 3)
 
-    pots[:, potential_template.g_indices] /= \
+    pots[:, template.g_indices] /= \
         signs[:, np.newaxis]*(abs(scale[:, np.newaxis]) ** (1. / 3))
 
     return pots
@@ -536,7 +572,7 @@ def shift_u(min_ni, max_ni):
     return new_u_domains
 
 
-def mcmc(population, weights, cost_fxn, potential_template, T,
+def mcmc(population, weights, cost_fxn, template, T,
          parameters, active_tags, is_master, start_step=0,
          cooling_rate=1, T_min=0, suffix="", max_nsteps=None, penalty=False):
     """
@@ -549,7 +585,7 @@ def mcmc(population, weights, cost_fxn, potential_template, T,
         population: (np.arr) 2d array where each row is a potential
         weights: (np.arr) weights for each term in cost function
         cost_fxn: (callable) cost funciton
-        potential_template: (Template) template containing potential information
+        template: (Template) template containing potential information
         T: (float) normalization factor
         move_prob: (float) probability that any given knot will be changed
         move_scale: (float) stdev for normal dist for each knot
@@ -578,12 +614,12 @@ def mcmc(population, weights, cost_fxn, potential_template, T,
 
         for tag in active_tags:
             active_indices.append(
-                np.where(potential_template.spline_tags == tag)[0]
+                np.where(template.spline_tags == tag)[0]
             )
 
         active_indices = np.concatenate(active_indices)
 
-        # new_mask = potential_template.active_mask.copy()
+        # new_mask = template.active_mask.copy()
         # new_mask[:] = 0
         # new_mask[active_indices] = 1
 
@@ -692,7 +728,7 @@ def mcmc(population, weights, cost_fxn, potential_template, T,
                 if (start_step + step_num) % checkpoint_freq == 0:
                     checkpoint(
                         tmp, current_cost, c_max_ni, c_min_ni, c_avg_ni,
-                        start_step + step_num, parameters, potential_template,
+                        start_step + step_num, parameters, template,
                         max_nsteps, suffix='_mc'
                     )
 
@@ -711,7 +747,7 @@ def mcmc(population, weights, cost_fxn, potential_template, T,
     return population
 
 def checkpoint(population, costs, max_ni, min_ni, avg_ni, i, parameters,
-    potential_template, max_nsteps, suffix=""):
+    template, max_nsteps, suffix=""):
     """Saves information to files for later use"""
 
     # save costs -- assume file is being appended to
@@ -737,10 +773,10 @@ def checkpoint(population, costs, max_ni, min_ni, avg_ni, i, parameters,
                     min_ni.ravel(),
                     max_ni.ravel(),
                     avg_ni.ravel(),
-                    [potential_template.u_ranges[0][0],
-                    potential_template.u_ranges[0][1],
-                    potential_template.u_ranges[1][0],
-                    potential_template.u_ranges[1][1]],
+                    [template.u_ranges[0][0],
+                    template.u_ranges[0][1],
+                    template.u_ranges[1][0],
+                    template.u_ranges[1][1]],
                 ]
             )
         )
@@ -869,8 +905,6 @@ def local_minimization(
     pad = 100
 
     def lm_fxn_wrap(raveled_pop, original_shape):
-        # print(raveled_pop)
-
         if is_master:
             if lm_output:
                 print('LM step: ', end="", flush=True)
@@ -960,3 +994,47 @@ def local_minimization(
         master_pop = np.array(updated_pop)
 
     return master_pop
+
+def calculate_ni_stats(grouped_ni, template):
+    # TODO: ni will probably be a dict coming out of node_manager
+    frac_in = []
+
+    stacked_groups = []
+    for i in range(template.ntypes):
+        type_ni = []
+
+        for struct_groups in grouped_ni:
+            type_ni.append(struct_groups[i])
+
+        stacked_groups.append(np.concatenate(type_ni, axis=1))
+
+    min_ni = []
+    max_ni = []
+    avg_ni = []
+    ni_var = []
+
+    for i, type_ni in enumerate(stacked_groups):
+        biggest_min = max(
+            template.u_ranges[0][0],
+            template.u_ranges[1][0],
+        )
+
+        biggest_max = max(
+            template.u_ranges[0][1],
+            template.u_ranges[1][1],
+        )
+
+        # num_in = np.where(np.logical_and(ni <= 1, ni >= -1))
+        num_in = np.logical_and(
+            type_ni >= -1.5,
+            type_ni <= 1.5
+        ).sum(axis=1)
+
+        frac_in.append(num_in / type_ni.shape[1])
+
+        min_ni.append(np.min(type_ni, axis=1))
+        max_ni.append(np.max(type_ni, axis=1))
+        avg_ni.append(np.average(type_ni, axis=1))
+        ni_var.append(np.std(type_ni, axis=1)**2)
+
+    return min_ni, max_ni, avg_ni, ni_var, frac_in

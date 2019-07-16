@@ -8,7 +8,7 @@ from src.meam import MEAM
 
 
 class Template:
-    def __init__(self,
+    def __init__(self, types,
                  pvec_len, u_ranges, active_mask=None, spline_indices=None,
                  spline_ranges=None, load_file_path=None, seed=None):
         """
@@ -17,6 +17,7 @@ class Template:
         then to easily extract and change the portions that are variable.
 
         Args:
+            types (list): list of element types
             pvec_len(int): size of parameter vector
             u_ranges (np.arr): 2 params for each USpline specifying knot ranges
             active_mask (np.arr): 1 where parameter is 'active'
@@ -35,6 +36,7 @@ class Template:
 
         # NOTE: active_mask is a binary mask for toggle_u_only_optimization()
 
+        self.types = types
         self.ntypes = len(u_ranges)
         self.pvec_len = pvec_len
         self.u_ranges = u_ranges
@@ -45,6 +47,9 @@ class Template:
         self.f_indices = None
         self.g_indices = None
         self.scales = None
+        self.knot_positions = None
+        self.x_indices = None
+        self.cutoffs = None
 
         self.load_file_path = load_file_path
 

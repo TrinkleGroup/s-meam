@@ -1,8 +1,11 @@
 import os
 import sys
 sys.path.append('./')
-import numpy as np
+import glob
 import mpi4py
+import numpy as np
+import src.lammpsTools
+import logging
 from mpi4py import MPI
 # from src.ga import ga
 from src.sa import sa
@@ -20,6 +23,9 @@ import random
 np.random.seed(42)
 random.seed(42)
 
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+
 # TODO: have a script that checks the validity of an input script befor qsub
 
 def main(config_name, template_file_name):
@@ -32,7 +38,6 @@ def main(config_name, template_file_name):
     if is_master:
         parameters = read_config(config_name)
         template = read_template(template_file_name)
-
     else:
         parameters = None
         template = None
@@ -48,7 +53,7 @@ def main(config_name, template_file_name):
         'INIT_NSTEPS', 'LMIN_NSTEPS', 'FINAL_NSTEPS', 'CHECKPOINT_FREQ',
         'RESCALE_FREQ', 'RESCALE_STOP_STEP', 'U_NSTEPS',
         'MCMC_BLOCK_SIZE', 'SGD_BATCH_SIZE', 'SHIFT_FREQ',
-        'TOGGLE_FREQ', 'TOGGLE_DURATION'
+        'TOGGLE_FREQ', 'TOGGLE_DURATION', 'PROCS_PER_NODE'
     ]
 
     float_params = [
@@ -97,16 +102,39 @@ def main(config_name, template_file_name):
         print("MASTER: Preparing save directory/files ... ", flush=True)
         partools.prepare_save_directory(parameters)
 
-    # Note: assumed that there is only 1 MPI rank per compute node
+        print("Loading database ...", flush=True)
+
     database = Database(
-        parameters['DATABASE_FILE'], 'r', template.pvec_len,
+        parameters['DATABASE_FILE'], 'a',
+        template.pvec_len, template.types,
+        knot_xcoords=template.knot_positions, x_indices=template.x_indices,
+        cutoffs=template.cutoffs,
         driver='mpio', comm=world_comm
     )
 
-    # # prepare managers
-    # is_manager, manager, manager_comm = prepare_managers(
-    #         is_master, parameters, template, database
-    #     )
+    for fname in glob.glob(os.path.join(parameters['LAMMPS_FOLDER'], "*")):
+
+        struct_name = os.path.splitext(os.path.split(fname)[-1])[0]
+
+        if is_master:
+            print("\t", struct_name, flush=True)
+
+        atoms = src.lammpsTools.atoms_from_file(fname, template.types)
+
+        database.add_structure(struct_name, atoms)
+        database.add_true_value(
+            os.path.join(parameters['INFO_DIRECTORY'],'info.' + struct_name),
+            "Ti48Mo80_type1_c18"
+        )
+
+    if is_master:
+        print("Preparing node managers...", flush=True)
+
+    node_manager = prepare_node_managers(
+        database, template, parameters, world_comm, is_master
+    )
+
+    # database.close()
 
     if is_master:
         print()
@@ -130,16 +158,16 @@ def main(config_name, template_file_name):
             print("Running GA", flush=True)
             print()
 
-        ga(parameters, database, template, is_manager, manager, manager_comm)
+        ga(parameters, database, template, node_manager)
     elif parameters['OPT_TYPE'] == 'SA':
         if is_master:
             print("Running SA", flush=True)
             print()
-        sa(parameters, database, template, is_manager, manager, manager_comm)
+        sa(parameters, database, template, node_manager)
     elif parameters['OPT_TYPE'] == 'SGD':
         if is_master:
             print("Running SGD", flush=True)
-        sgd(parameters, database, template, is_manager, manager, manager_comm)
+        sgd(parameters, database, template, node_manager)
     else:
         if is_master:
             kill_and_write("Invalid optimization type (OPT_TYPE)")
@@ -171,7 +199,7 @@ def read_template(template_file_name):
             # read spline information
             nsplines = template_args['ntypes']*(template_args['ntypes'] + 4)
 
-            # knot_positions = []
+            knot_positions = []
             spline_ranges = []
             spline_npts = []
 
@@ -183,8 +211,10 @@ def read_template(template_file_name):
                 nknots = int(nknots)
                 spline_npts.append(nknots)
 
-                # knot_positions.append(np.linspace(x_lo, x_hi, nknots))
+                knot_positions.append(np.linspace(x_lo, x_hi, nknots))
                 spline_ranges.append((y_lo, y_hi))
+
+            knot_positions = np.concatenate(knot_positions)
 
             spline_npts = np.array(spline_npts)
 
@@ -249,21 +279,17 @@ def read_template(template_file_name):
                 )
             )[0]
 
-            # print()
-            # print("pvec_len:", len(knot_values))
-            # print()
-            # print("u_domains:", template_args['u_domains'])
-            # print()
-            # print("spline_ranges:", spline_ranges)
-            # print()
-            # print("spline_indices:", spline_indices)
-
             template = Template(
+                template_args['types'],
                 pvec_len=len(knot_values),
                 u_ranges=template_args['u_domains'],
                 spline_ranges=spline_ranges,
                 spline_indices=spline_indices
             )
+
+            x_indices = np.concatenate([
+                [0], np.cumsum(spline_npts)
+                ])[:-1]
 
             template.active_mask = mask
             template.pvec = knot_values
@@ -272,6 +298,9 @@ def read_template(template_file_name):
             template.rho_indices = rho_indices
             template.g_indices = g_indices
             template.f_indices = f_indices
+            template.knot_positions = knot_positions
+            template.x_indices = x_indices
+            template.cutoffs = template_args['cutoffs']
     else:
         kill_and_write("Config file does not exist")
 
@@ -388,6 +417,22 @@ def prepare_managers(is_master, parameters, potential_template, database):
 
     return is_manager, manager, manager_comm
 
+
+def prepare_node_managers(database, template, parameters, comm, is_master):
+    if is_master:
+        split_struct_lists = np.array_split(
+            list(database.keys()), comm.Get_size()
+        )
+    else:
+        split_struct_lists = None
+
+    struct_list = comm.scatter(split_struct_lists, root=0)
+
+    node_manager = NodeManager(comm.Get_rank(), template)
+    node_manager.load_structures(struct_list, database)
+    node_manager.start_pool(parameters['PROCS_PER_NODE'])
+
+    return node_manager
 
 if __name__ == "__main__":
     is_master = MPI.COMM_WORLD.Get_rank() == 0

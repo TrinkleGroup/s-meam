@@ -13,13 +13,19 @@ from multiprocessing import Manager
 import logging
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+
+# TODO: might be able to avoid using mp.Array since it's read only?
 
 struct_vecs = {}
+true_values = {'energy': {}, 'forces': {}}
 
 class NodeManager:
     def __init__(self, node_id, template):
         self.node_id = node_id
         self.template = template
+
+        self.loaded_structures = []
 
         # self.rank_on_node = comm.Get_rank()
         # self.node_size = mp.cpu_count()
@@ -37,6 +43,9 @@ class NodeManager:
         self.num_u_knots = []
         self.natoms = {}
         self.type_of_each_atom = {}
+
+        self.weights = {}
+        self.ref_name = None
 
     def start_pool(self, node_size=None):
         if node_size is None:
@@ -74,6 +83,9 @@ class NodeManager:
 
         """
 
+        # TODO: condense energies/forces into costs before MPI send
+        # TODO: condense ni into stats before MPI send
+
         # TODO: instead of reading from Database, take from shared memory
         if compute_type == 'energy':
             # ret = (energy, ni)
@@ -81,11 +93,19 @@ class NodeManager:
                 struct_name, potentials, u_domains
             )
 
+            # ret = list(ret)
+            # 
+            # ret[0] = self.energy_to_costs(
+            #     ret[0], potentials.shape[0], struct_name
+            # )
+
         elif compute_type == 'forces':
             # ret = forces
-            ret = self.compute_forces(
+            forces = self.compute_forces(
                 struct_name, potentials, u_domains
             )
+
+            ret = self.forces_to_costs(forces, potentials.shape[0], struct_name)
 
         elif compute_type == 'energy_grad':
             # ret = energy_gradient
@@ -95,8 +115,17 @@ class NodeManager:
 
         elif compute_type == 'forces_grad':
             # ret = forces_gradient
-            ret = self.compute_forces_grad(
+
+            forces = self.compute_forces(
                 struct_name, potentials, u_domains
+            )
+
+            grad = self.compute_forces_grad(
+                struct_name, potentials, u_domains
+            )
+
+            ret = self.condense_force_grads(
+                forces, ret, potentials.shape[0], struct_name
             )
 
         else:
@@ -105,12 +134,80 @@ class NodeManager:
                 "'energy_grad', 'forces_grad']"
             )
 
-        if mp.current_process().name == 'MainProcess':
-            print("MainProcess finished evaluating", flush=True)
-        else:
-            print(mp.current_process(), "finished evaluating", flush=True)
-
         return ret
+
+    def energy_to_costs(self, energy, npots, struct_name):
+        """
+        Args:
+            energy (dict): key=struct_name, val=energy
+            npots (int): number of potentials that were evaluated
+            struct_name (str): name of structure that was evaluated
+
+        Note:
+            assumes that the weights have been properly updated
+        """
+
+        # energy_costs = np.zeros((npots, len(energy)))
+
+        # for cost_id, (name, energy) in enumerate(energy.items()):
+        true_ediff = true_values['energy'][struct_name]
+
+        # TODO: can't evaluate energy cost here since requires ref struct
+        comp_ediff = energy[struct_name] - all_eng[self.ref_name]
+
+        tmp = (comp_ediff - true_ediff)**2
+
+        energy_costs[:, cost_id] = tmp*self.weights[struct_name]
+
+        # return energy_costs
+        return tmp*self.weights[struct_name]
+
+
+    def forces_to_costs(self, forces, npots, struct_name):
+        """
+        Args:
+            forces (dict): key=struct_name, val=forces
+            npots (int): number of potentials that were evaluated
+            struct_name (str): name of structure that was evaluated
+
+        Note:
+            assumes that the weights have been properly updated
+        """
+
+        # force_costs = np.zeros((npots, len(forces)))
+
+        # for cost_id, (name, forces) in enumerate(forces.items()):
+        true_forces = true_values['forces'][struct_name]
+
+        diff = forces - true_forces
+
+        epsilon = np.linalg.norm(diff, 'fro', axis=(1, 2))/np.sqrt(10)
+
+        # force_costs[:, cost_id] = epsilon*epsilon*self.weights[struct_name]
+
+        # return force_costs
+        return epsilon*epsilon*self.weights[struct_name]
+
+    def condense_force_grads(self, forces, force_grad, npots, struct_name):
+        """
+        Args:
+            forces (dict): key=struct_name, val=forces
+            npots (int): number of potentials that were evaluated
+            struct_name (str): name of structure that was evaluated
+
+        Note:
+            assumes that the weights have been properly updated
+        """
+
+        true_fcs = true_values['forces'][struct_name]
+
+        diff = forces - true_forces
+
+        scaled = np.einsum('pna,pnak->pnak', diff, fcs_grad)
+        summed = scaled.sum(axis=1).sum(axis=1)
+
+        return summed
+
 
     def compute(self, compute_type, struct_list, potentials, u_domains):
         """
@@ -154,7 +251,10 @@ class NodeManager:
             )
         )
 
-        return dict(zip(struct_list, return_values))
+        ret_dict = dict(zip(struct_list, return_values))
+
+        return ret_dict
+        # return dict(zip(struct_list, return_values))
 
     def load_structures(self, struct_list, hdf5_file):
         """
@@ -174,7 +274,6 @@ class NodeManager:
         """
 
         # things to load: ntypes, num_u_knots, phi, rho, ffg, types_per_atom
-        # TODO: do you need to use Dataset.value on attributes?
         self.ntypes = hdf5_file.attrs['ntypes']
         self.len_pvec = hdf5_file.attrs['len_pvec']
         self.num_u_knots = hdf5_file.attrs['num_u_knots']
@@ -184,6 +283,7 @@ class NodeManager:
         # doing it this way so that it only loads a certain amount at once
         for struct_name in struct_list:
             self.load_one_struct(struct_name, hdf5_file)
+            self.loaded_structures.append(struct_name)
 
     def load_one_struct(self, struct_name, hdf5_file):
         natoms = hdf5_file[struct_name].attrs['natoms']#.value
@@ -201,21 +301,19 @@ class NodeManager:
         # load phi structure vectors
         for idx in hdf5_file[struct_name]['phi']['energy']:
 
-            # TODO: may have to use Dataset.value to keep in memory?
-            # https://stackoverflow.com/questions/26517795/how-do-i-keep-an-h5py-group-in-memory-after-closing-the-file
-
             eng = hdf5_file[struct_name]['phi']['energy'][idx][()]
             fcs = hdf5_file[struct_name]['phi']['forces'][idx][()]
 
-            eng_loc = mp.Array('d', eng, lock=False)
+            # eng_loc = mp.Array('d', eng, lock=False)
+            eng_loc = eng
 
             ni, nj, nk = fcs.shape
 
-            fcs_shm = mp.Array('d', ni*nj*nk, lock=False)
-            # fcs_loc = np.frombuffer(fcs_shm.get_obj())
-            fcs_loc = np.frombuffer(fcs_shm)
-            fcs_loc = fcs_loc.reshape((ni, nj, nk))
-            fcs_loc[:] = fcs[:]
+            # fcs_shm = mp.Array('d', ni*nj*nk, lock=False)
+            # fcs_loc = np.frombuffer(fcs_shm)
+            # fcs_loc = fcs_loc.reshape((ni, nj, nk))
+            # fcs_loc[:] = fcs[:]
+            fcs_loc = fcs
 
             struct_vecs[struct_name]['phi']['energy'][idx] = eng_loc
             struct_vecs[struct_name]['phi']['forces'][idx] = fcs_loc
@@ -227,18 +325,18 @@ class NodeManager:
             fcs = hdf5_file[struct_name]['rho']['forces'][idx][()]
 
             ni, nj = eng.shape
-            eng_shm = mp.Array('d', ni*nj, lock=False)
-            # eng_loc = np.frombuffer(eng_shm.get_obj())
-            eng_loc = np.frombuffer(eng_shm)
-            eng_loc = eng_loc.reshape((ni, nj))
-            eng_loc[:] = eng[:]
+            # eng_shm = mp.Array('d', ni*nj, lock=False)
+            # eng_loc = np.frombuffer(eng_shm)
+            # eng_loc = eng_loc.reshape((ni, nj))
+            # eng_loc[:] = eng[:]
+            eng_loc = eng
 
             ni, nj = fcs.shape
-            fcs_shm = mp.Array('d', ni*nj, lock=False)
-            # fcs_loc = np.frombuffer(fcs_shm.get_obj())
-            fcs_loc = np.frombuffer(fcs_shm)
-            fcs_loc = fcs_loc.reshape((ni, nj))
-            fcs_loc[:] = fcs[:]
+            # fcs_shm = mp.Array('d', ni*nj, lock=False)
+            # fcs_loc = np.frombuffer(fcs_shm)
+            # fcs_loc = fcs_loc.reshape((ni, nj))
+            # fcs_loc[:] = fcs[:]
+            fcs_loc = fcs
 
             struct_vecs[struct_name]['rho']['energy'][idx] = eng_loc
             struct_vecs[struct_name]['rho']['forces'][idx] = fcs_loc
@@ -260,18 +358,18 @@ class NodeManager:
                 fcs = hdf5_file[struct_name]['ffg']['forces'][j][k][()]
 
                 ni, nj = eng.shape
-                eng_shm = mp.Array('d', ni*nj, lock=False)
-                # eng_loc = np.frombuffer(eng_shm.get_obj())
-                eng_loc = np.frombuffer(eng_shm)
-                eng_loc = eng_loc.reshape((ni, nj))
-                eng_loc[:] = eng[:]
+                # eng_shm = mp.Array('d', ni*nj, lock=False)
+                # eng_loc = np.frombuffer(eng_shm)
+                # eng_loc = eng_loc.reshape((ni, nj))
+                # eng_loc[:] = eng[:]
+                eng_loc = eng
 
                 ni, nj = fcs.shape
-                fcs_shm = mp.Array('d', ni*nj, lock=False)
-                # fcs_loc = np.frombuffer(fcs_shm.get_obj())
-                fcs_loc = np.frombuffer(fcs_shm)
-                fcs_loc = fcs_loc.reshape((ni, nj))
-                fcs_loc[:] = fcs[:]
+                # fcs_shm = mp.Array('d', ni*nj, lock=False)
+                # fcs_loc = np.frombuffer(fcs_shm)
+                # fcs_loc = fcs_loc.reshape((ni, nj))
+                # fcs_loc[:] = fcs[:]
+                fcs_loc = fcs
 
                 struct_vecs[struct_name]['ffg']['energy'][j][k] = eng_loc
                 struct_vecs[struct_name]['ffg']['forces'][j][k] = fcs_loc
@@ -289,6 +387,23 @@ class NodeManager:
                 self.ffg_grad_indices[struct_name][j][k]['fk_indices'] = fk
                 self.ffg_grad_indices[struct_name][j][k]['g_indices'] = g
 
+        # load true values
+        true_eng = hdf5_file[struct_name]['true_values']['energy'][()]
+        true_fcs = hdf5_file[struct_name]['true_values']['forces'][()]
+
+        # eng_loc = mp.Value('d', true_eng, lock=False)
+        eng_loc = true_eng
+
+        ni, nj = true_fcs.shape
+        # fcs_shm = mp.Array('d', ni*nj, lock=False)
+        # fcs_loc = np.frombuffer(fcs_shm)
+        # fcs_loc = fcs_loc.reshape((ni, nj))
+        # fcs_loc[:] = true_fcs[:]
+        fcs_loc = true_fcs
+
+        true_values['energy'][struct_name] = eng_loc
+        true_values['forces'][struct_name] = fcs_loc
+
     def compute_energy(self, struct_name, potentials, u_ranges):
         potentials = np.atleast_2d(potentials)
 
@@ -304,14 +419,6 @@ class NodeManager:
             energy += \
                 struct_vecs[struct_name]['phi']['energy'][str(i)] @ y.T
 
-            logging.info("NODE phi sv in compute_energy: {}".format(
-                np.array(struct_vecs[struct_name]['phi']['energy'][str(i)])
-            ))
-
-            logging.info("NODE phi energy: {}".format(
-                np.array(struct_vecs[struct_name]['phi']['energy'][str(i)])@ y.T
-            ))
-
         # embedding terms
         ni = self.compute_ni(struct_name, rho_pvecs, f_pvecs, g_pvecs)
 
@@ -319,13 +426,12 @@ class NodeManager:
             struct_name, ni, u_pvecs, u_ranges
         )
 
-        logging.info("NODE embedding energy: {}".format(
-            self.embedding_energy(struct_name, ni, u_pvecs, u_ranges)
-        ))
+        grouped_ni = [
+            np.array(ni[:, self.type_of_each_atom[struct_name] - 1 == i])
+            for i in range(self.ntypes)
+        ]
 
-        logging.info("NODE total energy: {}".format(energy))
-
-        return energy, ni
+        return energy, grouped_ni
 
     def compute_forces(self, struct_name, potentials, u_ranges):
         potentials = np.atleast_2d(potentials)
@@ -347,14 +453,10 @@ class NodeManager:
                 y
             )
 
-        logging.info("NODE phi forces[0]: {}".format(forces[:, :, 0]))
-
         ni = self.compute_ni(struct_name, rho_pvecs, f_pvecs, g_pvecs)
         uprimes = self.evaluate_uprimes(
             struct_name, ni, u_pvecs, u_ranges, second=False
         )
-
-        logging.info("NODE uprimes: {}".format(uprimes))
 
         # electron density embedding term (rho)
         embedding_forces = np.zeros((n_pots, 3*(self.natoms[struct_name]**2)))
@@ -362,8 +464,6 @@ class NodeManager:
         for rho_idx, y in enumerate(rho_pvecs):
             embedding_forces += \
                 (struct_vecs[struct_name]['rho']['forces'][str(rho_idx)] @ y.T).T
-
-        logging.info("NODE rho forces[0]: {}".format(embedding_forces))
 
         for j, y_fj in enumerate(f_pvecs):
             for k, y_fk in enumerate(f_pvecs):
@@ -383,17 +483,11 @@ class NodeManager:
                 embedding_forces += \
                     (struct_vecs[struct_name]['ffg']['forces'][str(j)][str(k)] @ cart_y.T).T
 
-        logging.info("NODE ffg forces[0]: {}".format(embedding_forces))
-
         embedding_forces = embedding_forces.reshape(
             (n_pots, 3, self.natoms[struct_name], self.natoms[struct_name])
         )
 
         embedding_forces = np.einsum('pijk,pk->pji', embedding_forces, uprimes)
-
-        logging.info("NODE post-up forces[0]: {}".format(embedding_forces[:, :, 0]))
-
-        logging.info("NODE final forces: {}".format(forces + embedding_forces))
 
         return forces + embedding_forces
 
@@ -414,15 +508,7 @@ class NodeManager:
             gradient[:, grad_index:grad_index + y.shape[1]] += \
                 struct_vecs[struct_name]['phi']['energy'][str(phi_idx)]
 
-            # logging.info(
-            #     "NODE phi sv: {}".format(
-            #         struct_vecs[struct_name]['phi']['energy'][str(phi_idx)]
-            #     )
-            # )
-
             grad_index += y.shape[1]
-
-        # logging.info("NODE phi e_grad: {}".format(gradient))
 
         # chain rule on U means dU/dn values are needed
         ni = self.compute_ni(struct_name, rho_pvecs, f_pvecs, g_pvecs)
@@ -438,8 +524,6 @@ class NodeManager:
                 (uprimes @ np.array(partial_ni))
 
             grad_index += y.shape[1]
-
-        logging.info("NODE rho e_grad: {}".format(gradient))
 
         # add in first term of chain rule
         for u_idx, y in enumerate(u_pvecs):

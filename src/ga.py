@@ -23,8 +23,7 @@ from partools import local_minimization
 
 ################################################################################
 
-def ga(parameters, database, template, is_manager, manager,
-        manager_comm):
+def ga(parameters, database, template, node_manager,):
     # Record MPI settings
     world_comm = MPI.COMM_WORLD
     world_rank = world_comm.Get_rank()
@@ -38,20 +37,26 @@ def ga(parameters, database, template, is_manager, manager,
         # GA tools
         stats, logbook = build_stats_and_log()
 
-        all_struct_names = [s.encode('utf-8').strip().decode('utf-8') for s in
-                            list(database.keys())]
-
         if is_master:
             original_mask = template.active_mask.copy()
+
+        # TODO: in the future, will need weights specifically for each structure
+        weights = np.ones(len(node_manager.loaded_structures))
+        weights = np.array_split(weights, world_comm.Get_size())
     else:
         database = None
-        all_struct_names = None
+        weights = None
+
+    weights = world_comm.scatter(weights, root=0)
 
     template = world_comm.bcast(template, root=0)
 
+    all_struct_names = list(database.keys())
+    # database.close()
+
     fxn_wrap, grad_wrap = partools.build_evaluation_functions(
-        template, database, all_struct_names, manager,
-        is_master, is_manager, manager_comm, "Ti48Mo80_type1_c18"
+        template, database, all_struct_names, node_manager,
+        world_comm, is_master,  "Ti48Mo80_type1_c18"
     )
 
     # Have every process build the toolbox
@@ -70,7 +75,6 @@ def ga(parameters, database, template, is_manager, manager,
         # ga_pop contains only the active parameters (masked)
         ga_pop = master_pop[:, np.where(template.active_mask)[0]].copy()
 
-        weights = np.ones(len(database.entries))
     else:
         master_pop = np.empty((parameters['POP_SIZE'], template.pvec_len))
 
@@ -81,9 +85,9 @@ def ga(parameters, database, template, is_manager, manager,
             )
         )
 
-        weights = None
+        # weights = None
 
-    weights = world_comm.bcast(weights, root=0)
+    # weights = world_comm.bcast(weights, root=0)
 
     init_fit, max_ni, min_ni, avg_ni = toolbox.evaluate_population(
         master_pop, weights, return_ni=True, penalty=parameters['PENALTY_ON']
@@ -290,11 +294,9 @@ def ga(parameters, database, template, is_manager, manager,
             else:
                 new_mask = None
 
-            if is_manager:
-                new_mask = manager_comm.bcast(new_mask, root=0)
+            new_mask = world_comm.bcast(new_mask, root=0)
 
-                template.active_mask = new_mask
-                manager.pot_template.active_mask = template.active_mask
+            template.active_mask = new_mask
 
         else:
             toggle_time -= 1

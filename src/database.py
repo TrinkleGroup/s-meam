@@ -143,6 +143,11 @@ class Database(h5py.File):
         struct_name = os.path.split(info_file_name)[-1].split('.')[-1]
 
         self[struct_name].attrs['ref_struct'] = ref_name
+
+        # if overwriting and already exists, delete current copy
+        if 'true_values' in self[struct_name]:
+            del self[struct_name]['true_values']
+
         true_values_group = self[struct_name].create_group('true_values')
 
         true_values_group['energy'] = energy
@@ -446,6 +451,7 @@ class Database(h5py.File):
                 splines: (list) list of lists of splines; [phis, rhos, us, fs, gs]
             """
 
+            # TODO: x_indices is for the pvec, not the knot_coords
             knots_split = np.split(knot_xcoords, x_indices[1:])
 
             # TODO: could specify bc outside of Worker and pass in
