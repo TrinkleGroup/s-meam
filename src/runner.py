@@ -134,8 +134,6 @@ def main(config_name, template_file_name):
         database, template, parameters, world_comm, is_master
     )
 
-    # database.close()
-
     if is_master:
         print()
 
@@ -429,7 +427,7 @@ def prepare_node_managers(database, template, parameters, comm, is_master):
     struct_list = comm.scatter(split_struct_lists, root=0)
 
     node_manager = NodeManager(comm.Get_rank(), template)
-    node_manager.load_structures(struct_list, database)
+    node_manager.load_structures(struct_list, database, load_true=True)
     node_manager.start_pool(parameters['PROCS_PER_NODE'])
 
     return node_manager

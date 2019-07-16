@@ -58,7 +58,7 @@ class NodeManager:
     #     struct_vecs = manager.dict(struct_vecs)
 
     def parallel_compute(self, struct_name, potentials, u_domains,
-                         compute_type):
+                         compute_type, convert_to_cost):
         """
         The function called by the processor Pool. Computes the desired
         property for all structures in 'struct_list'.
@@ -101,11 +101,12 @@ class NodeManager:
 
         elif compute_type == 'forces':
             # ret = forces
-            forces = self.compute_forces(
+            ret = self.compute_forces(
                 struct_name, potentials, u_domains
             )
 
-            ret = self.forces_to_costs(forces, potentials.shape[0], struct_name)
+            if convert_to_cost:
+                ret = self.forces_to_costs(ret, potentials.shape[0], struct_name)
 
         elif compute_type == 'energy_grad':
             # ret = energy_gradient
@@ -125,7 +126,7 @@ class NodeManager:
             )
 
             ret = self.condense_force_grads(
-                forces, ret, potentials.shape[0], struct_name
+                forces, grad, potentials.shape[0], struct_name
             )
 
         else:
@@ -199,17 +200,18 @@ class NodeManager:
             assumes that the weights have been properly updated
         """
 
-        true_fcs = true_values['forces'][struct_name]
+        true_forces = true_values['forces'][struct_name]
 
         diff = forces - true_forces
 
-        scaled = np.einsum('pna,pnak->pnak', diff, fcs_grad)
+        scaled = np.einsum('pna,pnak->pnak', diff, force_grad)
         summed = scaled.sum(axis=1).sum(axis=1)
 
         return summed
 
 
-    def compute(self, compute_type, struct_list, potentials, u_domains):
+    def compute(self, compute_type, struct_list, potentials, u_domains,
+            convert_to_cost=True):
         """
         Computes a given property using the worker pool on the set of
         structures in 'struct_list'
@@ -247,7 +249,7 @@ class NodeManager:
             self.parallel_compute,
             zip(
                 struct_list, repeat(potentials), repeat(u_domains),
-                repeat(compute_type)
+                repeat(compute_type), repeat(convert_to_cost)
             )
         )
 
@@ -256,7 +258,7 @@ class NodeManager:
         return ret_dict
         # return dict(zip(struct_list, return_values))
 
-    def load_structures(self, struct_list, hdf5_file):
+    def load_structures(self, struct_list, hdf5_file, load_true=False):
         """
         Loads the structures from the HDF5 file into shared memory.
 
@@ -282,14 +284,14 @@ class NodeManager:
 
         # doing it this way so that it only loads a certain amount at once
         for struct_name in struct_list:
-            self.load_one_struct(struct_name, hdf5_file)
+            self.load_one_struct(struct_name, hdf5_file, load_true)
             self.loaded_structures.append(struct_name)
 
-    def load_one_struct(self, struct_name, hdf5_file):
-        natoms = hdf5_file[struct_name].attrs['natoms']#.value
+    def load_one_struct(self, struct_name, hdf5_file, load_true):
+        natoms = hdf5_file[struct_name].attrs['natoms']
         self.natoms[struct_name] = natoms
 
-        atom_types = hdf5_file[struct_name].attrs['type_of_each_atom']#.value
+        atom_types = hdf5_file[struct_name].attrs['type_of_each_atom']
         self.type_of_each_atom[struct_name] = atom_types
 
         struct_vecs[struct_name] = {
@@ -298,25 +300,21 @@ class NodeManager:
             'ffg': {'energy': {}, 'forces': {}}
         }
 
+        # TOOD: do you need the [()] still? probably
+
         # load phi structure vectors
         for idx in hdf5_file[struct_name]['phi']['energy']:
 
             eng = hdf5_file[struct_name]['phi']['energy'][idx][()]
             fcs = hdf5_file[struct_name]['phi']['forces'][idx][()]
 
-            # eng_loc = mp.Array('d', eng, lock=False)
-            eng_loc = eng
-
-            ni, nj, nk = fcs.shape
-
             # fcs_shm = mp.Array('d', ni*nj*nk, lock=False)
             # fcs_loc = np.frombuffer(fcs_shm)
             # fcs_loc = fcs_loc.reshape((ni, nj, nk))
             # fcs_loc[:] = fcs[:]
-            fcs_loc = fcs
 
-            struct_vecs[struct_name]['phi']['energy'][idx] = eng_loc
-            struct_vecs[struct_name]['phi']['forces'][idx] = fcs_loc
+            struct_vecs[struct_name]['phi']['energy'][idx] = eng
+            struct_vecs[struct_name]['phi']['forces'][idx] = fcs
 
         # load rho structure vectors
         for idx in hdf5_file[struct_name]['rho']['energy']:
@@ -324,22 +322,8 @@ class NodeManager:
             eng = hdf5_file[struct_name]['rho']['energy'][idx][()]
             fcs = hdf5_file[struct_name]['rho']['forces'][idx][()]
 
-            ni, nj = eng.shape
-            # eng_shm = mp.Array('d', ni*nj, lock=False)
-            # eng_loc = np.frombuffer(eng_shm)
-            # eng_loc = eng_loc.reshape((ni, nj))
-            # eng_loc[:] = eng[:]
-            eng_loc = eng
-
-            ni, nj = fcs.shape
-            # fcs_shm = mp.Array('d', ni*nj, lock=False)
-            # fcs_loc = np.frombuffer(fcs_shm)
-            # fcs_loc = fcs_loc.reshape((ni, nj))
-            # fcs_loc[:] = fcs[:]
-            fcs_loc = fcs
-
-            struct_vecs[struct_name]['rho']['energy'][idx] = eng_loc
-            struct_vecs[struct_name]['rho']['forces'][idx] = fcs_loc
+            struct_vecs[struct_name]['rho']['energy'][idx] = eng
+            struct_vecs[struct_name]['rho']['forces'][idx] = fcs
 
         self.ffg_grad_indices[struct_name] = {}
         self.ffg_grad_indices[struct_name]['ffg_grad_indices'] = {}
@@ -357,22 +341,8 @@ class NodeManager:
                 eng = hdf5_file[struct_name]['ffg']['energy'][j][k][()]
                 fcs = hdf5_file[struct_name]['ffg']['forces'][j][k][()]
 
-                ni, nj = eng.shape
-                # eng_shm = mp.Array('d', ni*nj, lock=False)
-                # eng_loc = np.frombuffer(eng_shm)
-                # eng_loc = eng_loc.reshape((ni, nj))
-                # eng_loc[:] = eng[:]
-                eng_loc = eng
-
-                ni, nj = fcs.shape
-                # fcs_shm = mp.Array('d', ni*nj, lock=False)
-                # fcs_loc = np.frombuffer(fcs_shm)
-                # fcs_loc = fcs_loc.reshape((ni, nj))
-                # fcs_loc[:] = fcs[:]
-                fcs_loc = fcs
-
-                struct_vecs[struct_name]['ffg']['energy'][j][k] = eng_loc
-                struct_vecs[struct_name]['ffg']['forces'][j][k] = fcs_loc
+                struct_vecs[struct_name]['ffg']['energy'][j][k] = eng
+                struct_vecs[struct_name]['ffg']['forces'][j][k] = fcs
 
                 # indices for indexing gradients
                 indices_group = hdf5_file[struct_name]['ffg_grad_indices'][j][k]
@@ -387,22 +357,13 @@ class NodeManager:
                 self.ffg_grad_indices[struct_name][j][k]['fk_indices'] = fk
                 self.ffg_grad_indices[struct_name][j][k]['g_indices'] = g
 
-        # load true values
-        true_eng = hdf5_file[struct_name]['true_values']['energy'][()]
-        true_fcs = hdf5_file[struct_name]['true_values']['forces'][()]
+        if load_true:
+            # load true values
+            true_eng = hdf5_file[struct_name]['true_values']['energy'][()]
+            true_fcs = hdf5_file[struct_name]['true_values']['forces'][()]
 
-        # eng_loc = mp.Value('d', true_eng, lock=False)
-        eng_loc = true_eng
-
-        ni, nj = true_fcs.shape
-        # fcs_shm = mp.Array('d', ni*nj, lock=False)
-        # fcs_loc = np.frombuffer(fcs_shm)
-        # fcs_loc = fcs_loc.reshape((ni, nj))
-        # fcs_loc[:] = true_fcs[:]
-        fcs_loc = true_fcs
-
-        true_values['energy'][struct_name] = eng_loc
-        true_values['forces'][struct_name] = fcs_loc
+            true_values['energy'][struct_name] = true_eng
+            true_values['forces'][struct_name] = true_fcs
 
     def compute_energy(self, struct_name, potentials, u_ranges):
         potentials = np.atleast_2d(potentials)

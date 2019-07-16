@@ -196,7 +196,7 @@ def ga(parameters, database, template, node_manager,):
                 subset = local_minimization(
                     subset, master_pop, template, toolbox.evaluate_population,
                     toolbox.gradient, weights, world_comm, is_master,
-                    nsteps=parameters['LMIN_NSTEPS']
+                    nsteps=parameters['LMIN_NSTEPS'], lm_output=True
                 )
 
                 if is_master:
@@ -358,7 +358,7 @@ def ga(parameters, database, template, node_manager,):
     subset = local_minimization(
         subset, master_pop, template, toolbox.evaluate_population,
         toolbox.gradient, weights, world_comm, is_master,
-        nsteps=parameters['LMIN_NSTEPS']
+        nsteps=parameters['LMIN_NSTEPS'], lm_output=True
     )
 
     if is_master:

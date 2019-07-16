@@ -149,95 +149,97 @@ def build_evaluation_functions(
     def grad_wrap(master_pop, weights):
         """Evalautes the gradient for all potentials in the population"""
 
-        if is_manager:
-            pop = manager_comm.bcast(master_pop, root=0)
-            pop = np.atleast_2d(pop)
-        else:
-            pop = None
+        pop = world_comm.bcast(master_pop, root=0)
+        pop = np.atleast_2d(pop)
 
-        node_manager.weights = dict(zip(all_struct_names, weights))
+        node_manager.weights = dict(zip(
+            node_manager.loaded_structures,
+            weights[:len(node_manager.loaded_structures)]
+        ))
 
         manager_energies = node_manager.compute(
             'energy', all_struct_names, pop, template.u_ranges
         )
 
         # note: node_manager returns dictionaries (struct_name: ret_values)
-        eng = [retval[0] for retval in manager_energies.values()]
+        # eng = [retval[0] for retval in manager_energies.values()]
         # eng = manager_energies[0]
 
         # fcs = list(node_manager.compute(
         #     'forces', all_struct_names, pop, template.u_ranges
         # ).values())
 
-        force_costs = list(node_manager.compute(
-            'forces', all_struct_names, pop, template.u_ranges
-        ))
+        # force_costs = list(node_manager.compute(
+        #     'forces', all_struct_names, pop, template.u_ranges
+        # ))
 
-        eng_grad = list(node_manager.compute(
+        eng_grad = node_manager.compute(
             'energy_grad', all_struct_names, pop, template.u_ranges
-        ).values())
+        )
 
-        fcs_grad = list(node_manager.compute(
+        fcs_grad = node_manager.compute(
             'forces_grad', all_struct_names, pop, template.u_ranges
-        ).values())
+        )
 
         gradient = 0
 
-        if is_manager:
-            mgr_eng = manager_comm.gather(eng, root=0)
-            # mgr_fcs = manager_comm.gather(fcs, root=0)
-            mgr_force_costs = manager_comm.gather(force_costs, root=0)
+        mgr_eng = world_comm.gather(manager_energies, root=0)
+        # mgr_fcs = world_comm.gather(fcs, root=0)
+        # mgr_force_costs = world_comm.gather(force_costs, root=0)
 
-            mgr_eng_grad = manager_comm.gather(eng_grad, root=0)
-            mgr_fcs_grad = manager_comm.gather(fcs_grad, root=0)
+        mgr_eng_grad = world_comm.gather(eng_grad, root=0)
+        mgr_fcs_grad = world_comm.gather(fcs_grad, root=0)
 
-            if is_master:
-                # note: can't stack mgr_fcs b/c different dimensions per struct
-                # all_eng = np.vstack(mgr_eng)
-                all_eng = {k: v for d in mgr_eng for k, v in d.items()}
-                # all_fcs = mgr_fcs
-                all_fcs = mgr_force_costs
+        if is_master:
+            # note: can't stack mgr_fcs b/c different dimensions per struct
+            # all_eng = np.vstack(mgr_eng)
+            all_eng = {k: v for d in mgr_eng for k, v in d.items()}
+            # all_fcs = mgr_fcs
+            # all_fcs = mgr_force_costs
 
-                gradient = np.zeros((
-                    len(pop), template.pvec_len,
-                    len(node_manager.loaded_structures)*2
-                ))
+            all_eng_grad = {k: v for d in mgr_eng_grad for k, v in d.items()}
+            all_fcs_grad = {k: v for d in mgr_fcs_grad for k, v in d.items()}
 
-                for fit_id, (name, weight) in enumerate(zip(
-                        all_struct_names, weights
-                    )):
+            gradient = np.zeros((
+                len(pop), template.pvec_len,
+                len(all_struct_names)*2
+            ))
 
-                    # w_fcs = all_fcs[fit_id]
-                    # true_fcs = entry.value
+            for fit_id, (name, weight) in enumerate(zip(
+                    all_struct_names, weights
+                )):
 
-                    w_fcs = all_fcs[name]
-                    true_fcs = database[name]['true_values']['forces']
+                # w_fcs = all_fcs[fit_id]
+                # true_fcs = entry.value
 
-                    diff = w_fcs - true_fcs
+                # w_fcs = all_fcs[name]
+                # true_fcs = database[name]['true_values']['forces']
+                # 
+                # diff = w_fcs - true_fcs
 
-                    # zero out interactions outside of range of O atom
-                    # fcs_grad = mgr_fcs_grad[name]
-                    # 
-                    # scaled = np.einsum('pna,pnak->pnak', diff, fcs_grad)
-                    # summed = scaled.sum(axis=1).sum(axis=1)
-                    # 
-                    # gradient[:, :, 2*fit_id] += (2 * summed / 10) * weight
-                    gradient[:, :, 2*fit_id] += mgr_fcs_gad[fit_id]
+                # zero out interactions outside of range of O atom
+                # fcs_grad = mgr_fcs_grad[name]
+                # 
+                # scaled = np.einsum('pna,pnak->pnak', diff, fcs_grad)
+                # summed = scaled.sum(axis=1).sum(axis=1)
+                # 
+                # gradient[:, :, 2*fit_id] += (2 * summed / 10) * weight
+                gradient[:, :, 2*fit_id] += all_fcs_grad[name]
 
-                    true_ediff = database[name]['true_values']['energy']
+                true_ediff = database[name]['true_values']['energy']
 
-                    # find index of structures to know which energies to use
-                    comp_ediff = all_eng[name][0] - all_eng[ref_name][0]
+                # find index of structures to know which energies to use
+                comp_ediff = all_eng[name][0] - all_eng[ref_name][0]
 
-                    eng_err = comp_ediff - true_ediff
-                    s_grad = mgr_eng_grad[name]
-                    r_grad = mgr_eng_grad[ref_name]
+                eng_err = comp_ediff - true_ediff
+                s_grad = all_eng_grad[name]
+                r_grad = all_eng_grad[ref_name]
 
-                    gradient[:, :, 2*fit_id + 1] += \
-                        (eng_err[:, np.newaxis]*(s_grad - r_grad)*2)*weight
+                gradient[:, :, 2*fit_id + 1] += \
+                    (eng_err[:, np.newaxis]*(s_grad - r_grad)*2)*weight
 
-                indices = np.where(template.active_mask)[0]
-                gradient = gradient[:, indices, :].swapaxes(1, 2)
+            indices = np.where(template.active_mask)[0]
+            gradient = gradient[:, indices, :].swapaxes(1, 2)
 
         return gradient
 
