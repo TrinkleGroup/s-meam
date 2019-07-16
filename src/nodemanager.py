@@ -287,6 +287,7 @@ class NodeManager:
             self.load_one_struct(struct_name, hdf5_file, load_true)
             self.loaded_structures.append(struct_name)
 
+    # @profile
     def load_one_struct(self, struct_name, hdf5_file, load_true):
         natoms = hdf5_file[struct_name].attrs['natoms']
         self.natoms[struct_name] = natoms
@@ -394,6 +395,7 @@ class NodeManager:
 
         return energy, grouped_ni
 
+    @profile
     def compute_forces(self, struct_name, potentials, u_ranges):
         potentials = np.atleast_2d(potentials)
 
