@@ -228,3 +228,8 @@ data/
 src/misc/*
 *.png
 .idea
+
+*.hdf5
+*.pkl
+*.lprof
+*.prof
