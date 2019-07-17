@@ -395,7 +395,7 @@ class NodeManager:
 
         return energy, grouped_ni
 
-    @profile
+    # @profile
     def compute_forces(self, struct_name, potentials, u_ranges):
         potentials = np.atleast_2d(potentials)
 

@@ -364,9 +364,9 @@ def ga(parameters, database, template, node_manager,):
     if is_master:
         ga_pop[:10] = subset
 
-    # compute final fitness
-    # master_pop[:, np.where(template.active_mask)[0]] = np.array(ga_pop)
+        master_pop[:, np.where(template.active_mask)[0]] = np.array(ga_pop)
 
+    # compute final fitness
     fitnesses, max_ni, min_ni, avg_ni = toolbox.evaluate_population(
         master_pop, weights, return_ni=True, penalty=parameters['PENALTY_ON']
     )

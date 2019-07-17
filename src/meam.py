@@ -253,7 +253,7 @@ class MEAM:
 
                     phi_idx = ij_to_potl(itype, jtype, self.ntypes)
                     # logging.info("MEAM: phi_idx = {}".format(phi_idx))
-                    logging.info("MEAM: phi({0}) = {1}".format(r_ij, phi(r_ij)))
+                    # logging.info("MEAM: phi({0}) = {1}".format(r_ij, phi(r_ij)))
                     total_phi += phi(r_ij)
                 # end phi loop
 
@@ -309,7 +309,7 @@ class MEAM:
                     all_ffg_ni.append(fj_val * partialsum)
                 # end u loop
 
-                logging.info("MEAM: u({0}) = {1}".format(total_ni,u(total_ni)))
+                # logging.info("MEAM: u({0}) = {1}".format(total_ni,u(total_ni)))
                 atom_e = total_phi + u(total_ni)
 
                 all_ni.append(total_ni)
