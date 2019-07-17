@@ -14,12 +14,6 @@ class ConstructorTests(unittest.TestCase):
     def test_missing_data(self):
         self.assertRaises(TypeError, Spline)
 
-    def test_too_many_end_derivs(self):
-        x = np.arange(10, dtype=float)
-        y = np.arange(10, dtype=float)
-
-        self.assertRaises(ValueError, Spline, x, y, end_derivs=(1, 2, 3))
-
     def test_uneven_xy(self):
         x = np.arange(10)
         y = np.arange(9)
