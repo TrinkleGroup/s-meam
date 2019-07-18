@@ -232,15 +232,25 @@ class NodeManager:
         if type(struct_list) is not list:
             raise ValueError("struct_list must be a list of keys")
 
-        return_values = self.pool.starmap(
-            self.parallel_compute,
-            zip(
-                struct_list, repeat(potentials), repeat(u_domains),
-                repeat(compute_type), repeat(convert_to_cost)
-            )
+        my_ret = [None]
+        cProfile.runctx(
+            "my_ret[0] = self.pool.starmap(self.parallel_compute,"
+            "zip(struct_list, repeat(potentials), repeat(u_domains),"
+            "repeat(compute_type), repeat(convert_to_cost)))", globals(), locals(),
+            f"starmap.prof"
         )
 
-        ret_dict = dict(zip(struct_list, return_values))
+        ret_dict = dict(zip(struct_list, my_ret[0]))
+
+        # return_values = self.pool.starmap(
+        #     self.parallel_compute,
+        #     zip(
+        #         struct_list, repeat(potentials), repeat(u_domains),
+        #         repeat(compute_type), repeat(convert_to_cost)
+        #     )
+        # )
+        # 
+        # ret_dict = dict(zip(struct_list, return_values))
 
         return ret_dict
 

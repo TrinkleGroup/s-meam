@@ -15,6 +15,7 @@ def build_evaluation_functions(
     # TODO: is this the best place for this?
     node_manager.ref_name = ref_name
 
+    # @profile
     def fxn_wrap(master_pop, weights, return_ni=False, output=False,
             penalty=False):
         """Master: returns all potentials for all structures.
