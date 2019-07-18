@@ -38,10 +38,6 @@ def build_evaluation_functions(
             'energy', node_manager.loaded_structures, pop, template.u_ranges
         )
 
-        # note: node_manager returns dictionaries (struct_name: ret_values)
-        # eng = [retval[0] for retval in manager_energies.values()]
-        # eng = manager_energies[0]
-
         # TODO: make sure this is working as expected
         ni = [retval[1] for retval in manager_energies.values()]
 
@@ -75,9 +71,7 @@ def build_evaluation_functions(
 
         if is_master:
             # note: can't stack mgr_fcs b/c different dimensions per struct
-            # all_eng = np.vstack(mgr_eng)
             all_eng = {k: v for d in mgr_eng for k, v in d.items()}
-            # all_fcs = mgr_fcs
             all_force_costs = np.vstack(mgr_force_costs)
 
             # do operations so that the final shape is (2, num_pots)
@@ -103,23 +97,6 @@ def build_evaluation_functions(
                 )):
 
                 # TODO: for now, assumes that all structs need energy AND forces
-
-                # TODO: should be returning a dict here?
-                # w_fcs = all_fcs[fit_id]
-                # true_fcs = entry.value
-
-                # w_fcs = all_fcs[name]
-                # true_fcs = database['true_values']['forces'][name]
-                # 
-                # diff = w_fcs - true_fcs
-                # 
-                # # zero out interactions outside of range of O atom
-                # epsilon = np.linalg.norm(
-                #     diff, 'fro',axis=(1, 2)
-                # )/np.sqrt(10)
-                # 
-                # fitnesses[:, 2*fit_id] = epsilon*epsilon*weight
-
                 fitnesses[:, 2*fit_id] = all_force_costs[fit_id]
 
                 # TODO: are you sure the database holds the subtracted values?
@@ -161,18 +138,6 @@ def build_evaluation_functions(
             'energy', node_manager.loaded_structures, pop, template.u_ranges
         )
 
-        # note: node_manager returns dictionaries (struct_name: ret_values)
-        # eng = [retval[0] for retval in manager_energies.values()]
-        # eng = manager_energies[0]
-
-        # fcs = list(node_manager.compute(
-        #     'forces', all_struct_names, pop, template.u_ranges
-        # ).values())
-
-        # force_costs = list(node_manager.compute(
-        #     'forces', all_struct_names, pop, template.u_ranges
-        # ))
-
         eng_grad = node_manager.compute(
             'energy_grad', node_manager.loaded_structures, pop, template.u_ranges
         )
@@ -184,18 +149,13 @@ def build_evaluation_functions(
         gradient = 0
 
         mgr_eng = world_comm.gather(manager_energies, root=0)
-        # mgr_fcs = world_comm.gather(fcs, root=0)
-        # mgr_force_costs = world_comm.gather(force_costs, root=0)
 
         mgr_eng_grad = world_comm.gather(eng_grad, root=0)
         mgr_fcs_grad = world_comm.gather(fcs_grad, root=0)
 
         if is_master:
             # note: can't stack mgr_fcs b/c different dimensions per struct
-            # all_eng = np.vstack(mgr_eng)
             all_eng = {k: v for d in mgr_eng for k, v in d.items()}
-            # all_fcs = mgr_fcs
-            # all_fcs = mgr_force_costs
 
             all_eng_grad = {k: v for d in mgr_eng_grad for k, v in d.items()}
             all_fcs_grad = {k: v for d in mgr_fcs_grad for k, v in d.items()}
@@ -209,21 +169,6 @@ def build_evaluation_functions(
                     all_struct_names, weights
                 )):
 
-                # w_fcs = all_fcs[fit_id]
-                # true_fcs = entry.value
-
-                # w_fcs = all_fcs[name]
-                # true_fcs = database[name]['true_values']['forces']
-                # 
-                # diff = w_fcs - true_fcs
-
-                # zero out interactions outside of range of O atom
-                # fcs_grad = mgr_fcs_grad[name]
-                # 
-                # scaled = np.einsum('pna,pnak->pnak', diff, fcs_grad)
-                # summed = scaled.sum(axis=1).sum(axis=1)
-                # 
-                # gradient[:, :, 2*fit_id] += (2 * summed / 10) * weight
                 gradient[:, :, 2*fit_id] += all_fcs_grad[name]
 
                 true_ediff = database[name]['true_values']['energy']
@@ -384,76 +329,6 @@ def compute_procs_per_subset(struct_natoms, total_num_procs, method='natoms'):
     split_indices = np.cumsum(num_procs_needed_per_struct)
 
     return np.split(np.arange(total_num_procs), split_indices)[:-1]
-
-# def initialize_template(load_path):
-#     # TODO: BW settings
-#     inner_cutoff = 1.5
-#     outer_cutoff = 5.5
-#
-#     points_per_spline = 7
-#
-#     x_pvec = np.concatenate([
-#         np.tile(np.linspace(inner_cutoff, outer_cutoff, points_per_spline), 5),
-#         np.tile(np.linspace(-1, 1, points_per_spline), 2),
-#         np.tile(np.linspace(inner_cutoff, outer_cutoff, points_per_spline), 2),
-#         np.tile(np.linspace(-1, 1, points_per_spline), 3)]
-#     )
-#
-#     x_indices = range(0, points_per_spline * 12, points_per_spline)
-#     types = ["Ti", "Mo"]
-#
-#     template = Template(
-#         pvec_len=108,
-#         u_ranges=[(-1, 1), (-1, 1)],
-#         # Ranges taken from Lou Ti-Mo (phis) or from old TiO (other)
-#         spline_ranges=[(-1, 1), (-1, 1), (-1, 1), (-5, 5), (-5, 5),
-#                        (-1, 1), (-1, 1), (-2.5, 2.5), (-2.5, 2.5),
-#                        (-2.5, 2.5), (-2.5, 2.5), (-2.5, 2.5)],
-#         spline_indices=[(0, 9), (9, 18), (18, 27), (27, 36), (36, 45),
-#                         (45, 54), (54, 63), (63, 72), (72, 81),
-#                         (81, 90), (90, 99), (99, 108)]
-#     )
-#
-#     mask = np.ones(template.pvec_len)
-#
-#     template.pvec[6] = 0
-#     mask[6] = 0  # rhs value phi_Ti
-#     template.pvec[8] = 0
-#     mask[8] = 0  # rhs deriv phi_Ti
-#
-#     template.pvec[15] = 0
-#     mask[15] = 0  # rhs value phi_TiMo
-#     template.pvec[17] = 0
-#     mask[17] = 0  # rhs deriv phi_TiMo
-#
-#     template.pvec[24] = 0
-#     mask[24] = 0  # rhs value phi_Mo
-#     template.pvec[26] = 0
-#     mask[26] = 0  # rhs deriv phi_Mo
-#
-#     template.pvec[33] = 0
-#     mask[33] = 0  # rhs value rho_Ti
-#     template.pvec[35] = 0
-#     mask[35] = 0  # rhs deriv rho_Ti
-#
-#     template.pvec[42] = 0
-#     mask[42] = 0  # rhs value rho_Mo
-#     template.pvec[44] = 0
-#     mask[44] = 0  # rhs deriv rho_Mo
-#
-#     template.pvec[69] = 0
-#     mask[69] = 0  # rhs value f_Ti
-#     template.pvec[71] = 0
-#     mask[71] = 0  # rhs deriv f_Ti
-#
-#     template.pvec[78] = 0
-#     mask[78] = 0  # rhs value f_Mo
-#     template.pvec[80] = 0
-#     mask[80] = 0  # rhs deriv f_Mo
-#
-#     template.active_mask = mask
-#
-#     return template
 
 
 def build_objective_function(testing_database, error_fxn, is_master):
@@ -621,10 +496,6 @@ def mcmc(population, weights, cost_fxn, template, T,
 
         active_indices = np.concatenate(active_indices)
 
-        # new_mask = template.active_mask.copy()
-        # new_mask[:] = 0
-        # new_mask[active_indices] = 1
-
         current = population[:, active_indices]
 
         tmp = population.copy()
@@ -645,7 +516,7 @@ def mcmc(population, weights, cost_fxn, template, T,
             rnd_indices = np.random.randint(
                 inp.shape[1], size=inp.shape[0]
             )
-            
+
             trial_position = inp.copy()
             trial_position[:, rnd_indices] += np.random.normal(
                 scale=move_scale, size=inp.shape[0]
@@ -733,15 +604,6 @@ def mcmc(population, weights, cost_fxn, template, T,
                         start_step + step_num, parameters, template,
                         max_nsteps, suffix='_mc'
                     )
-
-            # if current_best == prev_best:
-            #     num_without_improvement += 1
-            #
-            #     if num_without_improvement == 20:
-            #         break
-            #
-            # else:
-            #     num_without_improvement = 0
 
     if is_master:
         population[:, active_indices] = current
@@ -1026,7 +888,6 @@ def calculate_ni_stats(grouped_ni, template):
             template.u_ranges[1][1],
         )
 
-        # num_in = np.where(np.logical_and(ni <= 1, ni >= -1))
         num_in = np.logical_and(
             type_ni >= -1.5,
             type_ni <= 1.5

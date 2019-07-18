@@ -43,7 +43,6 @@ def ga(parameters, database, template, node_manager,):
         # TODO: in the future, will need weights specifically for each structure
         weights = np.ones(len(node_manager.loaded_structures))
     else:
-        database = None
         weights = None
 
     weights = np.ones(len(node_manager.loaded_structures))
@@ -60,11 +59,6 @@ def ga(parameters, database, template, node_manager,):
         all_struct_names = None
 
     all_struct_names = world_comm.bcast(all_struct_names, root=0)
-
-    # print(f"node_manager {node_manager.node_id} keys:", list(node_manager.struct_vecs.keys()))
-
-    # all_struct_names = list(database.keys())
-    # database.close()
 
     fxn_wrap, grad_wrap = partools.build_evaluation_functions(
         template, database, all_struct_names, node_manager,

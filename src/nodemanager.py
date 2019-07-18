@@ -12,6 +12,8 @@ from itertools import repeat
 from multiprocessing import Manager
 import logging
 
+import cProfile
+
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
@@ -26,9 +28,6 @@ class NodeManager:
         self.template = template
 
         self.loaded_structures = []
-
-        # self.rank_on_node = comm.Get_rank()
-        # self.node_size = mp.cpu_count()
 
         self.pool = None  # should only be started once local data is loaded
 
@@ -53,9 +52,6 @@ class NodeManager:
 
         self.pool = mp.Pool(node_size)
 
-    # def initialize_shared_memory(self):
-    #     manager = Manager()
-    #     struct_vecs = manager.dict(struct_vecs)
 
     def parallel_compute(self, struct_name, potentials, u_domains,
                          compute_type, convert_to_cost):
@@ -83,59 +79,59 @@ class NodeManager:
 
         """
 
-        # TODO: condense energies/forces into costs before MPI send
-        # TODO: condense ni into stats before MPI send
+        def dummy_wrapper():
+            # TODO: instead of reading from Database, take from shared memory
+            if compute_type == 'energy':
+                # ret = (energy, ni)
+                ret = self.compute_energy(
+                    struct_name, potentials, u_domains
+                )
 
-        # TODO: instead of reading from Database, take from shared memory
-        if compute_type == 'energy':
-            # ret = (energy, ni)
-            ret = self.compute_energy(
-                struct_name, potentials, u_domains
-            )
+            elif compute_type == 'forces':
+                # ret = forces
+                ret = self.compute_forces(
+                    struct_name, potentials, u_domains
+                )
 
-            # ret = list(ret)
-            # 
-            # ret[0] = self.energy_to_costs(
-            #     ret[0], potentials.shape[0], struct_name
-            # )
+                if convert_to_cost:
+                    ret = self.forces_to_costs(ret, potentials.shape[0], struct_name)
 
-        elif compute_type == 'forces':
-            # ret = forces
-            ret = self.compute_forces(
-                struct_name, potentials, u_domains
-            )
+            elif compute_type == 'energy_grad':
+                # ret = energy_gradient
+                ret = self.compute_energy_grad(
+                    struct_name, potentials, u_domains
+                )
 
-            if convert_to_cost:
-                ret = self.forces_to_costs(ret, potentials.shape[0], struct_name)
+            elif compute_type == 'forces_grad':
+                # ret = forces_gradient
 
-        elif compute_type == 'energy_grad':
-            # ret = energy_gradient
-            ret = self.compute_energy_grad(
-                struct_name, potentials, u_domains
-            )
+                forces = self.compute_forces(
+                    struct_name, potentials, u_domains
+                )
 
-        elif compute_type == 'forces_grad':
-            # ret = forces_gradient
+                grad = self.compute_forces_grad(
+                    struct_name, potentials, u_domains
+                )
 
-            forces = self.compute_forces(
-                struct_name, potentials, u_domains
-            )
+                ret = self.condense_force_grads(
+                    forces, grad, potentials.shape[0], struct_name
+                )
 
-            grad = self.compute_forces_grad(
-                struct_name, potentials, u_domains
-            )
+            else:
+                raise ValueError(
+                    "'compute_type' must be one of ['energy', 'forces',"
+                    "'energy_grad', 'forces_grad']"
+                )
 
-            ret = self.condense_force_grads(
-                forces, grad, potentials.shape[0], struct_name
-            )
+            return ret
 
-        else:
-            raise ValueError(
-                "'compute_type' must be one of ['energy', 'forces',"
-                "'energy_grad', 'forces_grad']"
-            )
+        my_ret = [None]
+        cProfile.runctx(
+            "my_ret[0] = dummy_wrapper()", globals(), locals(),
+            f"file_{struct_name}"
+        )
 
-        return ret
+        return my_ret[0]
 
     def energy_to_costs(self, energy, npots, struct_name):
         """
@@ -148,9 +144,6 @@ class NodeManager:
             assumes that the weights have been properly updated
         """
 
-        # energy_costs = np.zeros((npots, len(energy)))
-
-        # for cost_id, (name, energy) in enumerate(energy.items()):
         true_ediff = true_values['energy'][struct_name]
 
         # TODO: can't evaluate energy cost here since requires ref struct
@@ -160,7 +153,6 @@ class NodeManager:
 
         energy_costs[:, cost_id] = tmp*self.weights[struct_name]
 
-        # return energy_costs
         return tmp*self.weights[struct_name]
 
 
@@ -175,18 +167,12 @@ class NodeManager:
             assumes that the weights have been properly updated
         """
 
-        # force_costs = np.zeros((npots, len(forces)))
-
-        # for cost_id, (name, forces) in enumerate(forces.items()):
         true_forces = true_values['forces'][struct_name]
 
         diff = forces - true_forces
 
         epsilon = np.linalg.norm(diff, 'fro', axis=(1, 2))/np.sqrt(10)
 
-        # force_costs[:, cost_id] = epsilon*epsilon*self.weights[struct_name]
-
-        # return force_costs
         return epsilon*epsilon*self.weights[struct_name]
 
     def condense_force_grads(self, forces, force_grad, npots, struct_name):
@@ -210,6 +196,7 @@ class NodeManager:
         return summed
 
 
+    # @profile
     def compute(self, compute_type, struct_list, potentials, u_domains,
             convert_to_cost=True):
         """
@@ -256,7 +243,6 @@ class NodeManager:
         ret_dict = dict(zip(struct_list, return_values))
 
         return ret_dict
-        # return dict(zip(struct_list, return_values))
 
     def load_structures(self, struct_list, hdf5_file, load_true=False):
         """
@@ -300,8 +286,6 @@ class NodeManager:
             'rho': {'energy': {}, 'forces': {}},
             'ffg': {'energy': {}, 'forces': {}}
         }
-
-        # TOOD: do you need the [()] still? probably
 
         # load phi structure vectors
         for idx in hdf5_file[struct_name]['phi']['energy']:
@@ -401,8 +385,6 @@ class NodeManager:
     # @profile
     def compute_forces(self, struct_name, potentials, u_ranges):
         potentials = np.atleast_2d(potentials)
-
-        # N = self.natoms[struct_name]
 
         n_pots = potentials.shape[0]
 
@@ -633,8 +615,6 @@ class NodeManager:
             self.parse_parameters(potentials)
 
         grad_index = 0
-
-        # N = self.natoms[struct_name]
 
         # gradients of phi are just their structure vectors
         for phi_idx, y in enumerate(phi_pvecs):
