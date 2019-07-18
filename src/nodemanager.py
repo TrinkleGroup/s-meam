@@ -309,7 +309,10 @@ class NodeManager:
             eng = hdf5_file[struct_name]['phi']['energy'][idx][()]
             fcs = hdf5_file[struct_name]['phi']['forces'][idx][()]
 
-            # fcs_shm = mp.Array('d', ni*nj*nk, lock=False)
+            # eng_loc = mp.Array('d', eng, lock=False)
+            # 
+            # ni, nj, nk = fcs.shape
+            # fcs_shm = mp.Array('f', ni*nj*nk, lock=False)
             # fcs_loc = np.frombuffer(fcs_shm)
             # fcs_loc = fcs_loc.reshape((ni, nj, nk))
             # fcs_loc[:] = fcs[:]

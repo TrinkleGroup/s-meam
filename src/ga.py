@@ -42,16 +42,28 @@ def ga(parameters, database, template, node_manager,):
 
         # TODO: in the future, will need weights specifically for each structure
         weights = np.ones(len(node_manager.loaded_structures))
-        weights = np.array_split(weights, world_comm.Get_size())
     else:
         database = None
         weights = None
 
-    weights = world_comm.scatter(weights, root=0)
+    weights = np.ones(len(node_manager.loaded_structures))
 
     template = world_comm.bcast(template, root=0)
 
-    all_struct_names = list(database.keys())
+    local_structs = world_comm.gather(node_manager.loaded_structures, root=0)
+
+    if is_master:
+        all_struct_names = []
+        for slist in local_structs:
+            all_struct_names += slist
+    else:
+        all_struct_names = None
+
+    all_struct_names = world_comm.bcast(all_struct_names, root=0)
+
+    # print(f"node_manager {node_manager.node_id} keys:", list(node_manager.struct_vecs.keys()))
+
+    # all_struct_names = list(database.keys())
     # database.close()
 
     fxn_wrap, grad_wrap = partools.build_evaluation_functions(
@@ -344,27 +356,27 @@ def ga(parameters, database, template, node_manager,):
     # end of GA loop
 
     # Perform a final local optimization on the final results of the GA
-    if is_master:
-        print(
-            "Performing final local minimization on top 10 potentials...",
-            flush=True
-        )
-
-        subset = ga_pop[:10]
-    else:
-        subset = None
-
-    subset = np.array(subset)
-    subset = local_minimization(
-        subset, master_pop, template, toolbox.evaluate_population,
-        toolbox.gradient, weights, world_comm, is_master,
-        nsteps=parameters['LMIN_NSTEPS'], lm_output=True
-    )
-
-    if is_master:
-        ga_pop[:10] = subset
-
-        master_pop[:, np.where(template.active_mask)[0]] = np.array(ga_pop)
+    # if is_master:
+    #     print(
+    #         "Performing final local minimization on top 10 potentials...",
+    #         flush=True
+    #     )
+    # 
+    #     subset = ga_pop[:10]
+    # else:
+    #     subset = None
+    # 
+    # subset = np.array(subset)
+    # subset = local_minimization(
+    #     subset, master_pop, template, toolbox.evaluate_population,
+    #     toolbox.gradient, weights, world_comm, is_master,
+    #     nsteps=parameters['LMIN_NSTEPS'], lm_output=True
+    # )
+    # 
+    # if is_master:
+    #     ga_pop[:10] = subset
+    # 
+    #     master_pop[:, np.where(template.active_mask)[0]] = np.array(ga_pop)
 
     # compute final fitness
     fitnesses, max_ni, min_ni, avg_ni = toolbox.evaluate_population(

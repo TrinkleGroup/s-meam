@@ -35,7 +35,7 @@ def build_evaluation_functions(
         ))
 
         manager_energies = node_manager.compute(
-            'energy', all_struct_names, pop, template.u_ranges
+            'energy', node_manager.loaded_structures, pop, template.u_ranges
         )
 
         # note: node_manager returns dictionaries (struct_name: ret_values)
@@ -54,7 +54,7 @@ def build_evaluation_functions(
         c_frac_in = ni_stats[4]
 
         force_costs = np.array(list(node_manager.compute(
-            'forces', all_struct_names, pop, template.u_ranges
+            'forces', node_manager.loaded_structures, pop, template.u_ranges
         ).values()))
 
         fitnesses = 0
@@ -158,7 +158,7 @@ def build_evaluation_functions(
         ))
 
         manager_energies = node_manager.compute(
-            'energy', all_struct_names, pop, template.u_ranges
+            'energy', node_manager.loaded_structures, pop, template.u_ranges
         )
 
         # note: node_manager returns dictionaries (struct_name: ret_values)
@@ -174,11 +174,11 @@ def build_evaluation_functions(
         # ))
 
         eng_grad = node_manager.compute(
-            'energy_grad', all_struct_names, pop, template.u_ranges
+            'energy_grad', node_manager.loaded_structures, pop, template.u_ranges
         )
 
         fcs_grad = node_manager.compute(
-            'forces_grad', all_struct_names, pop, template.u_ranges
+            'forces_grad', node_manager.loaded_structures, pop, template.u_ranges
         )
 
         gradient = 0
