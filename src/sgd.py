@@ -11,12 +11,10 @@ np.set_printoptions(precision=3)
 
 ################################################################################
 
-def sgd(parameters, database, template, is_manager, manager,
-        manager_comm):
+def sgd(parameters, database, template, is_manager, manager, manager_comm):
 
     world_comm = MPI.COMM_WORLD
     world_rank = world_comm.Get_rank()
-    world_size = world_comm.Get_size()
 
     is_master = (world_rank == 0)
 
@@ -26,17 +24,9 @@ def sgd(parameters, database, template, is_manager, manager,
         all_struct_names = [s.encode('utf-8').strip().decode('utf-8') for s in
                             database.unique_structs]
 
-        struct_natoms = database.unique_natoms
-
-        print(all_struct_names)
-
-        worker_ranks = partools.compute_procs_per_subset(
-            struct_natoms, world_size
-        )
-
-        print("worker_ranks:", worker_ranks)
+        if is_master:
+            original_mask = template.active_mask.copy()
     else:
-        database = None
         all_struct_names = None
 
     # TODO: does everyone need all_struct_names?
@@ -47,37 +37,33 @@ def sgd(parameters, database, template, is_manager, manager,
     )
 
     # build starting population that will be equilibrated
-
-    # TODO: print the center of the U[] for each to see when stable
-
     if is_master:
-        potential = np.atleast_2d(
-                [template.generate_random_instance() for _ in
-                    range(parameters['POP_SIZE'])
-                    ]
-                )
-        print('potential.shape:', potential.shape)
-        potential = potential[:, np.where(template.active_mask)[0]]
-        print('potential.shape:', potential.shape)
-        # potential = np.ones(potential.shape)
+        master_pot = np.atleast_2d([
+            template.generate_random_instance()
+            for _ in range(parameters['POP_SIZE'])
+        ])
+
+        working_pot = master_pot[:, np.where(template.active_mask)[0]]
 
         weights = np.ones(len(database.entries))
     else:
-        potential = None
         weights = None
+        master_pot = np.empty((parameters['POP_SIZE'], template.pvec_len))
+        working_pot = np.zeros(
+            (parameters['POP_SIZE'], len(np.where(template.active_mask)[0]))
+        )
 
-    subset = None  # used later as placeholder during LM
-
-    potential = world_comm.bcast(potential, root=0)
     weights = world_comm.bcast(weights, root=0)
 
     init_cost, max_ni, min_ni, avg_ni = fxn_wrap(
-        potential, weights, return_ni=True
+        master_pot, weights, return_ni=True, penalty=parameters['PENALTY_ON']
     )
 
     # perform initial rescaling
     if is_master:
-        potential = partools.rescale_ni(potential, min_ni, max_ni, template)
+        print('init min/max ni', min_ni[0], max_ni[0])
+
+        master_pot = partools.rescale_ni(master_pot, min_ni, max_ni, template)
 
     costs, max_ni, min_ni, avg_ni = fxn_wrap(
         potential, weights, return_ni=True

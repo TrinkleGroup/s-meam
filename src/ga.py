@@ -43,7 +43,6 @@ def ga(parameters, database, template, is_manager, manager, manager_comm):
         if is_master:
             original_mask = template.active_mask.copy()
     else:
-        database = None
         all_struct_names = None
 
     template = world_comm.bcast(template, root=0)
@@ -583,9 +582,6 @@ def print_settings(parameters):
 
     print("POP_SIZE:", parameters['POP_SIZE'], flush=True)
     print("NUM_GENS:", parameters['NSTEPS'], flush=True)
-    # print("CXPB:", parameters['CX_PB'], flush=True)
-    # print("MUTPB:", parameters['MUT_PB'], flush=True)
-    # print("CHECKPOINT_FREQUENCY:", parameters['CHECKPOINT_FREQ'], flush=True)
     print()
 
 
