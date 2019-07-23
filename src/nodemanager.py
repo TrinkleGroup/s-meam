@@ -53,6 +53,7 @@ class NodeManager:
         self.pool = mp.Pool(node_size)
 
 
+    # @profile
     def parallel_compute(self, struct_name, potentials, u_domains,
                          compute_type, convert_to_cost):
         """

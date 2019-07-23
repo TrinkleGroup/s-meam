@@ -10,6 +10,7 @@ import numpy as np
 
 np.set_printoptions(precision=8, suppress=True)
 
+import cProfile
 import time
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
@@ -271,10 +272,22 @@ def ga(parameters, database, template, node_manager,):
                 if u_only_status == 'off':  # don't decrement counter if U-only
                     shift_time -= 1
 
-        fitnesses, max_ni, min_ni, avg_ni = toolbox.evaluate_population(
-            master_pop, weights, return_ni=True,
-            penalty=parameters['PENALTY_ON']
+        # fitnesses, max_ni, min_ni, avg_ni = toolbox.evaluate_population(
+        #     master_pop, weights, return_ni=True,
+        #     penalty=parameters['PENALTY_ON']
+        # )
+
+        my_ret = [None]
+        cProfile.runctx(
+            "my_ret[0] = toolbox.evaluate_population(master_pop, weights, return_ni=True, penalty=parameters['PENALTY_ON'])", globals(), locals(),
+            f"evaluate_population.cprof"
         )
+
+        fitnesses = my_ret[0][0]
+        max_ni = my_ret[0][1]
+        min_ni = my_ret[0][2]
+        avg_ni = my_ret[0][3]
+
 
         # TODO: errors will occur if you try to resc/shift with U-only on
         if parameters['DO_TOGGLE'] and (toggle_time == 0):

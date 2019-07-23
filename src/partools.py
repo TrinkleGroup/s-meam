@@ -7,7 +7,7 @@ from src.potential_templates import Template
 
 def build_evaluation_functions(
         template, database, all_struct_names, node_manager,
-        world_comm, is_master, ref_name
+        world_comm, is_master, ref_name, profiler
 ):
     """Builds the function to evaluate populations. Wrapped here for readability
     of main code."""
@@ -39,6 +39,8 @@ def build_evaluation_functions(
             'energy', node_manager.loaded_structures, pop, template.u_ranges
         )
 
+        eng = np.vstack([retval[0] for retval in manager_energies.values()])
+
         # TODO: make sure this is working as expected
         ni = [retval[1] for retval in manager_energies.values()]
 
@@ -60,7 +62,7 @@ def build_evaluation_functions(
         avg_ni = 0
 
         # mgr_eng = world_comm.gather(eng, root=0)
-        mgr_eng = world_comm.gather(manager_energies, root=0)
+        mgr_eng = world_comm.gather(eng, root=0)
         # mgr_fcs = world_comm.gather(fcs, root=0)
         mgr_force_costs = world_comm.gather(force_costs, root=0)
 
@@ -72,7 +74,8 @@ def build_evaluation_functions(
 
         if is_master:
             # note: can't stack mgr_fcs b/c different dimensions per struct
-            all_eng = {k: v for d in mgr_eng for k, v in d.items()}
+            # all_eng = {k: v for d in mgr_eng for k, v in d.items()}
+            all_eng = np.vstack(mgr_eng)
             all_force_costs = np.vstack(mgr_force_costs)
 
             # do operations so that the final shape is (2, num_pots)
@@ -100,9 +103,12 @@ def build_evaluation_functions(
                 # TODO: for now, assumes that all structs need energy AND forces
                 fitnesses[:, 2*fit_id] = all_force_costs[fit_id]
 
+                s_id = all_struct_names.index(name)
+                r_id = all_struct_names.index(ref_name)
+
                 # TODO: are you sure the database holds the subtracted values?
                 true_ediff = database[name]['true_values']['energy']
-                comp_ediff = all_eng[name][0] - all_eng[ref_name][0]
+                comp_ediff = all_eng[s_id] - all_eng[r_id]
 
                 tmp = (comp_ediff - true_ediff) ** 2
                 fitnesses[:, 2*fit_id + 1] = tmp * weight
