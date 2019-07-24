@@ -420,6 +420,8 @@ class Worker:
         # Rho contribution
         for y, rho in zip(rho_pvecs, self.rhos):
             ni += rho.calc_energy(y).T
+            print(y)
+            print("WORKER:", rho.calc_energy(y).T[0])
 
         # Three-body contribution
         for j, (y_fj, ffg_list) in enumerate(zip(f_pvecs, self.ffgs)):

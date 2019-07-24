@@ -332,14 +332,20 @@ def prepare_managers(is_master, parameters, potential_template, database):
         all_struct_names = [s.encode('utf-8').strip().decode('utf-8') for s in
                             database.unique_structs]
 
+
         struct_natoms = database.unique_natoms
         num_structs = len(all_struct_names)
 
         old_copy_names = list(all_struct_names)
 
+        all_struct_names = ['Ti48Mo80_type1_c18']
+        struct_natoms = [128]
+
         worker_ranks = partools.compute_procs_per_subset(
             struct_natoms, world_size
         )
+
+        print(worker_ranks)
     else:
         potential_template = None
         num_structs = None
