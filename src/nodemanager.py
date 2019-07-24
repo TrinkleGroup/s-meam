@@ -882,6 +882,10 @@ class NodeManager:
         # for y, rho in zip(rho_pvecs, self.rhos):
         for i, y in enumerate(rho_pvecs):
             ni += (struct_vecs[struct_name]['rho']['energy'][str(i)] @ y.T).T
+            print(f'NODE {struct_name}:',
+                    (struct_vecs[struct_name]['rho']['energy'][str(i)] @
+                        y.T).T[0])
+
 
         if self.natoms[struct_name] < 3:
             return ni
