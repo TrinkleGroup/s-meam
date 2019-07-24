@@ -419,7 +419,8 @@ def prepare_managers(is_master, parameters, potential_template, database):
 def prepare_node_managers(database, template, parameters, comm, is_master):
     if is_master:
         split_struct_lists = np.array_split(
-            list(database.keys()), comm.Get_size()
+            # list(database.keys()), comm.Get_size()
+            ['Ti48Mo80_type1_c18'], comm.Get_size()
         )
     else:
         split_struct_lists = None

@@ -102,6 +102,8 @@ def ga(parameters, database, template, node_manager,):
         master_pop, weights, return_ni=True, penalty=parameters['PENALTY_ON']
     )
 
+    return
+
     if is_master:
         print('init min/max ni', min_ni[0], max_ni[0])
 
