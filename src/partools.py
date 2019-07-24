@@ -24,6 +24,8 @@ def build_evaluation_functions(
         if is_manager:
             pop = manager_comm.bcast(master_pop, root=0)
             pop = np.atleast_2d(pop)
+
+            print(pop)
         else:
             pop = None
 
@@ -59,6 +61,9 @@ def build_evaluation_functions(
                 # note: can't stack mgr_fcs b/c different dimensions per struct
                 all_eng = np.vstack(mgr_eng)
                 all_fcs = mgr_fcs
+
+                print('partools min:', np.dstack(mgr_min_ni))
+                print('partools eng:', all_eng)
 
                 # do operations so that the final shape is (2, num_pots)
                 min_ni = np.min(np.dstack(mgr_min_ni), axis=2).T

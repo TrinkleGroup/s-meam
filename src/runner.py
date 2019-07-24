@@ -18,7 +18,7 @@ np.set_printoptions(linewidth=1000)
 import random
 
 seed = np.random.randint(10000)
-# seed = 2462
+seed = 42
 
 np.random.seed(seed)
 random.seed(seed)

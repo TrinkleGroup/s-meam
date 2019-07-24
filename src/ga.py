@@ -58,12 +58,15 @@ def ga(parameters, database, template, is_manager, manager, manager_comm):
     toolbox.register("evaluate_population", fxn_wrap)
     toolbox.register("gradient", grad_wrap)
 
+    print(template.pvec_len)
+
     # Create the original population
     if is_master:
 
         # master_pop contains all of the parameters (un-masked)
         master_pop = toolbox.population(n=parameters['POP_SIZE'])
         master_pop = np.array(master_pop)
+        master_pop[:] = 1
 
         # ga_pop contains only the active parameters (masked)
         ga_pop = master_pop[:, np.where(template.active_mask)[0]].copy()
@@ -87,8 +90,12 @@ def ga(parameters, database, template, is_manager, manager, manager_comm):
         master_pop, weights, return_ni=True, penalty=parameters['PENALTY_ON']
     )
 
+    return
+
     if is_master:
         print('init min/max ni', min_ni[0], max_ni[0])
+
+        # print(init_fit)
 
         master_pop = partools.rescale_ni(master_pop, min_ni, max_ni, template)
         ga_pop = master_pop[:, np.where(template.active_mask)[0]]
