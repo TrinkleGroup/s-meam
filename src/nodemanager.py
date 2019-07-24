@@ -80,59 +80,50 @@ class NodeManager:
 
         """
 
-        def dummy_wrapper():
-            # TODO: instead of reading from Database, take from shared memory
-            if compute_type == 'energy':
-                # ret = (energy, ni)
-                ret = self.compute_energy(
-                    struct_name, potentials, u_domains
-                )
+        # TODO: instead of reading from Database, take from shared memory
+        if compute_type == 'energy':
+            # ret = (energy, ni)
+            ret = self.compute_energy(
+                struct_name, potentials, u_domains
+            )
 
-            elif compute_type == 'forces':
-                # ret = forces
-                ret = self.compute_forces(
-                    struct_name, potentials, u_domains
-                )
+        elif compute_type == 'forces':
+            # ret = forces
+            ret = self.compute_forces(
+                struct_name, potentials, u_domains
+            )
 
-                if convert_to_cost:
-                    ret = self.forces_to_costs(ret, potentials.shape[0], struct_name)
+            if convert_to_cost:
+                ret = self.forces_to_costs(ret, potentials.shape[0], struct_name)
 
-            elif compute_type == 'energy_grad':
-                # ret = energy_gradient
-                ret = self.compute_energy_grad(
-                    struct_name, potentials, u_domains
-                )
+        elif compute_type == 'energy_grad':
+            # ret = energy_gradient
+            ret = self.compute_energy_grad(
+                struct_name, potentials, u_domains
+            )
 
-            elif compute_type == 'forces_grad':
-                # ret = forces_gradient
+        elif compute_type == 'forces_grad':
+            # ret = forces_gradient
 
-                forces = self.compute_forces(
-                    struct_name, potentials, u_domains
-                )
+            forces = self.compute_forces(
+                struct_name, potentials, u_domains
+            )
 
-                grad = self.compute_forces_grad(
-                    struct_name, potentials, u_domains
-                )
+            grad = self.compute_forces_grad(
+                struct_name, potentials, u_domains
+            )
 
-                ret = self.condense_force_grads(
-                    forces, grad, potentials.shape[0], struct_name
-                )
+            ret = self.condense_force_grads(
+                forces, grad, potentials.shape[0], struct_name
+            )
 
-            else:
-                raise ValueError(
-                    "'compute_type' must be one of ['energy', 'forces',"
-                    "'energy_grad', 'forces_grad']"
-                )
+        else:
+            raise ValueError(
+                "'compute_type' must be one of ['energy', 'forces',"
+                "'energy_grad', 'forces_grad']"
+            )
 
-            return ret
-
-        my_ret = [None]
-        cProfile.runctx(
-            "my_ret[0] = dummy_wrapper()", globals(), locals(),
-            f"file_{struct_name}"
-        )
-
-        return my_ret[0]
+        return ret
 
     def energy_to_costs(self, energy, npots, struct_name):
         """

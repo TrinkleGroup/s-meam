@@ -7,7 +7,7 @@ from src.potential_templates import Template
 
 def build_evaluation_functions(
         template, database, all_struct_names, node_manager,
-        world_comm, is_master, ref_name, profiler
+        world_comm, is_master, ref_name,
 ):
     """Builds the function to evaluate populations. Wrapped here for readability
     of main code."""
@@ -77,6 +77,8 @@ def build_evaluation_functions(
             # all_eng = {k: v for d in mgr_eng for k, v in d.items()}
             all_eng = np.vstack(mgr_eng)
             all_force_costs = np.vstack(mgr_force_costs)
+
+            print(f'partools: {all_eng}', flush=True)
 
             # do operations so that the final shape is (2, num_pots)
             min_ni = np.min(np.dstack(mgr_min_ni), axis=2).T

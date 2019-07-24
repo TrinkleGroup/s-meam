@@ -42,11 +42,7 @@ def ga(parameters, database, template, node_manager,):
             original_mask = template.active_mask.copy()
 
         # TODO: in the future, will need weights specifically for each structure
-        weights = np.ones(len(node_manager.loaded_structures))
-    else:
-        weights = None
 
-    weights = np.ones(len(node_manager.loaded_structures))
 
     template = world_comm.bcast(template, root=0)
 
@@ -56,9 +52,14 @@ def ga(parameters, database, template, node_manager,):
         all_struct_names = []
         for slist in local_structs:
             all_struct_names += slist
+
+        weights = np.ones(len(all_struct_names))
     else:
         all_struct_names = None
+        weights = None
 
+
+    weights = world_comm.bcast(weights, root=0)
     all_struct_names = world_comm.bcast(all_struct_names, root=0)
 
     fxn_wrap, grad_wrap = partools.build_evaluation_functions(
@@ -78,6 +79,7 @@ def ga(parameters, database, template, node_manager,):
         # master_pop contains all of the parameters (un-masked)
         master_pop = toolbox.population(n=parameters['POP_SIZE'])
         master_pop = np.array(master_pop)
+        master_pop[:] = 1
 
         # ga_pop contains only the active parameters (masked)
         ga_pop = master_pop[:, np.where(template.active_mask)[0]].copy()
@@ -148,6 +150,8 @@ def ga(parameters, database, template, node_manager,):
         )
 
         ga_start = time.time()
+
+    return
 
     toggle_time = parameters['TOGGLE_FREQ']
     lmin_time = parameters['LMIN_FREQ']
