@@ -44,8 +44,6 @@ def build_evaluation_functions(
         # TODO: make sure this is working as expected
         ni = [retval[1] for retval in manager_energies.values()]
 
-        print([[el2.shape for el2 in el1] for el1 in ni])
-
         ni_stats = calculate_ni_stats(ni, template)
 
         c_min_ni = ni_stats[0]
@@ -79,9 +77,6 @@ def build_evaluation_functions(
             # all_eng = {k: v for d in mgr_eng for k, v in d.items()}
             all_eng = np.vstack(mgr_eng)
             all_force_costs = np.vstack(mgr_force_costs)
-
-            print(f'partools ni: {np.dstack(mgr_min_ni)}')
-            print(f'partools eng: {all_eng}', flush=True)
 
             # do operations so that the final shape is (2, num_pots)
             min_ni = np.min(np.dstack(mgr_min_ni), axis=2).T
@@ -890,8 +885,6 @@ def calculate_ni_stats(grouped_ni, template):
     ni_var = []
 
     for i, type_ni in enumerate(stacked_groups):
-        print(f'type_ni.shape {type_ni.shape}')
-        print(f"{np.min(type_ni, axis=1)}")
 
         biggest_min = max(
             template.u_ranges[0][0],

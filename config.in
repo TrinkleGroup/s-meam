@@ -1,6 +1,6 @@
 OPT_TYPE GA
 
-POP_SIZE 3
+POP_SIZE 1000
 NSTEPS 10
 
 PENALTY_ON False
@@ -23,7 +23,7 @@ RESCALE_STOP_STEP 1000
 # NAMES_FILE ../names.txt
 NUM_STRUCTS 5
 
-PROCS_PER_NODE 3
+PROCS_PER_NODE 1
 
 DATABASE_FILE ../data/fitting_databases/hyojung/mini_db.hdf5
 

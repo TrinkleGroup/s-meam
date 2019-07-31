@@ -30,6 +30,7 @@ class NodeManager:
         self.loaded_structures = []
 
         self.pool = None  # should only be started once local data is loaded
+        self.pool_size = None
 
         # struct_vecs = {}
 
@@ -51,6 +52,7 @@ class NodeManager:
             node_size = mp.cpu_count()
 
         self.pool = mp.Pool(node_size)
+        self.pool_size = node_size
 
 
     # @profile
@@ -224,25 +226,26 @@ class NodeManager:
         if type(struct_list) is not list:
             raise ValueError("struct_list must be a list of keys")
 
-        my_ret = [None]
-        cProfile.runctx(
-            "my_ret[0] = self.pool.starmap(self.parallel_compute,"
-            "zip(struct_list, repeat(potentials), repeat(u_domains),"
-            "repeat(compute_type), repeat(convert_to_cost)))", globals(), locals(),
-            f"starmap.prof"
-        )
+        # TODO: do scaling tests to make sure having optional OpenMP isn't slow
 
-        ret_dict = dict(zip(struct_list, my_ret[0]))
+        if self.pool_size == 1:
+            ret_dict = {}
+            for struct_name in struct_list:
+                ret_dict[struct_name] = self.parallel_compute(
+                    struct_name, potentials, u_domains, compute_type,
+                    convert_to_cost
+                )
 
-        # return_values = self.pool.starmap(
-        #     self.parallel_compute,
-        #     zip(
-        #         struct_list, repeat(potentials), repeat(u_domains),
-        #         repeat(compute_type), repeat(convert_to_cost)
-        #     )
-        # )
-        # 
-        # ret_dict = dict(zip(struct_list, return_values))
+        else:
+            return_values = self.pool.starmap(
+                self.parallel_compute,
+                zip(
+                    struct_list, repeat(potentials), repeat(u_domains),
+                    repeat(compute_type), repeat(convert_to_cost)
+                )
+            )
+
+            ret_dict = dict(zip(struct_list, return_values))
 
         return ret_dict
 
@@ -274,6 +277,7 @@ class NodeManager:
         for struct_name in struct_list:
             self.load_one_struct(struct_name, hdf5_file, load_true)
             self.loaded_structures.append(struct_name)
+            print("Node", self.node_id, "loaded", struct_name, flush=True)
 
     # @profile
     def load_one_struct(self, struct_name, hdf5_file, load_true):
@@ -882,9 +886,9 @@ class NodeManager:
         # for y, rho in zip(rho_pvecs, self.rhos):
         for i, y in enumerate(rho_pvecs):
             ni += (struct_vecs[struct_name]['rho']['energy'][str(i)] @ y.T).T
-            print(f'NODE {struct_name}:',
-                    (struct_vecs[struct_name]['rho']['energy'][str(i)] @
-                        y.T).T[0])
+            # print(f'NODE {struct_name}:',
+            #         (struct_vecs[struct_name]['rho']['energy'][str(i)] @
+            #             y.T).T[0])
 
 
         if self.natoms[struct_name] < 3:

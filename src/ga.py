@@ -41,9 +41,6 @@ def ga(parameters, database, template, node_manager,):
         if is_master:
             original_mask = template.active_mask.copy()
 
-        # TODO: in the future, will need weights specifically for each structure
-
-
     template = world_comm.bcast(template, root=0)
 
     local_structs = world_comm.gather(node_manager.loaded_structures, root=0)
@@ -57,7 +54,6 @@ def ga(parameters, database, template, node_manager,):
     else:
         all_struct_names = None
         weights = None
-
 
     weights = world_comm.bcast(weights, root=0)
     all_struct_names = world_comm.bcast(all_struct_names, root=0)
@@ -94,15 +90,10 @@ def ga(parameters, database, template, node_manager,):
             )
         )
 
-        # weights = None
-
-    # weights = world_comm.bcast(weights, root=0)
 
     init_fit, max_ni, min_ni, avg_ni = toolbox.evaluate_population(
         master_pop, weights, return_ni=True, penalty=parameters['PENALTY_ON']
     )
-
-    return
 
     if is_master:
         print('init min/max ni', min_ni[0], max_ni[0])
@@ -152,8 +143,6 @@ def ga(parameters, database, template, node_manager,):
         )
 
         ga_start = time.time()
-
-    return
 
     toggle_time = parameters['TOGGLE_FREQ']
     lmin_time = parameters['LMIN_FREQ']
