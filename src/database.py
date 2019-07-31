@@ -140,7 +140,8 @@ class Database(h5py.File):
         energy = np.genfromtxt(info_file_name, max_rows=1)
         forces = np.genfromtxt(info_file_name, skip_header=1)
 
-        struct_name = os.path.split(info_file_name)[-1].split('.')[-1]
+        # struct_name = os.path.split(info_file_name)[-1].split('.')[-1]
+        struct_name = '.'.join(os.path.split(info_file_name)[-1].split('.')[1:])
 
         self[struct_name].attrs['ref_struct'] = ref_name
 
@@ -364,7 +365,7 @@ class Database(h5py.File):
                 new_group['ffg']['forces'][str(j)][str(k)] = \
                     ffg.structure_vectors['forces']
 
-    def add_from_existing_workers(self, path_to_workers):
+    def add_from_existing_workers(self, path_to_workers, overwrite=False):
         """
         Assumes that pickled Worker objects already exist and are stored in
         'path_to_workers'.
@@ -381,63 +382,68 @@ class Database(h5py.File):
 
         """
         for struct_path in glob.glob(os.path.join(path_to_workers, '*.pkl')):
-            worker = pickle.load(open(struct_path, 'rb'))
-
             struct_name = os.path.splitext(os.path.split(struct_path)[-1])[0]
 
-            logging.debug(struct_name)
+            if (struct_name in self) and (not overwrite):
+               pass 
+            else:
+                worker = pickle.load(open(struct_path, 'rb'))
 
-            new_group = self.create_group(struct_name)
+                logging.debug(
+                    'Database.add_from_existing_worker: {}'.format(struct_name)
+                )
 
-            new_group.attrs['type_of_each_atom'] = np.array(
-                worker.type_of_each_atom
-            )
+                new_group = self.create_group(struct_name)
 
-            new_group.attrs['natoms'] = worker.natoms
+                new_group.attrs['type_of_each_atom'] = np.array(
+                    worker.type_of_each_atom
+                )
 
-            for j, ffg_list in enumerate(worker.ffg_grad_indices):
-                for k, ffg_indices in enumerate(ffg_list):
-                    for idx, key in enumerate(['fj_indices', 'fk_indices',
-                                               'g_indices']):
-                        string = '/'.join(
-                            [struct_name, 'ffg_grad_indices', str(j), str(k),
-                             key]
-                        )
+                new_group.attrs['natoms'] = worker.natoms
 
-                        self[string] = np.array(ffg_indices[key])
+                for j, ffg_list in enumerate(worker.ffg_grad_indices):
+                    for k, ffg_indices in enumerate(ffg_list):
+                        for idx, key in enumerate(['fj_indices', 'fk_indices',
+                                                   'g_indices']):
+                            string = '/'.join(
+                                [struct_name, 'ffg_grad_indices', str(j), str(k),
+                                 key]
+                            )
 
-            # prepare groups for structures vectors
-            new_group.create_group("phi")
-            new_group.create_group("rho")
-            new_group.create_group("ffg")
+                            self[string] = np.array(ffg_indices[key])
 
-            for spline_type in ['phi', 'rho', 'ffg']:
-                new_group[spline_type].create_group('energy')
-                new_group[spline_type].create_group('forces')
+                # prepare groups for structures vectors
+                new_group.create_group("phi")
+                new_group.create_group("rho")
+                new_group.create_group("ffg")
 
-            # save all energy structure vectors
-            for spline_type, splines in zip(['phi', 'rho'], [worker.phis,
-                                                             worker.rhos]):
-                for i, sp in enumerate(splines):
+                for spline_type in ['phi', 'rho', 'ffg']:
+                    new_group[spline_type].create_group('energy')
+                    new_group[spline_type].create_group('forces')
 
-                    new_group[spline_type]['energy'][str(i)] = \
-                        sp.structure_vectors['energy']
+                # save all energy structure vectors
+                for spline_type, splines in zip(['phi', 'rho'], [worker.phis,
+                                                                 worker.rhos]):
+                    for i, sp in enumerate(splines):
 
-                    new_group[spline_type]['forces'][str(i)] = \
-                        sp.structure_vectors['forces']
+                        new_group[spline_type]['energy'][str(i)] = \
+                            sp.structure_vectors['energy']
 
-            for j, ffg_list in enumerate(worker.ffgs):
+                        new_group[spline_type]['forces'][str(i)] = \
+                            sp.structure_vectors['forces']
 
-                new_group['ffg']['energy'].create_group(str(j))
-                new_group['ffg']['forces'].create_group(str(j))
+                for j, ffg_list in enumerate(worker.ffgs):
 
-                for k, ffg in enumerate(ffg_list):
+                    new_group['ffg']['energy'].create_group(str(j))
+                    new_group['ffg']['forces'].create_group(str(j))
 
-                    new_group['ffg']['energy'][str(j)][str(k)] = \
-                        ffg.structure_vectors['energy']
+                    for k, ffg in enumerate(ffg_list):
 
-                    new_group['ffg']['forces'][str(j)][str(k)] = \
-                        ffg.structure_vectors['forces']
+                        new_group['ffg']['energy'][str(j)][str(k)] = \
+                            ffg.structure_vectors['energy']
+
+                        new_group['ffg']['forces'][str(j)][str(k)] = \
+                            ffg.structure_vectors['forces']
 
     def build_spline_lists(self, knot_xcoords, x_indices, natoms):
             """
