@@ -426,6 +426,21 @@ def prepare_managers(is_master, parameters, potential_template, database):
 
     return is_manager, manager, manager_comm
 
+def prepare_node_managers(database, template, parameters, comm, is_master):
+    if is_master:
+        split_struct_lists = np.array_split(
+            list(database.keys()), comm.Get_size()
+        )
+    else:
+        split_struct_lists = None
+
+    struct_list = comm.scatter(split_struct_lists, root=0)
+
+    node_manager = NodeManager(comm.Get_rank(), template)
+    node_manager.load_structures(struct_list, database, load_true=True)
+    node_manager.start_pool(parameters['PROCS_PER_NODE'])
+
+    return node_manager
 
 if __name__ == "__main__":
     is_master = MPI.COMM_WORLD.Get_rank() == 0

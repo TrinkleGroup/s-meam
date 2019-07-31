@@ -400,7 +400,7 @@ def rescale_ni(pots, min_ni, max_ni, template):
     # ni row format: [max_A, max_B, ..., min_A, min_B, ...]
     ni = np.hstack([max_ni, min_ni])
 
-    nt = potential_template.ntypes
+    nt = template.ntypes
 
     per_type_slice = [ni[:, i::nt] for i in range(nt)]
 
@@ -501,8 +501,8 @@ def mcmc(population, weights, cost_fxn, template, T,
     if max_nsteps is None:
         max_nsteps = parameters['MCMC_NSTEPS']
 
-    move_prob = parameters['MCMC_MOVE_PROB']
-    move_scale = parameters['MCMC_MOVE_SCALE']
+    move_prob = parameters['MOVE_PROB']
+    move_scale = parameters['MOVE_SCALE']
     checkpoint_freq = parameters['CHECKPOINT_FREQ']
 
     if is_master:
