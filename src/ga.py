@@ -23,7 +23,7 @@ from partools import local_minimization
 
 ################################################################################
 
-def ga(parameters, database, template, is_manager, manager, manager_comm):
+def ga(parameters, database, template, node_manager,):
     # Record MPI settings
     world_comm = MPI.COMM_WORLD
     world_rank = world_comm.Get_rank()
@@ -37,19 +37,30 @@ def ga(parameters, database, template, is_manager, manager, manager_comm):
         # GA tools
         stats, logbook = build_stats_and_log()
 
-        all_struct_names = [s.encode('utf-8').strip().decode('utf-8') for s in
-                            database.unique_structs]
-
         if is_master:
             original_mask = template.active_mask.copy()
-    else:
-        all_struct_names = None
 
     template = world_comm.bcast(template, root=0)
 
+    local_structs = world_comm.gather(node_manager.loaded_structures, root=0)
+
+    if is_master:
+        all_struct_names = []
+        for slist in local_structs:
+            all_struct_names += slist
+
+        weights = np.ones(len(all_struct_names))
+    else:
+        database = None
+        all_struct_names = None
+        weights = None
+
+    weights = world_comm.bcast(weights, root=0)
+    all_struct_names = world_comm.bcast(all_struct_names, root=0)
+
     fxn_wrap, grad_wrap = partools.build_evaluation_functions(
-        template, database, all_struct_names, manager,
-        is_master, is_manager, manager_comm, "Ti48Mo80_type1_c18"
+        template, database, all_struct_names, node_manager,
+        world_comm, is_master,  "Ti48Mo80_type1_c18"
     )
 
     # Have every process build the toolbox
@@ -58,20 +69,16 @@ def ga(parameters, database, template, is_manager, manager, manager_comm):
     toolbox.register("evaluate_population", fxn_wrap)
     toolbox.register("gradient", grad_wrap)
 
-    print(template.pvec_len)
-
     # Create the original population
     if is_master:
 
         # master_pop contains all of the parameters (un-masked)
         master_pop = toolbox.population(n=parameters['POP_SIZE'])
         master_pop = np.array(master_pop)
-        master_pop[:] = 1
 
         # ga_pop contains only the active parameters (masked)
         ga_pop = master_pop[:, np.where(template.active_mask)[0]].copy()
 
-        weights = np.ones(len(database.entries))
     else:
         master_pop = np.empty((parameters['POP_SIZE'], template.pvec_len))
 
@@ -82,20 +89,13 @@ def ga(parameters, database, template, is_manager, manager, manager_comm):
             )
         )
 
-        weights = None
-
-    weights = world_comm.bcast(weights, root=0)
 
     init_fit, max_ni, min_ni, avg_ni = toolbox.evaluate_population(
         master_pop, weights, return_ni=True, penalty=parameters['PENALTY_ON']
     )
 
-    return
-
     if is_master:
         print('init min/max ni', min_ni[0], max_ni[0])
-
-        # print(init_fit)
 
         master_pop = partools.rescale_ni(master_pop, min_ni, max_ni, template)
         ga_pop = master_pop[:, np.where(template.active_mask)[0]]
@@ -104,7 +104,7 @@ def ga(parameters, database, template, is_manager, manager, manager_comm):
     else:
         subset = None
 
-    fitnesses, max_ni, min_ni, avg_ni = toolbox.evaluate_population(
+    new_fit, max_ni, min_ni, avg_ni = toolbox.evaluate_population(
         master_pop, weights, return_ni=True, penalty=parameters['PENALTY_ON']
     )
 
@@ -112,7 +112,7 @@ def ga(parameters, database, template, is_manager, manager, manager_comm):
     if is_master:
         print('rescaled min/max ni', min_ni[0], max_ni[0])
 
-        new_fit = np.sum(fitnesses, axis=1)
+        new_fit = np.sum(new_fit, axis=1)
 
         pop_copy = []
         for ind in ga_pop:
@@ -142,6 +142,9 @@ def ga(parameters, database, template, is_manager, manager, manager_comm):
 
         ga_start = time.time()
 
+    # TODO: only calculate these if specified
+
+    toggle_time = parameters['TOGGLE_FREQ']
     lmin_time = parameters['LMIN_FREQ']
     resc_time = parameters['RESCALE_FREQ']
     shift_time = parameters['SHIFT_FREQ']
@@ -150,7 +153,6 @@ def ga(parameters, database, template, is_manager, manager, manager_comm):
     mcmc_step = 0
 
     u_only_status = 'off'
-    toggle_time = parameters['TOGGLE_FREQ']
 
     # begin GA
     generation_number = 1
@@ -198,7 +200,7 @@ def ga(parameters, database, template, is_manager, manager, manager_comm):
                 subset = local_minimization(
                     subset, master_pop, template, toolbox.evaluate_population,
                     toolbox.gradient, weights, world_comm, is_master,
-                    nsteps=parameters['LMIN_NSTEPS']
+                    nsteps=parameters['LMIN_NSTEPS'], lm_output=True
                 )
 
                 if is_master:
@@ -225,21 +227,16 @@ def ga(parameters, database, template, is_manager, manager, manager_comm):
 
                         new_fit = np.sum(fitnesses, axis=1)
 
-                        # tmp_min_ni = min_ni[np.argsort(new_fit)]
-                        # tmp_max_ni = max_ni[np.argsort(new_fit)]
-
                         master_pop = partools.rescale_ni(
                             master_pop, min_ni, max_ni, template
                         )
 
-                    # re-compute the ni data for use with shifting U domains
                     fitnesses, max_ni, min_ni, avg_ni = toolbox.evaluate_population(
                         master_pop, weights, return_ni=True,
                         penalty=parameters['PENALTY_ON']
                     )
 
                     resc_time = parameters['RESCALE_FREQ'] - 1
-
                 else:
                     if u_only_status == 'off':  # don't decrement counter if U-only
                         resc_time -= 1
@@ -250,22 +247,6 @@ def ga(parameters, database, template, is_manager, manager, manager_comm):
                 if is_master:
                     new_fit = np.sum(fitnesses, axis=1)
 
-                    ga_pop = master_pop[:, np.where(template.active_mask)[0]].copy()
-
-                    pop_copy = []
-                    for ind in ga_pop:
-                        pop_copy.append(creator.Individual(ind))
-
-                    ga_pop = pop_copy
-
-                    for ind, fit in zip(ga_pop, new_fit):
-                        ind.fitness.values = fit,
-
-                    ga_pop = tools.selBest(ga_pop, len(ga_pop))
-
-                    master_pop = master_pop[np.argsort(new_fit)]
-                    master_pop[:, np.where(template.active_mask)[0]] = np.array(ga_pop)
-
                     tmp_min_ni = min_ni[np.argsort(new_fit)]
                     tmp_max_ni = max_ni[np.argsort(new_fit)]
 
@@ -274,52 +255,18 @@ def ga(parameters, database, template, is_manager, manager, manager_comm):
                 else:
                     new_u_domains = None
 
-                if is_manager:
-                    new_u_domains = manager_comm.bcast(new_u_domains, root=0)
-                    template.u_ranges = new_u_domains
-
-                    manager.pot_template.u_ranges = template.u_ranges
+                new_u_domains = world_comm.bcast(new_u_domains, root=0)
+                template.u_ranges = new_u_domains
 
                 shift_time = parameters['SHIFT_FREQ'] - 1
             else:
                 if u_only_status == 'off':  # don't decrement counter if U-only
                     shift_time -= 1
 
-        if parameters['DO_MCMC'] and (mcmc_time == 0):
-            if is_master: 
-                print("Performing U-only MCMC...")
-
-            master_pop = partools.mcmc(
-                    master_pop, weights, toolbox.evaluate_population,
-                    template, 1, parameters, [5, 6], is_master,
-                    start_step=mcmc_step, max_nsteps=parameters['MCMC_NSTEPS'],
-                    suffix="U"
-            )
-
-            fitnesses, max_ni, min_ni, avg_ni = toolbox.evaluate_population(
-                master_pop, weights, return_ni=True,
-                penalty=parameters['PENALTY_ON']
-            )
-
-            if is_master:
-                new_fit = np.sum(fitnesses, axis=1)
-
-                ga_pop = master_pop[:, np.where(template.active_mask)[0]].copy()
-
-                pop_copy = []
-                for ind in ga_pop:
-                    pop_copy.append(creator.Individual(ind))
-
-                ga_pop = pop_copy
-
-                for ind, fit in zip(ga_pop, new_fit):
-                    ind.fitness.values = fit,
-
-            mcmc_step += parameters['MCMC_NSTEPS']
-            mcmc_time = parameters['MCMC_FREQ'] - 1
-
-        else:
-            mcmc_time -= 1
+        fitnesses, max_ni, min_ni, avg_ni = toolbox.evaluate_population(
+            master_pop, weights, return_ni=True,
+            penalty=parameters['PENALTY_ON']
+        )
 
         # TODO: errors will occur if you try to resc/shift with U-only on
         if parameters['DO_TOGGLE'] and (toggle_time == 0):
@@ -345,19 +292,11 @@ def ga(parameters, database, template, is_manager, manager, manager_comm):
             else:
                 new_mask = None
 
-            if is_manager:
-                new_mask = manager_comm.bcast(new_mask, root=0)
+            new_mask = world_comm.bcast(new_mask, root=0)
 
-                template.active_mask = new_mask
-                manager.pot_template.active_mask = template.active_mask
-
+            template.active_mask = new_mask
         else:
             toggle_time -= 1
-
-        fitnesses, max_ni, min_ni, avg_ni = toolbox.evaluate_population(
-            master_pop, weights, return_ni=True,
-            penalty=parameters['PENALTY_ON']
-        )
 
         # update GA Individuals with new costs; sort
         if is_master:
@@ -366,8 +305,6 @@ def ga(parameters, database, template, is_manager, manager, manager_comm):
             tmp_min_ni = min_ni[np.argsort(new_fit)]
             tmp_max_ni = max_ni[np.argsort(new_fit)]
             tmp_avg_ni = avg_ni[np.argsort(new_fit)]
-
-            ga_pop = master_pop[:, np.where(template.active_mask)[0]]
 
             pop_copy = []
             for ind in ga_pop:
@@ -423,11 +360,9 @@ def ga(parameters, database, template, is_manager, manager, manager_comm):
         else:
             new_mask = None
 
-        if is_manager:
-            new_mask = manager_comm.bcast(new_mask, root=0)
+        new_mask = world_comm.bcast(new_mask, root=0)
 
-            template.active_mask = new_mask
-            manager.pot_template.active_mask = template.active_mask
+        template.active_mask = new_mask
     else:
         if is_master:
             print("U-only mode is off; ready for final LM", flush=True)
@@ -452,7 +387,6 @@ def ga(parameters, database, template, is_manager, manager, manager_comm):
 
     if is_master:
         ga_pop[:10] = subset
-
         master_pop[:, np.where(template.active_mask)[0]] = np.array(ga_pop)
 
     # compute final fitness
@@ -603,7 +537,7 @@ def build_stats_and_log():
     stats.register("max", np.max)
 
     logbook = tools.Logbook()
-    logbook.header = "gen", "size", "min", "max", "avg", "std"#, "num_active"
+    logbook.header = "gen", "size", "min", "max", "avg", "std", "num_active"
 
     return stats, logbook
 
@@ -614,7 +548,7 @@ def print_statistics(pop, gen_num, stats, logbook, active_knots):
     record = stats.compile(pop)
 
     logbook.record(
-        gen=gen_num, size=len(pop), **record#, num_active=active_knots
+        gen=gen_num, size=len(pop), **record, num_active=active_knots
     )
 
     print(logbook.stream, flush=True)

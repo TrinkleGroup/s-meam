@@ -4,7 +4,7 @@ import numpy as np
 from src.spline import Spline
 from src.spline import ZeroSpline
 from src.meam import MEAM
-from tests.serial.testVars import a0
+from tests.testVars import a0
 
 N = 0
 zero_potential = None

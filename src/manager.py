@@ -40,6 +40,8 @@ class Manager:
     # @profile
     def load_structure(self, struct_name, db_path):
 
+        # TODO: should load into shared memory with all procs on node
+
         if self.proc_rank == 0:
             struct = pickle.load(open(db_path + struct_name + '.pkl', 'rb'))
         else:

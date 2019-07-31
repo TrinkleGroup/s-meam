@@ -1,11 +1,10 @@
 OPT_TYPE GA
 
-POP_SIZE 3
+POP_SIZE 1000
 NSTEPS 10
 
 PENALTY_ON False
 
-DO_MCMC False
 DO_TOGGLE False
 DO_LMIN False
 DO_RESCALE False
@@ -25,13 +24,16 @@ RESCALE_STOP_STEP 1000
 # NAMES_FILE ../names.txt
 NUM_STRUCTS 5
 
-DATABASE_FILE ../data/fitting_databases/hyojung/hyojung.hdf5
+PROCS_PER_NODE 1
+
+DATABASE_FILE ../data/fitting_databases/hyojung/mini_db.hdf5
 
 OVERWRITE_OLD_FILES True
 
 STRUCTURE_DIRECTORY ../data/fitting_databases/hyojung/mini_structs
 INFO_DIRECTORY ../data/fitting_databases/hyojung/mini_info
 SAVE_DIRECTORY ../data/results/delete
+LAMMPS_FOLDER ../data/fitting_databases/hyojung/mini_atoms
 
 TRACE_FILE_NAME ../data/results/delete/trace.dat
 

@@ -26,6 +26,7 @@ from src.database import Database
 
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.WARNING)
 
 
 class Worker:
@@ -389,17 +390,13 @@ class Worker:
 
         # Pair interactions
         for y, phi in zip(phi_pvecs, self.phis, ):
-            # logging.info("phi.calc_energy(y): {0}".format(phi.calc_energy(y)))
             energy += phi.calc_energy(y)
 
         # Embedding terms
         ni = self.compute_ni(rho_pvecs, f_pvecs, g_pvecs)
 
         tmp_eng, max_ni, min_ni = self.embedding_energy(ni, u_pvecs, u_ranges)
-        # tmp_eng = self.embedding_energy(ni, u_pvecs, u_ranges)
         energy += tmp_eng
-
-        # logging.info("total energy: {0}".format(energy))
 
         return energy, ni  # ,max_ni, min_ni
 
@@ -420,8 +417,6 @@ class Worker:
         # Rho contribution
         for y, rho in zip(rho_pvecs, self.rhos):
             ni += rho.calc_energy(y).T
-            print(y)
-            print("WORKER:", rho.calc_energy(y).T[0])
 
         # Three-body contribution
         for j, (y_fj, ffg_list) in enumerate(zip(f_pvecs, self.ffgs)):
