@@ -12,9 +12,6 @@ def build_evaluation_functions(
     """Builds the function to evaluate populations. Wrapped here for readability
     of main code."""
 
-    # TODO: is this the best place for this?
-    node_manager.ref_name = ref_name
-
     # @profile
     def fxn_wrap(master_pop, weights, return_ni=False, output=False,
             penalty=False):
@@ -40,6 +37,7 @@ def build_evaluation_functions(
         )
 
         eng = np.vstack([retval[0] for retval in manager_energies.values()])
+        # key = list(manager_energies.keys())[0]
 
         # TODO: make sure this is working as expected
         ni = [retval[1] for retval in manager_energies.values()]
@@ -61,6 +59,8 @@ def build_evaluation_functions(
         min_ni = 0
         avg_ni = 0
 
+        # mgr_keys = world_comm.gather(key, root=0)
+        # mgr_eng = world_comm.gather(manager_energies, root=0)
         mgr_eng = world_comm.gather(eng, root=0)
         mgr_force_costs = world_comm.gather(force_costs, root=0)
 
@@ -75,6 +75,8 @@ def build_evaluation_functions(
             # all_eng = {k: v for d in mgr_eng for k, v in d.items()}
             all_eng = np.vstack(mgr_eng)
             all_force_costs = np.vstack(mgr_force_costs)
+
+            # print('keys:', mgr_keys)
 
             # do operations so that the final shape is (2, num_pots)
             min_ni = np.min(np.dstack(mgr_min_ni), axis=2).T
@@ -101,11 +103,14 @@ def build_evaluation_functions(
                 # TODO: for now, assumes that all structs need energy AND forces
                 fitnesses[:, 2*fit_id] = all_force_costs[fit_id]
 
+                ref_name = database[name].attrs['ref_struct']
+
                 s_id = all_struct_names.index(name)
                 r_id = all_struct_names.index(ref_name)
 
                 # TODO: are you sure the database holds the subtracted values?
                 true_ediff = database[name]['true_values']['energy']
+                # comp_ediff = all_eng[name][0] - all_eng[ref_name][0]
                 comp_ediff = all_eng[s_id] - all_eng[r_id]
 
                 tmp = (comp_ediff - true_ediff) ** 2
@@ -143,27 +148,33 @@ def build_evaluation_functions(
             'energy', node_manager.loaded_structures, pop, template.u_ranges
         )
 
-        eng_grad = node_manager.compute(
+        manager_eng_grads = node_manager.compute(
             'energy_grad', node_manager.loaded_structures, pop, template.u_ranges
         )
 
-        fcs_grad = node_manager.compute(
+        manager_fcs_grads = node_manager.compute(
             'forces_grad', node_manager.loaded_structures, pop, template.u_ranges
         )
 
         gradient = 0
 
-        mgr_eng = world_comm.gather(manager_energies, root=0)
+        eng = np.vstack([retval[0] for retval in manager_energies.values()])
+        eng_grads = np.vstack([retval[0] for retval in manager_eng_grads.values()])
+        fcs_grads = np.vstack([retval[0] for retval in manager_fcs_grads.values()])
 
-        mgr_eng_grad = world_comm.gather(eng_grad, root=0)
-        mgr_fcs_grad = world_comm.gather(fcs_grad, root=0)
+        mgr_eng = world_comm.gather(eng, root=0)
+        mgr_eng_grad = world_comm.gather(eng_grads, root=0)
+        mgr_fcs_grad = world_comm.gather(fcs_grads, root=0)
 
         if is_master:
             # note: can't stack mgr_fcs b/c different dimensions per struct
-            all_eng = {k: v for d in mgr_eng for k, v in d.items()}
+            # all_eng = {k: v for d in mgr_eng for k, v in d.items()}
+            # all_eng_grad = {k: v for d in mgr_eng_grad for k, v in d.items()}
+            # all_fcs_grad = {k: v for d in mgr_fcs_grad for k, v in d.items()}
 
-            all_eng_grad = {k: v for d in mgr_eng_grad for k, v in d.items()}
-            all_fcs_grad = {k: v for d in mgr_fcs_grad for k, v in d.items()}
+            all_eng = np.vstack(mgr_eng)
+            all_eng_grad = np.vstack(mgr_eng_grad)
+            all_fcs_grad = np.vstack(mgr_fcs_grad)
 
             gradient = np.zeros((
                 len(pop), template.pvec_len,
@@ -174,16 +185,20 @@ def build_evaluation_functions(
                     all_struct_names, weights
                 )):
 
+                ref_name = database[name].attrs['ref_struct']
+
+                # find index of structures to know which energies to use
+                s_id = all_struct_names.index(name)
+                r_id = all_struct_names.index(ref_name)
+
                 gradient[:, :, 2*fit_id] += all_fcs_grad[name]
 
                 true_ediff = database[name]['true_values']['energy']
-
-                # find index of structures to know which energies to use
-                comp_ediff = all_eng[name][0] - all_eng[ref_name][0]
+                comp_ediff = all_eng[s_id] - all_eng[r_id]
 
                 eng_err = comp_ediff - true_ediff
-                s_grad = all_eng_grad[name]
-                r_grad = all_eng_grad[ref_name]
+                s_grad = all_eng_grad[s_id]
+                r_grad = all_eng_grad[r_id]
 
                 gradient[:, :, 2*fit_id + 1] += \
                     (eng_err[:, np.newaxis]*(s_grad - r_grad)*2)*weight

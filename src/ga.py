@@ -174,8 +174,8 @@ def ga(parameters, database, template, node_manager,):
     while (generation_number < parameters['NSTEPS']):
         if is_master:
 
-            # Preserve top 50%, breed survivors
-            for pot_num in range(len(ga_pop) // 2, len(ga_pop)):
+            # Preserve top 20%, breed survivors
+            for pot_num in range(len(ga_pop) // 5, len(ga_pop)):
                 mom_idx = np.random.randint(1, len(ga_pop) // 2)
 
                 # TODO: add a check to make sure GA popsize is large enough
