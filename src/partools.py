@@ -89,11 +89,14 @@ def build_evaluation_functions(
                 (len(pop), len(all_struct_names)*2 + 2)
             )
 
-            lambda_pen = 10000
+            lambda_pen = 1000
 
-            ns = len(node_manager.loaded_structures)
+            # ns = len(node_manager.loaded_structures)
+            ns = len(all_struct_names)
 
             fitnesses[:, -frac_in.shape[1]:] = lambda_pen*abs(ns - frac_in)
+
+            print(fitnesses[:, -2:])
 
             # assumes that 'weights' has the same order as all_struct_names
             for fit_id, (name, weight) in enumerate(zip(
