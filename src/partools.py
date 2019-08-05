@@ -96,8 +96,6 @@ def build_evaluation_functions(
 
             fitnesses[:, -frac_in.shape[1]:] = lambda_pen*abs(ns - frac_in)
 
-            print(frac_in)
-
             # assumes that 'weights' has the same order as all_struct_names
             for fit_id, (name, weight) in enumerate(zip(
                 all_struct_names, weights
