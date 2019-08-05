@@ -89,7 +89,7 @@ def build_evaluation_functions(
                 (len(pop), len(all_struct_names)*2 + 2)
             )
 
-            lambda_pen = 1000
+            lambda_pen = 10000
 
             ns = len(node_manager.loaded_structures)
 
