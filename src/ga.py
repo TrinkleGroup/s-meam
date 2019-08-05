@@ -231,9 +231,6 @@ def ga(parameters, database, template, node_manager,):
                 if is_master:
                     new_fit = np.sum(fitnesses, axis=1)
 
-                    tmp_min_ni = min_ni[np.argsort(new_fit)]
-                    tmp_max_ni = max_ni[np.argsort(new_fit)]
-
                     new_u_domains = partools.shift_u(tmp_min_ni, tmp_max_ni)
                     print("new_u_domains:", new_u_domains)
                 else:
