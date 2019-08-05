@@ -182,7 +182,7 @@ def ga(parameters, database, template, node_manager,):
     while (generation_number < parameters['NSTEPS']):
         if is_master:
 
-            # Preserve top 20%, breed survivors
+            # Preserve top 50%, breed survivors
             for pot_num in range(len(ga_pop) // 2, len(ga_pop)):
                 mom_idx = np.random.randint(1, len(ga_pop) // 2)
 
@@ -216,8 +216,11 @@ def ga(parameters, database, template, node_manager,):
 
                         new_fit = np.sum(fitnesses, axis=1)
 
+                        tmp_min_ni = min_ni[np.argsort(new_fit)]
+                        tmp_max_ni = max_ni[np.argsort(new_fit)]
+
                         master_pop = partools.rescale_ni(
-                            master_pop, min_ni, max_ni, template
+                            master_pop, tmp_min_ni, tmp_max_ni, template
                         )
 
                     fitnesses, max_ni, min_ni, avg_ni = toolbox.evaluate_population(
@@ -366,6 +369,8 @@ def ga(parameters, database, template, node_manager,):
             tmp_min_ni = min_ni[np.argsort(new_fit)]
             tmp_max_ni = max_ni[np.argsort(new_fit)]
             tmp_avg_ni = avg_ni[np.argsort(new_fit)]
+
+            ga_pop = master_pop[:, np.where(template.active_mask)[0]]
 
             pop_copy = []
             for ind in ga_pop:
