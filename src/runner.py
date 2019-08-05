@@ -20,8 +20,8 @@ np.set_printoptions(linewidth=1000)
 
 import random
 
-seed = 42
 seed = np.random.randint(10000)
+seed = 42
 
 np.random.seed(seed)
 random.seed(seed)
@@ -434,22 +434,22 @@ def prepare_node_managers(database, template, parameters, comm, is_master):
         )
 
         # TODO: the database should store these itself
-        ref_keys = [
-            'Ti48Mo80_type1_c18',
-            'Ti80Mo48_SQS1_lattice',
-            'Ti72Mo56_SQS1_lattice',
-            'Ti64Mo64_SQS2_lattice_f',
-            'Ti56Mo72_SQS1_lattice',
-            'Ti48Mo80_SQS1_lattice',
-            'B2',
-            'B32',
-        ]
+        # ref_keys = [
+        #     'Ti48Mo80_type1_c18',
+        #     'Ti80Mo48_SQS1_lattice',
+        #     'Ti72Mo56_SQS1_lattice',
+        #     'Ti64Mo64_SQS2_lattice_f',
+        #     'Ti56Mo72_SQS1_lattice',
+        #     'Ti48Mo80_SQS1_lattice',
+        #     'B2',
+        #     'B32',
+        # ]
+        # 
+        # for i, key in enumerate(ref_keys):
+        #     if key not in key_choices:
+        #         print("Adding", key, "to key_choices")
+        #         key_choices[i] = key
 
-        for i, key in enumerate(ref_keys):
-            if key not in key_choices:
-                print("Adding", key, "to key_choices")
-                key_choices[i] = key
-       
         key_choices = sorted(key_choices)
 
         split_struct_lists = np.array_split(

@@ -69,12 +69,17 @@ def ga(parameters, database, template, node_manager,):
     toolbox.register("evaluate_population", fxn_wrap)
     toolbox.register("gradient", grad_wrap)
 
+    import random
+    random.seed(42)
+    np.random.seed(42)
+
     # Create the original population
     if is_master:
 
         # master_pop contains all of the parameters (un-masked)
         master_pop = toolbox.population(n=parameters['POP_SIZE'])
         master_pop = np.array(master_pop)
+        master_pop[:] = 1
 
         # ga_pop contains only the active parameters (masked)
         ga_pop = master_pop[:, np.where(template.active_mask)[0]].copy()
@@ -143,6 +148,10 @@ def ga(parameters, database, template, node_manager,):
         ga_start = time.time()
 
     # TODO: only calculate these if specified
+
+    import random
+    random.seed(42)
+    np.random.seed(42)
 
     toggle_time = 0
     lmin_time = 0
