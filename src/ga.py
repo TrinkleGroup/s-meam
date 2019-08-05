@@ -266,7 +266,7 @@ def ga(parameters, database, template, node_manager,):
 
             master_pop = partools.mcmc(
                     master_pop, weights, toolbox.evaluate_population,
-                    template, 100, parameters, [5, 6], is_master,
+                    template, 1, parameters, [5, 6], is_master,
                     start_step=mcmc_step, max_nsteps=parameters['MCMC_NSTEPS'],
                     suffix="U"
             )
@@ -450,7 +450,7 @@ def ga(parameters, database, template, node_manager,):
     subset = local_minimization(
         subset, master_pop, template, toolbox.evaluate_population,
         toolbox.gradient, weights, world_comm, is_master,
-        nsteps=parameters['LMIN_NSTEPS']
+        nsteps=10000, lm_output=True
     )
 
     if is_master:
