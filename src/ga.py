@@ -79,7 +79,6 @@ def ga(parameters, database, template, node_manager,):
         # master_pop contains all of the parameters (un-masked)
         master_pop = toolbox.population(n=parameters['POP_SIZE'])
         master_pop = np.array(master_pop)
-        master_pop[:] = 1
 
         # ga_pop contains only the active parameters (masked)
         ga_pop = master_pop[:, np.where(template.active_mask)[0]].copy()
@@ -184,7 +183,7 @@ def ga(parameters, database, template, node_manager,):
         if is_master:
 
             # Preserve top 20%, breed survivors
-            for pot_num in range(len(ga_pop) // 5, len(ga_pop)):
+            for pot_num in range(len(ga_pop) // 2, len(ga_pop)):
                 mom_idx = np.random.randint(1, len(ga_pop) // 2)
 
                 # TODO: add a check to make sure GA popsize is large enough
