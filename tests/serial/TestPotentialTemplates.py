@@ -23,12 +23,13 @@ class TemplateTests(unittest.TestCase):
 
     def test_blank_init(self):
         template = Template(
-            self.pvec_len,
+            pvec_len=self.pvec_len,
             u_ranges=[(-1, 1), (-1, 1)],
             active_mask=self.active_mask,
             spline_ranges=self.spline_ranges,
             spline_indices=self.spline_indices,
-            seed=self.seed
+            seed=self.seed,
+            types=['H', 'He']
         )
 
         print("active_mask_size:", len(np.where(template.active_mask)[0]))
@@ -40,12 +41,13 @@ class TemplateTests(unittest.TestCase):
 
     def test_insert_pvec(self):
         template = Template(
-            self.pvec_len,
+            pvec_len=self.pvec_len,
             u_ranges=[(-1, 1), (-1, 1)],
             active_mask=self.active_mask,
             spline_ranges=self.spline_ranges,
             spline_indices=self.spline_indices,
-            seed=self.seed
+            seed=self.seed,
+            types=['H', 'He']
         )
 
         test_pvec = template.insert_active_splines(np.ones((1,80))*-1)
@@ -58,12 +60,13 @@ class TemplateTests(unittest.TestCase):
 
     def test_random_doesnt_break(self):
         template = Template(
-            self.pvec_len,
+            pvec_len=self.pvec_len,
             u_ranges=[(-1, 1), (-1, 1)],
             active_mask=self.active_mask,
             spline_ranges=self.spline_ranges,
             spline_indices=self.spline_indices,
-            seed=self.seed
+            seed=self.seed,
+            types=['H', 'He']
         )
 
         template.generate_random_instance()

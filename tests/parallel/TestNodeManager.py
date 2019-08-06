@@ -756,7 +756,8 @@ def build_template(version='full', inner_cutoff=1.5, outer_cutoff=5.5):
                        (-10, 10), (-10, 10), (-10, 10)],
         spline_indices=[(0, 9), (9, 18), (18, 27), (27, 36), (36, 45),
                         (45, 54), (54, 63), (63, 72), (72, 81),
-                        (81, 90), (90, 99), (99, 108)]
+                        (81, 90), (90, 99), (99, 108)],
+        types = ['H', 'He']
     )
 
     mask = np.ones(potential_template.pvec_len)
