@@ -309,7 +309,6 @@ class MEAM:
                     all_ffg_ni.append(fj_val * partialsum)
                 # end u loop
 
-                # logging.info("MEAM: u({0}) = {1}".format(total_ni,u(total_ni)))
                 atom_e = total_phi + u(total_ni)
 
                 all_ni.append(total_ni)
@@ -319,10 +318,6 @@ class MEAM:
 
                 self.uprimes[i] = u(total_ni, 1)
             # end atom loop
-
-        outfile_ni = open("meam_ni.dat", 'ab')
-        outfile_rij = open("meam_rij.dat", 'ab')
-        outfile_costheta = open("meam_costheta.dat", 'ab')
 
         return total_pe, all_ni, all_rho_ni, all_ffg_ni, all_rij
 
@@ -500,7 +495,8 @@ class MEAM:
         self.write_to_file('test.meam.spline')
 
         calc = LAMMPS(no_data_file=True, parameters=params,
-                      keep_tmp_files=False, specorder=types,
+                      keep_tmp_files=True, specorder=types,
+                      always_triclinic=True,
                       files=['test.meam.spline'])
 
         energy = calc.get_potential_energy(struct)

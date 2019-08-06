@@ -124,9 +124,6 @@ class Worker:
                           self_interaction=False, bothways=True, skin=0.0)
         nl.update(atoms)
 
-        all_rij = []
-        all_costheta = []
-
         for i, atom in enumerate(atoms):
             # Record atom type info
             itype = self.type_of_each_atom[i]
@@ -146,8 +143,6 @@ class Worker:
                 jvec = jpos - ipos
                 rij = np.sqrt(jvec[0] ** 2 + jvec[1] ** 2 + jvec[2] ** 2)
                 jvec /= rij
-
-                all_rij.append(rij)
 
                 # Add distance/index/direction information to necessary lists
                 phi_idx = src.meam.ij_to_potl(itype, jtype, self.ntypes)
@@ -190,38 +185,37 @@ class Worker:
 
                 j_idx += 1
                 for k, offsetk in zip(neighbors[j_idx:], offsets[j_idx:]):
-                    if k != j:
-                        ktype = self.type_of_each_atom[k]
-                        kpos = atoms[k].position + np.dot(offsetk,
-                                                          atoms.get_cell())
+                    # if k != j:
+                    ktype = self.type_of_each_atom[k]
+                    kpos = atoms[k].position + np.dot(offsetk,
+                                                      atoms.get_cell())
 
-                        kvec = kpos - ipos
-                        rik = np.sqrt(
-                            kvec[0] ** 2 + kvec[1] ** 2 + kvec[2] ** 2)
-                        kvec /= rik
+                    kvec = kpos - ipos
+                    rik = np.sqrt(
+                        kvec[0] ** 2 + kvec[1] ** 2 + kvec[2] ** 2)
+                    kvec /= rik
 
-                        b = kpos - ipos
-                        nb = np.sqrt(b[0] ** 2 + b[1] ** 2 + b[2] ** 2)
+                    b = kpos - ipos
+                    nb = np.sqrt(b[0] ** 2 + b[1] ** 2 + b[2] ** 2)
 
-                        cos_theta = np.dot(a, b) / na / nb
-                        all_costheta.append(cos_theta)
+                    cos_theta = np.dot(a, b) / na / nb
 
-                        fk_idx = ktype - 1
+                    fk_idx = ktype - 1
 
-                        d0 = jvec
-                        d1 = -cos_theta * jvec / rij
-                        d2 = kvec / rij
-                        d3 = kvec
-                        d4 = -cos_theta * kvec / rik
-                        d5 = jvec / rik
+                    d0 = jvec
+                    d1 = -cos_theta * jvec / rij
+                    d2 = kvec / rij
+                    d3 = kvec
+                    d4 = -cos_theta * kvec / rik
+                    d5 = jvec / rik
 
-                        dirs = np.vstack([d0, d1, d2, d3, d4, d5])
+                    dirs = np.vstack([d0, d1, d2, d3, d4, d5])
 
-                        self.ffgs[fj_idx][fk_idx].add_to_energy_struct_vec(
-                            rij, rik, cos_theta, i)
+                    self.ffgs[fj_idx][fk_idx].add_to_energy_struct_vec(
+                        rij, rik, cos_theta, i)
 
-                        self.ffgs[fj_idx][fk_idx].add_to_forces_struct_vec(
-                            rij, rik, cos_theta, dirs, i, j, k)
+                    self.ffgs[fj_idx][fk_idx].add_to_forces_struct_vec(
+                        rij, rik, cos_theta, dirs, i, j, k)
 
         # convert arrays to avoid having to convert on call
         self.type_of_each_atom = np.array(self.type_of_each_atom)
@@ -394,10 +388,12 @@ class Worker:
 
         # Embedding terms
         ni = self.compute_ni(rho_pvecs, f_pvecs, g_pvecs)
+        # print('WORKER: ni =', ni)
 
         tmp_eng, max_ni, min_ni = self.embedding_energy(ni, u_pvecs, u_ranges)
         energy += tmp_eng
 
+        # print('WORKER:', energy)
         return energy, ni  # ,max_ni, min_ni
 
     def compute_ni(self, rho_pvecs, f_pvecs, g_pvecs):
@@ -472,6 +468,7 @@ class Worker:
 
             u.reset()
 
+        # print('WORKER: u_energy = ', u_energy)
         return u_energy, max_ni, min_ni
 
     def evaluate_uprimes(self, ni, u_pvecs, u_ranges, second=False):
