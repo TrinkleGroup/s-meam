@@ -6,8 +6,8 @@ from scipy.optimize import least_squares
 from scipy.interpolate import CubicSpline
 
 def build_evaluation_functions(
-        template, database, all_struct_names, node_manager,
-        world_comm, is_master, ref_name,
+        template, all_struct_names, node_manager,
+        world_comm, is_master, true_values,
 ):
     """Builds the function to evaluate populations. Wrapped here for readability
     of main code."""
@@ -104,13 +104,15 @@ def build_evaluation_functions(
                 # TODO: for now, assumes that all structs need energy AND forces
                 fitnesses[:, 2*fit_id] = all_force_costs[fit_id]
 
-                ref_name = database[name].attrs['ref_struct']
+                # ref_name = database[name].attrs['ref_struct']
+                ref_name = true_values['ref_struct'][name]
 
                 s_id = all_struct_names.index(name)
                 r_id = all_struct_names.index(ref_name)
 
                 # TODO: are you sure the database holds the subtracted values?
-                true_ediff = database[name]['true_values']['energy']
+                # true_ediff = database[name]['true_values']['energy']
+                true_ediff = true_values['energy'][name]
                 # comp_ediff = all_eng[name][0] - all_eng[ref_name][0]
                 comp_ediff = all_eng[s_id] - all_eng[r_id]
 
@@ -186,7 +188,8 @@ def build_evaluation_functions(
                     all_struct_names, weights
                 )):
 
-                ref_name = database[name].attrs['ref_struct']
+                # ref_name = database[name].attrs['ref_struct']
+                ref_name = true_values['ref_struct'][name]
 
                 # find index of structures to know which energies to use
                 s_id = all_struct_names.index(name)
@@ -194,7 +197,8 @@ def build_evaluation_functions(
 
                 gradient[:, :, 2*fit_id] += all_fcs_grad[s_id]
 
-                true_ediff = database[name]['true_values']['energy']
+                # true_ediff = database[name]['true_values']['energy']
+                true_ediff = true_values['energy'][name]
                 comp_ediff = all_eng[s_id] - all_eng[r_id]
 
                 eng_err = comp_ediff - true_ediff
@@ -799,7 +803,7 @@ def prepare_save_directory(parameters):
 
 def local_minimization(
         pop_to_opt, master_pop, template, fxn, grad, weights, world_comm,
-        is_master, nsteps=20, lm_output=False
+        is_master, nsteps=20, lm_output=False, penalty=False
     ):
 
     # NOTE: if LM throws size errors, you probaly need to add more padding
@@ -816,7 +820,11 @@ def local_minimization(
         else:
             full = None
 
-        val = fxn(full, weights, output=lm_output)
+        val = fxn(full, weights, output=lm_output, penalty=penalty)
+
+        if is_master:
+            if penalty:
+                val = val[:, :-2]
 
         val = world_comm.bcast(val, root=0)
 
@@ -880,16 +888,20 @@ def local_minimization(
         new_tmp = None
         new_pop = None
 
-    org_fits = fxn(tmp, weights)
-    new_fits = fxn(new_tmp, weights)
+    if is_master:
+        print("Before/after LM costs:")
+
+    org_fits = fxn(tmp, weights, penalty=penalty, output=lm_output)
+    new_fits = fxn(new_tmp, weights, penalty=penalty, output=lm_output)
 
     if is_master:
-        updated_pop = list(pop_to_opt)
+        updated_pop = []
 
         for i, ind in enumerate(new_pop):
             if np.sum(new_fits[i]) < np.sum(org_fits[i]):
-                updated_pop[i] = new_pop[i]
+                updated_pop.append(new_pop[i])
             else:
+                updated_pop.append(pop_to_opt[i)
                 updated_pop[i] = updated_pop[i]
 
         master_pop = np.array(updated_pop)

@@ -23,7 +23,7 @@ from partools import local_minimization
 
 ################################################################################
 
-def ga(parameters, database, template, node_manager,):
+def ga(parameters, template, node_manager,):
     # Record MPI settings
     world_comm = MPI.COMM_WORLD
     world_rank = world_comm.Get_rank()
@@ -51,16 +51,51 @@ def ga(parameters, database, template, node_manager,):
 
         weights = np.ones(len(all_struct_names))
     else:
-        database = None
         all_struct_names = None
         weights = None
 
     weights = world_comm.bcast(weights, root=0)
     all_struct_names = world_comm.bcast(all_struct_names, root=0)
 
+    local_true_eng = {}
+    local_true_fcs = {}
+    local_true_ref = {}
+    for key in node_manager.loaded_structures:
+        local_true_eng[key] = node_manager.get_true_value('energy', key)
+        # local_true_fcs[key] = node_manager.get_true_value('forces', key)
+        local_true_ref[key] = node_manager.get_true_value('ref_struct', key)
+
+    local_true_values = {
+            'energy': local_true_eng,
+            # 'forces': local_true_fcs,
+            'ref_struct': local_true_ref,
+        }
+
+    all_true_values = world_comm.gather(local_true_values, root=0)
+
+    if is_master:
+        all_eng = {}
+        # all_fcs = {}
+        all_ref = {}
+        ref_names = {}
+
+        for d in all_true_values:
+            all_eng.update(d['energy'])
+            # all_fcs.update(d['forces'])
+            all_ref.update(d['ref_struct'])
+
+        true_values = {
+                'energy': all_eng,
+                # 'forces': all_fcs,
+                'ref_struct': all_ref,
+            }
+
+    else:
+        true_values = None
+
     fxn_wrap, grad_wrap = partools.build_evaluation_functions(
-        template, database, all_struct_names, node_manager,
-        world_comm, is_master,  "Ti48Mo80_type1_c18"
+        template, all_struct_names, node_manager,
+        world_comm, is_master, true_values
     )
 
     # Have every process build the toolbox
@@ -294,24 +329,29 @@ def ga(parameters, database, template, node_manager,):
                         flush=True
                     )
 
-                    subset = ga_pop[:10]
+                    new_fit = np.sum(fitnesses, axis=1)
+                    min_indices = np.argsort(new_fit)[:10]
+
+                    subset = np.array(ga_pop)[min_indices]
 
                 subset = np.array(subset)
 
                 subset = local_minimization(
                     subset, master_pop, template, toolbox.evaluate_population,
                     toolbox.gradient, weights, world_comm, is_master,
-                    nsteps=parameters['LMIN_NSTEPS'], lm_output=True
+                    nsteps=parameters['LMIN_NSTEPS'], lm_output=True,
+                    penalty=parameters['PENALTY_ON']
                 )
 
                 if is_master:
-                    ga_pop[:10] = subset
+                    for s_i, m_idx in enumerate(min_indices):
+                        master_pop[m_idx, np.where(template.active_mask)[0]] = subset[s_i]
 
-                    master_pop[:, np.where(template.active_mask)[0]] = np.array(ga_pop)
+                    ga_pop = master_pop[:, np.where(template.active_mask)[0]]
 
                 fitnesses, max_ni, min_ni, avg_ni = toolbox.evaluate_population(
                     master_pop, weights, return_ni=True,
-                    penalty=parameters['PENALTY_ON']
+                    penalty=parameters['PENALTY_ON'], output=True
                 )
 
                 lmin_time = parameters['LMIN_FREQ'] - 1
@@ -431,7 +471,10 @@ def ga(parameters, database, template, node_manager,):
             flush=True
         )
 
-        subset = ga_pop[:10]
+        new_fit = np.sum(fitnesses, axis=1)
+        min_indices = np.argsort(new_fit)[:10]
+
+        subset = np.array(ga_pop)[min_indices]
     else:
         subset = None
 
@@ -439,12 +482,14 @@ def ga(parameters, database, template, node_manager,):
     subset = local_minimization(
         subset, master_pop, template, toolbox.evaluate_population,
         toolbox.gradient, weights, world_comm, is_master,
-        nsteps=10000, lm_output=True
+        nsteps=20, lm_output=True, penalty=parameters['PENALTY_ON']
     )
 
     if is_master:
-        ga_pop[:10] = subset
-        master_pop[:, np.where(template.active_mask)[0]] = np.array(ga_pop)
+        for s_i, m_idx in enumerate(min_indices):
+            master_pop[m_idx, np.where(template.active_mask)[0]] = subset[s_i]
+
+        ga_pop = master_pop[:, np.where(template.active_mask)[0]]
 
     # compute final fitness
     fitnesses, max_ni, min_ni, avg_ni = toolbox.evaluate_population(

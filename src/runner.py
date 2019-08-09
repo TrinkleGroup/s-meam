@@ -162,7 +162,7 @@ def main(config_name, template_file_name):
             print("Running GA", flush=True)
             print()
 
-        ga(parameters, database, template, node_manager)
+        ga(parameters, template, node_manager)
     elif parameters['OPT_TYPE'] == 'SA':
         if is_master:
             print("Running SA", flush=True)
