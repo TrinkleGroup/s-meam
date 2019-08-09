@@ -173,9 +173,14 @@ def build_evaluation_functions(
             # all_eng_grad = {k: v for d in mgr_eng_grad for k, v in d.items()}
             # all_fcs_grad = {k: v for d in mgr_fcs_grad for k, v in d.items()}
 
+            # print('eng:', [el.shape for el in mgr_eng_grad])
+            # print('fcs:', [el.shape for el in mgr_fcs_grad])
+
             all_eng = np.vstack(mgr_eng)
-            all_eng_grad = np.vstack(mgr_eng_grad)
-            all_fcs_grad = np.vstack(mgr_fcs_grad)
+            all_eng_grad = np.dstack(mgr_eng_grad)
+            all_fcs_grad = np.dstack(mgr_fcs_grad)
+            # print('all_eng_grad.shape:', all_eng_grad.shape, flush=True)
+            # print('all_fcs_grad.shape:', all_fcs_grad.shape, flush=True)
 
             gradient = np.zeros((
                 len(pop),
@@ -194,16 +199,16 @@ def build_evaluation_functions(
                 s_id = all_struct_names.index(name)
                 r_id = all_struct_names.index(ref_name)
 
-                gradient[:, :, 2*fit_id] += all_fcs_grad[s_id]
-                print(name, np.sum(all_fcs_grad[s_id]))
+                gradient[:, :, 2*fit_id] += all_fcs_grad[:, :, s_id]
+                print(name, np.sum(all_fcs_grad[:, :, s_id]))
 
                 # true_ediff = database[name]['true_values']['energy']
                 true_ediff = true_values['energy'][name]
                 comp_ediff = all_eng[s_id] - all_eng[r_id]
 
                 eng_err = comp_ediff - true_ediff
-                s_grad = all_eng_grad[s_id]
-                r_grad = all_eng_grad[r_id]
+                s_grad = all_eng_grad[:, :, s_id]
+                r_grad = all_eng_grad[:, :, r_id]
 
                 gradient[:, :, 2*fit_id + 1] += \
                     (eng_err[:, np.newaxis]*(s_grad - r_grad)*2)*weight
