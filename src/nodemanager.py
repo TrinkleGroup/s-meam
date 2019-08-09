@@ -189,7 +189,7 @@ class NodeManager:
         scaled = np.einsum('pna,pnak->pnak', diff, force_grad)
         summed = scaled.sum(axis=1).sum(axis=1)
 
-        return summed
+        return 2*summed/10  # 10 is based on scaling factor from PZ's work
 
 
     # @profile

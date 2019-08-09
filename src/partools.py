@@ -195,6 +195,7 @@ def build_evaluation_functions(
                 r_id = all_struct_names.index(ref_name)
 
                 gradient[:, :, 2*fit_id] += all_fcs_grad[s_id]
+                print(name, np.sum(all_fcs_grad[s_id]))
 
                 # true_ediff = database[name]['true_values']['energy']
                 true_ediff = true_values['energy'][name]
