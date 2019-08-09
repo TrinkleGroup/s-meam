@@ -200,7 +200,7 @@ def build_evaluation_functions(
                 r_id = all_struct_names.index(ref_name)
 
                 gradient[:, :, 2*fit_id] += all_fcs_grad[:, :, s_id]
-                print(name, np.sum(all_fcs_grad[:, :, s_id]))
+                # print(name, np.sum(all_fcs_grad[:, :, s_id]))
 
                 # true_ediff = database[name]['true_values']['energy']
                 true_ediff = true_values['energy'][name]
@@ -212,6 +212,9 @@ def build_evaluation_functions(
 
                 gradient[:, :, 2*fit_id + 1] += \
                     (eng_err[:, np.newaxis]*(s_grad - r_grad)*2)*weight
+
+                print(name, '-', ref_name,  ':', '{} - {}'.format(np.sum(s_grad), np.sum(r_grad)))
+                # print(name, np.sum(gradient[:, : 2*fit_id + 1]), flush=True)
 
             indices = np.where(template.active_mask)[0]
             gradient = gradient[:, indices, :].swapaxes(1, 2)
