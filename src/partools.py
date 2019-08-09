@@ -61,8 +61,6 @@ def build_evaluation_functions(
         min_ni = 0
         avg_ni = 0
 
-        # mgr_keys = world_comm.gather(key, root=0)
-        # mgr_eng = world_comm.gather(manager_energies, root=0)
         mgr_eng = world_comm.gather(eng, root=0)
         mgr_force_costs = world_comm.gather(force_costs, root=0)
 
@@ -74,7 +72,6 @@ def build_evaluation_functions(
 
         if is_master:
             # note: can't stack mgr_fcs b/c different dimensions per struct
-            # all_eng = {k: v for d in mgr_eng for k, v in d.items()}
             all_eng = np.vstack(mgr_eng)
             all_force_costs = np.vstack(mgr_force_costs)
 
@@ -101,23 +98,19 @@ def build_evaluation_functions(
                 all_struct_names, weights
                 )):
 
-                # TODO: for now, assumes that all structs need energy AND forces
-                fitnesses[:, 2*fit_id + 1] = all_force_costs[fit_id]
+                fitnesses[:, 2*fit_id] = all_force_costs[fit_id]
 
-                # ref_name = database[name].attrs['ref_struct']
                 ref_name = true_values['ref_struct'][name]
 
                 s_id = all_struct_names.index(name)
                 r_id = all_struct_names.index(ref_name)
 
                 # TODO: are you sure the database holds the subtracted values?
-                # true_ediff = database[name]['true_values']['energy']
                 true_ediff = true_values['energy'][name]
-                # comp_ediff = all_eng[name][0] - all_eng[ref_name][0]
                 comp_ediff = all_eng[s_id] - all_eng[r_id]
 
                 tmp = (comp_ediff - true_ediff) ** 2
-                fitnesses[:, 2*fit_id] = tmp * weight
+                fitnesses[:, 2*fit_id + 1] = tmp * weight
 
         if is_master:
             if not penalty:
@@ -170,19 +163,9 @@ def build_evaluation_functions(
         mgr_fcs_grad = world_comm.gather(fcs_grads, root=0)
 
         if is_master:
-            # note: can't stack mgr_fcs b/c different dimensions per struct
-            # all_eng = {k: v for d in mgr_eng for k, v in d.items()}
-            # all_eng_grad = {k: v for d in mgr_eng_grad for k, v in d.items()}
-            # all_fcs_grad = {k: v for d in mgr_fcs_grad for k, v in d.items()}
-
-            # print('eng:', [el.shape for el in mgr_eng_grad])
-            # print('fcs:', [el.shape for el in mgr_fcs_grad])
-
             all_eng = np.vstack(mgr_eng)
             all_eng_grad = np.dstack(mgr_eng_grad)
             all_fcs_grad = np.dstack(mgr_fcs_grad)
-            # print('all_eng_grad.shape:', all_eng_grad.shape, flush=True)
-            # print('all_fcs_grad.shape:', all_fcs_grad.shape, flush=True)
 
             gradient = np.zeros((
                 len(pop),
@@ -202,10 +185,7 @@ def build_evaluation_functions(
                 s_id = all_struct_names.index(name)
                 r_id = all_struct_names.index(ref_name)
 
-                gradient[:, :, 2*fit_id + 1] += all_fcs_grad[:, :, s_id]
-                # print(name, np.sum(all_fcs_grad[:, :, s_id]))
-
-                # print('fcs:', name, fit_id, np.sum(gradient, axis=0).sum(axis=0), flush=True)
+                gradient[:, :, 2*fit_id] += all_fcs_grad[:, :, s_id]
 
                 # true_ediff = database[name]['true_values']['energy']
                 true_ediff = true_values['energy'][name]
@@ -215,15 +195,8 @@ def build_evaluation_functions(
                 s_grad = all_eng_grad[:, :, s_id]
                 r_grad = all_eng_grad[:, :, r_id]
 
-                gradient[:, :, 2*fit_id] += \
+                gradient[:, :, 2*fit_id + 1] += \
                     (eng_err[:, np.newaxis]*(s_grad - r_grad)*2)*weight
-
-                # print('eng', name, fit_id, np.sum(gradient, axis=(1, 2)), flush=True)
-
-                # print(name, ref_name, '{}, {}'.format(np.sum(comp_ediff), np.sum(true_ediff)))
-                # print(name, '-', ref_name,  ':', '{} - {}'.format(np.sum(s_grad), np.sum(r_grad)))
-                # print(name, np.sum(gradient[:, : 2*fit_id + 1]), flush=True)
-                # print(name, np.sum(eng_err[:, np.newaxis]*(s_grad -r_grad)*2)*weight, flush=True)
 
             indices = np.where(template.active_mask)[0]
             gradient = gradient[:, indices, :].swapaxes(1, 2)
