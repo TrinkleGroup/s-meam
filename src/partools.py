@@ -12,6 +12,8 @@ def build_evaluation_functions(
     """Builds the function to evaluate populations. Wrapped here for readability
     of main code."""
 
+    all_struct_names = sorted(all_struct_names)
+
     # @profile
     def fxn_wrap(master_pop, weights, return_ni=False, output=False,
             penalty=False):
@@ -100,7 +102,7 @@ def build_evaluation_functions(
                 )):
 
                 # TODO: for now, assumes that all structs need energy AND forces
-                fitnesses[:, 2*fit_id] = all_force_costs[fit_id]
+                fitnesses[:, 2*fit_id + 1] = all_force_costs[fit_id]
 
                 # ref_name = database[name].attrs['ref_struct']
                 ref_name = true_values['ref_struct'][name]
@@ -115,7 +117,7 @@ def build_evaluation_functions(
                 comp_ediff = all_eng[s_id] - all_eng[r_id]
 
                 tmp = (comp_ediff - true_ediff) ** 2
-                fitnesses[:, 2*fit_id + 1] = tmp * weight
+                fitnesses[:, 2*fit_id] = tmp * weight
 
         if is_master:
             if not penalty:
@@ -200,10 +202,10 @@ def build_evaluation_functions(
                 s_id = all_struct_names.index(name)
                 r_id = all_struct_names.index(ref_name)
 
-                gradient[:, :, 2*fit_id] += all_fcs_grad[:, :, s_id]
+                gradient[:, :, 2*fit_id + 1] += all_fcs_grad[:, :, s_id]
                 # print(name, np.sum(all_fcs_grad[:, :, s_id]))
 
-                print('fcs:', name, fit_id, np.sum(gradient, axis=0).sum(axis=0), flush=True)
+                # print('fcs:', name, fit_id, np.sum(gradient, axis=0).sum(axis=0), flush=True)
 
                 # true_ediff = database[name]['true_values']['energy']
                 true_ediff = true_values['energy'][name]
@@ -213,7 +215,7 @@ def build_evaluation_functions(
                 s_grad = all_eng_grad[:, :, s_id]
                 r_grad = all_eng_grad[:, :, r_id]
 
-                gradient[:, :, 2*fit_id + 1] += \
+                gradient[:, :, 2*fit_id] += \
                     (eng_err[:, np.newaxis]*(s_grad - r_grad)*2)*weight
 
                 # print('eng', name, fit_id, np.sum(gradient, axis=(1, 2)), flush=True)
