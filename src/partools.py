@@ -178,7 +178,8 @@ def build_evaluation_functions(
             all_fcs_grad = np.vstack(mgr_fcs_grad)
 
             gradient = np.zeros((
-                len(pop), template.pvec_len,
+                len(pop),
+                template.pvec_len,
                 len(all_struct_names)*2
             ))
 
@@ -806,7 +807,6 @@ def local_minimization(
 
     # NOTE: if LM throws size errors, you probaly need to add more padding
     pad = 100
-    lm_output=False
 
     def lm_fxn_wrap(raveled_pop, original_shape):
         if is_master:
