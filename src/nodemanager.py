@@ -20,7 +20,7 @@ logger.setLevel(logging.DEBUG)
 # TODO: might be able to avoid using mp.Array since it's read only?
 
 struct_vecs = {}
-true_values = {'energy': {}, 'forces': {}}
+true_values = {'energy': {}, 'forces': {}, 'ref_struct': {}}
 
 class NodeManager:
     def __init__(self, node_id, template):
@@ -54,6 +54,8 @@ class NodeManager:
         self.pool = mp.Pool(node_size)
         self.pool_size = node_size
 
+    def get_true_value(self, val_type, struct_name):
+        return true_values[val_type][struct_name]
 
     # @profile
     def parallel_compute(self, struct_name, potentials, u_domains,
@@ -355,9 +357,13 @@ class NodeManager:
             # load true values
             true_eng = hdf5_file[struct_name]['true_values']['energy'][()]
             true_fcs = hdf5_file[struct_name]['true_values']['forces'][()]
+            ref_name = hdf5_file[struct_name].attrs['ref_struct']
 
             true_values['energy'][struct_name] = true_eng
             true_values['forces'][struct_name] = true_fcs
+            true_values['ref_struct'][struct_name] = ref_name
+
+            print(struct_name, 'ref_struct:', ref_name)
 
     def compute_energy(self, struct_name, potentials, u_ranges):
         potentials = np.atleast_2d(potentials)
