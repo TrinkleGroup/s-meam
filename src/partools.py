@@ -98,7 +98,7 @@ def build_evaluation_functions(
                 all_struct_names, weights
                 )):
 
-                fitnesses[:, 2*fit_id] = all_force_costs[fit_id]
+                fitnesses[:, 2*fit_id + 1] = all_force_costs[fit_id]
 
                 ref_name = true_values['ref_struct'][name]
 
@@ -110,7 +110,7 @@ def build_evaluation_functions(
                 comp_ediff = all_eng[s_id] - all_eng[r_id]
 
                 tmp = (comp_ediff - true_ediff) ** 2
-                fitnesses[:, 2*fit_id + 1] = tmp * weight
+                fitnesses[:, 2*fit_id] = tmp * weight
 
         if is_master:
             if not penalty:
@@ -185,7 +185,7 @@ def build_evaluation_functions(
                 s_id = all_struct_names.index(name)
                 r_id = all_struct_names.index(ref_name)
 
-                gradient[:, :, 2*fit_id] += all_fcs_grad[:, :, s_id]
+                gradient[:, :, 2*fit_id + 1] += all_fcs_grad[:, :, s_id]
 
                 # true_ediff = database[name]['true_values']['energy']
                 true_ediff = true_values['energy'][name]
@@ -195,7 +195,7 @@ def build_evaluation_functions(
                 s_grad = all_eng_grad[:, :, s_id]
                 r_grad = all_eng_grad[:, :, r_id]
 
-                gradient[:, :, 2*fit_id + 1] += \
+                gradient[:, :, 2*fit_id] += \
                     (eng_err[:, np.newaxis]*(s_grad - r_grad)*2)*weight
 
             indices = np.where(template.active_mask)[0]
