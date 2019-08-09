@@ -76,8 +76,6 @@ def build_evaluation_functions(
             all_eng = np.vstack(mgr_eng)
             all_force_costs = np.vstack(mgr_force_costs)
 
-            # print('keys:', mgr_keys)
-
             # do operations so that the final shape is (2, num_pots)
             min_ni = np.min(np.dstack(mgr_min_ni), axis=2).T
             max_ni = np.max(np.dstack(mgr_max_ni), axis=2).T
@@ -888,11 +886,8 @@ def local_minimization(
         new_tmp = None
         new_pop = None
 
-    if is_master:
-        print("Before/after LM costs:")
-
-    org_fits = fxn(tmp, weights, penalty=penalty, output=lm_output)
-    new_fits = fxn(new_tmp, weights, penalty=penalty, output=lm_output)
+    org_fits = fxn(tmp, weights, penalty=penalty)
+    new_fits = fxn(new_tmp, weights, penalty=penalty)
 
     if is_master:
         updated_pop = []
@@ -901,7 +896,7 @@ def local_minimization(
             if np.sum(new_fits[i]) < np.sum(org_fits[i]):
                 updated_pop.append(new_pop[i])
             else:
-                updated_pop.append(pop_to_opt[i)
+                updated_pop.append(pop_to_opt[i])
                 updated_pop[i] = updated_pop[i]
 
         master_pop = np.array(updated_pop)
