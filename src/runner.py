@@ -143,6 +143,8 @@ def main(config_name, template_file_name):
     if is_master:
         print()
 
+    world_comm.Barrier()
+
     # run the optimizer
     if parameters.get('DEBUG', False):
         if is_master:

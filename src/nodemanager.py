@@ -363,8 +363,6 @@ class NodeManager:
             true_values['forces'][struct_name] = true_fcs
             true_values['ref_struct'][struct_name] = ref_name
 
-            print(struct_name, 'ref_struct:', ref_name)
-
     def compute_energy(self, struct_name, potentials, u_ranges):
         potentials = np.atleast_2d(potentials)
 

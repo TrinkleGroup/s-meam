@@ -160,8 +160,8 @@ def build_evaluation_functions(
         gradient = 0
 
         eng = np.vstack([retval[0] for retval in manager_energies.values()])
-        eng_grads = np.vstack([retval[0] for retval in manager_eng_grads.values()])
-        fcs_grads = np.vstack([retval[0] for retval in manager_fcs_grads.values()])
+        eng_grads = np.vstack(manager_eng_grads.values())
+        fcs_grads = np.vstack(manager_fcs_grads.values())
 
         mgr_eng = world_comm.gather(eng, root=0)
         mgr_eng_grad = world_comm.gather(eng_grads, root=0)
@@ -641,7 +641,7 @@ def mcmc(population, weights, cost_fxn, template, T,
                     checkpoint(
                         tmp, current_cost, c_max_ni, c_min_ni, c_avg_ni,
                         start_step + step_num, parameters, template,
-                        max_nsteps, suffix='_mc'
+                        max_nsteps
                     )
 
     if is_master:
@@ -806,6 +806,7 @@ def local_minimization(
 
     # NOTE: if LM throws size errors, you probaly need to add more padding
     pad = 100
+    lm_output=False
 
     def lm_fxn_wrap(raveled_pop, original_shape):
         if is_master:
