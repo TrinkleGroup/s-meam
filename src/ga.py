@@ -104,10 +104,6 @@ def ga(parameters, template, node_manager,):
     toolbox.register("evaluate_population", fxn_wrap)
     toolbox.register("gradient", grad_wrap)
 
-    import random
-    random.seed(42)
-    np.random.seed(42)
-
     # Create the original population
     if is_master:
 
@@ -207,10 +203,6 @@ def ga(parameters, template, node_manager,):
     mcmc_step = 0
 
     u_only_status = 'off'
-
-    import random
-    random.seed(42)
-    np.random.seed(42)
 
     # begin GA
     generation_number = 1

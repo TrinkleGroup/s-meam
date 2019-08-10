@@ -12,8 +12,6 @@ def build_evaluation_functions(
     """Builds the function to evaluate populations. Wrapped here for readability
     of main code."""
 
-    all_struct_names = sorted(all_struct_names)
-
     # @profile
     def fxn_wrap(master_pop, weights, return_ni=False, output=False,
             penalty=False):
