@@ -210,7 +210,7 @@ def ga(parameters, template, node_manager,):
         if is_master:
 
             # Preserve top 50%, breed survivors
-            for pot_num in range(len(ga_pop) // 2, len(ga_pop)):
+            for pot_num in range(len(ga_pop) // 5, len(ga_pop)):
                 mom_idx = np.random.randint(1, len(ga_pop) // 2)
 
                 # TODO: add a check to make sure GA popsize is large enough
