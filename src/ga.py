@@ -279,11 +279,6 @@ def ga(parameters, template, node_manager,):
                 if u_only_status == 'off':  # don't decrement counter if U-only
                     shift_time -= 1
 
-        fitnesses, max_ni, min_ni, avg_ni = toolbox.evaluate_population(
-            master_pop, weights, return_ni=True,
-            penalty=parameters['PENALTY_ON']
-        )
-
         if parameters['DO_MCMC'] and (mcmc_time == 0):
             if is_master: 
                 print("Performing U-only MCMC...")
@@ -329,10 +324,7 @@ def ga(parameters, template, node_manager,):
                         flush=True
                     )
 
-                    new_fit = np.sum(fitnesses, axis=1)
-                    min_indices = np.argsort(new_fit)[:10]
-
-                    subset = np.array(ga_pop)[min_indices]
+                    subset = ga_pop[:10]
 
                 subset = np.array(subset)
 
@@ -344,14 +336,13 @@ def ga(parameters, template, node_manager,):
                 )
 
                 if is_master:
-                    for s_i, m_idx in enumerate(min_indices):
-                        master_pop[m_idx, np.where(template.active_mask)[0]] = subset[s_i]
+                    ga_pop[:10] = subset
+                    master_pop[:, np.where(template.active_mask)[0]] = np.array(ga_pop)
 
-                    ga_pop = master_pop[:, np.where(template.active_mask)[0]]
 
                 fitnesses, max_ni, min_ni, avg_ni = toolbox.evaluate_population(
                     master_pop, weights, return_ni=True,
-                    penalty=parameters['PENALTY_ON'], output=True
+                    penalty=parameters['PENALTY_ON'], output=False
                 )
 
                 lmin_time = parameters['LMIN_FREQ'] - 1
@@ -390,6 +381,12 @@ def ga(parameters, template, node_manager,):
 
             else:
                 toggle_time -= 1
+
+        fitnesses, max_ni, min_ni, avg_ni = toolbox.evaluate_population(
+            master_pop, weights, return_ni=True,
+            penalty=parameters['PENALTY_ON']
+        )
+
 
         # update GA Individuals with new costs; sort
         if is_master:
@@ -471,10 +468,12 @@ def ga(parameters, template, node_manager,):
             flush=True
         )
 
-        new_fit = np.sum(fitnesses, axis=1)
-        min_indices = np.argsort(new_fit)[:10]
+        # new_fit = np.sum(fitnesses, axis=1)
+        # min_indices = np.argsort(new_fit)[:10]
+        # 
+        # subset = np.array(ga_pop)[min_indices]
 
-        subset = np.array(ga_pop)[min_indices]
+        subset = ga_pop[:10]
     else:
         subset = None
 
@@ -486,10 +485,13 @@ def ga(parameters, template, node_manager,):
     )
 
     if is_master:
-        for s_i, m_idx in enumerate(min_indices):
-            master_pop[m_idx, np.where(template.active_mask)[0]] = subset[s_i]
+        # for s_i, m_idx in enumerate(min_indices):
+        #     master_pop[m_idx, np.where(template.active_mask)[0]] = subset[s_i]
+        # 
+        # ga_pop = master_pop[:, np.where(template.active_mask)[0]]
 
-        ga_pop = master_pop[:, np.where(template.active_mask)[0]]
+        ga_pop[:10] = subset
+        master_pop[:, np.where(template.active_mask)[0]] = np.array(ga_pop)
 
     # compute final fitness
     fitnesses, max_ni, min_ni, avg_ni = toolbox.evaluate_population(
