@@ -23,12 +23,6 @@ def GrEA(parameters, template, node_manager,):
 
     is_master = (world_rank == 0)
 
-    # set stuff up
-    if is_master:
-        stats, logbook = build_stats_and_log()
-
-        if is_master:
-            original_mask = template.active_mask.copy()
 
     template = world_comm.bcast(template, root=0)
 
@@ -56,11 +50,13 @@ def GrEA(parameters, template, node_manager,):
     if is_master:
         # master_pop contains all of the parameters (un-masked)
         master_pop = initialize_population(template, parameters['POP_SIZE'])
+        archive = master_pop.copy()
 
         # ga_pop contains only the active parameters (masked)
         ga_pop = master_pop[:, np.where(template.active_mask)[0]].copy()
     else:
         master_pop = np.empty((parameters['POP_SIZE'], template.pvec_len))
+        archive = np.empty((parameters['POP_SIZE'], template.pvec_len))
 
         ga_pop = np.zeros(
             (
@@ -105,14 +101,37 @@ def GrEA(parameters, template, node_manager,):
             parameters['NSTEPS']
         )
 
+        stats, logbook = build_stats_and_log()
+
         print_statistics(
             ga_pop, 0, stats, logbook, len(np.where(template.active_mask)[0])
         )
 
+        # track the original mask so that you can toggle things on/off later
+        original_mask = template.active_mask.copy()
+
         ga_start = time.time()
 
+    # prepare timers
+    resc_time = 0
+    shift_time = 0
+    mcmc_time = 0
 
+    if parameters['DO_RESCALE']:
+        resc_time = parameters['RESCALE_FREQ']
 
+    if parameters['DO_SHIFT']:
+        shift_time = parameters['SHIFT_FREQ']
+
+    if parameters['DO_MCMC']:
+        mcmc_time = parameters['MCMC_FREQ']
+
+    mcmc_step = 0
+
+    # begin GA
+    generation_number = 1
+    while (generation_number < parameters['NSTEPS']):
+        pass
 
 def grid_settings(objective_values, num_div):
     """
