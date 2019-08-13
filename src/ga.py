@@ -58,16 +58,13 @@ def ga(parameters, template, node_manager,):
     all_struct_names = world_comm.bcast(all_struct_names, root=0)
 
     local_true_eng = {}
-    local_true_fcs = {}
     local_true_ref = {}
     for key in node_manager.loaded_structures:
         local_true_eng[key] = node_manager.get_true_value('energy', key)
-        # local_true_fcs[key] = node_manager.get_true_value('forces', key)
         local_true_ref[key] = node_manager.get_true_value('ref_struct', key)
 
     local_true_values = {
             'energy': local_true_eng,
-            # 'forces': local_true_fcs,
             'ref_struct': local_true_ref,
         }
 
@@ -521,6 +518,8 @@ def ga(parameters, template, node_manager,):
             generation_number + 1, parameters, template,
             parameters['NSTEPS']
         )
+
+        final_fit = final_fit[np.argsort(final_fit)]
 
         print()
         print("Final best cost = ", final_fit[0])

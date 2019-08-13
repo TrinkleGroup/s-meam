@@ -96,7 +96,7 @@ def build_evaluation_functions(
                 all_struct_names, weights
                 )):
 
-                fitnesses[:, 2*fit_id + 1] = all_force_costs[fit_id]
+                fitnesses[:, 2*fit_id + 1] = 2*all_force_costs[fit_id]/10
 
                 ref_name = true_values['ref_struct'][name]
 
