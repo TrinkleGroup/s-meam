@@ -75,7 +75,9 @@ def CMAES(parameters, template, node_manager,):
         for key,val in opts.defaults().items():
             print(key, val)
 
-        es = cma.CMAEvolutionStrategy(solution, 0.2, {'popsize': 100})
+        es = cma.CMAEvolutionStrategy(
+            solution, 0.2, {'popsize': parameters['POP_SIZE']}
+        )
 
         es.opts.set({'verb_disp': 1})
     else:
@@ -86,7 +88,7 @@ def CMAES(parameters, template, node_manager,):
     generation_number = 0
     while (not stop) and (generation_number < parameters['NSTEPS']):
         if is_master:
-            population = np.array(es.ask(100))
+            population = np.array(es.ask())
 
         costs, max_ni, min_ni, avg_ni = objective_fxn(
             population, weights, return_ni=True,
