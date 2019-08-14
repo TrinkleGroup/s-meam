@@ -87,7 +87,6 @@ def CMAES(parameters, template, node_manager,):
     while (not stop) and (generation_number < parameters['NSTEPS']):
         if is_master:
             population = np.array(es.ask(100))
-            print('population.shape:', population.shape, flush=True)
 
         costs, max_ni, min_ni, avg_ni = objective_fxn(
             population, weights, return_ni=True,
@@ -107,6 +106,7 @@ def CMAES(parameters, template, node_manager,):
             tmp_max_ni = max_ni[sort_indices]
             tmp_min_ni = min_ni[sort_indices]
             tmp_avg_ni = avg_ni[sort_indices]
+            new_costs = new_costs[sort_indices]
 
             if generation_number % parameters['CHECKPOINT_FREQ'] == 0:
                 src.partools.checkpoint(
