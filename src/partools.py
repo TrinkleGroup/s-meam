@@ -794,6 +794,8 @@ def local_minimization(
         is_master, nsteps=20, lm_output=False, penalty=False
     ):
 
+    # TODO: remove master_pop as argument; it's unused
+
     # NOTE: if LM throws size errors, you probaly need to add more padding
     pad = 100
 

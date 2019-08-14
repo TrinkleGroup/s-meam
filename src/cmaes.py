@@ -34,7 +34,7 @@ def CMAES(parameters, template, node_manager,):
     true_values = prepare_true_values(node_manager, world_comm, is_master)
 
     # run the function constructor to build the objective function
-    objective_fxn, _ = src.partools.build_evaluation_functions(
+    objective_fxn, gradient = src.partools.build_evaluation_functions(
         template, all_struct_names, node_manager,
         world_comm, is_master, true_values
     )
@@ -43,7 +43,11 @@ def CMAES(parameters, template, node_manager,):
         solution = template.pvec.copy()
 
         active_ind = np.where(template.active_mask)[0]
+
         solution[active_ind] = template.generate_random_instance()[active_ind]
+        # solution = template.generate_random_instance()[active_ind]
+
+        print('solution.shape:', solution.shape)
     else:
         solution = None
 
@@ -72,14 +76,16 @@ def CMAES(parameters, template, node_manager,):
     if is_master:
         opts = cma.CMAOptions()
 
-        for key,val in opts.defaults().items():
-            print(key, val)
+        # for key, val in opts.defaults().items():
+        #     print(key, val)
 
         es = cma.CMAEvolutionStrategy(
             solution, 0.2, {'popsize': parameters['POP_SIZE']}
         )
 
         es.opts.set({'verb_disp': 1})
+
+        cma_start_time = time.time()
     else:
         population = None
 
@@ -120,8 +126,61 @@ def CMAES(parameters, template, node_manager,):
         generation_number += 1
         stop = world_comm.bcast(stop, root=0)
 
+    # end CMA-ES loop
+
     if is_master:
+        cma_runtime = time.time() - cma_start_time
+
         es.result_pretty()
+
+        best = np.atleast_2d(sorted_pop[0, np.where(template.active_mask)[0]])
+
+        polish_start_time = time.time()
+    else:
+        best = None
+
+    best = src.partools.local_minimization(
+        best, None, template, objective_fxn, gradient, weights, world_comm,
+        is_master, nsteps=20, lm_output=True, penalty=parameters['PENALTY_ON']
+    )
+
+    if is_master:
+        sorted_pop[0] = best
+        population = sorted_pop
+
+    costs = objective_fxn(population, weights, penalty=parameters['PENALTY_ON'])
+
+    if is_master:
+        polish_runtime = time.time() - polish_start_time
+
+        final_costs = np.sum(costs, axis=1)
+
+        src.partools.checkpoint(
+            population, final_costs, max_ni, min_ni, avg_ni,
+            generation_number + 1, parameters, template,
+            parameters['NSTEPS']
+        )
+
+        final_fit = final_costs[np.argsort(final_costs)]
+
+        print()
+        print("Final best cost = ", final_fit[0])
+
+        print()
+        print(
+            "CMA-ES runtime = {:.2f} (s)".format(cma_runtime), flush=True
+        )
+
+        print(
+            "CMA-ES average time per step = {:.2f}"
+            " (s)".format(cma_runtime / parameters['NSTEPS']), flush=True
+        )
+
+        print()
+        print(
+            "LM runtime = {:.2f} (s)".format(cma_runtime), flush=True
+        )
+
 
 
 def prepare_true_values(node_manager, world_comm, is_master):
