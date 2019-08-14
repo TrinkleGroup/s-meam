@@ -32,7 +32,7 @@ class TemplateTests(unittest.TestCase):
             types=['H', 'He']
         )
 
-        print("active_mask_size:", len(np.where(template.active_mask)[0]))
+        # print("active_mask_size:", len(template.active_mask))
 
         np.testing.assert_allclose(self.seed, template.pvec)
         np.testing.assert_allclose(

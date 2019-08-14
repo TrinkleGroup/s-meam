@@ -15,6 +15,8 @@ from src.potential_templates import Template
 import src.partools as partools
 from src.database import Database
 from src.nodemanager import NodeManager
+from src.pareto import GrEA
+from src.cmaes import CMAES
 
 np.set_printoptions(linewidth=1000)
 
@@ -59,7 +61,7 @@ def main(config_name, template_file_name):
         'RESCALE_FREQ', 'RESCALE_STOP_STEP', 'U_NSTEPS',
         'MCMC_BLOCK_SIZE', 'SGD_BATCH_SIZE', 'SHIFT_FREQ',
         'TOGGLE_FREQ', 'TOGGLE_DURATION', 'MCMC_FREQ', 'MCMC_NSTEPS',
-        'PROCS_PER_NODE'
+        'PROCS_PER_NODE', 'GRID_DIVS', 'ARCHIVE_SIZE'
     ]
 
     float_params = [
@@ -179,6 +181,15 @@ def main(config_name, template_file_name):
         if is_master:
             print("Running SGD", flush=True)
         sgd(parameters, database, template, node_manager)
+    elif parameters['OPT_TYPE'] == 'GREA':
+        if is_master:
+            print("Running GrEA", flush=True)
+        GrEA(parameters, template, node_manager)
+
+    elif parameters['OPT_TYPE'] == 'CMAES':
+        if is_master:
+            print("Running CMAES", flush=True)
+        CMAES(parameters, template, node_manager)
     else:
         if is_master:
             kill_and_write("Invalid optimization type (OPT_TYPE)")

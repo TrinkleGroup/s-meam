@@ -15,6 +15,7 @@ from mpi4py import MPI
 from deap import tools
 
 import src.partools
+import src.pareto
 
 
 def GrEA(parameters, template, node_manager,):
@@ -65,7 +66,7 @@ def GrEA(parameters, template, node_manager,):
             )
         )
 
-    objective_values, max_ni, min_ni, avg_ni = objective_fxn(
+    population_costs, max_ni, min_ni, avg_ni = objective_fxn(
         master_pop, return_ni=True, penalty=parameters['PENALTY_ON']
     )
 
@@ -78,14 +79,14 @@ def GrEA(parameters, template, node_manager,):
 
         ga_pop = master_pop[:, np.where(template.active_mask)[0]]
 
-    objective_values, max_ni, min_ni, avg_ni = objective_fxn(
+    population_costs, max_ni, min_ni, avg_ni = objective_fxn(
         master_pop, return_ni=True, penalty=parameters['PENALTY_ON']
     )
 
     if is_master:
         print("Rescaled initial min/max ni:", min_ni[0], max_ni[0])
 
-        new_obj = np.sum(objective_values, axis=1)
+        new_obj = np.sum(population_costs, axis=1)
 
         # sort populations, best on top
         sorting_indices = np.argsort(new_obj)
@@ -101,10 +102,17 @@ def GrEA(parameters, template, node_manager,):
             parameters['NSTEPS']
         )
 
-        stats, logbook = build_stats_and_log()
+        # stats, logbook = build_stats_and_log()
+        #
+        # print_statistics(
+        #     ga_pop, 0, stats, logbook, len(np.where(template.active_mask)[0])
+        # )
 
-        print_statistics(
-            ga_pop, 0, stats, logbook, len(np.where(template.active_mask)[0])
+        print(
+            "{}\t{}\t{}\t{}".format(
+                0, np.min(new_obj), np.max(new_obj), np.average(new_obj)
+            ),
+            flush=True
         )
 
         # track the original mask so that you can toggle things on/off later
@@ -130,8 +138,92 @@ def GrEA(parameters, template, node_manager,):
 
     # begin GA
     generation_number = 1
-    while (generation_number < parameters['NSTEPS']):
-        pass
+    while generation_number < parameters['NSTEPS']:
+
+        population_costs, max_ni, min_ni, avg_ni = objective_fxn(
+            master_pop, return_ni=True, penalty=parameters['PENALTY_ON']
+        )
+
+        archive_costs = objective_fxn(
+            master_pop, return_ni=False, penalty=parameters['PENALTY_ON']
+        )
+
+        if is_master:
+
+            generation_number += 1
+
+            # checkpoint; save population, cost, and ni trace
+            if generation_number % parameters['CHECKPOINT_FREQ'] == 0:
+                src.partools.checkpoint(
+                    archive, np.sum(archive_costs, axis=1),
+                    max_ni, min_ni, avg_ni,
+                    generation_number,
+                    parameters, template, parameters['NSTEPS']
+                )
+
+            # print_statistics(
+            #     archive, generation_number, stats, logbook,
+            #     len(np.where(template.active_mask)[0])
+            # )
+
+            costs = np.sum(archive_costs, axis=1)
+
+            print(
+                "{}\t{}\t{}\t{}".format(
+                    generation_number,
+                    np.min(costs), np.max(costs), np.average(costs)
+                ),
+                flush=True
+            )
+
+            # TODO: compute these locally, then gather on master
+
+            # determine grid settings
+            grid_widths, grid_lower_bounds = src.pareto.grid_settings(
+                population_costs, parameters['GRID_DIVS']
+            )
+
+            grid_coords = src.pareto.grid_coordinates(
+                population_costs, grid_widths, grid_lower_bounds
+            )
+
+            # compute fitness metrics
+            grid_differences = src.pareto.grid_difference(grid_coords)
+
+            grid_crowding = src.pareto.grid_crowding_distance(
+                grid_differences, population_costs.shape[1]
+            )
+
+            # breed individuals in the archive, then mutate their offspring
+            master_pop = breed(
+                archive, archive_costs, grid_coords, grid_crowding,
+                parameters['POP_SIZE']
+            )
+
+            ga_pop = master_pop[:, np.where(template.active_mask)[0]]
+
+            mutate(
+                ga_pop,
+                mu=0, sigma=template.scales[np.where(template.active_mask)[0]],
+                mutProb=parameters['MUT_PB']
+            )
+
+            # TODO: is this necessary? np.arrays should be by reference
+            master_pop[:, np.where(template.active_mask)[0]] = ga_pop.copy()
+
+        population_costs, max_ni, min_ni, avg_ni = objective_fxn(
+            master_pop, return_ni=True, penalty=parameters['PENALTY_ON']
+        )
+
+        # TODO: probabalistically kick pots out of archive based on frac_in?
+
+        if is_master:
+            archive = environmental_selection(
+                parameters['ARCHIVE_SIZE'],
+                np.vstack([archive, master_pop]),
+                np.vstack([archive_costs, population_costs]),
+                parameters['GRID_DIVS']
+            )
 
 def grid_settings(objective_values, num_div):
     """
@@ -624,7 +716,6 @@ def mutate(population, mu, sigma, mutProb):
         a mutated version of the population
     """
 
-
     mutations = np.random.normal(loc=mu, scale=sigma, size=population.shape)
     mutated_indices = np.where(np.random.random(population.shape) < mutProb)
     population[mutated_indices] += mutations[mutated_indices]
@@ -702,11 +793,11 @@ def collect_structure_names(node_manager, world_comm, is_master):
 
 def initialize_population(template, N):
 
-    population = np.empty()
+    where = np.where(template.active_mask)[0]
+
+    population = np.empty((N, len(template.active_mask)))
 
     tmp = template.pvec.copy()
-
-    where = np.where(template.active_mask)[0]
 
     for i in range(N):
         tmp[where] = np.array(template.generate_random_instance()[where])

@@ -35,6 +35,8 @@ class Template:
             self.active_mask = np.ones(pvec_len)
 
         # NOTE: active_mask is a binary mask for toggle_u_only_optimization()
+        # NOTE: ^ that's stupid, I'm changing it back
+        # self.active_mask = np.where(self.active_mask)[0]
 
         self.types = types
         self.ntypes = len(u_ranges)
