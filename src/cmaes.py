@@ -75,7 +75,7 @@ def CMAES(parameters, template, node_manager,):
         for key,val in opts.defaults().items():
             print(key, val)
 
-        es = cma.CMAEvolutionStrategy(solution, 0.2, {'popsize': 10})
+        es = cma.CMAEvolutionStrategy(solution, 0.2, {'popsize': 100})
 
         es.opts.set({'verb_disp': 1})
     else:
@@ -83,9 +83,11 @@ def CMAES(parameters, template, node_manager,):
 
     stop = False
 
-    while not stop:
+    generation_number = 0
+    while (not stop) and (generation_number < parameters['NSTEPS']):
         if is_master:
-            population = es.ask_geno(100)
+            population = np.array(es.ask(100))
+            print('population.shape:', population.shape, flush=True)
 
         costs, max_ni, min_ni, avg_ni = objective_fxn(
             population, weights, return_ni=True,
@@ -93,10 +95,27 @@ def CMAES(parameters, template, node_manager,):
         )
 
         if is_master:
-            es.tell(population, np.sum(costs, axis=1))
+            new_costs = np.sum(costs, axis=1)
+
+            es.tell(population, new_costs)
             es.disp()
             stop = es.stop()
 
+            sort_indices = np.argsort(new_costs)
+
+            sorted_pop = population[sort_indices]
+            tmp_max_ni = max_ni[sort_indices]
+            tmp_min_ni = min_ni[sort_indices]
+            tmp_avg_ni = avg_ni[sort_indices]
+
+            if generation_number % parameters['CHECKPOINT_FREQ'] == 0:
+                src.partools.checkpoint(
+                    sorted_pop, new_costs, tmp_max_ni, tmp_min_ni, tmp_avg_ni,
+                    generation_number, parameters, template,
+                    parameters['NSTEPS']
+                )
+
+        generation_number += 1
         stop = world_comm.bcast(stop, root=0)
 
     if is_master:
