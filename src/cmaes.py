@@ -70,7 +70,14 @@ def CMAES(parameters, template, node_manager,):
     solution = world_comm.bcast(solution, root=0)
 
     if is_master:
-        es = cma.CMAEvolutionStrategy(solution, 0.2)
+        opts = cma.CMAOptions()
+
+        for key,val in opts.defaults().items():
+            print(key, val)
+
+        es = cma.CMAEvolutionStrategy(solution, 0.2, {'popsize': 10})
+
+        es.opts.set({'verb_disp': 1})
     else:
         population = None
 
@@ -78,7 +85,7 @@ def CMAES(parameters, template, node_manager,):
 
     while not stop:
         if is_master:
-            population = es.ask()
+            population = es.ask_geno(100)
 
         costs, max_ni, min_ni, avg_ni = objective_fxn(
             population, weights, return_ni=True,
@@ -88,6 +95,9 @@ def CMAES(parameters, template, node_manager,):
         if is_master:
             es.tell(population, np.sum(costs, axis=1))
             es.disp()
+            stop = es.stop()
+
+        stop = world_comm.bcast(stop, root=0)
 
     if is_master:
         es.result_pretty()
