@@ -76,8 +76,8 @@ def CMAES(parameters, template, node_manager,):
     if is_master:
         opts = cma.CMAOptions()
 
-        # for key, val in opts.defaults().items():
-        #     print(key, val)
+        for key, val in opts.defaults().items():
+            print(key, val)
 
         es = cma.CMAEvolutionStrategy(
             solution, 0.2, {'popsize': parameters['POP_SIZE']}
@@ -133,7 +133,9 @@ def CMAES(parameters, template, node_manager,):
 
         es.result_pretty()
 
-        best = np.atleast_2d(sorted_pop[0, np.where(template.active_mask)[0]])
+        # best = np.atleast_2d(es.result.xbest[np.where(template.active_mask)[0]])
+        best = np.atleast_2d(es.result.xbest)
+        print("Fitness before LM:", es.result.fbest)
 
         polish_start_time = time.time()
     else:
@@ -141,34 +143,42 @@ def CMAES(parameters, template, node_manager,):
 
     best = src.partools.local_minimization(
         best, None, template, objective_fxn, gradient, weights, world_comm,
-        is_master, nsteps=20, lm_output=True, penalty=parameters['PENALTY_ON']
+        is_master, nsteps=10, lm_output=True, penalty=parameters['PENALTY_ON']
     )
 
     if is_master:
+        # sorted_pop[0, np.where(template.active_mask)[0]] = best
         sorted_pop[0] = best
         population = sorted_pop
 
-    costs = objective_fxn(population, weights, penalty=parameters['PENALTY_ON'])
+    costs, max_ni, min_ni, avg_ni = objective_fxn(
+        population, weights, return_ni=True,
+        penalty=parameters['PENALTY_ON']
+    )
 
     if is_master:
         polish_runtime = time.time() - polish_start_time
 
         final_costs = np.sum(costs, axis=1)
 
+        sort_indices = np.argsort(final_costs)
+        tmp_max_ni = max_ni[sort_indices]
+        tmp_min_ni = min_ni[sort_indices]
+        tmp_avg_ni = avg_ni[sort_indices]
+        final_costs = final_costs[sort_indices]
+
         src.partools.checkpoint(
-            population, final_costs, max_ni, min_ni, avg_ni,
-            generation_number + 1, parameters, template,
+            population, final_costs, tmp_max_ni, tmp_min_ni, tmp_avg_ni,
+            generation_number, parameters, template,
             parameters['NSTEPS']
         )
 
-        final_fit = final_costs[np.argsort(final_costs)]
-
         print()
-        print("Final best cost = ", final_fit[0])
+        print("Final best cost = ", final_costs[0])
 
         print()
         print(
-            "CMA-ES runtime = {:.2f} (s)".format(cma_runtime), flush=True
+            "CMA-ES runtime = {:.2f} (s)".format(polish_runtime), flush=True
         )
 
         print(

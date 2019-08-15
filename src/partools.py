@@ -196,8 +196,9 @@ def build_evaluation_functions(
                 gradient[:, :, 2*fit_id] += \
                     (eng_err[:, np.newaxis]*(s_grad - r_grad)*2)*weight
 
-            indices = np.where(template.active_mask)[0]
-            gradient = gradient[:, indices, :].swapaxes(1, 2)
+            # indices = np.where(template.active_mask)[0]
+            # gradient = gradient[:, indices, :].swapaxes(1, 2)
+            gradient = gradient.swapaxes(1, 2)
 
         return gradient
 
@@ -804,9 +805,10 @@ def local_minimization(
             if lm_output:
                 print('LM step: ', end="", flush=True)
 
-            full = template.insert_active_splines(
-                raveled_pop.reshape(original_shape)
-            )
+            # full = template.insert_active_splines(
+            #     raveled_pop.reshape(original_shape)
+            # )
+            full = raveled_pop.reshape(original_shape)
         else:
             full = None
 
@@ -826,9 +828,10 @@ def local_minimization(
     def lm_grad_wrap(raveled_pop, original_shape):
 
         if is_master:
-            full = template.insert_active_splines(
-                raveled_pop.reshape(original_shape)
-            )
+            # full = template.insert_active_splines(
+            #     raveled_pop.reshape(original_shape)
+            # )
+            full = raveled_pop.reshape(original_shape)
         else:
             full = None
 
@@ -871,8 +874,10 @@ def local_minimization(
 
     if is_master:
         new_pop = opt_results['x'].reshape(pop_to_opt.shape)
-        tmp = template.insert_active_splines(pop_to_opt)
-        new_tmp = template.insert_active_splines(new_pop)
+        # tmp = template.insert_active_splines(pop_to_opt)
+        # new_tmp = template.insert_active_splines(new_pop)
+        tmp = pop_to_opt
+        new_tmp = new_pop
     else:
         tmp = None
         new_tmp = None
