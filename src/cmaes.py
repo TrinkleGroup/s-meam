@@ -76,8 +76,8 @@ def CMAES(parameters, template, node_manager,):
     if is_master:
         opts = cma.CMAOptions()
 
-        for key, val in opts.defaults().items():
-            print(key, val)
+        # for key, val in opts.defaults().items():
+        #     print(key, val)
 
         es = cma.CMAEvolutionStrategy(
             solution, 0.2, {'popsize': parameters['POP_SIZE']}
@@ -139,16 +139,17 @@ def CMAES(parameters, template, node_manager,):
 
         polish_start_time = time.time()
     else:
-        best = None
+        best = np.empty((1, template.pvec_len))
 
     best = src.partools.local_minimization(
-        best, None, template, objective_fxn, gradient, weights, world_comm,
-        is_master, nsteps=10, lm_output=True, penalty=parameters['PENALTY_ON']
+        best[:, np.where(template.active_mask)[0]], best, template, objective_fxn,
+        gradient, weights, world_comm, is_master, nsteps=10, lm_output=True,
+        penalty=parameters['PENALTY_ON']
     )
 
     if is_master:
-        # sorted_pop[0, np.where(template.active_mask)[0]] = best
-        sorted_pop[0] = best
+        sorted_pop[0, np.where(template.active_mask)[0]] = best
+        # sorted_pop[0] = best
         population = sorted_pop
 
     costs, max_ni, min_ni, avg_ni = objective_fxn(

@@ -321,7 +321,7 @@ def ga(parameters, template, node_manager,):
                         flush=True
                     )
 
-                    subset = ga_pop[:10]
+                    subset = master_pop[:10]
 
                 subset = np.array(subset)
 
@@ -333,8 +333,9 @@ def ga(parameters, template, node_manager,):
                 )
 
                 if is_master:
-                    ga_pop[:10] = subset
-                    master_pop[:, np.where(template.active_mask)[0]] = np.array(ga_pop)
+                    master_pop[:10] = subset
+                    # master_pop[:, np.where(template.active_mask)[0]] = np.array(ga_pop)
+                    ga_pop = master_pop[:, np.where(template.active_mask)[0]]
 
 
                 fitnesses, max_ni, min_ni, avg_ni = toolbox.evaluate_population(

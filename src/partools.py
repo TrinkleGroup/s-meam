@@ -808,7 +808,8 @@ def local_minimization(
             # full = template.insert_active_splines(
             #     raveled_pop.reshape(original_shape)
             # )
-            full = raveled_pop.reshape(original_shape)
+            full = master_pop.copy()
+            full[:, np.where(template.active_mask)[0]] = raveled_pop.reshape(original_shape)
         else:
             full = None
 
@@ -831,11 +832,17 @@ def local_minimization(
             # full = template.insert_active_splines(
             #     raveled_pop.reshape(original_shape)
             # )
-            full = raveled_pop.reshape(original_shape)
+            full = master_pop.copy()
+            full[:, np.where(template.active_mask)[0]] = raveled_pop.reshape(original_shape)
+            # full = raveled_pop.reshape(original_shape)
         else:
             full = None
 
         grads = grad(full, weights)
+
+        if is_master:
+            grads = grads[:, :, np.where(template.active_mask)[0]]
+            # gradient = gradient[:, indices, :].swapaxes(1, 2)
 
         grads = world_comm.bcast(grads, root=0)
 
@@ -874,10 +881,16 @@ def local_minimization(
 
     if is_master:
         new_pop = opt_results['x'].reshape(pop_to_opt.shape)
-        # tmp = template.insert_active_splines(pop_to_opt)
-        # new_tmp = template.insert_active_splines(new_pop)
-        tmp = pop_to_opt
-        new_tmp = new_pop
+
+        tmp = master_pop.copy()
+        tmp[:, np.where(template.active_mask)[0]] = pop_to_opt
+
+        new_tmp = master_pop.copy()
+        new_tmp[:, np.where(template.active_mask)[0]] = new_pop
+
+        tmp = np.atleast_2d(tmp)
+        new_tmp = np.atleast_2d(new_tmp)
+
     else:
         tmp = None
         new_tmp = None
@@ -896,9 +909,11 @@ def local_minimization(
                 updated_pop.append(pop_to_opt[i])
                 updated_pop[i] = updated_pop[i]
 
-        master_pop = np.array(updated_pop)
+        final_pop = np.array(updated_pop)
+    else:
+        final_pop = None
 
-    return master_pop
+    return final_pop
 
 def calculate_ni_stats(grouped_ni, template):
     # TODO: ni will probably be a dict coming out of node_manager
