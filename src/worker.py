@@ -386,6 +386,8 @@ class Worker:
         for y, phi in zip(phi_pvecs, self.phis, ):
             energy += phi.calc_energy(y)
 
+        # print('WORKER: phi = ', energy)
+
         # Embedding terms
         ni = self.compute_ni(rho_pvecs, f_pvecs, g_pvecs)
         # print('WORKER: ni =', ni)
@@ -465,10 +467,10 @@ class Worker:
                 )
 
                 u_energy += u.calc_energy(y)
+                # print('WORKER: u_energy = ', u.calc_energy(y))
 
             u.reset()
 
-        # print('WORKER: u_energy = ', u_energy)
         return u_energy, max_ni, min_ni
 
     def evaluate_uprimes(self, ni, u_pvecs, u_ranges, second=False):
@@ -553,6 +555,8 @@ class Worker:
 
         ni = self.compute_ni(rho_pvecs, f_pvecs, g_pvecs)
         uprimes = self.evaluate_uprimes(ni, u_pvecs, u_ranges)
+
+        # print('WORKER: U\' = ', uprimes)
 
         # Electron density embedding (rho)
 

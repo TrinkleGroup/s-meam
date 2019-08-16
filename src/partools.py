@@ -6,11 +6,12 @@ from scipy.optimize import least_squares
 from scipy.interpolate import CubicSpline
 
 def build_evaluation_functions(
-        template, all_struct_names, node_manager,
-        world_comm, is_master, true_values,
+        template, all_struct_names, node_manager, world_comm, is_master, true_values,
 ):
     """Builds the function to evaluate populations. Wrapped here for readability
     of main code."""
+
+    # rzm: only evaluate on nodes that are needed
 
     # @profile
     def fxn_wrap(master_pop, weights, return_ni=False, output=False,

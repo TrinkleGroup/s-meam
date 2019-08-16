@@ -40,12 +40,14 @@ def CMAES(parameters, template, node_manager,):
     )
 
     if is_master:
-        solution = template.pvec.copy()
+        full_solution = template.pvec.copy()
 
         active_ind = np.where(template.active_mask)[0]
 
-        solution[active_ind] = template.generate_random_instance()[active_ind]
+        full_solution[active_ind] = template.generate_random_instance()[active_ind]
         # solution = template.generate_random_instance()[active_ind]
+
+        solution = full_solution[active_ind].copy()
 
         print('solution.shape:', solution.shape)
     else:
@@ -54,18 +56,22 @@ def CMAES(parameters, template, node_manager,):
     weights = np.ones(len(all_struct_names))
 
     costs, max_ni, min_ni, avg_ni = objective_fxn(
-        solution, weights, return_ni=True, penalty=parameters['PENALTY_ON']
+        template.insert_active_splines(np.atleast_2d(solution)), weights,
+        return_ni=True, penalty=parameters['PENALTY_ON']
     )
 
     if is_master:
         print("Initial min/max ni:", min_ni[0], max_ni[0])
 
-        solution = src.partools.rescale_ni(
-            np.atleast_2d(solution), min_ni, max_ni, template
+        full_solution = src.partools.rescale_ni(
+            np.atleast_2d(full_solution), min_ni, max_ni, template
         )[0]
 
+        solution = full_solution[active_ind]
+
     costs, max_ni, min_ni, avg_ni = objective_fxn(
-        solution, weights, return_ni=True, penalty=parameters['PENALTY_ON']
+        template.insert_active_splines(np.atleast_2d(solution)), weights,
+        return_ni=True, penalty=parameters['PENALTY_ON']
     )
 
     if is_master:
@@ -74,8 +80,8 @@ def CMAES(parameters, template, node_manager,):
     solution = world_comm.bcast(solution, root=0)
 
     if is_master:
-        opts = cma.CMAOptions()
-
+        # opts = cma.CMAOptions()
+        #
         # for key, val in opts.defaults().items():
         #     print(key, val)
 
@@ -89,12 +95,18 @@ def CMAES(parameters, template, node_manager,):
     else:
         population = None
 
+    shift_time = 0
+
+    if parameters['DO_SHIFT']:
+        shift_time = parameters['SHIFT_FREQ']
+
     stop = False
 
     generation_number = 0
     while (not stop) and (generation_number < parameters['NSTEPS']):
         if is_master:
             population = np.array(es.ask())
+            population = template.insert_active_splines(population)
 
         costs, max_ni, min_ni, avg_ni = objective_fxn(
             population, weights, return_ni=True,
@@ -104,7 +116,7 @@ def CMAES(parameters, template, node_manager,):
         if is_master:
             new_costs = np.sum(costs, axis=1)
 
-            es.tell(population, new_costs)
+            es.tell(population[:, active_ind], new_costs)
             es.disp()
             stop = es.stop()
 
@@ -123,6 +135,21 @@ def CMAES(parameters, template, node_manager,):
                     parameters['NSTEPS']
                 )
 
+        if parameters['DO_SHIFT']:
+            if shift_time == 0:
+                if is_master:
+                    new_u_domains = src.partools.shift_u(min_ni, max_ni)
+                    print("New U domains:", new_u_domains)
+                else:
+                    new_u_domains = None
+
+                new_u_domains = world_comm.bcast(new_u_domains, root=0)
+                template.u_ranges = new_u_domains
+
+                shift_time = parameters['SHIFT_FREQ'] - 1 
+            else:
+                shift_time -= 1
+
         generation_number += 1
         stop = world_comm.bcast(stop, root=0)
 
@@ -135,6 +162,7 @@ def CMAES(parameters, template, node_manager,):
 
         # best = np.atleast_2d(es.result.xbest[np.where(template.active_mask)[0]])
         best = np.atleast_2d(es.result.xbest)
+        best = template.insert_active_splines(best)
         print("Fitness before LM:", es.result.fbest)
 
         polish_start_time = time.time()
@@ -148,7 +176,8 @@ def CMAES(parameters, template, node_manager,):
     )
 
     if is_master:
-        sorted_pop[0, np.where(template.active_mask)[0]] = best
+        # sorted_pop[0, np.where(template.active_mask)[0]] = best
+        sorted_pop[0, active_ind] = best
         # sorted_pop[0] = best
         population = sorted_pop
 
@@ -179,7 +208,7 @@ def CMAES(parameters, template, node_manager,):
 
         print()
         print(
-            "CMA-ES runtime = {:.2f} (s)".format(polish_runtime), flush=True
+            "CMA-ES runtime = {:.2f} (s)".format(cma_runtime), flush=True
         )
 
         print(
@@ -189,7 +218,7 @@ def CMAES(parameters, template, node_manager,):
 
         print()
         print(
-            "LM runtime = {:.2f} (s)".format(cma_runtime), flush=True
+            "LM runtime = {:.2f} (s)".format(polish_runtime), flush=True
         )
 
 
