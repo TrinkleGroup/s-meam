@@ -89,6 +89,8 @@ def CMAES(parameters, template, node_manager,):
             solution, 0.2, {'popsize': parameters['POP_SIZE']}
         )
 
+        bestever = cma.optimization_tools.BestSolution()
+
         es.opts.set({'verb_disp': 1})
 
         cma_start_time = time.time()
@@ -105,7 +107,7 @@ def CMAES(parameters, template, node_manager,):
     generation_number = 0
     while (not stop) and (generation_number < parameters['NSTEPS']):
         if is_master:
-            population = np.array(es.ask())
+            population = np.array(es.ask_geno(100))
             population = template.insert_active_splines(population)
 
         costs, max_ni, min_ni, avg_ni = objective_fxn(
@@ -139,7 +141,19 @@ def CMAES(parameters, template, node_manager,):
             if shift_time == 0:
                 if is_master:
                     new_u_domains = src.partools.shift_u(min_ni, max_ni)
+
                     print("New U domains:", new_u_domains)
+                    print("Restarting with new U[]...", flush=True)
+
+                    bestever.update(es.best)
+
+                    es = cma.CMAEvolutionStrategy(
+                        es.result.xbest, 0.2, {
+                            'popsize': parameters['POP_SIZE'],
+                            'verb_append': bestever.evalsall
+                        }
+                    )
+
                 else:
                     new_u_domains = None
 

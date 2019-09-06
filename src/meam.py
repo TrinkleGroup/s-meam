@@ -495,7 +495,7 @@ class MEAM:
         self.write_to_file('test.meam.spline')
 
         calc = LAMMPS(no_data_file=True, parameters=params,
-                      keep_tmp_files=True, specorder=types,
+                      keep_tmp_files=False, specorder=types,
                       always_triclinic=True,
                       files=['test.meam.spline'])
 
