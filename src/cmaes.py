@@ -96,6 +96,7 @@ def CMAES(parameters, template, node_manager,):
         cma_start_time = time.time()
     else:
         population = None
+        best = None
 
     shift_time = 0
 
@@ -110,10 +111,26 @@ def CMAES(parameters, template, node_manager,):
             population = np.array(es.ask_geno(100))
             population = template.insert_active_splines(population)
 
+            if generation_number > 0:
+                best = template.insert_active_splines(np.atleast_2d(
+                    es.result.xbest
+                ))
+            else:
+                best = template.insert_active_splines(np.atleast_2d(
+                    solution
+                ))
+
+            population = np.vstack([best, population])
+
         costs, max_ni, min_ni, avg_ni = objective_fxn(
             population, weights, return_ni=True,
             penalty=parameters['PENALTY_ON']
         )
+
+        # best_costs, best_max_ni, best_min_ni, best_avg_ni = objective_fxn(
+        #     np.atleast_2d(best), weights, return_ni=True,
+        #     penalty=parameters['PENALTY_ON']
+        # )
 
         if is_master:
             new_costs = np.sum(costs, axis=1)
@@ -129,6 +146,13 @@ def CMAES(parameters, template, node_manager,):
             tmp_min_ni = min_ni[sort_indices]
             tmp_avg_ni = avg_ni[sort_indices]
             new_costs = new_costs[sort_indices]
+
+            # add the global best to the logging
+            # sorted_pop = np.vstack([best, sorted_pop])
+            # tmp_max_ni = np.vstack([best_max_ni, tmp_max_ni])
+            # tmp_min_ni = np.vstack([best_min_ni, tmp_min_ni])
+            # tmp_avg_ni = np.vstack([best_avg_ni, tmp_avg_ni])
+            # new_costs = np.vstack([best_costs, new_costs])
 
             if generation_number % parameters['CHECKPOINT_FREQ'] == 0:
                 src.partools.checkpoint(
