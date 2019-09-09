@@ -86,17 +86,19 @@ def CMAES(parameters, template, node_manager,):
         #     print(key, val)
 
         es = cma.CMAEvolutionStrategy(
-            solution, 0.2, {'popsize': parameters['POP_SIZE']}
+            solution, 0.2, {
+                'verb_disp': 1,
+                'popsize': parameters['POP_SIZE'],
+                # 'CMA_mu': 19,
+                # 'CMA_rankmu': 0.1
+            }
         )
-
-        bestever = cma.optimization_tools.BestSolution()
 
         es.opts.set({'verb_disp': 1})
 
         cma_start_time = time.time()
     else:
         population = None
-        best = None
 
     shift_time = 0
 
@@ -111,31 +113,17 @@ def CMAES(parameters, template, node_manager,):
             population = np.array(es.ask_geno(100))
             population = template.insert_active_splines(population)
 
-            if generation_number > 0:
-                best = template.insert_active_splines(np.atleast_2d(
-                    es.result.xbest
-                ))
-            else:
-                best = template.insert_active_splines(np.atleast_2d(
-                    solution
-                ))
-
-            population = np.vstack([best, population])
-
         costs, max_ni, min_ni, avg_ni = objective_fxn(
             population, weights, return_ni=True,
             penalty=parameters['PENALTY_ON']
         )
 
-        # best_costs, best_max_ni, best_min_ni, best_avg_ni = objective_fxn(
-        #     np.atleast_2d(best), weights, return_ni=True,
-        #     penalty=parameters['PENALTY_ON']
-        # )
-
         if is_master:
             new_costs = np.sum(costs, axis=1)
 
-            es.tell(population[:, active_ind], new_costs)
+            es.tell(
+                population[:, active_ind], new_costs
+            )
             es.disp()
             stop = es.stop()
 
@@ -147,13 +135,6 @@ def CMAES(parameters, template, node_manager,):
             tmp_avg_ni = avg_ni[sort_indices]
             new_costs = new_costs[sort_indices]
 
-            # add the global best to the logging
-            # sorted_pop = np.vstack([best, sorted_pop])
-            # tmp_max_ni = np.vstack([best_max_ni, tmp_max_ni])
-            # tmp_min_ni = np.vstack([best_min_ni, tmp_min_ni])
-            # tmp_avg_ni = np.vstack([best_avg_ni, tmp_avg_ni])
-            # new_costs = np.vstack([best_costs, new_costs])
-
             if generation_number % parameters['CHECKPOINT_FREQ'] == 0:
                 src.partools.checkpoint(
                     sorted_pop, new_costs, tmp_max_ni, tmp_min_ni, tmp_avg_ni,
@@ -163,18 +144,53 @@ def CMAES(parameters, template, node_manager,):
 
         if parameters['DO_SHIFT']:
             if shift_time == 0:
+
                 if is_master:
-                    new_u_domains = src.partools.shift_u(min_ni, max_ni)
+                    best = template.insert_active_splines(np.atleast_2d(
+                        es.result.xbest
+                    ))
+
+                else:
+                    best = None
+
+                best_costs, best_max_ni, best_min_ni, best_avg_ni = objective_fxn(
+                    best, weights, return_ni=True,
+                    penalty=parameters['PENALTY_ON']
+                )
+
+                if is_master:
+
+                    print('Rescaling ...')
+                    solution = src.partools.rescale_ni(
+                        template.insert_active_splines(np.atleast_2d(es.result.xbest)),
+                        best_min_ni, best_max_ni, template
+                    )
+
+                best_costs, best_max_ni, best_min_ni, best_avg_ni = objective_fxn(
+                    solution, weights, return_ni=True,
+                    penalty=parameters['PENALTY_ON']
+                )
+
+                if is_master:
+
+                    solution = solution[:, np.where(template.active_mask)[0]]
+
+                    new_u_domains = src.partools.shift_u(
+                        best_min_ni, best_max_ni
+                    )
 
                     print("New U domains:", new_u_domains)
                     print("Restarting with new U[]...", flush=True)
 
-                    bestever.update(es.best)
-
                     es = cma.CMAEvolutionStrategy(
-                        es.result.xbest, 0.2, {
+                        solution[0],
+                        es.result.stds[0],
+                        {
+                            'verb_disp': 1,
                             'popsize': parameters['POP_SIZE'],
-                            'verb_append': bestever.evalsall
+                            'verb_append': generation_number,
+                            # 'CMA_mu': 19,
+                            # 'CMA_rankmu': 0.1
                         }
                     )
 
