@@ -212,8 +212,13 @@ def read_template(template_file_name):
             template_args['cutoffs'] = (float(v1), float(v2))
 
             # u domains
-            v1, v2, v3, v4 = f.readline().strip().split(" ")
-            tmp = np.array([float(v1), float(v2), float(v3), float(v4)])
+            if template_args['ntypes'] == 1:
+                v1, v2 = f.readline().strip().split(" ")
+                tmp = np.array([float(v1), float(v2)])
+            elif template_args['ntypes'] == 2:
+                v1, v2, v3, v4 = f.readline().strip().split(" ")
+                tmp = np.array([float(v1), float(v2), float(v3), float(v4)])
+
             template_args['u_domains'] = np.split(tmp, len(tmp) // 2)
 
             f.readline()
@@ -457,11 +462,18 @@ def prepare_node_managers(database, template, parameters, comm, is_master):
         #     'B2',
         #     'B32',
         # ]
-        # 
-        # for i, key in enumerate(ref_keys):
-        #     if key not in key_choices:
-        #         print("Adding", key, "to key_choices")
-        #         key_choices[i] = key
+
+        ref_keys = [
+            'AIMD-NVT35',
+            'Surface7',
+            'Vacancy23',
+            'Elastic3',
+        ]
+        
+        for i, key in enumerate(ref_keys):
+            if key not in key_choices:
+                print("Adding", key, "to key_choices")
+                key_choices[i] = key
 
         key_choices = sorted(key_choices)
 

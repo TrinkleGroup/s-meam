@@ -668,10 +668,7 @@ def checkpoint(population, costs, max_ni, min_ni, avg_ni, i, parameters,
                     min_ni.ravel(),
                     max_ni.ravel(),
                     avg_ni.ravel(),
-                    [template.u_ranges[0][0],
-                    template.u_ranges[0][1],
-                    template.u_ranges[1][0],
-                    template.u_ranges[1][1]],
+                    np.concatenate(template.u_ranges)
                 ]
             )
         )
@@ -936,15 +933,15 @@ def calculate_ni_stats(grouped_ni, template):
 
     for i, type_ni in enumerate(stacked_groups):
 
-        biggest_min = max(
-            template.u_ranges[0][0],
-            template.u_ranges[1][0],
-        )
-
-        biggest_max = max(
-            template.u_ranges[0][1],
-            template.u_ranges[1][1],
-        )
+        # biggest_min = max(
+        #     template.u_ranges[0][0],
+        #     template.u_ranges[1][0],
+        # )
+        # 
+        # biggest_max = max(
+        #     template.u_ranges[0][1],
+        #     template.u_ranges[1][1],
+        # )
 
         num_in = np.logical_and(
             type_ni >= -1.5,

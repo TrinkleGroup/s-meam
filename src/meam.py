@@ -484,7 +484,7 @@ class MEAM:
 
         params = {'units': 'metal',
                   'boundary': 'p p p',
-                  'mass': ['1 1.008', '2 4.0026'],
+                  'mass': [str(i+1) + ' 1.008' for i in range(len(types))],
                   'pair_style': 'meam/spline',
                   'pair_coeff': ['* * test.meam.spline ' + ' '.join(types)],
                   'newton': 'on'}
@@ -749,9 +749,12 @@ def ij_to_potl(itype, jtype, ntypes):
 
     if (itype < 1) or (jtype < 1):
         raise ValueError("atom types must be positive and non-zero")
+    elif ntypes == 1:
+        return itype - 1
     elif ntypes != 2:
-        raise NotImplementedError("currently, only binary systems are "
-                                  "supported")
+        raise NotImplementedError(
+            "currently, only unary and binary systems are supported"
+        )
     else:
         return int(jtype - 1 + (itype - 1) * ntypes - (itype - 1) * itype / 2)
 

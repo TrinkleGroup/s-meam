@@ -110,7 +110,8 @@ def CMAES(parameters, template, node_manager,):
     generation_number = 0
     while (not stop) and (generation_number < parameters['NSTEPS']):
         if is_master:
-            population = np.array(es.ask_geno(100))
+            # population = np.array(es.ask_geno())
+            population = np.array(es.ask())
             population = template.insert_active_splines(population)
 
         costs, max_ni, min_ni, avg_ni = objective_fxn(

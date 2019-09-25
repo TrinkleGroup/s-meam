@@ -39,7 +39,7 @@ class Template:
         # self.active_mask = np.where(self.active_mask)[0]
 
         self.types = types
-        self.ntypes = len(u_ranges)
+        self.ntypes = len(types)
         self.pvec_len = pvec_len
         self.u_ranges = u_ranges
         self.spline_ranges = spline_ranges
