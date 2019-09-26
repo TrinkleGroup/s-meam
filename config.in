@@ -1,46 +1,43 @@
 OPT_TYPE CMAES
 
-POP_SIZE 40
-ARCHIVE_SIZE 10
-NSTEPS 1
+POP_SIZE 1000
+NSTEPS 1000
 
-GRID_DIVS 10
-
-PENALTY_ON False
+PENALTY_ON True
 
 DO_TOGGLE False
-DO_LMIN True
-DO_RESCALE False
+DO_RESCALE True
 DO_SHIFT False
-DO_MCMC False
+DO_MCMC True
+DO_LMIN True
 
-TOGGLE_FREQ 3
-LMIN_FREQ 1
-RESCALE_FREQ 3
-SHIFT_FREQ 6
-MCMC_FREQ 3
+NUM_STRUCTS 240
+PENALTY 1000000
 
-LMIN_NSTEPS 10
+CMAES_STEP_SIZE 2.0
+
+TOGGLE_FREQ 2000
+LMIN_FREQ 2000
+RESCALE_FREQ 2000
+SHIFT_FREQ 2000
+MCMC_FREQ 2000
+
+LMIN_NSTEPS 100
 TOGGLE_DURATION 25
-MCMC_NSTEPS 5
+MCMC_NSTEPS 100
 
-RESCALE_STOP_STEP 1000
-
-# NAMES_FILE ../names.txt
-NUM_STRUCTS 5
+RESCALE_STOP_STEP 1599
 
 PROCS_PER_NODE 1
 
-DATABASE_FILE ../data/fitting_databases/hyojung/mini_db.hdf5
+
+DATABASE_FILE /home/jvita/scripts/s-meam/data/fitting_databases/mlearn/data/Li/Li.hdf5
 
 OVERWRITE_OLD_FILES True
 
-STRUCTURE_DIRECTORY ../data/fitting_databases/hyojung/mini_structs
-INFO_DIRECTORY ../data/fitting_databases/hyojung/mini_info
-SAVE_DIRECTORY ../data/results/delete
-LAMMPS_FOLDER ../data/fitting_databases/hyojung/mini_atoms
-
-TRACE_FILE_NAME ../data/results/delete/trace.dat
+STRUCTURE_DIRECTORY /u/sciteam/vita/hyojung/structures_2.1
+INFO_DIRECTORY /u/sciteam/vita/hyojung/info_2.1
+SAVE_DIRECTORY ../data/results/mlearn/li_first
 
 REFERENCE_STRUCT Ti48Mo80_type1_c18
 
