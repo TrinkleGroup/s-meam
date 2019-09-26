@@ -7,6 +7,7 @@ from scipy.interpolate import CubicSpline
 
 def build_evaluation_functions(
         template, all_struct_names, node_manager, world_comm, is_master, true_values,
+        parameters
 ):
     """Builds the function to evaluate populations. Wrapped here for readability
     of main code."""
@@ -82,15 +83,9 @@ def build_evaluation_functions(
             frac_in = np.sum(np.dstack(mgr_frac_in), axis=2).T
 
             fitnesses = np.zeros(
-                (len(pop), len(all_struct_names)*2 + 2)
+                (len(pop), len(all_struct_names)*2 + 3*frac_in.shape[1])
+                # (len(pop), len(all_struct_names)*2 + frac_in.shape[1])
             )
-
-            lambda_pen = 1000
-
-            # ns = len(node_manager.loaded_structures)
-            ns = len(all_struct_names)
-
-            fitnesses[:, -frac_in.shape[1]:] = lambda_pen*abs(ns - frac_in)
 
             # assumes that 'weights' has the same order as all_struct_names
             for fit_id, (name, weight) in enumerate(zip(
@@ -110,6 +105,22 @@ def build_evaluation_functions(
 
                 tmp = (comp_ediff - true_ediff) ** 2
                 fitnesses[:, 2*fit_id] = tmp * weight
+
+            # TODO: also penalize std too large?
+
+            lambda_pen = parameters['PENALTY']
+            # lambda_pen = np.sum(fitnesses, axis=1)[:, np.newaxis]
+
+            # ns = len(all_struct_names)
+
+            fitnesses[:, -frac_in.shape[1]*3:-frac_in.shape[1]*2] = lambda_pen*abs(1-frac_in)
+            # fitnesses[:, -frac_in.shape[1]:] = lambda_pen*abs(ns - frac_in)
+
+
+            fitnesses[:, -frac_in.shape[1]*2:-frac_in.shape[1]] = \
+                    lambda_pen*np.clip(0.05-ni_var, 0, None)
+
+            fitnesses[:, -frac_in.shape[1]:] = lambda_pen*np.clip(ni_var-1, 0, None)
 
         if is_master:
             if not penalty:
@@ -663,14 +674,14 @@ def checkpoint(population, costs, max_ni, min_ni, avg_ni, i, parameters,
     with open(parameters['NI_TRACE_FILE_NAME'] + suffix, 'ab') as f:
         np.savetxt(
             f,
-            np.concatenate(
+            np.atleast_2d(np.concatenate(
                 [
                     min_ni.ravel(),
                     max_ni.ravel(),
                     avg_ni.ravel(),
                     np.concatenate(template.u_ranges)
                 ]
-            )
+            ))
         )
 
 def build_M(num_x, dx, bc_type):
@@ -921,6 +932,7 @@ def calculate_ni_stats(grouped_ni, template):
     for i in range(template.ntypes):
         type_ni = []
 
+
         for struct_groups in grouped_ni:
             type_ni.append(struct_groups[i])
 
@@ -956,6 +968,8 @@ def calculate_ni_stats(grouped_ni, template):
         ni_var.append(np.std(type_ni, axis=1)**2)
 
     return min_ni, max_ni, avg_ni, ni_var, frac_in
+
+
 def cs_convert_domains(old_u_knots, new_type):
 
     new_u_knots = []

@@ -66,7 +66,7 @@ def main(config_name, template_file_name):
 
     float_params = [
         'MUT_PB', 'COOLING_RATE', 'TMIN', 'TSTART', 'SGD_STEP_SIZE',
-        'MOVE_PROB', 'MOVE_SCALE'
+        'MOVE_PROB', 'MOVE_SCALE', 'CMAES_STEP_SIZE', 'PENALTY'
     ]
 
     bool_params = [

@@ -36,7 +36,7 @@ def CMAES(parameters, template, node_manager,):
     # run the function constructor to build the objective function
     objective_fxn, gradient = src.partools.build_evaluation_functions(
         template, all_struct_names, node_manager,
-        world_comm, is_master, true_values
+        world_comm, is_master, true_values, parameters
     )
 
     if is_master:
@@ -86,7 +86,9 @@ def CMAES(parameters, template, node_manager,):
         #     print(key, val)
 
         es = cma.CMAEvolutionStrategy(
-            solution, 0.2, {
+            solution,
+            parameters['CMAES_STEP_SIZE'],
+            {
                 'verb_disp': 1,
                 'popsize': parameters['POP_SIZE'],
                 # 'CMA_mu': 19,
