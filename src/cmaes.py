@@ -109,11 +109,12 @@ def CMAES(parameters, template, node_manager,):
 
     stop = False
 
+    grow_id = 0
     generation_number = 0
     while (not stop) and (generation_number < parameters['NSTEPS']):
         if is_master:
-            # population = np.array(es.ask_geno())
-            population = np.array(es.ask())
+            population = np.array(es.ask_geno())
+            # population = np.array(es.ask())
             population = template.insert_active_splines(population)
 
         costs, max_ni, min_ni, avg_ni = objective_fxn(
@@ -145,6 +146,21 @@ def CMAES(parameters, template, node_manager,):
                     parameters['NSTEPS']
                 )
 
+        if parameters['DO_GROW']:
+            if grow_id < len(parameters['GROW_SCHED']):
+                if generation_number + 1 == parameters['GROW_SCHED'][grow_id]:
+                    es = cma.CMAEvolutionStrategy(
+                        es.result.xbest,
+                        0.01,
+                        {
+                            'verb_disp': 1,
+                            'popsize': parameters['GROW_SIZE'][grow_id],
+                            # 'verb_append': generation_number,
+                        }
+                    )
+
+                    grow_id += 1
+
         if parameters['DO_SHIFT']:
             if shift_time == 0:
 
@@ -161,18 +177,18 @@ def CMAES(parameters, template, node_manager,):
                     penalty=parameters['PENALTY_ON']
                 )
 
-                if is_master:
-
-                    print('Rescaling ...')
-                    solution = src.partools.rescale_ni(
-                        template.insert_active_splines(np.atleast_2d(es.result.xbest)),
-                        best_min_ni, best_max_ni, template
-                    )
-
-                best_costs, best_max_ni, best_min_ni, best_avg_ni = objective_fxn(
-                    solution, weights, return_ni=True,
-                    penalty=parameters['PENALTY_ON']
-                )
+                # if is_master:
+                # 
+                #     print('Rescaling ...')
+                #     solution = src.partools.rescale_ni(
+                #         template.insert_active_splines(np.atleast_2d(es.result.xbest)),
+                #         best_min_ni, best_max_ni, template
+                #     )
+                # 
+                # best_costs, best_max_ni, best_min_ni, best_avg_ni = objective_fxn(
+                #     solution, weights, return_ni=True,
+                #     penalty=parameters['PENALTY_ON']
+                # )
 
                 if is_master:
 
@@ -187,7 +203,7 @@ def CMAES(parameters, template, node_manager,):
 
                     es = cma.CMAEvolutionStrategy(
                         solution[0],
-                        es.result.stds[0],
+                        parameters['CMAES_STEP_SIZE'],
                         {
                             'verb_disp': 1,
                             'popsize': parameters['POP_SIZE'],
@@ -219,7 +235,7 @@ def CMAES(parameters, template, node_manager,):
 
         # best = np.atleast_2d(es.result.xbest[np.where(template.active_mask)[0]])
         best = np.atleast_2d(es.result.xbest)
-        best = template.insert_active_splines(best)
+        best = np.atleast_2d(template.insert_active_splines(best))
         print("Fitness before LM:", es.result.fbest)
 
         polish_start_time = time.time()

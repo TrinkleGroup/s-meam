@@ -71,7 +71,7 @@ def main(config_name, template_file_name):
 
     bool_params = [
         'RUN_NEW_GA', 'DO_LMIN', 'DEBUG', 'DO_RESCALE', 'OVERWRITE_OLD_FILES',
-        'DO_SHIFT', 'DO_TOGGLE', 'PENALTY_ON', 'DO_MCMC'
+        'DO_SHIFT', 'DO_TOGGLE', 'PENALTY_ON', 'DO_MCMC', 'DO_GROW'
     ]
 
     for key, val in parameters.items():
@@ -101,8 +101,18 @@ def main(config_name, template_file_name):
     )
 
     if is_master:
+        # if os.path.exists(parameters['NI_TRACE_FILE_NAME']):
+        #     tmp = 'ab'
+        # else:
+        #     tmp = 'w'
+
         f = open(parameters['NI_TRACE_FILE_NAME'], 'ab')
         f.close()
+
+        # if os.path.exists(parameters['COST_FILE_NAME']):
+        #     tmp = 'ab'
+        # else:
+        #     tmp = 'w'
 
         f = open(parameters['COST_FILE_NAME'], 'ab')
         f.close()
@@ -112,13 +122,13 @@ def main(config_name, template_file_name):
 
         print("Loading database ...", flush=True)
 
-    database = Database(
+    with Database(
         parameters['DATABASE_FILE'], 'a',
         template.pvec_len, template.types,
         knot_xcoords=template.knot_positions, x_indices=template.x_indices,
         cutoffs=template.cutoffs,
         driver='mpio', comm=world_comm
-    )
+        ) as database:
 
     # for fname in glob.glob(os.path.join(parameters['LAMMPS_FOLDER'], "*")):
 
@@ -135,12 +145,12 @@ def main(config_name, template_file_name):
     #         "Ti48Mo80_type1_c18"
     #     )
 
-    if is_master:
-        print("Preparing node managers...", flush=True)
+        if is_master:
+            print("Preparing node managers...", flush=True)
 
-    node_manager = prepare_node_managers(
-        database, template, parameters, world_comm, is_master
-    )
+        node_manager = prepare_node_managers(
+            database, template, parameters, world_comm, is_master
+        )
 
     if is_master:
         print()
@@ -344,8 +354,14 @@ def read_config(config_name):
                     if len(stripped) > 0: # ignore empty lines
                         try:
                             if stripped[0] != "#": # ignore comments
-                                p, v = stripped.split(" ")
-                                parameters[p] = v
+
+                                split = stripped.split(" ")
+
+                                if len(split) == 2:
+                                    p, v = split
+                                    parameters[p] = v
+                                else:
+                                    parameters[split[0]] = [int(el) for el in split[1:]]
                         except:
                             kill_and_write(
                                 "Formatting issue with line "
@@ -464,16 +480,18 @@ def prepare_node_managers(database, template, parameters, comm, is_master):
         # ]
 
         ref_keys = [
-            'AIMD-NVT35',
-            'Surface7',
-            'Vacancy23',
-            'Elastic3',
+            'AIMD-NVT39',
+            'Surface4',
+            'Vacancy30',
+            'Elastic4',
         ]
         
         for i, key in enumerate(ref_keys):
             if key not in key_choices:
                 print("Adding", key, "to key_choices")
                 key_choices[i] = key
+            else:
+                print(key, "already in key_choices")
 
         key_choices = sorted(key_choices)
 

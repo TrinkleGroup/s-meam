@@ -113,14 +113,19 @@ def build_evaluation_functions(
 
             # ns = len(all_struct_names)
 
+            # fraction that falls in U[]
             fitnesses[:, -frac_in.shape[1]*3:-frac_in.shape[1]*2] = lambda_pen*abs(1-frac_in)
             # fitnesses[:, -frac_in.shape[1]:] = lambda_pen*abs(ns - frac_in)
 
 
+            # penalize too small variance
             fitnesses[:, -frac_in.shape[1]*2:-frac_in.shape[1]] = \
                     lambda_pen*np.clip(0.05-ni_var, 0, None)
 
+            # penalize too big variance
             fitnesses[:, -frac_in.shape[1]:] = lambda_pen*np.clip(ni_var-1, 0, None)
+
+            print(lambda_pen, fitnesses[0, -3:])
 
         if is_master:
             if not penalty:
@@ -165,8 +170,8 @@ def build_evaluation_functions(
         gradient = 0
 
         eng = np.vstack([retval[0] for retval in manager_energies.values()])
-        eng_grads = np.vstack(manager_eng_grads.values())
-        fcs_grads = np.vstack(manager_fcs_grads.values())
+        eng_grads = np.vstack(list(manager_eng_grads.values()))
+        fcs_grads = np.vstack(list(manager_fcs_grads.values()))
 
         mgr_eng = world_comm.gather(eng, root=0)
         mgr_eng_grad = world_comm.gather(eng_grads, root=0)
@@ -174,8 +179,8 @@ def build_evaluation_functions(
 
         if is_master:
             all_eng = np.vstack(mgr_eng)
-            all_eng_grad = np.dstack(mgr_eng_grad)
-            all_fcs_grad = np.dstack(mgr_fcs_grad)
+            all_eng_grad = np.dstack(mgr_eng_grad).T
+            all_fcs_grad = np.dstack(mgr_fcs_grad).T
 
             gradient = np.zeros((
                 len(pop),
@@ -194,6 +199,7 @@ def build_evaluation_functions(
                 # find index of structures to know which energies to use
                 s_id = all_struct_names.index(name)
                 r_id = all_struct_names.index(ref_name)
+
 
                 gradient[:, :, 2*fit_id + 1] += all_fcs_grad[:, :, s_id]
 
@@ -481,10 +487,18 @@ def shift_u(min_ni, max_ni):
         for kk, lim in enumerate(tup):
             if kk == 0:  # lower bound
                 # add some to the lower bound
-                tmp_tup.append(lim + 0.1*size)
+                tmp = lim + 0.1*size
+
+                if tmp > 0: tmp = 0
+
+                tmp_tup.append(tmp)
             elif kk == 1:
                 # subtract some from the upper bound
-                tmp_tup.append(lim - 0.1*size)
+                tmp = lim - 0.1*size
+
+                if tmp < 1: tmp = 1
+
+                tmp_tup.append(tmp)
 
         new_u_domains[k] = tuple(tmp_tup)
 
@@ -826,7 +840,7 @@ def local_minimization(
 
         if is_master:
             if penalty:
-                val = val[:, :-2]
+                val = val[:, :-3]
 
         val = world_comm.bcast(val, root=0)
 
