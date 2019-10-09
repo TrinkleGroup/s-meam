@@ -47,6 +47,8 @@ def CMAES(parameters, template, node_manager,):
         full_solution[active_ind] = template.generate_random_instance()[active_ind]
         # solution = template.generate_random_instance()[active_ind]
 
+        full_solution[:] = np.arange(full_solution.shape[0])
+
         solution = full_solution[active_ind].copy()
 
         print('solution.shape:', solution.shape)
@@ -192,8 +194,6 @@ def CMAES(parameters, template, node_manager,):
 
                 if is_master:
 
-                    solution = solution[:, np.where(template.active_mask)[0]]
-
                     new_u_domains = src.partools.shift_u(
                         best_min_ni, best_max_ni
                     )
@@ -202,7 +202,7 @@ def CMAES(parameters, template, node_manager,):
                     print("Restarting with new U[]...", flush=True)
 
                     es = cma.CMAEvolutionStrategy(
-                        solution[0],
+                        es.result.xbest,
                         parameters['CMAES_STEP_SIZE'],
                         {
                             'verb_disp': 1,
