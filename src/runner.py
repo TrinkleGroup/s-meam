@@ -485,7 +485,7 @@ def prepare_node_managers(database, template, parameters, comm, is_master):
             'Vacancy30',
             'Elastic4',
         ]
-        
+
         for i, key in enumerate(ref_keys):
             if key not in key_choices:
                 print("Adding", key, "to key_choices")

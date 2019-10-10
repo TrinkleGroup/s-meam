@@ -72,6 +72,8 @@ def build_evaluation_functions(
         mgr_eng = world_comm.gather(eng, root=0)
         mgr_force_costs = world_comm.gather(force_costs, root=0)
 
+        mgr_ni = world_comm.gather(ni, root=0)
+
         mgr_min_ni = world_comm.gather(c_min_ni, root=0)
         mgr_max_ni = world_comm.gather(c_max_ni, root=0)
         mgr_avg_ni = world_comm.gather(c_avg_ni, root=0)
@@ -137,8 +139,6 @@ def build_evaluation_functions(
 
             # penalize too big variance
             fitnesses[:, -frac_in.shape[1]:] = lambda_pen*np.clip(ni_var-1, 0, None)
-
-            print(lambda_pen, fitnesses[0, -3:])
 
         if is_master:
             if not penalty:
@@ -474,11 +474,11 @@ def shift_u(min_ni, max_ni):
     """
     Computes the new U domains using the min/max ni from the best potential.
     Assumes that 'min_ni' and 'max_ni' are sorted so that the best potentials
-    are first.
+    are first. T = number of atom types.
 
     Args:
-        min_ni: (Nx1 array) the minimum ni sampled for each of the N potential
-        max_ni: (Nx1 array) the maximum ni sampled for each of the N potential
+        min_ni: (NxT array) the minimum ni sampled for each of the N potential
+        max_ni: (NxT array) the maximum ni sampled for each of the N potential
 
     Returns:
         new_u_domains: (num_atom_types length list) each element in the list
@@ -490,7 +490,8 @@ def shift_u(min_ni, max_ni):
     tmp_max_ni = max_ni[0]
 
     new_u_domains = [
-        (tmp_min_ni[i], tmp_max_ni[i]) for i in range(2)]
+            (tmp_min_ni[i], tmp_max_ni[i]) for i in range(len(tmp_min_ni))
+        ]
 
     for k, tup in enumerate(new_u_domains):
         tmp_tup = []
