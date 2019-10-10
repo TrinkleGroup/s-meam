@@ -28,6 +28,8 @@ def build_evaluation_functions(
         pop = world_comm.bcast(master_pop, root=0)
         pop = np.atleast_2d(pop)
 
+        pop[:] = 1
+
         # TODO: shouldn't update these every time, only when dbOpt needs to
         node_manager.weights = dict(zip(
             node_manager.loaded_structures,
@@ -38,10 +40,16 @@ def build_evaluation_functions(
             'energy', node_manager.loaded_structures, pop, template.u_ranges
         )
 
-        eng = np.vstack([retval[0] for retval in manager_energies.values()])
-        # key = list(manager_energies.keys())[0]
+        unsorted_energies = [retval[0] for retval in manager_energies.values()]
+        sorted_energies = [
+            x for _, x in sorted(zip(list(manager_energies.keys()), unsorted_energies))
+        ]
 
-        # TODO: make sure this is working as expected
+        sorted_names = sorted(list(manager_energies.keys()))
+
+        eng = np.vstack(sorted_energies)
+
+        # NOTE: doesn't matter that these aren't sorted since we just need stats
         ni = [retval[1] for retval in manager_energies.values()]
 
         ni_stats = calculate_ni_stats(ni, template)
@@ -70,17 +78,22 @@ def build_evaluation_functions(
         mgr_ni_var = world_comm.gather(c_ni_var, root=0)
         mgr_frac_in = world_comm.gather(c_frac_in, root=0)
 
+        mgr_names_list = world_comm.gather(sorted_names, root=0)
+
         if is_master:
+            all_names = np.concatenate(mgr_names_list)
             # note: can't stack mgr_fcs b/c different dimensions per struct
             all_eng = np.vstack(mgr_eng)
+
+            all_eng = all_eng[np.argsort(all_names), :]
             all_force_costs = np.vstack(mgr_force_costs)
 
             # do operations so that the final shape is (2, num_pots)
             min_ni = np.min(np.dstack(mgr_min_ni), axis=2).T
             max_ni = np.max(np.dstack(mgr_max_ni), axis=2).T
             avg_ni = np.average(np.dstack(mgr_avg_ni), axis=2).T
-            ni_var = np.min(np.dstack(mgr_ni_var), axis=2).T
-            frac_in = np.sum(np.dstack(mgr_frac_in), axis=2).T
+            ni_var = np.average(np.dstack(mgr_ni_var), axis=2).T
+            frac_in = np.average(np.dstack(mgr_frac_in), axis=2).T
 
             fitnesses = np.zeros(
                 (len(pop), len(all_struct_names)*2 + 3*frac_in.shape[1])
