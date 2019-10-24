@@ -28,8 +28,6 @@ def build_evaluation_functions(
         pop = world_comm.bcast(master_pop, root=0)
         pop = np.atleast_2d(pop)
 
-        pop[:] = 1
-
         # TODO: shouldn't update these every time, only when dbOpt needs to
         node_manager.weights = dict(zip(
             node_manager.loaded_structures,
@@ -51,8 +49,6 @@ def build_evaluation_functions(
 
         # NOTE: doesn't matter that these aren't sorted since we just need stats
         ni = [retval[1] for retval in manager_energies.values()]
-
-        return
 
         ni_stats = calculate_ni_stats(ni, template)
 
@@ -110,7 +106,7 @@ def build_evaluation_functions(
                 all_struct_names, weights
                 )):
 
-                fitnesses[:, 2*fit_id + 1] = 2*all_force_costs[fit_id]/10
+                fitnesses[:, 2*fit_id + 1] = 2*all_force_costs[fit_id]#/10
 
                 ref_name = true_values['ref_struct'][name]
 

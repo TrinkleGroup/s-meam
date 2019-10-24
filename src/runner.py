@@ -199,6 +199,7 @@ def main(config_name, template_file_name):
     elif parameters['OPT_TYPE'] == 'CMAES':
         if is_master:
             print("Running CMAES", flush=True)
+
         CMAES(parameters, template, node_manager)
     else:
         if is_master:
@@ -480,10 +481,7 @@ def prepare_node_managers(database, template, parameters, comm, is_master):
         # ]
 
         ref_keys = [
-            'AIMD-NVT39',
-            'Surface4',
-            'Vacancy30',
-            'Elastic4',
+            'Ground_state_crystal',
         ]
 
         for i, key in enumerate(ref_keys):

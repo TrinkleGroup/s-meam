@@ -167,7 +167,7 @@ class NodeManager:
 
         diff = forces - true_forces
 
-        epsilon = np.linalg.norm(diff, 'fro', axis=(1, 2))/np.sqrt(10)
+        epsilon = np.linalg.norm(diff, 'fro', axis=(1, 2))#/np.sqrt(10)
 
         return epsilon*epsilon*self.weights[struct_name]
 
@@ -279,7 +279,8 @@ class NodeManager:
         for struct_name in struct_list:
             self.load_one_struct(struct_name, hdf5_file, load_true)
             self.loaded_structures.append(struct_name)
-            print("Node", self.node_id, "loaded", struct_name, flush=True)
+
+        print('Node', self.node_id, 'loaded', len(struct_list), 'structures')
 
     # @profile
     def load_one_struct(self, struct_name, hdf5_file, load_true):
