@@ -114,6 +114,7 @@ def CMAES(parameters, template, node_manager,):
     generation_number = 0
     while (not stop) and (generation_number < parameters['NSTEPS']):
         if is_master:
+
             # population = np.array(es.ask_geno())
             population = np.array(es.ask())
             population = template.insert_active_splines(population)
@@ -123,6 +124,22 @@ def CMAES(parameters, template, node_manager,):
             penalty=parameters['PENALTY_ON']
         )
 
+        if generation_number > 1:
+            if is_master:
+                best = template.insert_active_splines(np.atleast_2d(
+                    es.result.xbest
+                ))
+
+            else:
+                best = None
+
+            best_fits = objective_fxn(
+                best, weights, penalty=parameters['PENALTY_ON']
+            )
+
+            with open(os.path.join(parameters['SAVE_DIRECTORY'], 'best_fitnesses.dat'), 'ab') as save_file:
+                np.savetxt(save_file, np.atleast_2d(best_fits))
+
         if is_master:
             new_costs = np.sum(costs, axis=1)
 
@@ -130,7 +147,9 @@ def CMAES(parameters, template, node_manager,):
                 population[:, active_ind], new_costs
             )
             es.disp()
-            stop = es.stop()
+
+            if es.stop():
+                stop = True
 
             if es.stop():
                 time_to_stop = True
