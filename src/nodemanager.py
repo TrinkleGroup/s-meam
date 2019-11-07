@@ -167,7 +167,7 @@ class NodeManager:
 
         diff = forces - true_forces
 
-        epsilon = np.linalg.norm(diff, 'fro', axis=(1, 2))/np.sqrt(10)
+        epsilon = np.linalg.norm(diff, 'fro', axis=(1, 2))#/np.sqrt(10)
 
         return epsilon*epsilon*self.weights[struct_name]
 
@@ -281,7 +281,7 @@ class NodeManager:
             self.load_one_struct(struct_name, hdf5_file, load_true)
             self.loaded_structures.append(struct_name)
 
-        print("Node", self.node_id, "loaded:", len(struct_list), 'structures', flush=True)
+        print('Node', self.node_id, 'loaded', len(struct_list), 'structures')
 
     # @profile
     def load_one_struct(self, struct_name, hdf5_file, load_true):
@@ -366,6 +366,8 @@ class NodeManager:
             true_values['ref_struct'][struct_name] = ref_name
 
     def compute_energy(self, struct_name, potentials, u_ranges):
+        """Returns the per-atom energy for struct_name"""
+
         potentials = np.atleast_2d(potentials)
 
         n_pots = potentials.shape[0]
@@ -392,8 +394,7 @@ class NodeManager:
             for i in range(self.ntypes)
         ]
 
-        # return energy/self.natoms[struct_name], grouped_ni
-        return energy, grouped_ni
+        return energy/self.natoms[struct_name], grouped_ni
 
     # @profile
     def compute_forces(self, struct_name, potentials, u_ranges):

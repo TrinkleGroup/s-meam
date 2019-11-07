@@ -87,6 +87,7 @@ def build_evaluation_functions(
             all_force_costs = np.vstack(mgr_force_costs)
 
             # do operations so that the final shape is (2, num_pots)
+
             min_ni = np.min(np.dstack(mgr_min_ni), axis=2).T
             max_ni = np.max(np.dstack(mgr_max_ni), axis=2).T
             avg_ni = np.average(np.dstack(mgr_avg_ni), axis=2).T
@@ -103,7 +104,7 @@ def build_evaluation_functions(
                 all_struct_names, weights
                 )):
 
-                fitnesses[:, 2*fit_id + 1] = 2*all_force_costs[fit_id]/10
+                fitnesses[:, 2*fit_id + 1] = 2*all_force_costs[fit_id]#/10
 
                 ref_name = true_values['ref_struct'][name]
 
@@ -969,20 +970,23 @@ def calculate_ni_stats(grouped_ni, template):
 
     for i, type_ni in enumerate(stacked_groups):
 
-        # biggest_min = max(
-        #     template.u_ranges[0][0],
-        #     template.u_ranges[1][0],
-        # )
-        # 
-        # biggest_max = max(
-        #     template.u_ranges[0][1],
-        #     template.u_ranges[1][1],
-        # )
+        biggest_min = max(
+            [el[0] for el in template.u_ranges]
+        )
+
+        biggest_max = max(
+            [el[1] for el in template.u_ranges]
+        )
 
         num_in = np.logical_and(
-            type_ni >= -1.5,
-            type_ni <= 1.5
+            type_ni >= biggest_min - 0.1,
+            type_ni <= biggest_max + 0.1
         ).sum(axis=1)
+
+        # num_in = np.logical_and(
+        #     type_ni >= -1.5,
+        #     type_ni <= 1.5
+        # ).sum(axis=1)
 
         frac_in.append(num_in / type_ni.shape[1])
 
