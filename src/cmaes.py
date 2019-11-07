@@ -47,8 +47,6 @@ def CMAES(parameters, template, node_manager,):
         full_solution[active_ind] = template.generate_random_instance()[active_ind]
         # solution = template.generate_random_instance()[active_ind]
 
-        full_solution[:] = np.arange(full_solution.shape[0])
-
         solution = full_solution[active_ind].copy()
 
         print('solution.shape:', solution.shape)
@@ -110,13 +108,14 @@ def CMAES(parameters, template, node_manager,):
         shift_time = parameters['SHIFT_FREQ']
 
     stop = False
+    time_to_stop = False
 
     grow_id = 0
     generation_number = 0
     while (not stop) and (generation_number < parameters['NSTEPS']):
         if is_master:
-            population = np.array(es.ask_geno())
-            # population = np.array(es.ask())
+            # population = np.array(es.ask_geno())
+            population = np.array(es.ask())
             population = template.insert_active_splines(population)
 
         costs, max_ni, min_ni, avg_ni = objective_fxn(
@@ -132,6 +131,9 @@ def CMAES(parameters, template, node_manager,):
             )
             es.disp()
             stop = es.stop()
+
+            if es.stop():
+                time_to_stop = True
 
             sort_indices = np.argsort(new_costs)
 
@@ -151,15 +153,16 @@ def CMAES(parameters, template, node_manager,):
         if parameters['DO_GROW']:
             if grow_id < len(parameters['GROW_SCHED']):
                 if generation_number + 1 == parameters['GROW_SCHED'][grow_id]:
-                    es = cma.CMAEvolutionStrategy(
-                        es.result.xbest,
-                        0.01,
-                        {
-                            'verb_disp': 1,
-                            'popsize': parameters['GROW_SIZE'][grow_id],
-                            # 'verb_append': generation_number,
-                        }
-                    )
+                    if is_master:
+                        es = cma.CMAEvolutionStrategy(
+                            es.result.xbest,
+                            0.01,
+                            {
+                                'verb_disp': 1,
+                                'popsize': parameters['GROW_SIZE'][grow_id],
+                                # 'verb_append': generation_number,
+                            }
+                        )
 
                     grow_id += 1
 
@@ -194,6 +197,8 @@ def CMAES(parameters, template, node_manager,):
 
                 if is_master:
 
+                    solution = solution[:, np.where(template.active_mask)[0]]
+
                     new_u_domains = src.partools.shift_u(
                         best_min_ni, best_max_ni
                     )
@@ -202,7 +207,7 @@ def CMAES(parameters, template, node_manager,):
                     print("Restarting with new U[]...", flush=True)
 
                     es = cma.CMAEvolutionStrategy(
-                        es.result.xbest,
+                        solution[0],
                         parameters['CMAES_STEP_SIZE'],
                         {
                             'verb_disp': 1,
@@ -342,6 +347,7 @@ def collect_structure_names(node_manager, world_comm, is_master):
         all_struct_names = []
         for slist in local_structs:
             all_struct_names += slist
+
     else:
         all_struct_names = None
 

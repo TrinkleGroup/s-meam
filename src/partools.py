@@ -28,8 +28,6 @@ def build_evaluation_functions(
         pop = world_comm.bcast(master_pop, root=0)
         pop = np.atleast_2d(pop)
 
-        pop[:] = 1
-
         # TODO: shouldn't update these every time, only when dbOpt needs to
         node_manager.weights = dict(zip(
             node_manager.loaded_structures,
@@ -71,8 +69,6 @@ def build_evaluation_functions(
 
         mgr_eng = world_comm.gather(eng, root=0)
         mgr_force_costs = world_comm.gather(force_costs, root=0)
-
-        mgr_ni = world_comm.gather(ni, root=0)
 
         mgr_min_ni = world_comm.gather(c_min_ni, root=0)
         mgr_max_ni = world_comm.gather(c_max_ni, root=0)
@@ -207,25 +203,26 @@ def build_evaluation_functions(
                 )):
 
                 # ref_name = database[name].attrs['ref_struct']
-                ref_name = true_values['ref_struct'][name]
+                # ref_name = true_values['ref_struct'][name]
 
                 # find index of structures to know which energies to use
                 s_id = all_struct_names.index(name)
-                r_id = all_struct_names.index(ref_name)
+                # r_id = all_struct_names.index(ref_name)
 
 
                 gradient[:, :, 2*fit_id + 1] += all_fcs_grad[:, :, s_id]
 
                 # true_ediff = database[name]['true_values']['energy']
                 true_ediff = true_values['energy'][name]
-                comp_ediff = all_eng[s_id] - all_eng[r_id]
+                comp_ediff = all_eng[s_id] # - all_eng[r_id]
 
                 eng_err = comp_ediff - true_ediff
                 s_grad = all_eng_grad[:, :, s_id]
-                r_grad = all_eng_grad[:, :, r_id]
+                # r_grad = all_eng_grad[:, :, r_id]
 
                 gradient[:, :, 2*fit_id] += \
-                    (eng_err[:, np.newaxis]*(s_grad - r_grad)*2)*weight
+                    (eng_err[:, np.newaxis]*(s_grad)*2)*weight
+                    # (eng_err[:, np.newaxis]*(s_grad - r_grad)*2)*weight
 
             # indices = np.where(template.active_mask)[0]
             # gradient = gradient[:, indices, :].swapaxes(1, 2)
@@ -474,11 +471,11 @@ def shift_u(min_ni, max_ni):
     """
     Computes the new U domains using the min/max ni from the best potential.
     Assumes that 'min_ni' and 'max_ni' are sorted so that the best potentials
-    are first. T = number of atom types.
+    are first.
 
     Args:
-        min_ni: (NxT array) the minimum ni sampled for each of the N potential
-        max_ni: (NxT array) the maximum ni sampled for each of the N potential
+        min_ni: (Nx1 array) the minimum ni sampled for each of the N potential
+        max_ni: (Nx1 array) the maximum ni sampled for each of the N potential
 
     Returns:
         new_u_domains: (num_atom_types length list) each element in the list
@@ -490,8 +487,7 @@ def shift_u(min_ni, max_ni):
     tmp_max_ni = max_ni[0]
 
     new_u_domains = [
-            (tmp_min_ni[i], tmp_max_ni[i]) for i in range(len(tmp_min_ni))
-        ]
+        (tmp_min_ni[i], tmp_max_ni[i]) for i in range(2)]
 
     for k, tup in enumerate(new_u_domains):
         tmp_tup = []

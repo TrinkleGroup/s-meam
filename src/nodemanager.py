@@ -232,6 +232,7 @@ class NodeManager:
 
         if self.pool_size == 1:
             ret_dict = {}
+
             for struct_name in struct_list:
                 ret_dict[struct_name] = self.parallel_compute(
                     struct_name, potentials, u_domains, compute_type,
@@ -279,7 +280,8 @@ class NodeManager:
         for struct_name in struct_list:
             self.load_one_struct(struct_name, hdf5_file, load_true)
             self.loaded_structures.append(struct_name)
-            print("Node", self.node_id, "loaded", struct_name, flush=True)
+
+        print("Node", self.node_id, "loaded:", len(struct_list), 'structures', flush=True)
 
     # @profile
     def load_one_struct(self, struct_name, hdf5_file, load_true):
@@ -390,6 +392,7 @@ class NodeManager:
             for i in range(self.ntypes)
         ]
 
+        # return energy/self.natoms[struct_name], grouped_ni
         return energy, grouped_ni
 
     # @profile
