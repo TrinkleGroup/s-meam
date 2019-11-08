@@ -24,7 +24,7 @@ from tests.testStructs import dimers, trimers, bulk_vac_ortho, \
 # logging.disable(logging.CRITICAL)
 
 DECIMAL = 12
-GRAD_DECIMAL = 5
+GRAD_DECIMAL = 4
 
 N = 1
 
