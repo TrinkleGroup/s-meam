@@ -46,7 +46,8 @@ norhophi_flag   = True * 0
 
 dimers_flag     = True * 1
 trimers_flag    = True * 1
-bulk_flag       = True * 1
+bulk_flag       = True * 0
+extra_flag      = True * 1
 
 allstructs = {}
 
@@ -57,9 +58,8 @@ if trimers_flag:
 if bulk_flag:
     allstructs = {**allstructs, **bulk_vac_ortho, **bulk_periodic_ortho,
                   **bulk_vac_rhombo, **bulk_periodic_rhombo, **extra}
-
-# allstructs = {**allstructs, '8_atoms':extra['8_atoms']}
-# allstructs = {'aa':allstructs['aa']}
+if extra_flag:
+    allstructs = {**allstructs, **extra}
 
 full_start = time.time()
 

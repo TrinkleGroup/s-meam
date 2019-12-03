@@ -43,6 +43,7 @@ class NodeManager:
         self.num_u_knots = []
         self.natoms = {}
         self.type_of_each_atom = {}
+        self.volumes = {}
 
         self.weights = {}
         self.ref_name = None
@@ -59,7 +60,7 @@ class NodeManager:
 
     # @profile
     def parallel_compute(self, struct_name, potentials, u_domains,
-                         compute_type, convert_to_cost):
+                         compute_type, convert_to_cost, stress=False):
         """
         The function called by the processor Pool. Computes the desired
         property for all structures in 'struct_list'.
@@ -88,7 +89,7 @@ class NodeManager:
         if compute_type == 'energy':
             # ret = (energy, ni)
             ret = self.compute_energy(
-                struct_name, potentials, u_domains
+                struct_name, potentials, u_domains, stress=stress
             )
 
         elif compute_type == 'forces':
@@ -117,9 +118,12 @@ class NodeManager:
                 struct_name, potentials, u_domains
             )
 
-            ret = self.condense_force_grads(
-                forces, grad, potentials.shape[0], struct_name
-            )
+            if convert_to_cost:
+                ret = self.condense_force_grads(
+                    forces, grad, potentials.shape[0], struct_name
+                )
+            else:
+                ret = grad
 
         else:
             raise ValueError(
@@ -194,7 +198,7 @@ class NodeManager:
 
     # @profile
     def compute(self, compute_type, struct_list, potentials, u_domains,
-            convert_to_cost=True):
+            convert_to_cost=True, stress=False):
         """
         Computes a given property using the worker pool on the set of
         structures in 'struct_list'
@@ -236,7 +240,7 @@ class NodeManager:
             for struct_name in struct_list:
                 ret_dict[struct_name] = self.parallel_compute(
                     struct_name, potentials, u_domains, compute_type,
-                    convert_to_cost
+                    convert_to_cost, stress=stress
                 )
 
         else:
@@ -290,6 +294,9 @@ class NodeManager:
 
         atom_types = hdf5_file[struct_name].attrs['type_of_each_atom']
         self.type_of_each_atom[struct_name] = atom_types
+
+        volume = hdf5_file[struct_name].attrs['volume']
+        self.volumes[struct_name] = volume
 
         struct_vecs[struct_name] = {
             'phi': {'energy': {}, 'forces': {}},
@@ -365,8 +372,14 @@ class NodeManager:
             true_values['forces'][struct_name] = true_fcs
             true_values['ref_struct'][struct_name] = ref_name
 
-    def compute_energy(self, struct_name, potentials, u_ranges):
+    def compute_energy(self, struct_name, potentials, u_ranges, stress=False):
         """Returns the per-atom energy for struct_name"""
+
+        if stress:
+            if len(struct_vecs[struct_name]['phi']['energy']['0'].shape) < 3:
+                raise ValueError(
+                    "Finite difference structure vectors not loaded"
+                )
 
         potentials = np.atleast_2d(potentials)
 
@@ -375,15 +388,29 @@ class NodeManager:
         phi_pvecs, rho_pvecs, u_pvecs, f_pvecs, g_pvecs = \
             self.parse_parameters(potentials)
 
-        energy = np.zeros(n_pots)
+        if stress:
+            energy = np.zeros((13, n_pots))
+        else:
+            energy = np.zeros(n_pots)
 
         # pair interactions
         for i, y in enumerate(phi_pvecs):
-            energy += \
-                struct_vecs[struct_name]['phi']['energy'][str(i)] @ y.T
+            if stress:
+                energy += \
+                    struct_vecs[struct_name]['phi']['energy'][str(i)] @ y.T
+            else:
+                energy += \
+                    struct_vecs[struct_name]['phi']['energy'][str(i)][0] @ y.T
 
         # embedding terms
-        ni = self.compute_ni(struct_name, rho_pvecs, f_pvecs, g_pvecs)
+        ni = self.compute_ni(
+            struct_name, rho_pvecs, f_pvecs, g_pvecs, stress=stress
+        )
+
+        # if stress:
+        #     ni = ni[:, :, 0]
+        # else:
+        #     ni = ni
 
         energy += self.embedding_energy(
             struct_name, ni, u_pvecs, u_ranges
@@ -393,6 +420,21 @@ class NodeManager:
             np.array(ni[:, self.type_of_each_atom[struct_name] - 1 == i])
             for i in range(self.ntypes)
         ]
+
+        if stress:
+            stresses = np.zeros((n_pots, 6))
+
+            fd_energies = energy[1:]
+
+            expanded = fd_energies[::2]
+            contracted = fd_energies[1::2]
+
+            stresses = (expanded - contracted) / 5e-4 / 2
+            stresses /= self.volumes[struct_name]
+
+            energy = energy[0]
+
+            return energy/self.natoms[struct_name], stresses.T, grouped_ni
 
         return energy/self.natoms[struct_name], grouped_ni
 
@@ -453,6 +495,25 @@ class NodeManager:
 
         return forces + embedding_forces
 
+    def compute_stress(self, struct_name, potentials, u_ranges):
+
+        potentials = np.atleast_2d(potentials)
+
+        n_pots = potentials.shape[0]
+
+        phi_pvecs, rho_pvecs, u_pvecs, f_pvecs, g_pvecs = \
+            self.parse_parameters(potentials)
+
+        energy = np.zeros((n_pots, 13))
+
+        # TODO: need to change normal energy calcs to only use SV[0]
+        for phi_idx, y in enumerate(phi_pvecs):
+            energy += np.einsum(
+                'fk,pk->pf',
+                struct_vecs[struct_name]['phi']['energy'][str(phi_idx)],
+                y
+            )
+
     def compute_energy_grad(self, struct_name, potentials, u_ranges):
         potentials = np.atleast_2d(potentials)
 
@@ -468,7 +529,9 @@ class NodeManager:
         # gradients of phi are just their structure vectors
         for phi_idx, y in enumerate(phi_pvecs):
             gradient[:, grad_index:grad_index + y.shape[1]] += \
-                struct_vecs[struct_name]['phi']['energy'][str(phi_idx)]
+                struct_vecs[struct_name]['phi']['energy'][str(phi_idx)][0]
+
+            # NOTE: the [0] is since there are 13 finite difference arrays
 
             grad_index += y.shape[1]
 
@@ -481,6 +544,7 @@ class NodeManager:
 
         for rho_idx, y in enumerate(rho_pvecs):
             partial_ni = struct_vecs[struct_name]['rho']['energy'][str(rho_idx)]
+            partial_ni = partial_ni[0]
 
             gradient[:, grad_index:grad_index + y.shape[1]] += \
                 (uprimes @ np.array(partial_ni))
@@ -549,7 +613,7 @@ class NodeManager:
                 scaled_sv = np.einsum(
                     'pz,zk->pk',
                     uprimes,
-                    struct_vecs[struct_name]['ffg']['energy'][str(j)][str(k)]
+                    struct_vecs[struct_name]['ffg']['energy'][str(j)][str(k)][0]
                 )
 
                 coeffs_for_fj = np.einsum("pi,pk->pik", y_fk, y_g)
@@ -684,8 +748,10 @@ class NodeManager:
         # rho gradient term; there's a U'' and a U' term for each rho
         for rho_idx, y in enumerate(rho_pvecs):
             rho_e_sv = struct_vecs[struct_name]['rho']['energy'][str(rho_idx)]
+            rho_e_sv = rho_e_sv[0]
 
             rho_f_sv = struct_vecs[struct_name]['rho']['forces'][str(rho_idx)]
+
             rho_f_sv = np.array(rho_f_sv).reshape(
                 (3, self.natoms[struct_name], self.natoms[struct_name], y.shape[1])
             )
@@ -744,7 +810,7 @@ class NodeManager:
                     np.einsum(
                         'pz,zk->pzk',
                         uprimes_2,
-                        struct_vecs[struct_name]['ffg']['energy'][str(j)][str(k)]
+                        struct_vecs[struct_name]['ffg']['energy'][str(j)][str(k)][0]
                     ),
                     embedding_forces
                 )
@@ -873,7 +939,8 @@ class NodeManager:
 
         return gradient
 
-    def compute_ni(self, struct_name, rho_pvecs, f_pvecs, g_pvecs):
+    def compute_ni(self, struct_name, rho_pvecs, f_pvecs, g_pvecs,
+                   stress=False):
         """
         Computes ni values for all atoms
 
@@ -888,16 +955,22 @@ class NodeManager:
         """
         n_pots = rho_pvecs[0].shape[0]
 
-        ni = np.zeros((n_pots, self.natoms[struct_name]))
+        if stress:
+            ni = np.zeros((n_pots, self.natoms[struct_name], 13))
+        else:
+            ni = np.zeros((n_pots, self.natoms[struct_name]))
 
         # Rho contribution
-        # for y, rho in zip(rho_pvecs, self.rhos):
         for i, y in enumerate(rho_pvecs):
-            ni += (struct_vecs[struct_name]['rho']['energy'][str(i)] @ y.T).T
-            # print(f'NODE {struct_name}:',
-            #         (struct_vecs[struct_name]['rho']['energy'][str(i)] @
-            #             y.T).T[0])
-
+            if stress:
+                ni += np.einsum(
+                    'fak,pk->paf',
+                    struct_vecs[struct_name]['rho']['energy'][str(i)],
+                    y
+                )
+            else:
+                tmp = (struct_vecs[struct_name]['rho']['energy'][str(i)] @ y.T).T
+                ni += tmp[:, :, 0]
 
         if self.natoms[struct_name] < 3:
             return ni
@@ -923,7 +996,16 @@ class NodeManager:
                     (cart2.shape[0], cart2.shape[1]*cart2.shape[2])
                 )
 
-                ni += (struct_vecs[struct_name]['ffg']['energy'][str(j)][str(k)] @ cart_y.T).T
+                # TODO: rzm: finish changin this for FD
+
+                if stress:
+                    ni += np.einsum(
+                        'fk,pk->pf',
+                        struct_vecs[struct_name]['ffg']['energy'][str(j)][str(k)],
+                        cart_y
+                    )
+                else:
+                    ni += (struct_vecs[struct_name]['ffg']['energy'][str(j)][str(k)][0] @ cart_y.T).T
 
         return ni
 

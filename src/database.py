@@ -154,7 +154,8 @@ class Database(h5py.File):
         true_values_group['energy'] = energy
         true_values_group['forces'] = forces
 
-    def add_structure(self, new_group_name, atoms, overwrite=False):
+    def add_structure(self, new_group_name, atoms, overwrite=False,
+                      add_strained=False):
         """
         Adds a group to the database and prepares spline structure vectors.
 
@@ -232,9 +233,6 @@ class Database(h5py.File):
 
         nl.update(atoms)
 
-        all_rij = []
-        all_costheta = []
-
         for i, atom in enumerate(atoms):
             # Record atom type info
             itype = new_group.attrs["type_of_each_atom"][i]
@@ -254,8 +252,6 @@ class Database(h5py.File):
                 jvec = jpos - ipos
                 rij = np.sqrt(jvec[0] ** 2 + jvec[1] ** 2 + jvec[2] ** 2)
                 jvec /= rij
-
-                all_rij.append(rij)
 
                 # Add distance/index/direction information to necessary lists
                 phi_idx = src.meam.ij_to_potl(
@@ -314,7 +310,6 @@ class Database(h5py.File):
                         nb = np.sqrt(b[0] ** 2 + b[1] ** 2 + b[2] ** 2)
 
                         cos_theta = np.dot(a, b) / na / nb
-                        all_costheta.append(cos_theta)
 
                         fk_idx = ktype - 1
 
@@ -364,6 +359,11 @@ class Database(h5py.File):
 
                 new_group['ffg']['forces'][str(j)][str(k)] = \
                     ffg.structure_vectors['forces']
+
+        new_group.attrs['volume'] = atoms.get_volume()
+
+        if add_strained:
+            self.add_strained_structures(new_group_name, atoms, fd_epsilon=5e-4)
 
     def add_from_existing_workers(self, path_to_workers, overwrite=False):
         """
@@ -517,6 +517,233 @@ class Database(h5py.File):
 
         return ffg_list
 
+    def add_strained_structures(self, new_group_name, atoms, fd_epsilon=5e-4):
+        """
+        Adds the 12 structure vectors necessary to compute dU/d_strain for
+        the 6 unique strain directions. Assumes that the Database already
+        contains the structure vector corresponding to the unstrained cell
+        under self[new_group_name][<spline_type>]['energy'].
+
+        Args:
+            new_group_name: (str) name of structure
+            atoms: (ASE.atoms) the structure being added
+            fd_epsilon: (float) step size to be used for the finite
+                difference calculations; default=5e-4
+
+        """
+
+        cell = atoms.get_cell()
+        scale = True
+
+        expanded = atoms.copy()
+        contracted = atoms.copy()
+
+        # extract the existing structure vectors from the database
+        phi_struct_vecs = {
+            key: self[new_group_name]['phi']['energy'][key][()]
+                for key in self[new_group_name]['phi']['energy']
+        }
+
+        rho_struct_vecs = {
+            key: self[new_group_name]['rho']['energy'][key][()]
+                for key in self[new_group_name]['rho']['energy']
+        }
+
+        ffg_struct_vecs = {
+            j: {
+                k: self[new_group_name]['ffg']['energy'][j][k][()]
+                    for k in self[new_group_name]['ffg']['energy'][j]
+            } for j in self[new_group_name]['ffg']['energy']
+        }
+
+        # reserve space for structure vectors for each strained structure
+        for key, sv in rho_struct_vecs.items():
+            fd_sv = np.zeros((13, *sv.shape))
+
+            fd_sv[0] = sv.copy()
+
+            rho_struct_vecs[key] = fd_sv
+
+        for key, sv in phi_struct_vecs.items():
+            fd_sv = np.zeros((13, *sv.shape))
+
+            fd_sv[0] = sv.copy()
+
+            phi_struct_vecs[key] = fd_sv
+
+        for key_j, ffg_list in ffg_struct_vecs.items():
+            for key_k, sv in ffg_list.items():
+                fd_sv = np.zeros((13, *sv.shape))
+
+                fd_sv[0] = sv.copy()
+
+                ffg_struct_vecs[key_j][key_k] = fd_sv
+
+        # compute structure vectors for strained cells
+
+        voigt_indices = {'00': 0, '11': 1, '22': 2, '12': 3, '02': 4, '01': 5}
+
+        for strain_i in range(3):
+            for strain_j in range(strain_i, 3):
+
+                voigt_idx = voigt_indices[''.join(sorted(str(strain_i) + str(strain_j)))]
+
+                strain_matrix = np.zeros((3, 3))
+
+                if strain_i == strain_j:
+                    val = fd_epsilon
+                else:
+                    val = fd_epsilon / 2
+
+                strain_matrix[strain_i, strain_j] = val
+                strain_matrix[strain_j, strain_i] = val
+
+                exp_cell = (np.eye(3) + strain_matrix) @ cell.T
+                con_cell = (np.eye(3) - strain_matrix) @ cell.T
+
+                expanded.set_cell(exp_cell, scale_atoms=scale)
+                contracted.set_cell(con_cell, scale_atoms=scale)
+
+                for shift, new_atoms in enumerate([expanded, contracted]):
+
+                    all_splines = self.build_spline_lists(
+                        self.attrs['knot_xcoords'],
+                        self.attrs['x_indices'],
+                        len(new_atoms)
+                    )
+
+                    phis = list(all_splines[0])
+                    rhos = list(all_splines[1])
+                    fs = list(all_splines[3])
+                    gs = list(all_splines[4])
+
+                    ffgs = self.build_ffg_list(fs, gs, len(new_atoms))
+
+                    natoms = self[new_group_name].attrs['natoms']
+
+                    # No double counting of bonds; needed for pair interactions
+                    nl_noboth = NeighborList(
+                        np.ones(natoms) * (self.attrs["cutoffs"][-1]/2.),
+                        self_interaction=False, bothways=False, skin=0.0
+                    )
+
+                    nl_noboth.update(new_atoms)
+
+                    # Allows double counting bonds; needed for embedding energy calculations
+                    nl = NeighborList(
+                        np.ones(natoms) * (self.attrs["cutoffs"][-1]/2.),
+                        self_interaction=False, bothways=True, skin=0.0
+                    )
+
+                    nl.update(new_atoms)
+
+                    # TODO: assumed that atom indices are the same; is it true?
+
+                    for atom_i, atom in enumerate(new_atoms):
+                        # Record atom type info
+                        itype = self[new_group_name].attrs["type_of_each_atom"][atom_i]
+                        ipos = atom.position
+
+                        # Extract neigbor list for atom i
+                        neighbors_noboth, offsets_noboth = nl_noboth.get_neighbors(atom_i)
+                        neighbors, offsets = nl.get_neighbors(atom_i)
+
+                        # Stores pair information for phi
+                        for atom_j, offset in zip(neighbors_noboth, offsets_noboth):
+                            jtype = self[new_group_name].attrs["type_of_each_atom"][atom_j]
+
+                            # Find displacement vector (with periodic boundary conditions)
+                            jpos = atoms[atom_j].position + np.dot(offset, atoms.get_cell())
+
+                            jvec = jpos - ipos
+                            rij = np.sqrt(jvec[0] ** 2 + jvec[1] ** 2 + jvec[2] ** 2)
+                            jvec /= rij
+
+                            # Add distance/index/direction information to necessary lists
+                            phi_idx = src.meam.ij_to_potl(
+                                itype, jtype, self.attrs["ntypes"]
+                            )
+
+                            # phi
+                            phis[phi_idx].add_to_energy_struct_vec(rij)
+
+                            # rho
+                            rhos[jtype - 1].add_to_energy_struct_vec(rij, atom_i)
+                            rhos[itype - 1].add_to_energy_struct_vec(rij, atom_j)
+
+                        # Store distances, angle, and index info for embedding terms
+                        # TODO: rename j_idx to be more clear
+                        j_idx = 0  # for tracking neighbor
+                        for j, offsetj in zip(neighbors, offsets):
+
+                            jtype = self[new_group_name].attrs["type_of_each_atom"][atom_j]
+
+                            # offset accounts for periodic images
+                            jpos = atoms[j].position + np.dot(offsetj, atoms.get_cell())
+
+                            jvec = jpos - ipos
+                            rij = np.sqrt(jvec[0] ** 2 + jvec[1] ** 2 + jvec[2] ** 2)
+                            jvec /= rij
+
+                            # prepare for angular calculations
+                            a = jpos - ipos
+                            na = np.sqrt(a[0] ** 2 + a[1] ** 2 + a[2] ** 2)
+
+                            fj_idx = jtype - 1
+
+                            j_idx += 1
+                            for k, offsetk in zip(neighbors[j_idx:], offsets[j_idx:]):
+                                if k != j:
+                                    ktype = self[new_group_name].attrs["type_of_each_atom"][k]
+                                    kpos = atoms[k].position + np.dot(offsetk,
+                                                                      atoms.get_cell())
+
+                                    kvec = kpos - ipos
+                                    rik = np.sqrt(
+                                        kvec[0] ** 2 + kvec[1] ** 2 + kvec[2] ** 2)
+                                    kvec /= rik
+
+                                    b = kpos - ipos
+                                    nb = np.sqrt(b[0] ** 2 + b[1] ** 2 + b[2] ** 2)
+
+                                    cos_theta = np.dot(a, b) / na / nb
+
+                                    fk_idx = ktype - 1
+
+                                    ffgs[fj_idx][fk_idx].add_to_energy_struct_vec(
+                                        rij, rik, cos_theta, atom_i)
+
+                    # add structure vectors to finite differences array
+
+                    fd_index = 1 + 2*voigt_idx + shift
+
+                    for phi_idx, phi in enumerate(phis):
+                        phi_struct_vecs[str(phi_idx)][fd_index] = \
+                            phi.structure_vectors['energy']
+
+                    for rho_idx, rho in enumerate(rhos):
+                        rho_struct_vecs[str(rho_idx)][fd_index] = \
+                            rho.structure_vectors['energy']
+
+                    for j, ffg_list in enumerate(ffgs):
+                        for k, ffg in enumerate(ffg_list):
+                            ffg_struct_vecs[str(j)][str(k)][fd_index] = \
+                                ffg.structure_vectors['energy']
+
+        # save the finite difference structure vectors to the database
+        for phi_idx, sv in phi_struct_vecs.items():
+            del self[new_group_name]['phi']['energy'][phi_idx]
+            self[new_group_name]['phi']['energy'][phi_idx] = sv
+
+        for rho_idx, sv in rho_struct_vecs.items():
+            del self[new_group_name]['rho']['energy'][rho_idx]
+            self[new_group_name]['rho']['energy'][rho_idx] = sv
+
+        for j, ffg_list in ffg_struct_vecs.items():
+            for k, sv in ffg_list.items():
+                del self[new_group_name]['ffg']['energy'][j][k]
+                self[new_group_name]['ffg']['energy'][j][k] = sv
+
     def compute_grad_indices(self, ffgs):
         """Prepares lists of indices for extracting partial derivatives of the
         outer product of f_j*f_k*g
@@ -562,56 +789,3 @@ class Database(h5py.File):
             ffg_indices.append(tmp_list)
 
         return ffg_indices
-
-# def format_true_values(input_path, output_path, ref_config_name):
-#     """
-#     Reads values from VASP OUTCAR files and writes into the proper format for
-#     use by add_true_value()
-#
-#     Args:
-#         input_path: (str)
-#             path to folder containing all OUTCAR files
-#
-#         output_path: (str)
-#             path to write info.* files to
-#
-#         ref_config_name: (str)
-#             name of reference configuration to be used as for energy differences
-#
-#     # TODO: need a way to note reference configurations for energy differences
-#
-#     Returns:
-#         None; creates info files in proper format
-#
-#     Output file format:
-#
-#     info.<structure_name>
-#         # header comment line; should specify reference structure
-#
-#     """
-#
-#     ref_struct = read(
-#         os.path.join(input_path, ref_config_name), format='vasp-out'
-#     )
-#
-#     # TODO: when multiple ref structs are available, move this into for loop
-#     header_str = "# ref_name = {}".format(ref_config_name)
-#
-#     # assumes that OUTCAR files are renamed to be the desired structure name
-#     for vasp_file in glob.glob(os.path.join(input_path, '*')):
-#         struct_name = os.path.split(vasp_file)[-1]
-#
-#         atoms = read(vasp_file, format='vasp-out')
-#
-#         ref_energy = ref_struct.get_potential_energy()
-#
-#         struct_energy = atoms.get_potential_energy() - ref_energy
-#         struct_forces = atoms.get_forces()
-#
-#         with open(os.path.join(output_path, "info", "info." + struct))
-#
-#
-#
-#     # available attrs: cutoffs, knot_xcoords, x_indices, types
-#     pass
-
