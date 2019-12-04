@@ -12,8 +12,6 @@ def build_evaluation_functions(
     """Builds the function to evaluate populations. Wrapped here for readability
     of main code."""
 
-    # rzm: only evaluate on nodes that are needed
-
     # @profile
     def fxn_wrap(master_pop, weights, return_ni=False, output=False,
             penalty=False):
@@ -35,7 +33,8 @@ def build_evaluation_functions(
         ))
 
         manager_energies = node_manager.compute(
-            'energy', node_manager.loaded_structures, pop, template.u_ranges
+            'energy', node_manager.loaded_structures, pop, template.u_ranges,
+            stress=True
         )
 
         unsorted_energies = [retval[0] for retval in manager_energies.values()]
@@ -43,9 +42,18 @@ def build_evaluation_functions(
             x for _, x in sorted(zip(list(manager_energies.keys()), unsorted_energies))
         ]
 
+        unsorted_stresses = [retval[2] for retval in manager_energies.values()]
+
+        sorted_stresses = [
+            x for _, x in sorted(
+                zip(list(manager_energies.keys()),unsorted_stresses)
+            )
+        ]
+
         sorted_names = sorted(list(manager_energies.keys()))
 
         eng = np.vstack(sorted_energies)
+        stresses = np.vstack(sorted_stresses)
 
         # NOTE: doesn't matter that these aren't sorted since we just need stats
         ni = [retval[1] for retval in manager_energies.values()]
@@ -68,6 +76,7 @@ def build_evaluation_functions(
         avg_ni = 0
 
         mgr_eng = world_comm.gather(eng, root=0)
+        mgr_stress = world_comm.gather(stresses, root=0)
         mgr_force_costs = world_comm.gather(force_costs, root=0)
 
         mgr_min_ni = world_comm.gather(c_min_ni, root=0)
@@ -83,6 +92,8 @@ def build_evaluation_functions(
             # note: can't stack mgr_fcs b/c different dimensions per struct
             all_eng = np.vstack(mgr_eng)
 
+            all_stress_costs = np.vstack(mgr_stress)
+
             all_eng = all_eng[np.argsort(all_names), :]
             all_force_costs = np.vstack(mgr_force_costs)
 
@@ -95,30 +106,34 @@ def build_evaluation_functions(
             frac_in = np.average(np.dstack(mgr_frac_in), axis=2).T
 
             fitnesses = np.zeros(
-                (len(pop), len(all_struct_names)*2 + 3*frac_in.shape[1])
-                # (len(pop), len(all_struct_names)*2 + frac_in.shape[1])
+                (
+                    len(pop),
+                    len(all_struct_names)*6 \
+                    + len(all_struct_names)*2 \
+                    + 3*frac_in.shape[1]
+                )
             )
+
+            # fitness order: 6 stresses, 1 energy, 1 force, 3 penalties
 
             # assumes that 'weights' has the same order as all_struct_names
             for fit_id, (name, weight) in enumerate(zip(
                 all_struct_names, weights
                 )):
 
-                fitnesses[:, 2*fit_id + 1] = 2*all_force_costs[fit_id]#/10
-
                 ref_name = true_values['ref_struct'][name]
 
                 s_id = all_struct_names.index(name)
                 r_id = all_struct_names.index(ref_name)
 
-                # TODO: are you sure the database holds the subtracted values?
                 true_ediff = true_values['energy'][name]
                 comp_ediff = all_eng[s_id] - all_eng[r_id]
 
                 tmp = (comp_ediff - true_ediff) ** 2
-                fitnesses[:, 2*fit_id] = tmp * weight
 
-            # TODO: also penalize std too large?
+                fitnesses[:, 8*fit_id] = tmp * weight
+                fitnesses[:, 8*fit_id + 1] = 2*all_force_costs[fit_id]#/10
+                fitnesses[:, 8*fit_id+2:8*fit_id+8] = all_stress_costs[fit_id]
 
             lambda_pen = parameters['PENALTY']
             # lambda_pen = np.sum(fitnesses, axis=1)[:, np.newaxis]
@@ -166,7 +181,8 @@ def build_evaluation_functions(
         ))
 
         manager_energies = node_manager.compute(
-            'energy', node_manager.loaded_structures, pop, template.u_ranges
+            'energy', node_manager.loaded_structures, pop, template.u_ranges,
+            stress=True
         )
 
         manager_eng_grads = node_manager.compute(

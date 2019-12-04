@@ -20,7 +20,7 @@ logger.setLevel(logging.DEBUG)
 # TODO: might be able to avoid using mp.Array since it's read only?
 
 struct_vecs = {}
-true_values = {'energy': {}, 'forces': {}, 'ref_struct': {}}
+true_values = {'energy': {}, 'forces': {}, 'stress': {}, 'ref_struct': {}}
 
 class NodeManager:
     def __init__(self, node_id, template):
@@ -92,6 +92,11 @@ class NodeManager:
                 struct_name, potentials, u_domains, stress=stress
             )
 
+            if convert_to_cost:
+                stress_costs = self.stresses_to_costs(ret[2], struct_name)
+
+            ret = (ret[0], ret[1], stress_costs)
+
         elif compute_type == 'forces':
             # ret = forces
             ret = self.compute_forces(
@@ -99,7 +104,7 @@ class NodeManager:
             )
 
             if convert_to_cost:
-                ret = self.forces_to_costs(ret, potentials.shape[0], struct_name)
+                ret = self.forces_to_costs(ret, struct_name)
 
         elif compute_type == 'energy_grad':
             # ret = energy_gradient
@@ -120,7 +125,7 @@ class NodeManager:
 
             if convert_to_cost:
                 ret = self.condense_force_grads(
-                    forces, grad, potentials.shape[0], struct_name
+                    forces, grad, struct_name
                 )
             else:
                 ret = grad
@@ -156,11 +161,10 @@ class NodeManager:
         return tmp*self.weights[struct_name]
 
 
-    def forces_to_costs(self, forces, npots, struct_name):
+    def forces_to_costs(self, forces, struct_name):
         """
         Args:
             forces (dict): key=struct_name, val=forces
-            npots (int): number of potentials that were evaluated
             struct_name (str): name of structure that was evaluated
 
         Note:
@@ -175,11 +179,30 @@ class NodeManager:
 
         return epsilon*epsilon*self.weights[struct_name]
 
-    def condense_force_grads(self, forces, force_grad, npots, struct_name):
+
+    def stresses_to_costs(self, stresses, struct_name):
+        """
+        Args:
+            stresses (np.arr): Px6 array of virial stresses
+            struct_name (str): name of structure that was evaluated
+
+        Note:
+            assumes that the weights have been properly updated
+        """
+
+        true_stress = true_values['stress'][struct_name]
+
+        diff = stresses - true_stress
+
+        # epsilon = np.linalg.norm(diff, axis=1)
+        epsilon = np.abs(diff)
+
+        return epsilon*epsilon*self.weights[struct_name]
+
+    def condense_force_grads(self, forces, force_grad, struct_name):
         """
         Args:
             forces (dict): key=struct_name, val=forces
-            npots (int): number of potentials that were evaluated
             struct_name (str): name of structure that was evaluated
 
         Note:
@@ -364,19 +387,21 @@ class NodeManager:
 
         if load_true:
             # load true values
-            true_eng = hdf5_file[struct_name]['true_values']['energy'][()]
-            true_fcs = hdf5_file[struct_name]['true_values']['forces'][()]
+            true_energy = hdf5_file[struct_name]['true_values']['energy'][()]
+            true_forces = hdf5_file[struct_name]['true_values']['forces'][()]
+            true_stress = hdf5_file[struct_name]['true_values']['stress'][()]
             ref_name = hdf5_file[struct_name].attrs['ref_struct']
 
-            true_values['energy'][struct_name] = true_eng
-            true_values['forces'][struct_name] = true_fcs
+            true_values['energy'][struct_name] = true_energy
+            true_values['forces'][struct_name] = true_forces
+            true_values['stress'][struct_name] = true_stress
             true_values['ref_struct'][struct_name] = ref_name
 
     def compute_energy(self, struct_name, potentials, u_ranges, stress=False):
         """Returns the per-atom energy for struct_name"""
 
         if stress:
-            if len(struct_vecs[struct_name]['phi']['energy']['0'].shape) < 3:
+            if struct_vecs[struct_name]['phi']['energy']['0'].shape[0] < 3:
                 raise ValueError(
                     "Finite difference structure vectors not loaded"
                 )
@@ -407,10 +432,10 @@ class NodeManager:
             struct_name, rho_pvecs, f_pvecs, g_pvecs, stress=stress
         )
 
-        # if stress:
-        #     ni = ni[:, :, 0]
-        # else:
-        #     ni = ni
+        if stress:
+            ni = ni[:, :, 0]
+        else:
+            ni = ni
 
         energy += self.embedding_energy(
             struct_name, ni, u_pvecs, u_ranges
@@ -434,9 +459,9 @@ class NodeManager:
 
             energy = energy[0]
 
-            return energy/self.natoms[struct_name], stresses.T, grouped_ni
+            return [energy/self.natoms[struct_name], grouped_ni, stresses.T]
 
-        return energy/self.natoms[struct_name], grouped_ni
+        return [energy/self.natoms[struct_name], grouped_ni]
 
     # @profile
     def compute_forces(self, struct_name, potentials, u_ranges):
@@ -996,11 +1021,9 @@ class NodeManager:
                     (cart2.shape[0], cart2.shape[1]*cart2.shape[2])
                 )
 
-                # TODO: rzm: finish changin this for FD
-
                 if stress:
                     ni += np.einsum(
-                        'fk,pk->pf',
+                        'fak,pk->paf',
                         struct_vecs[struct_name]['ffg']['energy'][str(j)][str(k)],
                         cart_y
                     )

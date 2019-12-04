@@ -135,10 +135,15 @@ class Database(h5py.File):
         self.attrs['num_u_knots'] = num_u_knots
 
     def add_true_value(self, info_file_name, ref_name):
-        # TODO: needs to be able to able to handle diff refs for each struct
 
-        energy = np.genfromtxt(info_file_name, max_rows=1)
-        forces = np.genfromtxt(info_file_name, skip_header=1)
+        with open(info_file_name, 'rb') as f:
+            energy = np.genfromtxt(f, max_rows=1)
+
+        with open(info_file_name, 'rb') as f:
+            forces = np.genfromtxt(f, skip_header=1, skip_footer=1)
+
+        with open(info_file_name, 'rb') as f:
+            stress = np.genfromtxt(f, skip_header=1+forces.shape[0])
 
         # struct_name = os.path.split(info_file_name)[-1].split('.')[-1]
         struct_name = '.'.join(os.path.split(info_file_name)[-1].split('.')[1:])
@@ -153,6 +158,7 @@ class Database(h5py.File):
 
         true_values_group['energy'] = energy
         true_values_group['forces'] = forces
+        true_values_group['stress'] = stress
 
     def add_structure(self, new_group_name, atoms, overwrite=False,
                       add_strained=False):
