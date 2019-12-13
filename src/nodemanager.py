@@ -20,7 +20,12 @@ logger.setLevel(logging.DEBUG)
 # TODO: might be able to avoid using mp.Array since it's read only?
 
 struct_vecs = {}
-true_values = {'energy': {}, 'forces': {}, 'stress': {}, 'ref_struct': {}}
+true_values = {
+    'energy': {},
+    'forces': {},
+    'stress': {},
+    'ref_struct': {},
+}
 
 class NodeManager:
     def __init__(self, node_id, template):
@@ -447,14 +452,13 @@ class NodeManager:
         ]
 
         if stress:
-            stresses = np.zeros((n_pots, 6))
-
             fd_energies = energy[1:]
 
             expanded = fd_energies[::2]
             contracted = fd_energies[1::2]
 
             stresses = (expanded - contracted) / 5e-4 / 2
+
             stresses /= self.volumes[struct_name]
 
             energy = energy[0]

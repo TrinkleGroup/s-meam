@@ -539,7 +539,7 @@ class Database(h5py.File):
         """
 
         cell = atoms.get_cell()
-        scale = True
+        positions = atoms.get_positions()
 
         expanded = atoms.copy()
         contracted = atoms.copy()
@@ -607,8 +607,11 @@ class Database(h5py.File):
                 exp_cell = (np.eye(3) + strain_matrix) @ cell.T
                 con_cell = (np.eye(3) - strain_matrix) @ cell.T
 
-                expanded.set_cell(exp_cell, scale_atoms=scale)
-                contracted.set_cell(con_cell, scale_atoms=scale)
+                expanded.set_cell(exp_cell)
+                contracted.set_cell(con_cell)
+
+                exp_pos = (np.eye(3) + strain_matrix) @ positions.T
+                con_pos = (np.eye(3) - strain_matrix) @ positions.T
 
                 for shift, new_atoms in enumerate([expanded, contracted]):
 
