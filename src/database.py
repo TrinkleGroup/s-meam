@@ -160,6 +160,41 @@ class Database(h5py.File):
         true_values_group['forces'] = forces
         true_values_group['stress'] = stress
 
+    def prepare_file_structure(self, all_group_names, ntypes):
+        for new_group_name in all_group_names:
+            new_group = self.create_group(new_group_name)
+
+            new_group.attrs.create('type_of_each_atom')
+            new_group.attrs.create('natoms')
+            new_group.attrs.create('volume')
+
+            new_group.create_group('phi')
+            new_group.create_group('rho')
+            new_group.create_group('ffg')
+
+            new_group['phi'].create_group('energy')
+            new_group['phi'].create_group('forces')
+            new_group['rho'].create_group('energy')
+            new_group['rho'].create_group('forces')
+            new_group['ffg'].create_group('energy')
+            new_group['ffg'].create_group('forces')
+
+            for itype in range(ntypes*(ntypes - 1) / 2):
+                new_group['phi']['energy'].create_dataset(str(itype))
+                new_group['phi']['forces'].create_dataset(str(itype))
+
+            for itype in range(ntypes):
+                new_group['rho']['energy'].create_dataset(str(itype))
+                new_group['rho']['forces'].create_dataset(str(itype))
+
+            for jtype in range(ntypes):
+                new_group['ffg']['energy'].create_group(str(jtype))
+                new_group['ffg']['forces'].create_group(str(jtype))
+
+                for ktype in range(ntypes):
+                    new_group['ffg']['energy'][str(jtype)].create_dataset(str(ktype))
+                    new_group['ffg']['forces'][str(jtype)].create_dataset(str(ktype))
+
     def add_structure(self, new_group_name, atoms, overwrite=False,
                       add_strained=False):
         """
@@ -179,7 +214,8 @@ class Database(h5py.File):
             del self[new_group_name]
 
         # if group doesn't already exist
-        new_group = self.create_group(new_group_name)
+        # new_group = self.create_group(new_group_name)
+        new_group = self[new_group_name]  # should already exist
 
         new_group.attrs["type_of_each_atom"] = np.array(
             list(
@@ -335,13 +371,13 @@ class Database(h5py.File):
                             rij, rik, cos_theta, dirs, i, j, k)
 
         # prepare groups for structures vectors
-        new_group.create_group("phi")
-        new_group.create_group("rho")
-        new_group.create_group("ffg")
+        # new_group.create_group("phi")
+        # new_group.create_group("rho")
+        # new_group.create_group("ffg")
 
-        for spline_type in ['phi', 'rho', 'ffg']:
-            new_group[spline_type].create_group('energy')
-            new_group[spline_type].create_group('forces')
+        # for spline_type in ['phi', 'rho', 'ffg']:
+        #     new_group[spline_type].create_group('energy')
+        #     new_group[spline_type].create_group('forces')
 
         # save all energy structure vectors
         for spline_type, splines in zip(['phi', 'rho'], all_splines):
@@ -355,8 +391,8 @@ class Database(h5py.File):
 
         for j, ffg_list in enumerate(ffgs):
 
-            new_group['ffg']['energy'].create_group(str(j))
-            new_group['ffg']['forces'].create_group(str(j))
+            # new_group['ffg']['energy'].create_group(str(j))
+            # new_group['ffg']['forces'].create_group(str(j))
 
             for k, ffg in enumerate(ffg_list):
 
@@ -741,8 +777,6 @@ class Database(h5py.File):
                         for k, ffg in enumerate(ffg_list):
                             ffg_struct_vecs[str(j)][str(k)][fd_index] = \
                                 ffg.structure_vectors['energy']
-
-                    print()
 
         # save the finite difference structure vectors to the database
         for phi_idx, sv in phi_struct_vecs.items():
