@@ -1,19 +1,23 @@
+import os
 import sys
 sys.path.append('/home/jvita/scripts/s-meam/project/')
 sys.path.append('/home/jvita/scripts/s-meam/project/tests/')
 
 import unittest
 import numpy as np
+import tests.testPotentials
+import src.meam
 from src.worker import Worker
 from src.database import Database
 from src.nodemanager import NodeManager
 from src.potential_templates import Template
+from ase.calculators.lammpsrun import LAMMPS
+
 
 from tests.testStructs import dimers, trimers, bulk_vac_ortho, \
             bulk_periodic_ortho, bulk_vac_rhombo, bulk_periodic_rhombo, extra
 
 points_per_spline = 7
-DECIMALS = 8
 
 class NodeManagerTests(unittest.TestCase):
     @classmethod
@@ -28,6 +32,8 @@ class NodeManagerTests(unittest.TestCase):
             np.tile(np.linspace(-1, 1, points_per_spline), 3)]
         )
 
+        cls.ulim = [(-1, 1), (-1, 1)]
+
         cls.x_indices = list(
             range(0, points_per_spline * 12, points_per_spline)
         )
@@ -36,6 +42,38 @@ class NodeManagerTests(unittest.TestCase):
 
         cls.template = build_template('full', inner_cutoff, outer_cutoff)
 
+        if not os.path.exists('/tmp/smeam-tests/'):
+            os.mkdir('/tmp/smeam-tests/')
+
+        pot_file_name = '/tmp/smeam-tests/test.meam.spline'
+
+        pvec = np.ones((1, cls.template.pvec_len))
+        pvec *= np.arange(1, pvec.shape[0] + 1)[:, np.newaxis]
+
+        pot_to_use = src.meam.MEAM.from_pvec(
+            cls.x_pvec,
+            pvec[0],
+            cls.x_indices,
+            cls.types
+        )
+
+        pot_to_use = pot_to_use.phionly_subtype()
+        cls.pvec = src.meam.splines_to_pvec(pot_to_use.splines)[1]
+
+        pot_to_use.write_to_file(pot_file_name)
+
+        params = {'units': 'metal',
+                  'boundary': 'p p p',
+                  'mass': ['1 1.008', '2 4.0026'],
+                  'pair_style': 'meam/spline',
+                  'pair_coeff': [
+                      '* * {} '.format(pot_file_name) + ' '.join(cls.types)],
+                  'newton': 'on'}
+
+        cls.calc = LAMMPS(no_data_file=True, parameters=params,
+                      keep_tmp_files=False, specorder=cls.types,
+                      files=[pot_file_name])
+
         cls.db = Database(
             'db_delete.hdf5', 'w', cls.template.pvec_len, cls.types,
             cls.x_pvec, cls.x_indices, [inner_cutoff, outer_cutoff]
@@ -43,20 +81,21 @@ class NodeManagerTests(unittest.TestCase):
 
         ow = False
 
-        cls.db.add_structure('aa', dimers['aa'], overwrite=ow, add_strained=True)
-        cls.db.add_structure('ab', dimers['ab'], overwrite=ow, add_strained=True)
-        cls.db.add_structure('bb', dimers['bb'], overwrite=ow, add_strained=True)
-        cls.db.add_structure('aaa', trimers['aaa'], overwrite=ow, add_strained=True)
-        cls.db.add_structure('aba', trimers['aba'], overwrite=ow, add_strained=True)
-        cls.db.add_structure('bbb', trimers['bbb'], overwrite=ow, add_strained=True)
+        # cls.db.add_structure('aa', dimers['aa'], overwrite=ow, add_strained=True)
+        # cls.db.add_structure('ab', dimers['ab'], overwrite=ow, add_strained=True)
+        # cls.db.add_structure('bb', dimers['bb'], overwrite=ow, add_strained=True)
+        # cls.db.add_structure('aaa', trimers['aaa'], overwrite=ow, add_strained=True)
+        # cls.db.add_structure('aba', trimers['aba'], overwrite=ow, add_strained=True)
+        # cls.db.add_structure('bbb', trimers['bbb'], overwrite=ow, add_strained=True)
 
-        # cls.db.add_structure('8_atoms', extra['8_atoms'], overwrite=ow, add_strained=True)
+        cls.db.add_structure('8_atoms', extra['8_atoms'], overwrite=ow, add_strained=True)
+        cls.db.add_structure('4_atoms', extra['4_atoms'], overwrite=ow, add_strained=True)
 
         # cls.db.add_structure(
         #     'bulk_vac_ortho_type1', bulk_vac_ortho['bulk_vac_ortho_type1'],
-        #     overwrite=ow
+        #     overwrite=ow, add_strained=True
         # )
-        # 
+
         # cls.db.add_structure(
         #     'bulk_vac_ortho_type2', bulk_vac_ortho['bulk_vac_ortho_type2'],
         #     overwrite=ow
@@ -118,9 +157,6 @@ class NodeManagerTests(unittest.TestCase):
         #     overwrite=ow
         # )
 
-        cls.pvec = np.ones((5, cls.template.pvec_len))
-        cls.pvec *= np.arange(1, cls.pvec.shape[0] + 1)[:, np.newaxis]
-
         cls.struct_list = list(cls.db.keys())
 
         cls.node_manager = NodeManager(0, cls.template)
@@ -131,25 +167,179 @@ class NodeManagerTests(unittest.TestCase):
 
         cls.db.close()  # close to make sure NodeManager is using local data
 
-    # def test_forces_8_atoms(self):
-    #     struct_list = ['8_atoms']
-    # 
-    #     nd_forces = self.node_manager.compute(
-    #         'forces', struct_list, self.pvec, self.template.u_ranges
-    #     )
-    # 
-    #     for key in struct_list:
-    #         worker = Worker(
-    #             extra[key], self.x_pvec, self.x_indices, self.types
-    #         )
-    # 
-    #         wk_fcs = worker.compute_forces(
-    #             self.pvec, self.template.u_ranges
-    #         )
-    # 
-    #         np.testing.assert_allclose(
-    #             wk_fcs, nd_forces[key], rtol=1e-8
-    #         )
+    def test_stress_doesnt_ruin_energy(self):
+        nd_energies = self.node_manager.compute(
+            'energy', ['8_atoms'], self.pvec, self.template.u_ranges,
+            stress=True, convert_to_cost=False
+        )
+
+        worker = Worker(extra['8_atoms'], self.x_pvec, self.x_indices,
+                        self.types)
+
+        wk_eng, wk_ni = worker.compute_energy(self.pvec, self.template.u_ranges)
+
+        np.testing.assert_allclose(
+            wk_eng, nd_energies['8_atoms'][0][0]*8, rtol=1e-8
+        )
+
+    def test_energy_8_atoms(self):
+        nd_energies = self.node_manager.compute(
+            'energy', ['8_atoms'], self.pvec, self.template.u_ranges,
+            convert_to_cost=False
+        )
+
+        worker = Worker(extra['8_atoms'], self.x_pvec, self.x_indices,
+                        self.types)
+
+        wk_eng, wk_ni = worker.compute_energy(self.pvec, self.template.u_ranges)
+
+        np.testing.assert_allclose(
+            wk_eng, nd_energies['8_atoms'][0]*8, rtol=1e-8
+        )
+
+    def test_forces_8_atoms(self):
+        struct_list = ['8_atoms']
+
+        nd_forces = self.node_manager.compute(
+            'forces', struct_list, self.pvec, self.template.u_ranges,
+            convert_to_cost=False
+        )
+
+        for key in struct_list:
+            worker = Worker(
+                extra[key], self.x_pvec, self.x_indices, self.types
+            )
+
+            wk_fcs = worker.compute_forces(
+                self.pvec, self.template.u_ranges
+            )
+
+            np.testing.assert_allclose(
+                wk_fcs, nd_forces[key], rtol=1e-8
+            )
+
+    def test_stress_4_atoms(self):
+        struct_list = ['4_atoms']
+
+        returns = self.node_manager.compute(
+            'energy', struct_list, self.pvec, self.template.u_ranges,
+            stress=True, convert_to_cost=False
+        )
+
+        for key in struct_list:
+
+            extra[key].set_calculator(self.calc)
+
+            lammps_stress = np.atleast_2d(extra[key].get_stress())
+
+            nd_stress = returns[key][-1]
+
+            np.testing.assert_allclose(lammps_stress, nd_stress, atol=1e-4)
+
+    def test_stress_8_atoms(self):
+        struct_list = ['8_atoms']
+
+        returns = self.node_manager.compute(
+            'energy', struct_list, self.pvec, self.template.u_ranges,
+            stress=True, convert_to_cost=False
+        )
+
+
+        atoms = extra['8_atoms']
+
+        epsilon = 5e-4
+
+        volume = atoms.get_volume()
+        cell = atoms.get_cell()
+        positions = atoms.get_positions()
+
+        expanded = atoms.copy()
+        contracted = atoms.copy()
+
+        expanded.set_calculator(self.calc)
+        contracted.set_calculator(self.calc)
+
+        energies = np.zeros(12)
+        voigt_indices = {'00': 0, '11': 1, '22': 2, '12': 3, '02': 4, '01': 5}
+
+        stress = np.zeros((3, 3))
+
+        for i in range(3):
+            for j in range(i, 3):
+                voigt_idx = voigt_indices[''.join(sorted(str(i) + str(j)))]
+
+                # build strain matrix
+                fd_strain_matrix = np.zeros((3, 3))
+
+                if i == j:
+                    val = epsilon
+                else:
+                    val = epsilon / 2
+
+                fd_strain_matrix[i, j] = val
+                fd_strain_matrix[j, i] = val
+
+                exp_cell = (np.eye(3) + fd_strain_matrix) @ cell.T
+                con_cell = (np.eye(3) - fd_strain_matrix) @ cell.T
+
+                # rotate FD strained cell into LAMMPS form
+                #             fd_cell_exp = rotate_into_lammps(exp_cell.T)
+                #             fd_cell_con = rotate_into_lammps(con_cell.T)
+                fd_cell_exp = exp_cell
+                fd_cell_con = con_cell
+
+                #             lammps_to_exp = exp_cell @ np.linalg.inv(fd_cell_exp)
+                #             lammps_to_con = con_cell @ np.linalg.inv(fd_cell_con)
+
+                expanded.set_cell(fd_cell_exp.T)
+                contracted.set_cell(fd_cell_con.T)
+
+                exp_pos = (np.eye(3) + fd_strain_matrix) @ positions.T
+                con_pos = (np.eye(3) - fd_strain_matrix) @ positions.T
+
+                # rotate strained positions into proper LAMMPS format
+                #             exp_positions = (lammps_to_exp.T @ exp_pos).T
+                #             con_positions = (lammps_to_con.T @ con_pos).T
+                exp_positions = exp_pos.T
+                con_positions = con_pos.T
+
+                expanded.set_positions(exp_positions)
+                contracted.set_positions(con_positions)
+
+                # e_exp = expanded.get_potential_energy()
+                # e_con = contracted.get_potential_energy()
+
+                w_exp = Worker(expanded, self.x_pvec, self.x_indices, self.types)
+                w_con = Worker(contracted, self.x_pvec, self.x_indices, self.types)
+
+                e_exp = w_exp.compute_energy(np.atleast_2d(self.pvec),self.ulim)[0]
+                e_con = w_con.compute_energy(np.atleast_2d(self.pvec),self.ulim)[0]
+
+                energies[2*voigt_idx] = e_exp
+                energies[2*voigt_idx + 1] = e_con
+
+                dE_ds = (e_exp - e_con) / epsilon / 2
+
+                stress[i, j] = dE_ds / volume
+                stress[j, i] = dE_ds / volume
+
+        computed = np.atleast_2d(
+            [stress[0, 0], stress[1, 1], stress[2, 2], stress[1, 2],
+             stress[0, 2], stress[0, 1]]
+        )
+
+
+        for key in struct_list:
+
+            extra[key].set_calculator(self.calc)
+
+            lammps_stress = np.atleast_2d(extra[key].get_stress())
+
+            nd_stress = returns[key][-1]
+
+            # np.testing.assert_allclose(lammps_stress, nd_stress, atol=1e-8)
+            np.testing.assert_allclose(computed, nd_stress, atol=1e-8)
+
 
     def test_compute_type_error(self):
         self.assertRaises(
@@ -220,6 +410,112 @@ class NodeManagerTests(unittest.TestCase):
                 wk_fcs, nd_forces[key], rtol=1e-8
             )
 
+    def test_stress_dimers(self):
+        struct_list = ['aa', 'ab', 'bb']
+
+        returns = self.node_manager.compute(
+            'energy', struct_list, self.pvec, self.template.u_ranges,
+            stress=True, convert_to_cost=False
+        )
+
+        # atoms = dimers['aa']
+        #
+        # epsilon = 5e-4
+        #
+        # volume = atoms.get_volume()
+        # cell = atoms.get_cell()
+        # positions = atoms.get_positions()
+        #
+        # expanded = atoms.copy()
+        # contracted = atoms.copy()
+        #
+        # expanded.set_calculator(self.calc)
+        # contracted.set_calculator(self.calc)
+        #
+        # energies = np.zeros(12)
+        # voigt_indices = {'00': 0, '11': 1, '22': 2, '12': 3, '02': 4, '01': 5}
+        #
+        # stress = np.zeros((3, 3))
+        #
+        # for i in range(3):
+        #     for j in range(i, 3):
+        #         voigt_idx = voigt_indices[''.join(sorted(str(i) + str(j)))]
+        #
+        #         # build strain matrix
+        #         fd_strain_matrix = np.zeros((3, 3))
+        #
+        #         if i == j:
+        #             val = epsilon
+        #         else:
+        #             val = epsilon / 2
+        #
+        #         fd_strain_matrix[i, j] = val
+        #         fd_strain_matrix[j, i] = val
+        #
+        #         exp_cell = (np.eye(3) + fd_strain_matrix) @ cell.T
+        #         con_cell = (np.eye(3) - fd_strain_matrix) @ cell.T
+        #
+        #         # rotate FD strained cell into LAMMPS form
+        #         #             fd_cell_exp = rotate_into_lammps(exp_cell.T)
+        #         #             fd_cell_con = rotate_into_lammps(con_cell.T)
+        #         fd_cell_exp = exp_cell
+        #         fd_cell_con = con_cell
+        #
+        #         #             lammps_to_exp = exp_cell @ np.linalg.inv(fd_cell_exp)
+        #         #             lammps_to_con = con_cell @ np.linalg.inv(fd_cell_con)
+        #
+        #         expanded.set_cell(fd_cell_exp.T)
+        #         contracted.set_cell(fd_cell_con.T)
+        #
+        #         exp_pos = (np.eye(3) + fd_strain_matrix) @ positions.T
+        #         con_pos = (np.eye(3) - fd_strain_matrix) @ positions.T
+        #
+        #         # rotate strained positions into proper LAMMPS format
+        #         #             exp_positions = (lammps_to_exp.T @ exp_pos).T
+        #         #             con_positions = (lammps_to_con.T @ con_pos).T
+        #         exp_positions = exp_pos.T
+        #         con_positions = con_pos.T
+        #
+        #         expanded.set_positions(exp_positions)
+        #         contracted.set_positions(con_positions)
+        #
+        #         # e_exp = expanded.get_potential_energy()
+        #         # e_con = contracted.get_potential_energy()
+        #
+        #         w_exp = Worker(expanded, self.x_pvec, self.x_indices, self.types)
+        #         w_con = Worker(contracted, self.x_pvec, self.x_indices, self.types)
+        #
+        #         e_exp = w_exp.compute_energy(np.atleast_2d(self.pvec),self.ulim)[0]
+        #         e_con = w_con.compute_energy(np.atleast_2d(self.pvec),self.ulim)[0]
+        #
+        #         energies[2*voigt_idx] = e_exp
+        #         energies[2*voigt_idx + 1] = e_con
+        #
+        #         dE_ds = (e_exp - e_con) / epsilon / 2
+        #
+        #         stress[i, j] = dE_ds / volume
+        #         stress[j, i] = dE_ds / volume
+        #
+        #         print('bort')
+        #         break
+        #     break
+        #
+        # computed = np.array(
+        #     [stress[0, 0], stress[1, 1], stress[2, 2], stress[1, 2],
+        #      stress[0, 2], stress[0, 1]]
+        # )
+
+        for key in struct_list:
+
+            dimers[key].set_calculator(self.calc)
+
+            lammps_stress = np.atleast_2d(dimers[key].get_stress())
+
+            nd_stress = returns[key][-1]
+
+            np.testing.assert_allclose(lammps_stress, nd_stress, atol=1e-8)
+
+
     def test_energy_grad_dimers(self):
         struct_list = ['aa', 'ab', 'bb']
 
@@ -266,7 +562,7 @@ class NodeManagerTests(unittest.TestCase):
 
         nd_energies = self.node_manager.compute(
             'energy', struct_list, self.pvec, self.template.u_ranges,
-            stress=False
+            stress=False, convert_to_cost=False
         )
 
         for key in struct_list:
@@ -306,6 +602,25 @@ class NodeManagerTests(unittest.TestCase):
             np.testing.assert_allclose(
                 wk_fcs, nd_forces[key], rtol=1e-8
             )
+
+    def test_stress_trimers(self):
+        struct_list = ['aaa', 'aba', 'bbb']
+
+        returns = self.node_manager.compute(
+            'energy', struct_list, self.pvec, self.template.u_ranges,
+            stress=True, convert_to_cost=False
+        )
+
+        for key in struct_list:
+
+            trimers[key].set_calculator(self.calc)
+
+            lammps_stress = np.atleast_2d(trimers[key].get_stress())
+
+            nd_stress = returns[key][-1]
+
+            np.testing.assert_allclose(lammps_stress, nd_stress, atol=1e-8)
+
 
     def test_energy_grad_trimers(self):
         struct_list = ['aaa', 'aba', 'bbb']
@@ -400,6 +715,29 @@ class NodeManagerTests(unittest.TestCase):
     #         np.testing.assert_allclose(
     #             wk_fcs, nd_forces[key], rtol=1e-8
     #         )
+
+    def test_stress_bvo(self):
+        struct_list = [
+            'bulk_vac_ortho_type1',
+            # 'bulk_vac_ortho_type2',
+            # 'bulk_vac_ortho_mixed'
+        ]
+
+        returns = self.node_manager.compute(
+            'energy', struct_list, self.pvec, self.template.u_ranges,
+            stress=True, convert_to_cost=False
+        )
+
+        for key in struct_list:
+
+            bulk_vac_ortho[key].set_calculator(self.calc)
+
+            lammps_stress = np.atleast_2d(bulk_vac_ortho[key].get_stress())
+
+            nd_stress = returns[key][-1]
+
+            np.testing.assert_allclose(lammps_stress, nd_stress, atol=1e-8)
+
     # 
     # def test_energy_grad_bvo(self):
     #     struct_list = [

@@ -168,13 +168,28 @@ bulk_vac_rhombo['bulk_vac_rhombo_mixed'] = mixed
 
 ################################################################################
 
-atoms8 = ase.build.bulk('H', crystalstructure='fcc', a=a0, orthorhombic=True)
-atoms8 = atoms8.repeat((2, 2, 1))
-atoms8.rattle()
-atoms8.center(vacuum=0)
-atoms8.set_pbc(True)
-atoms8.set_chemical_symbols(np.random.randint(1, 3, size=len(atoms8)))
+# atoms8 = ase.build.bulk('H', crystalstructure='fcc', a=a0, orthorhombic=True)
+# atoms8 = atoms8.repeat((2, 2, 1))
+# atoms8.rattle()
+# atoms8.center(vacuum=0)
+# atoms8.set_pbc(True)
 
+atoms8 = Atoms(
+    [1]*8,
+    positions = [
+        [0., 0., 0.],
+        [1.9445436482630056, 1.9445436482630056, 2.75],
+        [0., 3.8890872965260113, 0.],
+        [1.9445436482630056, 5.833630944789017, 2.75],
+        [3.889087296526, 0, 0],
+        [5.833630944789, 1.9445436, 2.75],
+        [3.889087236, 3.8890872965, 0.0],
+        [5.8336309447, 5.833630944789, 2.75]
+    ]
+)
+
+atoms8.set_chemical_symbols(np.random.randint(1, 3, size=len(atoms8)))
+atoms8.center(vacuum=vac)
 atoms8.center(vacuum=vac)
 
 atoms4 = Atoms([1, 1, 1, 1],

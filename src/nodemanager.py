@@ -100,7 +100,8 @@ class NodeManager:
             if convert_to_cost:
                 stress_costs = self.stresses_to_costs(ret[2], struct_name)
 
-            ret = (ret[0], ret[1], stress_costs)
+                ret = (ret[0], ret[1], stress_costs)
+
 
         elif compute_type == 'forces':
             # ret = forces
@@ -461,7 +462,7 @@ class NodeManager:
 
             stresses /= self.volumes[struct_name]
 
-            energy = energy[0]
+            # energy = energy[0]
 
             return [energy/self.natoms[struct_name], grouped_ni, stresses.T]
 

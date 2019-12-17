@@ -607,11 +607,14 @@ class Database(h5py.File):
                 exp_cell = (np.eye(3) + strain_matrix) @ cell.T
                 con_cell = (np.eye(3) - strain_matrix) @ cell.T
 
-                expanded.set_cell(exp_cell)
-                contracted.set_cell(con_cell)
+                expanded.set_cell(exp_cell.T)
+                contracted.set_cell(con_cell.T)
 
                 exp_pos = (np.eye(3) + strain_matrix) @ positions.T
                 con_pos = (np.eye(3) - strain_matrix) @ positions.T
+
+                expanded.set_positions(exp_pos.T)
+                contracted.set_positions(con_pos.T)
 
                 for shift, new_atoms in enumerate([expanded, contracted]):
 
@@ -662,7 +665,7 @@ class Database(h5py.File):
                             jtype = self[new_group_name].attrs["type_of_each_atom"][atom_j]
 
                             # Find displacement vector (with periodic boundary conditions)
-                            jpos = atoms[atom_j].position + np.dot(offset, atoms.get_cell())
+                            jpos = new_atoms[atom_j].position + np.dot(offset, new_atoms.get_cell())
 
                             jvec = jpos - ipos
                             rij = np.sqrt(jvec[0] ** 2 + jvec[1] ** 2 + jvec[2] ** 2)
@@ -688,7 +691,7 @@ class Database(h5py.File):
                             jtype = self[new_group_name].attrs["type_of_each_atom"][atom_j]
 
                             # offset accounts for periodic images
-                            jpos = atoms[j].position + np.dot(offsetj, atoms.get_cell())
+                            jpos = new_atoms[j].position + np.dot(offsetj, new_atoms.get_cell())
 
                             jvec = jpos - ipos
                             rij = np.sqrt(jvec[0] ** 2 + jvec[1] ** 2 + jvec[2] ** 2)
@@ -704,8 +707,8 @@ class Database(h5py.File):
                             for k, offsetk in zip(neighbors[j_idx:], offsets[j_idx:]):
                                 if k != j:
                                     ktype = self[new_group_name].attrs["type_of_each_atom"][k]
-                                    kpos = atoms[k].position + np.dot(offsetk,
-                                                                      atoms.get_cell())
+                                    kpos = new_atoms[k].position + np.dot(offsetk,
+                                                                      new_atoms.get_cell())
 
                                     kvec = kpos - ipos
                                     rik = np.sqrt(
@@ -738,6 +741,8 @@ class Database(h5py.File):
                         for k, ffg in enumerate(ffg_list):
                             ffg_struct_vecs[str(j)][str(k)][fd_index] = \
                                 ffg.structure_vectors['energy']
+
+                    print()
 
         # save the finite difference structure vectors to the database
         for phi_idx, sv in phi_struct_vecs.items():
