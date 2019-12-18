@@ -81,20 +81,28 @@ class NodeManagerTests(unittest.TestCase):
 
         ow = False
 
-        # cls.db.add_structure('aa', dimers['aa'], overwrite=ow, add_strained=True)
-        # cls.db.add_structure('ab', dimers['ab'], overwrite=ow, add_strained=True)
-        # cls.db.add_structure('bb', dimers['bb'], overwrite=ow, add_strained=True)
-        # cls.db.add_structure('aaa', trimers['aaa'], overwrite=ow, add_strained=True)
-        # cls.db.add_structure('aba', trimers['aba'], overwrite=ow, add_strained=True)
-        # cls.db.add_structure('bbb', trimers['bbb'], overwrite=ow, add_strained=True)
+        cls.db.prepare_file_structure(
+            list(dimers.keys()) + list(trimers.keys()) + list(extra.keys()) +
+            list(bulk_vac_ortho.keys()),
+            2
+        )
+
+        # TODO: revert to old commit and see if SVs are still incorrect
+
+        cls.db.add_structure('aa', dimers['aa'], overwrite=ow, add_strained=True)
+        cls.db.add_structure('ab', dimers['ab'], overwrite=ow, add_strained=True)
+        cls.db.add_structure('bb', dimers['bb'], overwrite=ow, add_strained=True)
+        cls.db.add_structure('aaa', trimers['aaa'], overwrite=ow, add_strained=True)
+        cls.db.add_structure('aba', trimers['aba'], overwrite=ow, add_strained=True)
+        cls.db.add_structure('bbb', trimers['bbb'], overwrite=ow, add_strained=True)
 
         cls.db.add_structure('8_atoms', extra['8_atoms'], overwrite=ow, add_strained=True)
         cls.db.add_structure('4_atoms', extra['4_atoms'], overwrite=ow, add_strained=True)
 
-        # cls.db.add_structure(
-        #     'bulk_vac_ortho_type1', bulk_vac_ortho['bulk_vac_ortho_type1'],
-        #     overwrite=ow, add_strained=True
-        # )
+        cls.db.add_structure(
+            'bulk_vac_ortho_type1', bulk_vac_ortho['bulk_vac_ortho_type1'],
+            overwrite=ow, add_strained=True
+        )
 
         # cls.db.add_structure(
         #     'bulk_vac_ortho_type2', bulk_vac_ortho['bulk_vac_ortho_type2'],

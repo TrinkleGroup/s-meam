@@ -144,29 +144,6 @@ class NodeManager:
 
         return ret
 
-    def energy_to_costs(self, energy, npots, struct_name):
-        """
-        Args:
-            energy (dict): key=struct_name, val=energy
-            npots (int): number of potentials that were evaluated
-            struct_name (str): name of structure that was evaluated
-
-        Note:
-            assumes that the weights have been properly updated
-        """
-
-        true_ediff = true_values['energy'][struct_name]
-
-        # TODO: can't evaluate energy cost here since requires ref struct
-        comp_ediff = energy[struct_name] - all_eng[self.ref_name]
-
-        tmp = (comp_ediff - true_ediff)**2
-
-        energy_costs[:, cost_id] = tmp*self.weights[struct_name]
-
-        return tmp*self.weights[struct_name]
-
-
     def forces_to_costs(self, forces, struct_name):
         """
         Args:

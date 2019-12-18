@@ -171,9 +171,9 @@ class Database(h5py.File):
         for new_group_name in all_group_names:
             new_group = self.create_group(new_group_name)
 
-            # new_group.attrs.create('type_of_each_atom')
-            # new_group.attrs.create('natoms')
-            # new_group.attrs.create('volume')
+            new_group.attrs.create('type_of_each_atom', 0)
+            new_group.attrs.create('natoms', 0)
+            new_group.attrs.create('volume', 0)
 
             new_group.create_group('phi')
             new_group.create_group('rho')
@@ -193,38 +193,64 @@ class Database(h5py.File):
                 """
 
                 new_group['phi']['energy'].create_dataset(
-                    str(itype), shape=(0, 0), dtype='f', maxshape=(None, None)
+                    str(itype), shape=(0, 0), dtype='float64',
+                    maxshape=(None, None)
                 )
 
                 new_group['phi']['forces'].create_dataset(
-                    str(itype), shape=(0, 0, 0), dtype='f', maxshape=(None, None, None)
+                    str(itype), shape=(0, 0, 0), dtype='float64',
+                    maxshape=(None, None, None)
                 )
 
             for itype in range(ntypes):
                 new_group['rho']['energy'].create_dataset(
-                    str(itype), shape=(0, 0, 0), dtype='f',
-                    maxshape=(None, None,None)
+                    str(itype), shape=(0, 0, 0), dtype='float64',
+                    maxshape=(None, None, None)
                 )
 
                 new_group['rho']['forces'].create_dataset(
-                    str(itype), shape=(0, 0), dtype='f',
+                    str(itype), shape=(0, 0), dtype='float64',
                     maxshape=(None, None)
                 )
+
+            new_group.create_group('ffg_grad_indices')
 
             for jtype in range(ntypes):
                 new_group['ffg']['energy'].create_group(str(jtype))
                 new_group['ffg']['forces'].create_group(str(jtype))
 
+                new_group['ffg_grad_indices'].create_group(str(jtype))
+
                 for ktype in range(ntypes):
                     new_group['ffg']['energy'][str(jtype)].create_dataset(
-                        str(ktype), shape=(0, 0, 0), dtype='f',
+                        str(ktype), shape=(0, 0, 0), dtype='float64',
                         maxshape=(None, None, None)
                     )
 
                     new_group['ffg']['forces'][str(jtype)].create_dataset(
-                        str(ktype), shape=(0, 0), dtype='f',
+                        str(ktype), shape=(0, 0), dtype='float64',
                         maxshape=(None, None)
                     )
+
+                    new_group['ffg_grad_indices'][str(jtype)].create_group(
+                        str(ktype)
+                    )
+
+                    new_group['ffg_grad_indices'][str(jtype)][str(ktype)].create_dataset(
+                        'fj_indices', shape=(0, 0), dtype='i',
+                        maxshape=(None, None)
+                    )
+
+                    new_group['ffg_grad_indices'][str(jtype)][str(ktype)].create_dataset(
+                        'fk_indices', shape=(0, 0), dtype='i',
+                        maxshape=(None, None)
+                    )
+
+                    new_group['ffg_grad_indices'][str(jtype)][str(ktype)].create_dataset(
+                        'g_indices', shape=(0, 0), dtype='i',
+                        maxshape=(None, None)
+                    )
+
 
     def add_structure(self, new_group_name, atoms, overwrite=False,
                       add_strained=False):
@@ -288,7 +314,11 @@ class Database(h5py.File):
                          keys[idx]]
                     )
 
-                    self[string] = np.array(ind_list)
+                    ind_list = np.array(ind_list)
+
+                    dset = self[string]
+                    dset.resize(ind_list.shape)
+                    dset[:] = ind_list
 
         # No double counting of bonds; needed for pair interactions
         nl_noboth = NeighborList(
