@@ -671,58 +671,60 @@ class NodeManagerTests(unittest.TestCase):
                 wk_fcs, nd_forces[key], rtol=1e-8
             )
 
-    # def test_energy_bvo(self):
-    #     struct_list = [
-    #         'bulk_vac_ortho_type1',
-    #         'bulk_vac_ortho_type2',
-    #         'bulk_vac_ortho_mixed'
-    #     ]
-    # 
-    #     nd_energies = self.node_manager.compute(
-    #         'energy', struct_list, self.pvec, self.template.u_ranges
-    #     )
-    # 
-    #     for key in struct_list:
-    #         worker = Worker(
-    #             bulk_vac_ortho[key], self.x_pvec, self.x_indices, self.types
-    #         )
-    # 
-    # 
-    #         wk_eng, wk_ni = worker.compute_energy(
-    #             self.pvec, self.template.u_ranges
-    #         )
-    # 
-    #         np.testing.assert_allclose(
-    #             wk_eng, nd_energies[key][0], rtol=1e-8
-    #         )
-    # 
-    #         # np.testing.assert_allclose(
-    #         #     wk_ni, nd_energies[key][1], rtol=1e-8
-    #         # )
-    # 
-    # def test_forces_bvo(self):
-    #     struct_list = [
-    #         'bulk_vac_ortho_type1',
-    #         'bulk_vac_ortho_type2',
-    #         'bulk_vac_ortho_mixed'
-    #     ]
-    # 
-    #     nd_forces = self.node_manager.compute(
-    #         'forces', struct_list, self.pvec, self.template.u_ranges
-    #     )
-    # 
-    #     for key in struct_list:
-    #         worker = Worker(
-    #             bulk_vac_ortho[key], self.x_pvec, self.x_indices, self.types
-    #         )
-    # 
-    #         wk_fcs = worker.compute_forces(
-    #             self.pvec, self.template.u_ranges
-    #         )
-    # 
-    #         np.testing.assert_allclose(
-    #             wk_fcs, nd_forces[key], rtol=1e-8
-    #         )
+    def test_energy_bvo(self):
+        struct_list = [
+            'bulk_vac_ortho_type1',
+            # 'bulk_vac_ortho_type2',
+            # 'bulk_vac_ortho_mixed'
+        ]
+
+        nd_energies = self.node_manager.compute(
+            'energy', struct_list, self.pvec, self.template.u_ranges,
+            stress=False, convert_to_cost=False
+        )
+
+        for key in struct_list:
+            worker = Worker(
+                bulk_vac_ortho[key], self.x_pvec, self.x_indices, self.types
+            )
+
+
+            wk_eng, wk_ni = worker.compute_energy(
+                self.pvec, self.template.u_ranges
+            )
+
+            np.testing.assert_allclose(
+                wk_eng, nd_energies[key][0], rtol=1e-8
+            )
+
+            # np.testing.assert_allclose(
+            #     wk_ni, nd_energies[key][1], rtol=1e-8
+            # )
+
+    def test_forces_bvo(self):
+        struct_list = [
+            'bulk_vac_ortho_type1',
+            # 'bulk_vac_ortho_type2',
+            # 'bulk_vac_ortho_mixed'
+        ]
+
+        nd_forces = self.node_manager.compute(
+            'forces', struct_list, self.pvec, self.template.u_ranges,
+            convert_to_cost=False
+        )
+
+        for key in struct_list:
+            worker = Worker(
+                bulk_vac_ortho[key], self.x_pvec, self.x_indices, self.types
+            )
+
+            wk_fcs = worker.compute_forces(
+                self.pvec, self.template.u_ranges
+            )
+
+            np.testing.assert_allclose(
+                wk_fcs, nd_forces[key], rtol=1e-8
+            )
 
     def test_stress_bvo(self):
         struct_list = [

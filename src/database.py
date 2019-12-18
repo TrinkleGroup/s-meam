@@ -399,37 +399,37 @@ class Database(h5py.File):
 
                 j_idx += 1
                 for k, offsetk in zip(neighbors[j_idx:], offsets[j_idx:]):
-                    if k != j:
-                        ktype = new_group.attrs["type_of_each_atom"][k]
-                        kpos = atoms[k].position + np.dot(offsetk,
-                                                          atoms.get_cell())
+                    # if k != j:
+                    ktype = new_group.attrs["type_of_each_atom"][k]
+                    kpos = atoms[k].position + np.dot(offsetk,
+                                                      atoms.get_cell())
 
-                        kvec = kpos - ipos
-                        rik = np.sqrt(
-                            kvec[0] ** 2 + kvec[1] ** 2 + kvec[2] ** 2)
-                        kvec /= rik
+                    kvec = kpos - ipos
+                    rik = np.sqrt(
+                        kvec[0] ** 2 + kvec[1] ** 2 + kvec[2] ** 2)
+                    kvec /= rik
 
-                        b = kpos - ipos
-                        nb = np.sqrt(b[0] ** 2 + b[1] ** 2 + b[2] ** 2)
+                    b = kpos - ipos
+                    nb = np.sqrt(b[0] ** 2 + b[1] ** 2 + b[2] ** 2)
 
-                        cos_theta = np.dot(a, b) / na / nb
+                    cos_theta = np.dot(a, b) / na / nb
 
-                        fk_idx = ktype - 1
+                    fk_idx = ktype - 1
 
-                        d0 = jvec
-                        d1 = -cos_theta * jvec / rij
-                        d2 = kvec / rij
-                        d3 = kvec
-                        d4 = -cos_theta * kvec / rik
-                        d5 = jvec / rik
+                    d0 = jvec
+                    d1 = -cos_theta * jvec / rij
+                    d2 = kvec / rij
+                    d3 = kvec
+                    d4 = -cos_theta * kvec / rik
+                    d5 = jvec / rik
 
-                        dirs = np.vstack([d0, d1, d2, d3, d4, d5])
+                    dirs = np.vstack([d0, d1, d2, d3, d4, d5])
 
-                        ffgs[fj_idx][fk_idx].add_to_energy_struct_vec(
-                            rij, rik, cos_theta, i)
+                    ffgs[fj_idx][fk_idx].add_to_energy_struct_vec(
+                        rij, rik, cos_theta, i)
 
-                        ffgs[fj_idx][fk_idx].add_to_forces_struct_vec(
-                            rij, rik, cos_theta, dirs, i, j, k)
+                    ffgs[fj_idx][fk_idx].add_to_forces_struct_vec(
+                        rij, rik, cos_theta, dirs, i, j, k)
 
         # prepare groups for structures vectors
         # new_group.create_group("phi")
@@ -474,6 +474,8 @@ class Database(h5py.File):
 
             for k, ffg in enumerate(ffg_list):
 
+                # TODO: rzm still something wrong with ffg struct vecs
+
                 energy_ds = new_group['ffg']['energy'][str(j)][str(k)]
                 energy_ds.resize((1, ) + ffg.structure_vectors['energy'].shape)
                 energy_ds[:] = ffg.structure_vectors['energy']
@@ -481,6 +483,8 @@ class Database(h5py.File):
                 forces_ds = new_group['ffg']['forces'][str(j)][str(k)]
                 forces_ds.resize(ffg.structure_vectors['forces'].shape)
                 forces_ds[:] = ffg.structure_vectors['forces']
+
+                if False: print()
 
                 # new_group['ffg']['energy'][str(j)][str(k)] = \
                 #     ffg.structure_vectors['energy']

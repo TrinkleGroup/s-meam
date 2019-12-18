@@ -416,13 +416,17 @@ class NodeManager:
         )
 
         if stress:
-            ni = ni[:, :, 0]
-        else:
-            ni = ni
+            for fd_ni_idx in range(13):
+                fd_ni = ni[:, :, fd_ni_idx]
 
-        energy += self.embedding_energy(
-            struct_name, ni, u_pvecs, u_ranges
-        )
+                energy[fd_ni_idx] += self.embedding_energy(
+                    struct_name, fd_ni, u_pvecs, u_ranges
+                )
+
+        else:
+            energy += self.embedding_energy(
+                struct_name, ni, u_pvecs, u_ranges
+            )
 
         grouped_ni = [
             np.array(ni[:, self.type_of_each_atom[struct_name] - 1 == i])
@@ -978,9 +982,6 @@ class NodeManager:
             else:
                 tmp = (struct_vecs[struct_name]['rho']['energy'][str(i)] @ y.T).T
                 ni += tmp[:, :, 0]
-
-        if self.natoms[struct_name] < 3:
-            return ni
 
         # Three-body contribution
         for j, y_fj in enumerate(f_pvecs):
