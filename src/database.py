@@ -840,7 +840,6 @@ class Database(h5py.File):
         for phi_idx, sv in phi_struct_vecs.items():
 
             energy_ds = self[new_group_name]['phi']['energy'][phi_idx]
-            print('dshape:', sv.shape)
             energy_ds.resize(sv.shape)
             energy_ds[:] = sv
 
