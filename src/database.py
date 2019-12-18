@@ -161,12 +161,19 @@ class Database(h5py.File):
         true_values_group['stress'] = stress
 
     def prepare_file_structure(self, all_group_names, ntypes):
+        """
+        When writing HDF5 files usin parallel I/O, the file of the structure
+        must be consistent across all MPI tasks. Because of this, all HDF5
+        groups and datasets must be created on all MPI tasks before adding
+        any data to them. That's what this function is for.
+        """
+
         for new_group_name in all_group_names:
             new_group = self.create_group(new_group_name)
 
-            new_group.attrs.create('type_of_each_atom')
-            new_group.attrs.create('natoms')
-            new_group.attrs.create('volume')
+            # new_group.attrs.create('type_of_each_atom')
+            # new_group.attrs.create('natoms')
+            # new_group.attrs.create('volume')
 
             new_group.create_group('phi')
             new_group.create_group('rho')
@@ -179,21 +186,45 @@ class Database(h5py.File):
             new_group['ffg'].create_group('energy')
             new_group['ffg'].create_group('forces')
 
-            for itype in range(ntypes*(ntypes - 1) / 2):
-                new_group['phi']['energy'].create_dataset(str(itype))
-                new_group['phi']['forces'].create_dataset(str(itype))
+            for itype in range(int(ntypes*(ntypes + 1) / 2)):
+                """
+                Note that the datasets must be resizable, which also required a
+                shape to be specified (for some reason).
+                """
+
+                new_group['phi']['energy'].create_dataset(
+                    str(itype), shape=(0, 0), dtype='f', maxshape=(None, None)
+                )
+
+                new_group['phi']['forces'].create_dataset(
+                    str(itype), shape=(0, 0, 0), dtype='f', maxshape=(None, None, None)
+                )
 
             for itype in range(ntypes):
-                new_group['rho']['energy'].create_dataset(str(itype))
-                new_group['rho']['forces'].create_dataset(str(itype))
+                new_group['rho']['energy'].create_dataset(
+                    str(itype), shape=(0, 0, 0), dtype='f',
+                    maxshape=(None, None,None)
+                )
+
+                new_group['rho']['forces'].create_dataset(
+                    str(itype), shape=(0, 0), dtype='f',
+                    maxshape=(None, None)
+                )
 
             for jtype in range(ntypes):
                 new_group['ffg']['energy'].create_group(str(jtype))
                 new_group['ffg']['forces'].create_group(str(jtype))
 
                 for ktype in range(ntypes):
-                    new_group['ffg']['energy'][str(jtype)].create_dataset(str(ktype))
-                    new_group['ffg']['forces'][str(jtype)].create_dataset(str(ktype))
+                    new_group['ffg']['energy'][str(jtype)].create_dataset(
+                        str(ktype), shape=(0, 0, 0), dtype='f',
+                        maxshape=(None, None, None)
+                    )
+
+                    new_group['ffg']['forces'][str(jtype)].create_dataset(
+                        str(ktype), shape=(0, 0), dtype='f',
+                        maxshape=(None, None)
+                    )
 
     def add_structure(self, new_group_name, atoms, overwrite=False,
                       add_strained=False):
@@ -205,13 +236,13 @@ class Database(h5py.File):
             atoms: (ase.Atoms) atomic structure
         """
 
-        # if don't want to overwrite, just return
-        if (new_group_name in self) and (not overwrite):
-            return
+        # # if don't want to overwrite, just return
+        # if (new_group_name in self) and (not overwrite):
+        #     return
 
-        # if overwriting and already exists, delete current copy
-        if new_group_name in self:
-            del self[new_group_name]
+        # # if overwriting and already exists, delete current copy
+        # if new_group_name in self:
+        #     del self[new_group_name]
 
         # if group doesn't already exist
         # new_group = self.create_group(new_group_name)
@@ -380,14 +411,31 @@ class Database(h5py.File):
         #     new_group[spline_type].create_group('forces')
 
         # save all energy structure vectors
-        for spline_type, splines in zip(['phi', 'rho'], all_splines):
-            for i, sp in enumerate(splines):
+        # for spline_type, splines in zip(['phi', 'rho'], all_splines):
+        #     for i, sp in enumerate(splines):
+        for i, sp in enumerate(phis):
+            """
+            Note: HDF5 datasets must be resized before putting new data into
+            them
+            """
 
-                new_group[spline_type]['energy'][str(i)] = \
-                    sp.structure_vectors['energy']
+            energy_ds = new_group['phi']['energy'][str(i)]
+            energy_ds.resize((1,) + sp.structure_vectors['energy'].shape)
+            energy_ds[:] = sp.structure_vectors['energy']
 
-                new_group[spline_type]['forces'][str(i)] = \
-                    sp.structure_vectors['forces']
+            forces_ds = new_group['phi']['forces'][str(i)]
+            forces_ds.resize(sp.structure_vectors['forces'].shape)
+            forces_ds[:] = sp.structure_vectors['forces']
+
+        for i, sp in enumerate(rhos):
+
+            energy_ds = new_group['rho']['energy'][str(i)]
+            energy_ds.resize((1,) + sp.structure_vectors['energy'].shape)
+            energy_ds[:] = sp.structure_vectors['energy']
+
+            forces_ds = new_group['rho']['forces'][str(i)]
+            forces_ds.resize(sp.structure_vectors['forces'].shape)
+            forces_ds[:] = sp.structure_vectors['forces']
 
         for j, ffg_list in enumerate(ffgs):
 
@@ -396,11 +444,19 @@ class Database(h5py.File):
 
             for k, ffg in enumerate(ffg_list):
 
-                new_group['ffg']['energy'][str(j)][str(k)] = \
-                    ffg.structure_vectors['energy']
+                energy_ds = new_group['ffg']['energy'][str(j)][str(k)]
+                energy_ds.resize((1, ) + ffg.structure_vectors['energy'].shape)
+                energy_ds[:] = ffg.structure_vectors['energy']
 
-                new_group['ffg']['forces'][str(j)][str(k)] = \
-                    ffg.structure_vectors['forces']
+                forces_ds = new_group['ffg']['forces'][str(j)][str(k)]
+                forces_ds.resize(ffg.structure_vectors['forces'].shape)
+                forces_ds[:] = ffg.structure_vectors['forces']
+
+                # new_group['ffg']['energy'][str(j)][str(k)] = \
+                #     ffg.structure_vectors['energy']
+
+                # new_group['ffg']['forces'][str(j)][str(k)] = \
+                #     ffg.structure_vectors['forces']
 
         new_group.attrs['volume'] = atoms.get_volume()
 
@@ -600,14 +656,14 @@ class Database(h5py.File):
 
         # reserve space for structure vectors for each strained structure
         for key, sv in rho_struct_vecs.items():
-            fd_sv = np.zeros((13, *sv.shape))
+            fd_sv = np.zeros((13, *sv.shape[1:]))
 
             fd_sv[0] = sv.copy()
 
             rho_struct_vecs[key] = fd_sv
 
         for key, sv in phi_struct_vecs.items():
-            fd_sv = np.zeros((13, *sv.shape))
+            fd_sv = np.zeros((13, *sv.shape[1:]))
 
             fd_sv[0] = sv.copy()
 
@@ -615,7 +671,7 @@ class Database(h5py.File):
 
         for key_j, ffg_list in ffg_struct_vecs.items():
             for key_k, sv in ffg_list.items():
-                fd_sv = np.zeros((13, *sv.shape))
+                fd_sv = np.zeros((13, *sv.shape[1:]))
 
                 fd_sv[0] = sv.copy()
 
@@ -766,6 +822,8 @@ class Database(h5py.File):
                     fd_index = 1 + 2*voigt_idx + shift
 
                     for phi_idx, phi in enumerate(phis):
+                        # TODO: resize and store properly
+
                         phi_struct_vecs[str(phi_idx)][fd_index] = \
                             phi.structure_vectors['energy']
 
@@ -780,17 +838,33 @@ class Database(h5py.File):
 
         # save the finite difference structure vectors to the database
         for phi_idx, sv in phi_struct_vecs.items():
-            del self[new_group_name]['phi']['energy'][phi_idx]
-            self[new_group_name]['phi']['energy'][phi_idx] = sv
+
+            energy_ds = self[new_group_name]['phi']['energy'][phi_idx]
+            print('dshape:', sv.shape)
+            energy_ds.resize(sv.shape)
+            energy_ds[:] = sv
+
+            # del self[new_group_name]['phi']['energy'][phi_idx]
+            # self[new_group_name]['phi']['energy'][phi_idx] = sv
 
         for rho_idx, sv in rho_struct_vecs.items():
-            del self[new_group_name]['rho']['energy'][rho_idx]
-            self[new_group_name]['rho']['energy'][rho_idx] = sv
+ 
+            energy_ds = self[new_group_name]['rho']['energy'][rho_idx]
+            energy_ds.resize(sv.shape)
+            energy_ds[:] = sv
+
+           # del self[new_group_name]['rho']['energy'][rho_idx]
+           # self[new_group_name]['rho']['energy'][rho_idx] = sv
 
         for j, ffg_list in ffg_struct_vecs.items():
             for k, sv in ffg_list.items():
-                del self[new_group_name]['ffg']['energy'][j][k]
-                self[new_group_name]['ffg']['energy'][j][k] = sv
+
+                energy_ds = self[new_group_name]['ffg']['energy'][j][k]
+                energy_ds.resize(sv.shape)
+                energy_ds[:] = sv
+
+                # del self[new_group_name]['ffg']['energy'][j][k]
+                # self[new_group_name]['ffg']['energy'][j][k] = sv
 
     def compute_grad_indices(self, ffgs):
         """Prepares lists of indices for extracting partial derivatives of the
