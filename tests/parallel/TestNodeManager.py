@@ -688,13 +688,12 @@ class NodeManagerTests(unittest.TestCase):
                 bulk_vac_ortho[key], self.x_pvec, self.x_indices, self.types
             )
 
-
             wk_eng, wk_ni = worker.compute_energy(
                 self.pvec, self.template.u_ranges
             )
 
             np.testing.assert_allclose(
-                wk_eng, nd_energies[key][0], rtol=1e-8
+                wk_eng/len(bulk_vac_ortho[key]), nd_energies[key][0], rtol=1e-8
             )
 
             # np.testing.assert_allclose(
@@ -741,6 +740,93 @@ class NodeManagerTests(unittest.TestCase):
         for key in struct_list:
 
             bulk_vac_ortho[key].set_calculator(self.calc)
+
+            atoms = bulk_vac_ortho[key]
+
+            epsilon = 5e-4
+
+            volume = atoms.get_volume()
+            cell = atoms.get_cell()
+            positions = atoms.get_positions()
+
+            expanded = atoms.copy()
+            contracted = atoms.copy()
+
+            expanded.set_calculator(self.calc)
+            contracted.set_calculator(self.calc)
+
+            energies = np.zeros(12)
+            voigt_indices = {'00': 0, '11': 1, '22': 2, '12': 3, '02': 4, '01': 5}
+
+            stress = np.zeros((3, 3))
+
+            for i in range(3):
+                for j in range(i, 3):
+                    voigt_idx = voigt_indices[''.join(sorted(str(i) + str(j)))]
+
+                    # build strain matrix
+                    fd_strain_matrix = np.zeros((3, 3))
+
+                    if i == j:
+                        val = epsilon
+                    else:
+                        val = epsilon / 2
+
+                    fd_strain_matrix[i, j] = val
+                    fd_strain_matrix[j, i] = val
+
+                    exp_cell = (np.eye(3) + fd_strain_matrix) @ cell.T
+                    con_cell = (np.eye(3) - fd_strain_matrix) @ cell.T
+
+                    # rotate FD strained cell into LAMMPS form
+                    #             fd_cell_exp = rotate_into_lammps(exp_cell.T)
+                    #             fd_cell_con = rotate_into_lammps(con_cell.T)
+                    fd_cell_exp = exp_cell
+                    fd_cell_con = con_cell
+
+                    #             lammps_to_exp = exp_cell @ np.linalg.inv(fd_cell_exp)
+                    #             lammps_to_con = con_cell @ np.linalg.inv(fd_cell_con)
+
+                    expanded.set_cell(fd_cell_exp.T)
+                    contracted.set_cell(fd_cell_con.T)
+
+                    exp_pos = (np.eye(3) + fd_strain_matrix) @ positions.T
+                    con_pos = (np.eye(3) - fd_strain_matrix) @ positions.T
+
+                    # rotate strained positions into proper LAMMPS format
+                    #             exp_positions = (lammps_to_exp.T @ exp_pos).T
+                    #             con_positions = (lammps_to_con.T @ con_pos).T
+                    exp_positions = exp_pos.T
+                    con_positions = con_pos.T
+
+                    expanded.set_positions(exp_positions)
+                    contracted.set_positions(con_positions)
+
+                    # e_exp = expanded.get_potential_energy()
+                    # e_con = contracted.get_potential_energy()
+
+                    w_exp = Worker(expanded, self.x_pvec, self.x_indices, self.types)
+                    w_con = Worker(contracted, self.x_pvec, self.x_indices, self.types)
+
+                    e_exp = w_exp.compute_energy(np.atleast_2d(self.pvec),self.ulim)[0]
+                    e_con = w_con.compute_energy(np.atleast_2d(self.pvec),self.ulim)[0]
+
+                    energies[2*voigt_idx] = e_exp
+                    energies[2*voigt_idx + 1] = e_con
+
+                    dE_ds = (e_exp - e_con) / epsilon / 2
+
+                    stress[i, j] = dE_ds / volume
+                    stress[j, i] = dE_ds / volume
+
+                    print('bort')
+                    break
+                break
+
+            computed = np.array(
+                [stress[0, 0], stress[1, 1], stress[2, 2], stress[1, 2],
+                 stress[0, 2], stress[0, 1]]
+            )
 
             lammps_stress = np.atleast_2d(bulk_vac_ortho[key].get_stress())
 

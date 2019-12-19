@@ -53,6 +53,21 @@ class NodeManager:
         self.weights = {}
         self.ref_name = None
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exec_type, exc_value, traceback):
+        struct_vecs.clear()
+
+        true_values.clear()
+        true_values['energy'] = {}
+        true_values['forces'] = {}
+        true_values['stress'] = {}
+        true_values['ref_struct'] = {}
+
+        if self.pool:
+            self.pool.close()
+
     def start_pool(self, node_size=None):
         if node_size is None:
             node_size = mp.cpu_count()
@@ -292,6 +307,16 @@ class NodeManager:
             self.loaded_structures.append(struct_name)
 
         print('Node', self.node_id, 'loaded', len(struct_list), 'structures')
+
+    def unload_structures(self, struct_list, true_values=False):
+        for struct_name in struct_list:
+            del struct_vecs[struct_name]
+
+            if true_values:
+                del true_values['energy'][struct_name]
+                del true_values['forces'][struct_name]
+                del true_values['stress'][struct_name]
+                del true_values['ref_struct'][struct_name]
 
     # @profile
     def load_one_struct(self, struct_name, hdf5_file, load_true):
