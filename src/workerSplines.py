@@ -105,8 +105,8 @@ class WorkerSpline:
         rhs_extrap_dist = max(float(extrap_dist), mx - tmp_knots[-1])
 
         # add ghost knots
-        # knots = list([knots[0] - lhs_extrap_dist]) + knots.tolist() +\
-        #         list([knots[-1] + rhs_extrap_dist])
+        # knots = list([tmp_knots[0] - lhs_extrap_dist]) + tmp_knots.tolist() +\
+        #         list([tmp_knots[-1] + rhs_extrap_dist])
 
         lhs = tmp_knots[0] - lhs_extrap_dist
         rhs = tmp_knots[-1] + rhs_extrap_dist
@@ -129,8 +129,10 @@ class WorkerSpline:
                 spline_bins[idx] = len(knots) - 2
 
         if (np.min(spline_bins) < 0) or (np.max(spline_bins) >  n_knots+2):
-            raise ValueError("Bad extrapolation; a point lies outside of the "
-                             "computed extrapolation range")
+            raise ValueError(
+                "Bad extrapolation; a point lies outside of the "
+                "computed extrapolation range"
+            )
 
         prefactor = knots[spline_bins + 1] - knots[spline_bins]
 
@@ -208,59 +210,54 @@ class WorkerSpline:
         # now add internal knots
         a = lhs_extrap_mask.shape
 
-        internal_mask = np.zeros(a, dtype=np.int64)
-        internal_mask[:] = np.logical_not(lhs_extrap_mask + rhs_extrap_mask)
+        # internal_mask = np.zeros(a, dtype=np.int64)
+        # internal_mask[:] = np.logical_not(lhs_extrap_mask + rhs_extrap_mask)
+        internal_mask = np.logical_not(lhs_extrap_mask + rhs_extrap_mask)
 
-        # print('lhs_extrap_mask:', lhs_extrap_mask)
-        # print('rhs_extrap_mask:', rhs_extrap_mask)
-        # print('spline_bins:', spline_bins)
+        shifted_indices = spline_bins[internal_mask] - 1
 
-        shifted_indices = np.zeros(len(internal_mask), dtype=np.int64)
-
-        for idx in range(internal_mask.shape[0]):
-            if internal_mask[idx] > 0:
-                shifted_indices[idx] = spline_bins[idx] - 1
+        # shifted_indices = np.zeros(len(internal_mask), dtype=np.int64)
+        #
+        # for idx in range(internal_mask.shape[0]):
+        #     if internal_mask[idx] > 0:
+        #         shifted_indices[idx] = spline_bins[idx] - 1
 
         # np.add.at(alpha, (np.arange(len(x))[internal_mask], shifted_indices),
         #           A[internal_mask])
-
+        #
         # np.add.at(alpha, (np.arange(len(x))[internal_mask], shifted_indices + 1),
         #           C[internal_mask])
-
-
+        #
+        #
         # np.add.at(beta, (np.arange(len(x))[internal_mask], shifted_indices),
         #           B[internal_mask])
-
+        #
         # np.add.at(beta, (np.arange(len(x))[internal_mask], shifted_indices + 1),
         #           D[internal_mask])
 
-        # rng = np.arange(len(x))
+        rng = np.arange(len(x))[internal_mask]
+
+        for im, si in zip(rng, shifted_indices):
+            alpha[im, si] += A[im]
+            alpha[im, si+1] += C[im]
+
+            beta[im, si] += B[im]
+            beta[im, si+1] += D[im]
+
+        # tmp_counter = 0
         #
-        # alpha_a = 0
-        # alpha_b = 0
+        # for idx in range(internal_mask.shape[0]):
+        #     if internal_mask[idx] > 0:
+        #         im = idx
+        #         # im = internal_mask[idx]
+        #         si = shifted_indices[tmp_counter]
         #
-        # alpha_a, alpha_b = alpha.shape
-        # A_a = A.shape
-
-        # print('internal_mask:', internal_mask)
-        # print('shifted_indices:', shifted_indices)
-        # print('alpha:', alpha)
-        # print('A:', A)
-
-        tmp_counter = 0
-
-        for idx in range(internal_mask.shape[0]):
-            if internal_mask[idx] > 0:
-                im = idx
-                # im = internal_mask[idx]
-                si = shifted_indices[tmp_counter]
-
-                alpha[im, si] += A[im]
-                alpha[im, si] += B[im]
-                alpha[im, si+1] += C[im]
-                alpha[im, si+1] += D[im]
-
-                tmp_counter += 1
+        #         alpha[im, si] += A[im]
+        #         alpha[im, si] += B[im]
+        #         alpha[im, si+1] += C[im]
+        #         alpha[im, si+1] += D[im]
+        #
+        #         tmp_counter += 1
 
         # big_alpha = np.concatenate((alpha, np.zeros((len(x), 2))), axis=1)
         return np.concatenate((alpha, np.zeros((len(x), 2))), axis=1), beta
