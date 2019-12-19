@@ -1,4 +1,5 @@
 import numpy as np
+from numba import jit, jitclass, gdb_init, njit
 import logging
 import h5py
 from scipy.interpolate import CubicSpline
@@ -8,6 +9,7 @@ from scipy.sparse import diags, lil_matrix, csr_matrix
 
 logger = logging.getLogger(__name__)
 
+# @jitclass
 class WorkerSpline:
     """A representation of a cubic spline specifically tailored to meet the
     needs of a Worker object. In this implementation, all WorkerSpline
@@ -69,7 +71,17 @@ class WorkerSpline:
         self.structure_vectors['forces'] = np.zeros((natoms, 3, self.n_knots+2))
         # self.structure_vectors['forces'] = np.zeros((natoms, self.n_knots+2, 3))
 
-    def get_abcd(self, x, deriv=0):
+    # @profile
+    # @jit
+    # @njit(debug=False)
+    @staticmethod
+    @jit(
+        'Tuple((float64[:,:], float64[:,:]))(float64[:], int64, float64, float64[:], int64)',
+        nopython=True
+    )
+    def get_abcd(x, deriv=0, extrap_dist=None, tmp_knots=None,
+                 n_knots=None):
+    # def get_abcd(self, x, deriv=0):
         """Calculates the spline coefficients for a set of points x
 
         Args:
@@ -82,26 +94,41 @@ class WorkerSpline:
             lhs_extrap: vector of coefficients to be added to lhs_extrap vector
             rhs_extrap: vector of coefficients to be added to rhs_extrap vector
         """
+        # gdb_init()
         x = np.atleast_1d(x)
 
         # mn, mx = onepass_min_max(x)
         mn = np.min(x)
         mx = np.max(x)
 
-        lhs_extrap_dist = max(float(self.extrap_dist), self.knots[0] - mn)
-        rhs_extrap_dist = max(float(self.extrap_dist), mx - self.knots[-1])
+        lhs_extrap_dist = max(float(extrap_dist), tmp_knots[0] - mn)
+        rhs_extrap_dist = max(float(extrap_dist), mx - tmp_knots[-1])
 
         # add ghost knots
-        knots = list([self.knots[0] - lhs_extrap_dist]) + self.knots.tolist() +\
-                list([self.knots[-1] + rhs_extrap_dist])
+        # knots = list([knots[0] - lhs_extrap_dist]) + knots.tolist() +\
+        #         list([knots[-1] + rhs_extrap_dist])
 
-        knots = np.array(knots)
+        lhs = tmp_knots[0] - lhs_extrap_dist
+        rhs = tmp_knots[-1] + rhs_extrap_dist
+
+        knots = np.zeros(len(tmp_knots)+2, dtype=np.float64)
+        knots[0] = lhs
+        knots[1:-1] = tmp_knots
+        knots[-1] = rhs
+
+        # knots = np.array(knots)
 
         # indicates the splines that the points fall into
         spline_bins = np.digitize(x, knots, right=True) - 1
-        spline_bins = np.clip(spline_bins, 0, len(knots) - 2)
 
-        if (np.min(spline_bins) < 0) or (np.max(spline_bins) >  self.n_knots+2):
+        # spline_bins = np.clip(spline_bins, 0, len(knots) - 2)
+        for idx in range(spline_bins.shape[0]):
+            if spline_bins[idx] < 0:
+                spline_bins[idx] = 0
+            elif spline_bins[idx] > len(knots) - 2:
+                spline_bins[idx] = len(knots) - 2
+
+        if (np.min(spline_bins) < 0) or (np.max(spline_bins) >  n_knots+2):
             raise ValueError("Bad extrapolation; a point lies outside of the "
                              "computed extrapolation range")
 
@@ -110,6 +137,11 @@ class WorkerSpline:
         t = (x - knots[spline_bins]) / prefactor
         t2 = t*t
         t3 = t2*t
+
+        A = np.zeros(x.shape, dtype=np.float64)
+        B = np.zeros(x.shape, dtype=np.float64)
+        C = np.zeros(x.shape, dtype=np.float64)
+        D = np.zeros(x.shape, dtype=np.float64)
 
         if deriv == 0:
 
@@ -145,17 +177,18 @@ class WorkerSpline:
         C *= scaling
         D *= scaling
 
-        alpha = np.zeros((len(x), self.n_knots))
-        beta = np.zeros((len(x), self.n_knots))
+        alpha = np.zeros((len(x), n_knots))
+        beta = np.zeros((len(x), n_knots))
 
         # values being extrapolated need to be indexed differently
         lhs_extrap_mask = spline_bins == 0
-        rhs_extrap_mask = spline_bins == self.n_knots
+        rhs_extrap_mask = spline_bins == n_knots
 
         lhs_extrap_indices = np.arange(len(x))[lhs_extrap_mask]
         rhs_extrap_indices = np.arange(len(x))[rhs_extrap_mask]
 
-        if True in lhs_extrap_mask:
+        # if True in lhs_extrap_mask:
+        if np.sum(lhs_extrap_mask) > 0:
             alpha[lhs_extrap_indices, 0] += A[lhs_extrap_mask]
             alpha[lhs_extrap_indices, 0] += C[lhs_extrap_mask]
 
@@ -163,7 +196,8 @@ class WorkerSpline:
             beta[lhs_extrap_indices, 0] += B[lhs_extrap_mask]
             beta[lhs_extrap_indices, 0] += D[lhs_extrap_mask]
 
-        if True in rhs_extrap_mask:
+        # if True in rhs_extrap_mask:
+        if np.sum(rhs_extrap_mask) > 0:
             alpha[rhs_extrap_indices, -1] += A[rhs_extrap_mask]
             alpha[rhs_extrap_indices, -1] += C[rhs_extrap_mask]
 
@@ -172,25 +206,79 @@ class WorkerSpline:
             beta[rhs_extrap_indices, -1] += D[rhs_extrap_mask]
 
         # now add internal knots
-        internal_mask = np.logical_not(lhs_extrap_mask + rhs_extrap_mask)
+        a = lhs_extrap_mask.shape
 
-        shifted_indices = spline_bins[internal_mask] - 1
+        internal_mask = np.zeros(a, dtype=np.int64)
+        internal_mask[:] = np.logical_not(lhs_extrap_mask + rhs_extrap_mask)
 
-        np.add.at(alpha, (np.arange(len(x))[internal_mask], shifted_indices),
-                  A[internal_mask])
-        np.add.at(alpha, (np.arange(len(x))[internal_mask], shifted_indices + 1),
-                  C[internal_mask])
+        # print('lhs_extrap_mask:', lhs_extrap_mask)
+        # print('rhs_extrap_mask:', rhs_extrap_mask)
+        # print('spline_bins:', spline_bins)
 
-        np.add.at(beta, (np.arange(len(x))[internal_mask], shifted_indices),
-                  B[internal_mask])
-        np.add.at(beta, (np.arange(len(x))[internal_mask], shifted_indices + 1),
-                  D[internal_mask])
+        shifted_indices = np.zeros(len(internal_mask), dtype=np.int64)
 
-        big_alpha = np.concatenate([alpha, np.zeros((len(x), 2))], axis=1)
+        for idx in range(internal_mask.shape[0]):
+            if internal_mask[idx] > 0:
+                shifted_indices[idx] = spline_bins[idx] - 1
+
+        # np.add.at(alpha, (np.arange(len(x))[internal_mask], shifted_indices),
+        #           A[internal_mask])
+
+        # np.add.at(alpha, (np.arange(len(x))[internal_mask], shifted_indices + 1),
+        #           C[internal_mask])
+
+
+        # np.add.at(beta, (np.arange(len(x))[internal_mask], shifted_indices),
+        #           B[internal_mask])
+
+        # np.add.at(beta, (np.arange(len(x))[internal_mask], shifted_indices + 1),
+        #           D[internal_mask])
+
+        # rng = np.arange(len(x))
+        #
+        # alpha_a = 0
+        # alpha_b = 0
+        #
+        # alpha_a, alpha_b = alpha.shape
+        # A_a = A.shape
+
+        # print('internal_mask:', internal_mask)
+        # print('shifted_indices:', shifted_indices)
+        # print('alpha:', alpha)
+        # print('A:', A)
+
+        tmp_counter = 0
+
+        for idx in range(internal_mask.shape[0]):
+            if internal_mask[idx] > 0:
+                im = idx
+                # im = internal_mask[idx]
+                si = shifted_indices[tmp_counter]
+
+                alpha[im, si] += A[im]
+                alpha[im, si] += B[im]
+                alpha[im, si+1] += C[im]
+                alpha[im, si+1] += D[im]
+
+                tmp_counter += 1
+
+        # big_alpha = np.concatenate((alpha, np.zeros((len(x), 2))), axis=1)
+        return np.concatenate((alpha, np.zeros((len(x), 2))), axis=1), beta
+
+        # gamma = np.einsum('ij,ik->kij', M, beta.T)
+        #
+        # return big_alpha + np.sum(gamma, axis=1)
+
+    def get_abcd_wrapper(self, x, deriv=0):
+
+        alpha, beta = self.get_abcd(
+            np.atleast_1d(x), deriv=deriv, extrap_dist=self.extrap_dist,
+            tmp_knots=self.knots, n_knots=self.n_knots
+        )
 
         gamma = np.einsum('ij,ik->kij', self.M, beta.T)
 
-        return big_alpha + np.sum(gamma, axis=1)
+        return alpha + np.sum(gamma, axis=1)
 
     @classmethod
     def from_hdf5(cls, hdf5_file, name, load_sv=True):
@@ -260,13 +348,13 @@ class WorkerSpline:
 
     def add_to_energy_struct_vec(self, values):
         # self.structure_vectors['energy'] += self.get_abcd(values)
-        self.structure_vectors['energy'] += np.sum(self.get_abcd(values), axis=0)
+        self.structure_vectors['energy'] += np.sum(self.get_abcd_wrapper(values), axis=0)
 
     def add_to_forces_struct_vec(self, values, dirs, atom_id):
         dirs = np.array(dirs)
 
         # abcd = self.get_abcd(values, 1).ravel()
-        abcd = np.sum(self.get_abcd(values, 1), axis=0).ravel()
+        abcd = np.sum(self.get_abcd_wrapper(values, 1), axis=0).ravel()
 
         self.structure_vectors['forces'][atom_id, :, :] += np.einsum('i,j->ji', abcd, dirs)
 
@@ -286,6 +374,7 @@ class WorkerSpline:
     def calc_forces(self, y):
         return np.einsum('ijk,pk->pij', self.structure_vectors['forces'], y)
 
+# @jitclass
 class RhoSpline(WorkerSpline):
     """RhoSpline objects are a variant of the WorkerSpline, but that require
     tracking energies for each atom. To account for potential many-atom
@@ -353,13 +442,13 @@ class RhoSpline(WorkerSpline):
     def add_to_energy_struct_vec(self, values, atom_id):
         # self.structure_vectors['energy'][atom_id, :] += self.get_abcd(values)
         self.structure_vectors['energy'][atom_id, :] += \
-            np.sum(self.get_abcd(values), axis=0)
+            np.sum(self.get_abcd_wrapper(values), axis=0)
 
     def add_to_forces_struct_vec(self, value, dir, i, j):
         """Single add used because need to speciy two atom tags"""
         # abcd_3d = np.einsum('i,j->ij', self.get_abcd(value, 1).ravel(), dir)
         abcd_3d = np.einsum('i,j->ij',
-            np.sum(self.get_abcd(value, 1), axis=0).ravel(), dir)
+            np.sum(self.get_abcd_wrapper(value, 1), axis=0).ravel(), dir)
 
         N = self.natoms
 
@@ -458,9 +547,9 @@ class ffgSpline:
         add_rik = np.atleast_1d(rik)
         add_cos_theta = np.atleast_1d(cos_theta)
 
-        fj_abcd = self.fj.get_abcd(add_rij, fj_deriv)
-        fk_abcd = self.fk.get_abcd(add_rik, fk_deriv)
-        g_abcd = self.g.get_abcd(add_cos_theta, g_deriv)
+        fj_abcd = self.fj.get_abcd_wrapper(add_rij, fj_deriv)
+        fk_abcd = self.fk.get_abcd_wrapper(add_rik, fk_deriv)
+        g_abcd = self.g.get_abcd_wrapper(add_cos_theta, g_deriv)
 
         return fj_abcd.squeeze(), fk_abcd.squeeze(), g_abcd.squeeze()
 
@@ -496,9 +585,9 @@ class ffgSpline:
         # abcd_fj = self.fj.get_abcd(rij, 0).ravel()
         # abcd_fk = self.fk.get_abcd(rik, 0).ravel()
         # abcd_g = self.g.get_abcd(cos, 0).ravel()
-        abcd_fj = np.sum(self.fj.get_abcd(rij, 0), axis=0).ravel()
-        abcd_fk = np.sum(self.fk.get_abcd(rik, 0), axis=0).ravel()
-        abcd_g  = np.sum(self.g.get_abcd(cos, 0), axis=0).ravel()
+        abcd_fj = np.sum(self.fj.get_abcd_wrapper(rij, 0), axis=0).ravel()
+        abcd_fk = np.sum(self.fk.get_abcd_wrapper(rik, 0), axis=0).ravel()
+        abcd_g  = np.sum(self.g.get_abcd_wrapper(cos, 0), axis=0).ravel()
 
         n_fj = abcd_fj.shape[0]
         n_fk = abcd_fk.shape[0]
@@ -657,7 +746,7 @@ class USpline(WorkerSpline):
             flat_values = values.ravel()
 
             # abcd = self.get_abcd(flat_values, lhs_knot, rhs_knot, nknots)
-            abcd = self.get_abcd(flat_values)
+            abcd = self.get_abcd_wrapper(flat_values)
             abcd = abcd.reshape(list(org_shape) + [abcd.shape[1]])
 
             self.structure_vectors['energy'] += np.sum(abcd, axis=1)
@@ -672,7 +761,7 @@ class USpline(WorkerSpline):
             org_shape = values.shape
             flat_values = values.ravel()
 
-            abcd = self.get_abcd(flat_values, 1)
+            abcd = self.get_abcd_wrapper(flat_values, 1)
             abcd = abcd.reshape(list(org_shape) + [abcd.shape[1]])
 
             self.structure_vectors['deriv'][:, indices, :] = abcd
@@ -686,7 +775,7 @@ class USpline(WorkerSpline):
             org_shape = values.shape
             flat_values = values.ravel()
 
-            abcd = self.get_abcd(flat_values, 2)
+            abcd = self.get_abcd_wrapper(flat_values, 2)
             abcd = abcd.reshape(list(org_shape) + [abcd.shape[1]])
 
             self.structure_vectors['2nd_deriv'][:, indices, :] = abcd
