@@ -99,10 +99,10 @@ class NodeManagerTests(unittest.TestCase):
         cls.db.add_structure('8_atoms', extra['8_atoms'], overwrite=ow, add_strained=True)
         cls.db.add_structure('4_atoms', extra['4_atoms'], overwrite=ow, add_strained=True)
 
-        cls.db.add_structure(
-            'bulk_vac_ortho_type1', bulk_vac_ortho['bulk_vac_ortho_type1'],
-            overwrite=ow, add_strained=True
-        )
+        # cls.db.add_structure(
+        #     'bulk_vac_ortho_type1', bulk_vac_ortho['bulk_vac_ortho_type1'],
+        #     overwrite=ow, add_strained=True
+        # )
 
         # cls.db.add_structure(
         #     'bulk_vac_ortho_type2', bulk_vac_ortho['bulk_vac_ortho_type2'],

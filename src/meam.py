@@ -478,7 +478,7 @@ class MEAM:
         return self.forces
 
     # @profile
-    def get_lammps_results(self, struct, relax=False):
+    def get_lammps_results(self, struct, relax=False, stress=False):
 
         types = self.types
 
@@ -501,10 +501,11 @@ class MEAM:
 
         energy = calc.get_potential_energy(struct)
         forces = calc.get_forces(struct)
+        stress = calc.get_stress(struct)
 
         calc.clean()
 
-        results = {'energy': energy, 'forces': forces}
+        results = {'energy': energy, 'forces': forces, 'stress': stress}
 
         return results
 
