@@ -306,8 +306,6 @@ class NodeManager:
             self.load_one_struct(struct_name, hdf5_file, load_true)
             self.loaded_structures.append(struct_name)
 
-        print('Node', self.node_id, 'loaded', len(struct_list), 'structures')
-
     def unload_structures(self, struct_list, true_values=False):
         for struct_name in struct_list:
             del struct_vecs[struct_name]

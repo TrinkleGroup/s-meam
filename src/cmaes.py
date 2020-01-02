@@ -108,12 +108,11 @@ def CMAES(parameters, template, node_manager,):
     if parameters['DO_SHIFT']:
         shift_time = parameters['SHIFT_FREQ']
 
-    stop = False
     time_to_stop = False
 
     grow_id = 0
-    generation_number = 0
-    while (not stop) and (generation_number < parameters['NSTEPS']):
+    generation_number = 1
+    while (not time_to_stop) and (generation_number <= parameters['NSTEPS']):
         if is_master:
 
             # population = np.array(es.ask_geno())
@@ -125,32 +124,42 @@ def CMAES(parameters, template, node_manager,):
             penalty=parameters['PENALTY_ON']
         )
 
-        if generation_number > 1:
-            if is_master:
-                best = template.insert_active_splines(np.atleast_2d(
-                    es.result.xbest
-                ))
+        if is_master:
+            best = template.insert_active_splines(np.atleast_2d(
+                es.result.xbest
+            ))
 
-            else:
-                best = None
+        else:
+            best = None
 
-            best_fits = objective_fxn(
-                best, weights, penalty=parameters['PENALTY_ON']
-            )
-
-            with open(os.path.join(parameters['SAVE_DIRECTORY'], 'best_fitnesses.dat'), 'ab') as save_file:
-                np.savetxt(save_file, np.atleast_2d(best_fits))
+        best_fit, best_max_ni, best_min_ni, best_avg_ni = objective_fxn(
+            best, weights, return_ni=True, penalty=parameters['PENALTY_ON']
+        )
 
         if is_master:
+            if generation_number > 1:
+                # log full cost vector of best ever potential
+                cost_save_path = os.path.join(
+                    parameters['SAVE_DIRECTORY'], 'best_fitnesses_trace.dat'
+                )
+
+                with open(cost_save_path, 'ab') as cost_save_file:
+                    np.savetxt(cost_save_file, np.atleast_2d(best_fit))
+
+                pot_save_path = os.path.join(
+                    parameters['SAVE_DIRECTORY'], 'best_pot_trace.dat'
+                )
+
+                # log best ever potential
+                with open(pot_save_path, 'ab') as pot_save_file:
+                    np.savetxt(pot_save_file, best)
+
             new_costs = np.sum(costs, axis=1)
 
             es.tell(
                 population[:, active_ind], new_costs
             )
             es.disp()
-
-            if es.stop():
-                stop = True
 
             if es.stop():
                 time_to_stop = True
@@ -172,7 +181,7 @@ def CMAES(parameters, template, node_manager,):
 
         if parameters['DO_GROW']:
             if grow_id < len(parameters['GROW_SCHED']):
-                if generation_number + 1 == parameters['GROW_SCHED'][grow_id]:
+                if generation_number == parameters['GROW_SCHED'][grow_id]:
                     if is_master:
                         es = cma.CMAEvolutionStrategy(
                             es.result.xbest,
@@ -249,7 +258,7 @@ def CMAES(parameters, template, node_manager,):
                 shift_time -= 1
 
         generation_number += 1
-        stop = world_comm.bcast(stop, root=0)
+        time_to_stop = world_comm.bcast(time_to_stop, root=0)
 
     # end CMA-ES loop
 
@@ -259,25 +268,25 @@ def CMAES(parameters, template, node_manager,):
         es.result_pretty()
 
         # best = np.atleast_2d(es.result.xbest[np.where(template.active_mask)[0]])
-        best = np.atleast_2d(es.result.xbest)
-        best = np.atleast_2d(template.insert_active_splines(best))
-        print("Fitness before LM:", es.result.fbest)
+        # best = np.atleast_2d(es.result.xbest)
+        # best = np.atleast_2d(template.insert_active_splines(best))
+        # print("Fitness before LM:", es.result.fbest)
 
         polish_start_time = time.time()
     else:
         best = np.empty((1, template.pvec_len))
 
-    best = src.partools.local_minimization(
-        best[:, np.where(template.active_mask)[0]], best, template, objective_fxn,
-        gradient, weights, world_comm, is_master, nsteps=10, lm_output=True,
-        penalty=parameters['PENALTY_ON']
-    )
+    # best = src.partools.local_minimization(
+    #     best[:, np.where(template.active_mask)[0]], best, template, objective_fxn,
+    #     gradient, weights, world_comm, is_master, nsteps=10, lm_output=True,
+    #     penalty=parameters['PENALTY_ON']
+    # )
 
-    if is_master:
+    # if is_master:
         # sorted_pop[0, np.where(template.active_mask)[0]] = best
-        sorted_pop[0, active_ind] = best
+        # sorted_pop[0, active_ind] = best
         # sorted_pop[0] = best
-        population = sorted_pop
+        # population = sorted_pop
 
     costs, max_ni, min_ni, avg_ni = objective_fxn(
         population, weights, return_ni=True,
