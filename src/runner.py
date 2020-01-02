@@ -496,10 +496,16 @@ def prepare_node_managers(database, template, parameters, comm, is_master):
         split_struct_lists = np.array_split(
             key_choices, comm.Get_size()
         )
+
     else:
         split_struct_lists = None
 
     struct_list = comm.scatter(split_struct_lists, root=0)
+
+    print(
+        "Node", comm.Get_rank(), 'loading', len(struct_list), 'structs',
+        flush=True
+    )
 
     node_manager = NodeManager(comm.Get_rank(), template)
     node_manager.load_structures(struct_list, database, load_true=True)

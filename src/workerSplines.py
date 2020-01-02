@@ -1,5 +1,5 @@
 import numpy as np
-from numba import jit, jitclass, gdb_init, njit
+from numba import jit, jitclass, njit
 import logging
 import h5py
 from scipy.interpolate import CubicSpline
@@ -94,7 +94,6 @@ class WorkerSpline:
             lhs_extrap: vector of coefficients to be added to lhs_extrap vector
             rhs_extrap: vector of coefficients to be added to rhs_extrap vector
         """
-        # gdb_init()
         x = np.atleast_1d(x)
 
         # mn, mx = onepass_min_max(x)
