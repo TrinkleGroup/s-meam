@@ -173,7 +173,8 @@ class NodeManager:
 
         diff = forces - true_forces
 
-        epsilon = np.linalg.norm(diff, 'fro', axis=(1, 2))#/np.sqrt(10)
+        # epsilon = np.linalg.norm(diff, 'fro', axis=(1, 2))
+        epsilon = np.average(np.abs(diff), axis=(1, 2))
 
         return epsilon*epsilon*self.weights[struct_name]
 
