@@ -701,10 +701,6 @@ def checkpoint(population, costs, max_ni, min_ni, avg_ni, i, parameters,
     template, max_nsteps, suffix=""):
     """Saves information to files for later use"""
 
-    # save costs -- assume file is being appended to
-    with open(parameters['COST_FILE_NAME'], 'ab') as f:
-        np.savetxt(f, np.atleast_2d(costs))
-
     # save population
     digits = np.floor(np.log10(max_nsteps))
 
@@ -714,6 +710,15 @@ def checkpoint(population, costs, max_ni, min_ni, avg_ni, i, parameters,
     )
 
     np.savetxt(format_str.format(i), population)
+
+    # save costs
+    format_str = os.path.join(
+        parameters['SAVE_DIRECTORY'],
+        'fitnesses_{0:0' + str(int(digits) + 1) + 'd}.dat' + suffix
+    ).format(i)
+
+    with open(format_str, 'w') as f:
+        np.savetxt(f, np.atleast_2d(costs))
 
     # output ni to file
     with open(parameters['NI_TRACE_FILE_NAME'] + suffix, 'ab') as f:
