@@ -1,6 +1,5 @@
 # Note: this imports a generic 1D spline obect that does not have smoothing
 from scipy.interpolate import CubicSpline
-import matplotlib.pyplot as plt
 import numpy as np
 
 # TODO: binning for non-grid knot values
@@ -45,29 +44,6 @@ class Spline(CubicSpline):
             return super(Spline, self).__call__(x)
         else:
             return self.extrap(x)
-
-    def plot(self,xr=None,yr=None,xl=None,yl=None,saveName=None):
-        """Plots the spline"""
-
-        low,high = self.cutoff
-        low -= abs(0.2*low)
-        high += abs(0.2*high)
-
-        x = np.linspace(low,high,1000)
-        y = list(map(lambda e: self(e) if self.in_range(e) else self.extrap(
-            e), x))
-        yi = list(map(lambda e: self(e), self.x))
-
-        plt.figure()
-        plt.plot(self.x, yi, 'o', x, y)
-
-        if xr: plt.xlim(xr)
-        if yr: plt.ylim(yr)
-        if xl: plt.xlabel(xl)
-        if yl: plt.ylabel(yl)
-
-        if saveName: plt.savefig(saveName)
-        else: plt.show()
 
     def __call__(self,x,i=None):
         """Evaluates the spline at the given point, linearly extrapolating if

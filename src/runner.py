@@ -1,3 +1,5 @@
+import faulthandler; faulthandler.enable()
+
 import os
 import sys
 sys.path.append('./')
@@ -7,10 +9,10 @@ import numpy as np
 import src.lammpsTools
 import logging
 from mpi4py import MPI
-from src.sa import sa
-from src.ga import ga
-from src.sgd import sgd
-from src.mcmc import mcmc
+# from src.sa import sa
+# from src.ga import ga
+# from src.sgd import sgd
+# from src.mcmc import mcmc
 from src.potential_templates import Template
 import src.partools as partools
 from src.database import Database
@@ -34,6 +36,7 @@ logger.setLevel(logging.DEBUG)
 # TODO: have a script that checks the validity of an input script befor qsub
 
 def main(config_name, template_file_name):
+    print("Hello!", flush=True)
     world_comm = MPI.COMM_WORLD
     world_rank = world_comm.Get_rank()
 
@@ -66,7 +69,8 @@ def main(config_name, template_file_name):
 
     float_params = [
         'MUT_PB', 'COOLING_RATE', 'TMIN', 'TSTART', 'SGD_STEP_SIZE',
-        'MOVE_PROB', 'MOVE_SCALE', 'CMAES_STEP_SIZE', 'PENALTY'
+        'MOVE_PROB', 'MOVE_SCALE', 'CMAES_STEP_SIZE', 'PENALTY',
+        'ENERGY_WEIGHT', 'FORCES_WEIGHT', 'STRESS_WEIGHT',
     ]
 
     bool_params = [

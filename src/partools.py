@@ -131,9 +131,13 @@ def build_evaluation_functions(
 
                 tmp = (comp_ediff - true_ediff) ** 2
 
-                fitnesses[:, 8*fit_id] = tmp * weight
-                fitnesses[:, 8*fit_id + 1] = 2*all_force_costs[fit_id]#/10
-                fitnesses[:, 8*fit_id+2:8*fit_id+8] = all_stress_costs[fit_id]
+                fitnesses[:, 8*fit_id] = tmp*parameters['ENERGY_WEIGHT']
+
+                fitnesses[:, 8*fit_id + 1] = \
+                    all_force_costs[fit_id]*parameters['FORCES_WEIGHT']
+
+                fitnesses[:, 8*fit_id+2:8*fit_id+8] = \
+                    all_stress_costs[fit_id]*parameters['STRESS_WEIGHT']
 
             lambda_pen = parameters['PENALTY']
             # lambda_pen = np.sum(fitnesses, axis=1)[:, np.newaxis]
