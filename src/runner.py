@@ -474,31 +474,37 @@ def prepare_managers(is_master, parameters, potential_template, database):
 def prepare_node_managers(database, template, parameters, comm, is_master,
         names_file):
     if is_master:
+
+        ref_keys = [
+            'Ground_state_crystal',
+        ]
+
         if names_file:
             with open(names_file, 'r') as f:
                 key_choices = f.readlines()
                 key_choices = [l.strip() for l in key_choices]
+
+            for i, key in enumerate(ref_keys):
+                if key not in key_choices:
+                    raise RuntimeError(
+                        "Missing reference structure '{0}' "
+                        "in input file '{1}'".format(key, names_file)
+                    )
+
         else:
             key_choices = random.sample(
                 list(database.keys()),
                 parameters['NUM_STRUCTS']
             )
 
-        ref_keys = [
-            'Ground_state_crystal',
-        ]
-
-        for i, key in enumerate(ref_keys):
-            if key not in key_choices:
-                print("Adding", key, "to key_choices")
-                key_choices[i] = key
-            else:
-                print(key, "already in key_choices")
+            for i, key in enumerate(ref_keys):
+                if key not in key_choices:
+                    print("Adding", key, "to key_choices")
+                    key_choices[i] = key
+                else:
+                    print(key, "already in key_choices")
 
         key_choices = sorted(key_choices)
-
-        for k in key_choices:
-            print(k)
 
         split_struct_lists = np.array_split(
             key_choices, comm.Get_size()
