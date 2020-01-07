@@ -136,7 +136,7 @@ def main(config_name, template_file_name, names_file=None):
             template.pvec_len, template.types,
             knot_xcoords=template.knot_positions, x_indices=template.x_indices,
             cutoffs=template.cutoffs,
-            driver=driver, comm=world_comm
+            driver='mpio', comm=world_comm
             ) as database:
 
             if is_master:
