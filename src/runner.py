@@ -37,8 +37,9 @@ logger.setLevel(logging.WARNING)
 
 # TODO: have a script that checks the validity of an input script befor qsub
 
-def main(config_name, template_file_name):
-    print("Hello!", flush=True)
+def main(config_name, template_file_name, names_file=None):
+
+    print('names_file:', names_file)
     world_comm = MPI.COMM_WORLD
     world_rank = world_comm.Get_rank()
 
@@ -142,7 +143,8 @@ def main(config_name, template_file_name):
                 print("Preparing node managers...", flush=True)
 
             node_manager = prepare_node_managers(
-                database, template, parameters, world_comm, is_master
+                database, template, parameters, world_comm, is_master,
+                names_file
             )
     else:
         with Database(
@@ -156,7 +158,8 @@ def main(config_name, template_file_name):
                 print("Preparing node managers...", flush=True)
 
             node_manager = prepare_node_managers(
-                database, template, parameters, world_comm, is_master
+                database, template, parameters, world_comm, is_master,
+                names_file
             )
 
     if is_master:
@@ -468,24 +471,18 @@ def prepare_managers(is_master, parameters, potential_template, database):
 
     return is_manager, manager, manager_comm
 
-def prepare_node_managers(database, template, parameters, comm, is_master):
+def prepare_node_managers(database, template, parameters, comm, is_master,
+        names_file):
     if is_master:
-        key_choices = random.sample(
-            list(database.keys()),
-            parameters['NUM_STRUCTS']
-        )
-
-        # TODO: the database should store these itself
-        # ref_keys = [
-        #     'Ti48Mo80_type1_c18',
-        #     'Ti80Mo48_SQS1_lattice',
-        #     'Ti72Mo56_SQS1_lattice',
-        #     'Ti64Mo64_SQS2_lattice_f',
-        #     'Ti56Mo72_SQS1_lattice',
-        #     'Ti48Mo80_SQS1_lattice',
-        #     'B2',
-        #     'B32',
-        # ]
+        if names_file:
+            with open(names_file, 'r') as f:
+                key_choices = f.readlines()
+                key_choices = [l.strip() for l in key_choices]
+        else:
+            key_choices = random.sample(
+                list(database.keys()),
+                parameters['NUM_STRUCTS']
+            )
 
         ref_keys = [
             'Ground_state_crystal',
@@ -499,6 +496,9 @@ def prepare_node_managers(database, template, parameters, comm, is_master):
                 print(key, "already in key_choices")
 
         key_choices = sorted(key_choices)
+
+        for k in key_choices:
+            print(k)
 
         split_struct_lists = np.array_split(
             key_choices, comm.Get_size()
@@ -527,4 +527,7 @@ if __name__ == "__main__":
         if is_master:
             kill_and_write("Must specify a config and template file")
     else:
-        main(sys.argv[1], sys.argv[2])
+        if len(sys.argv) > 3:
+            main(sys.argv[1], sys.argv[2], sys.argv[3])
+        else:
+            main(sys.argv[1], sys.argv[2], None)
