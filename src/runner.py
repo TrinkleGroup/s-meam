@@ -1,5 +1,3 @@
-import faulthandler; faulthandler.enable()
-
 import os
 import sys
 sys.path.append('./')
@@ -8,6 +6,10 @@ import mpi4py
 import numpy as np
 import src.lammpsTools
 import logging
+
+mpl_logger = logging.getLogger('matplotlib')
+mpl_logger.setLevel(logging.WARNING) 
+
 from mpi4py import MPI
 # from src.sa import sa
 # from src.ga import ga
@@ -31,7 +33,7 @@ np.random.seed(seed)
 random.seed(seed)
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.WARNING)
 
 # TODO: have a script that checks the validity of an input script befor qsub
 
@@ -69,7 +71,7 @@ def main(config_name, template_file_name):
 
     float_params = [
         'MUT_PB', 'COOLING_RATE', 'TMIN', 'TSTART', 'SGD_STEP_SIZE',
-        'MOVE_PROB', 'MOVE_SCALE', 'CMAES_STEP_SIZE', 'PENALTY',
+        'MOVE_PROB', 'MOVE_SCALE', 'CMAES_STEP_SIZE', 'NI_PENALTY',
         'ENERGY_WEIGHT', 'FORCES_WEIGHT', 'STRESS_WEIGHT',
     ]
 
@@ -126,35 +128,36 @@ def main(config_name, template_file_name):
 
         print("Loading database ...", flush=True)
 
-    with Database(
-        parameters['DATABASE_FILE'], 'a',
-        template.pvec_len, template.types,
-        knot_xcoords=template.knot_positions, x_indices=template.x_indices,
-        cutoffs=template.cutoffs,
-        driver='mpio', comm=world_comm
-        ) as database:
+    if world_comm.Get_size() > 1:
 
-    # for fname in glob.glob(os.path.join(parameters['LAMMPS_FOLDER'], "*")):
+        with Database(
+            parameters['DATABASE_FILE'], 'a',
+            template.pvec_len, template.types,
+            knot_xcoords=template.knot_positions, x_indices=template.x_indices,
+            cutoffs=template.cutoffs,
+            driver=driver, comm=world_comm
+            ) as database:
 
-    #     struct_name = os.path.splitext(os.path.split(fname)[-1])[0]
+            if is_master:
+                print("Preparing node managers...", flush=True)
 
-    #     if is_master:
-    #         print("\t", struct_name, flush=True)
+            node_manager = prepare_node_managers(
+                database, template, parameters, world_comm, is_master
+            )
+    else:
+        with Database(
+            parameters['DATABASE_FILE'], 'a',
+            template.pvec_len, template.types,
+            knot_xcoords=template.knot_positions, x_indices=template.x_indices,
+            cutoffs=template.cutoffs,
+            ) as database:
 
-    #     atoms = src.lammpsTools.atoms_from_file(fname, template.types)
+            if is_master:
+                print("Preparing node managers...", flush=True)
 
-    #     database.add_structure(struct_name, atoms)
-    #     database.add_true_value(
-    #         os.path.join(parameters['INFO_DIRECTORY'],'info.' + struct_name),
-    #         "Ti48Mo80_type1_c18"
-    #     )
-
-        if is_master:
-            print("Preparing node managers...", flush=True)
-
-        node_manager = prepare_node_managers(
-            database, template, parameters, world_comm, is_master
-        )
+            node_manager = prepare_node_managers(
+                database, template, parameters, world_comm, is_master
+            )
 
     if is_master:
         print()

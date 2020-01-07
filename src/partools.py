@@ -139,7 +139,7 @@ def build_evaluation_functions(
                 fitnesses[:, 8*fit_id+2:8*fit_id+8] = \
                     all_stress_costs[fit_id]*parameters['STRESS_WEIGHT']
 
-            lambda_pen = parameters['PENALTY']
+            lambda_pen = parameters['NI_PENALTY']
             # lambda_pen = np.sum(fitnesses, axis=1)[:, np.newaxis]
 
             # ns = len(all_struct_names)
