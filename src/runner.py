@@ -367,11 +367,12 @@ def read_config(config_name):
 
                                 split = stripped.split(" ")
 
-                                if len(split) == 2:
-                                    p, v = split
-                                    parameters[p] = v
-                                else:
+                                if 'GROW_' in split[0]:
                                     parameters[split[0]] = [int(el) for el in split[1:]]
+                                else:
+                                    p, v = split
+                                    parameters[split[0]] = split[1]
+
                         except:
                             kill_and_write(
                                 "Formatting issue with line "
