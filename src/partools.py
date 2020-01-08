@@ -129,12 +129,14 @@ def build_evaluation_functions(
                 true_ediff = true_values['energy'][name]
                 comp_ediff = all_eng[s_id] - all_eng[r_id]
 
-                tmp = (comp_ediff - true_ediff) ** 2
+                # tmp = (comp_ediff - true_ediff) ** 2
+                tmp = abs(comp_ediff - true_ediff)
 
                 fitnesses[:, 8*fit_id] = tmp*parameters['ENERGY_WEIGHT']
 
                 fitnesses[:, 8*fit_id + 1] = \
                     all_force_costs[fit_id]*parameters['FORCES_WEIGHT']
+
 
                 fitnesses[:, 8*fit_id+2:8*fit_id+8] = \
                     all_stress_costs[fit_id]*parameters['STRESS_WEIGHT']

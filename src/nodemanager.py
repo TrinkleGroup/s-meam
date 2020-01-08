@@ -196,7 +196,8 @@ class NodeManager:
         # epsilon = np.linalg.norm(diff, axis=1)
         epsilon = np.abs(diff)
 
-        return epsilon*epsilon*self.weights[struct_name]
+        # return epsilon*epsilon*self.weights[struct_name]
+        return epsilon*self.weights[struct_name]
 
     def condense_force_grads(self, forces, force_grad, struct_name):
         """
@@ -214,6 +215,8 @@ class NodeManager:
 
         scaled = np.einsum('pna,pnak->pnak', diff, force_grad)
         summed = scaled.sum(axis=1).sum(axis=1)
+
+        raise NotImplementedError("Check that cost matches forces_cost")
 
         return summed
 

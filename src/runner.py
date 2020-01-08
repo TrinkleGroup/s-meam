@@ -39,7 +39,6 @@ logger.setLevel(logging.WARNING)
 
 def main(config_name, template_file_name, names_file=None):
 
-    print('names_file:', names_file)
     world_comm = MPI.COMM_WORLD
     world_rank = world_comm.Get_rank()
 
