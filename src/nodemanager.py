@@ -472,7 +472,7 @@ class NodeManager:
 
             # energy = energy[0]
 
-            return [energy/self.natoms[struct_name], grouped_ni, stresses.T]
+            return [energy[0]/self.natoms[struct_name], grouped_ni, stresses.T]
 
         return [energy/self.natoms[struct_name], grouped_ni]
 
