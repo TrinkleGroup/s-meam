@@ -108,8 +108,9 @@ def build_evaluation_functions(
             fitnesses = np.zeros(
                 (
                     len(pop),
-                    len(all_struct_names)*6 \
-                    + len(all_struct_names)*2 \
+                    # len(all_struct_names)*6 \
+                    # + len(all_struct_names)*2 \
+                    len(all_struct_names)*3 \
                     + 3*frac_in.shape[1]
                 )
             )
@@ -138,7 +139,9 @@ def build_evaluation_functions(
                     all_force_costs[fit_id]*parameters['FORCES_WEIGHT']
 
 
-                fitnesses[:, 8*fit_id+2:8*fit_id+8] = \
+                # fitnesses[:, 8*fit_id+2:8*fit_id+8] = \
+                #     all_stress_costs[fit_id]*parameters['STRESS_WEIGHT']
+                fitnesses[:, fit_id+2] = \
                     all_stress_costs[fit_id]*parameters['STRESS_WEIGHT']
 
             lambda_pen = parameters['NI_PENALTY']

@@ -181,6 +181,10 @@ class NodeManager:
 
     def stresses_to_costs(self, stresses, struct_name):
         """
+        Computes the mean absolute error between the true and computed virial
+        stresses. Note that the computed stresses will be in units of
+        eV/Angstrom, whereas the database stresses are in kilobar.
+
         Args:
             stresses (np.arr): Px6 array of virial stresses
             struct_name (str): name of structure that was evaluated
@@ -190,13 +194,12 @@ class NodeManager:
         """
 
         true_stress = true_values['stress'][struct_name]
+        true_stress = true_stress*0.1/160.217662  # convert to eV/A
 
         diff = stresses - true_stress
 
-        # epsilon = np.linalg.norm(diff, axis=1)
-        epsilon = np.abs(diff)
+        epsilon = np.mean(np.abs(diff), axis=1)
 
-        # return epsilon*epsilon*self.weights[struct_name]
         return epsilon*self.weights[struct_name]
 
     def condense_force_grads(self, forces, force_grad, struct_name):
@@ -469,8 +472,6 @@ class NodeManager:
             stresses = (expanded - contracted) / 5e-4 / 2
 
             stresses /= self.volumes[struct_name]
-
-            # energy = energy[0]
 
             return [energy[0]/self.natoms[struct_name], grouped_ni, stresses.T]
 
