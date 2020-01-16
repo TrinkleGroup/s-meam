@@ -2,6 +2,7 @@ import os
 import sys
 sys.path.append('./')
 import glob
+import shutil
 import mpi4py
 import numpy as np
 import src.lammpsTools
@@ -106,25 +107,37 @@ def main(config_name, template_file_name, names_file=None):
         parameters['SAVE_DIRECTORY'], 'cost_trace.dat'
     )
 
+    parameters['BEST_POT_FILE'] = os.path.join(
+        parameters['SAVE_DIRECTORY'], 'best_pot_trace.dat'
+    )
+
+    parameters['BEST_FIT_FILE'] = os.path.join(
+        parameters['SAVE_DIRECTORY'], 'best_fitnesses_trace.dat'
+    )
+
     if is_master:
-        # if os.path.exists(parameters['NI_TRACE_FILE_NAME']):
-        #     tmp = 'ab'
-        # else:
-        #     tmp = 'w'
+
+        print("MASTER: Preparing save directory/files ... ", flush=True)
+
+        prepare_save_directory(parameters)
 
         f = open(parameters['NI_TRACE_FILE_NAME'], 'ab')
         f.close()
 
-        # if os.path.exists(parameters['COST_FILE_NAME']):
-        #     tmp = 'ab'
-        # else:
-        #     tmp = 'w'
-
         f = open(parameters['COST_FILE_NAME'], 'ab')
         f.close()
 
-        print("MASTER: Preparing save directory/files ... ", flush=True)
-        partools.prepare_save_directory(parameters)
+        f = open(parameters['BEST_POT_FILE'], 'ab')
+        f.close()
+
+        f = open(parameters['BEST_FIT_FILE'], 'w')
+        f.write("EFS weights: {}, {}, {}\n".format(
+            parameters['ENERGY_WEIGHT'],
+            parameters['FORCES_WEIGHT'],
+            parameters['STRESS_WEIGHT']
+        ))
+
+        f.close()
 
         print("Loading database ...", flush=True)
 
@@ -525,6 +538,15 @@ def prepare_node_managers(database, template, parameters, comm, is_master,
     node_manager.start_pool(parameters['PROCS_PER_NODE'])
 
     return node_manager
+
+def prepare_save_directory(parameters):
+    """Creates directories to store results"""
+
+    if os.path.isdir(parameters['SAVE_DIRECTORY']):
+        shutil.rmtree(parameters['SAVE_DIRECTORY'])
+
+    os.mkdir(parameters['SAVE_DIRECTORY'])
+
 
 if __name__ == "__main__":
     is_master = MPI.COMM_WORLD.Get_rank() == 0

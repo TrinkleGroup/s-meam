@@ -1,5 +1,4 @@
 import os
-import shutil
 import numpy as np
 from scipy.sparse import diags
 from scipy.optimize import least_squares
@@ -844,15 +843,6 @@ def build_M(num_x, dx, bc_type):
 
     # M = A^(-1)B
     return np.dot(np.linalg.inv(A), B)
-
-def prepare_save_directory(parameters):
-    """Creates directories to store results"""
-
-    if os.path.isdir(parameters['SAVE_DIRECTORY']):
-        shutil.rmtree(parameters['SAVE_DIRECTORY'])
-
-    os.mkdir(parameters['SAVE_DIRECTORY'])
-
 
 def local_minimization(
         pop_to_opt, master_pop, template, fxn, grad, weights, world_comm,

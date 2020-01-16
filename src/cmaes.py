@@ -139,19 +139,11 @@ def CMAES(parameters, template, node_manager,):
         if is_master:
             if generation_number > 1:
                 # log full cost vector of best ever potential
-                cost_save_path = os.path.join(
-                    parameters['SAVE_DIRECTORY'], 'best_fitnesses_trace.dat'
-                )
-
-                with open(cost_save_path, 'ab') as cost_save_file:
+                with open(parameters['BEST_FIT_FILE'], 'ab') as cost_save_file:
                     np.savetxt(cost_save_file, np.atleast_2d(best_fit))
 
-                pot_save_path = os.path.join(
-                    parameters['SAVE_DIRECTORY'], 'best_pot_trace.dat'
-                )
-
                 # log best ever potential
-                with open(pot_save_path, 'ab') as pot_save_file:
+                with open(parameters['BEST_POT_FILE'], 'ab') as pot_save_file:
                     np.savetxt(pot_save_file, best)
 
             new_costs = np.sum(costs, axis=1)
