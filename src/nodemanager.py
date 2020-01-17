@@ -176,7 +176,7 @@ class NodeManager:
         # epsilon = np.linalg.norm(diff, 'fro', axis=(1, 2))
         epsilon = np.average(np.abs(diff), axis=(1, 2))
 
-        return epsilon*epsilon*self.weights[struct_name]
+        return epsilon*self.weights[struct_name]
 
 
     def stresses_to_costs(self, stresses, struct_name):

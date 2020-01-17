@@ -64,6 +64,10 @@ def CMAES(parameters, template, node_manager,):
     if is_master:
         print("Initial min/max ni:", min_ni[0], max_ni[0])
 
+        costs[:, 0:-3:3] *= parameters['ENERGY_WEIGHT']
+        costs[:, 1:-3:3] *= parameters['FORCES_WEIGHT']
+        costs[:, 2:-3:3] *= parameters['STRESS_WEIGHT']
+
         full_solution = src.partools.rescale_ni(
             np.atleast_2d(full_solution), min_ni, max_ni, template
         )[0]
@@ -77,6 +81,11 @@ def CMAES(parameters, template, node_manager,):
 
     if is_master:
         print("Rescaled initial min/max ni:", min_ni[0], max_ni[0])
+
+        costs[:, 0:-3:3] *= parameters['ENERGY_WEIGHT']
+        costs[:, 1:-3:3] *= parameters['FORCES_WEIGHT']
+        costs[:, 2:-3:3] *= parameters['STRESS_WEIGHT']
+
 
     solution = world_comm.bcast(solution, root=0)
 
@@ -137,6 +146,15 @@ def CMAES(parameters, template, node_manager,):
         )
 
         if is_master:
+
+            costs[:, 0:-3:3] *= parameters['ENERGY_WEIGHT']
+            costs[:, 1:-3:3] *= parameters['FORCES_WEIGHT']
+            costs[:, 2:-3:3] *= parameters['STRESS_WEIGHT']
+
+            best_fit[:, 0:-3:3] *= parameters['ENERGY_WEIGHT']
+            best_fit[:, 1:-3:3] *= parameters['FORCES_WEIGHT']
+            best_fit[:, 2:-3:3] *= parameters['STRESS_WEIGHT']
+
             if generation_number > 1:
                 # log full cost vector of best ever potential
                 with open(parameters['BEST_FIT_FILE'], 'ab') as cost_save_file:
@@ -288,6 +306,11 @@ def CMAES(parameters, template, node_manager,):
 
     if is_master:
         polish_runtime = time.time() - polish_start_time
+
+        costs[:, 0:-3:3] *= parameters['ENERGY_WEIGHT']
+        costs[:, 1:-3:3] *= parameters['FORCES_WEIGHT']
+        costs[:, 2:-3:3] *= parameters['STRESS_WEIGHT']
+
 
         final_costs = np.sum(costs, axis=1)
 
