@@ -1,7 +1,9 @@
 import os
 import sys
+import glob
 import matplotlib.pyplot as plt
 from scipy.interpolate import CubicSpline
+from ase import Atoms
 
 import numpy as np
 import src.meam
@@ -9,6 +11,154 @@ from src.potential_templates import Template
 from src.meam import MEAM
 
 points_per_spline = 7
+
+elements = ['Cu', 'Ge', 'Li' , 'Mo', 'Ni', 'Si']
+all_ic   = [2.2, 2.4, 2.4, 2.4, 2.2, 2.2]
+all_oc   = [4.0, 5.3, 5.1, 5.2, 3.9, 5.0]
+crystals = ['fcc', 'diamond', 'bcc', 'bcc', 'fcc', 'diamond']
+
+ulim = [(-1, 1)]
+
+def compute_errors(elem, pot_to_use):
+    types = [elem]
+
+    # load true values (tv_oneref_pa) and compute reference energy
+    database_base_path = f'/home/jvita/scripts/s-meam/data/fitting_databases/mlearn/data/{elem}/'
+
+    info_path = os.path.join(database_base_path, 'tv_oneref_pa/')
+
+    ref_struct_name = 'Ground_state_crystal'
+    ref_struct_file = os.path.join(database_base_path, 'lammps', ref_struct_name + '.data')
+
+    ref_struct = src.lammpsTools.atoms_from_file(ref_struct_file, types=types)
+
+    comp_ref_results = pot_to_use.get_lammps_results(ref_struct)
+    comp_r_energy = comp_ref_results['energy'] / len(ref_struct)
+    
+    names = []
+    energy_errors = []
+    forces_errors = []
+    stress_errors = []
+    skipped = []
+    
+    # compute EFS errors for all structures in the database
+    struct_folder = os.path.join(database_base_path, 'structures', '*')
+
+    for i, struct_fname in enumerate(sorted(glob.glob(struct_folder))):
+
+        cell = np.genfromtxt(struct_fname, max_rows=3)
+        positions = np.genfromtxt(struct_fname, skip_header=3)[:, 1:]
+
+        db_atoms = Atoms(
+            f'{positions.shape[0]}{elem}',
+             positions=positions,
+             cell=cell,
+             pbc=[1, 1, 1]
+        )
+
+        volume = db_atoms.get_volume()
+        cell = db_atoms.get_cell()
+        positions = db_atoms.get_positions()
+
+        new_cell = rotate_into_lammps(cell.T).T
+
+        lammps_to_org = cell.T @ np.linalg.inv(new_cell.T)
+        org_to_lammps = new_cell.T @ np.linalg.inv(cell.T)
+
+        new_positions = (org_to_lammps @ positions.T).T
+
+        struct = db_atoms
+
+    #     struct = Atoms(
+    #         f'{positions.shape[0]}{elem}',
+    #          positions=new_positions,
+    #          cell=new_cell,
+    #          pbc=[1, 1, 1]
+    #     )
+
+    #     struct = src.lammpsTools.atoms_from_file(struct_fname, types=types)
+
+        natoms = len(struct)
+
+        short_name = os.path.splitext(os.path.split(struct_fname)[-1])[0]
+
+        struct_info_file = os.path.join(info_path, "info." + short_name)
+
+        true_ediff = np.genfromtxt(struct_info_file, max_rows=1)
+        true_forces = np.genfromtxt(struct_info_file, skip_header=1, skip_footer=1)
+        true_stress = np.genfromtxt(struct_info_file, skip_header=1+true_forces.shape[0])
+
+        # Note: database values are originally ordered as xx, yy, zz, xy, yz, xz
+        true_stress = [true_stress[0], true_stress[1], true_stress[2], true_stress[4], true_stress[5], true_stress[3]]
+        true_stress = np.array(true_stress)
+
+        try:
+            comp_results = pot_to_use.get_lammps_results(struct)
+
+            comp_s_energy = comp_results['energy'] / len(struct)
+            comp_ediff = comp_s_energy - comp_r_energy
+
+            comp_forces = comp_results['forces']
+
+            eng_err = abs(true_ediff - comp_ediff)
+            fcs_err = np.average(abs(comp_forces - true_forces))
+
+            comp_stress = comp_results['stress']
+
+            padded = np.array([
+                [comp_stress[0], comp_stress[5], comp_stress[4]],
+                [comp_stress[5], comp_stress[1], comp_stress[3]],
+                [comp_stress[4], comp_stress[3], comp_stress[2]]
+            ])
+
+            rotated = np.einsum('im,jn,mn->ij', lammps_to_org, lammps_to_org, padded)
+            rotated = np.array([rotated[0,0], rotated[1,1], rotated[2,2], rotated[1,2], rotated[0,2], rotated[0,1]])
+            rotated = -rotated*160.217662/0.1  # NodeManager pressure units are eV/(A^3); database is kbar
+
+            str_err = np.average(abs(rotated - true_stress))
+
+            energy_errors.append(eng_err)
+            forces_errors.append(fcs_err)
+            stress_errors.append(str_err)
+
+            print(short_name, eng_err)
+
+            if 'Vacancy' in short_name:
+                names.append(short_name[10:])
+            elif 'Snapshot' in short_name:
+                names.append(short_name[10:])
+            else:
+                names.append(short_name)
+        except RuntimeError as e:
+            print(e)
+
+            skipped.append(short_name)
+    return energy_errors, forces_errors, stress_errors
+
+def rotate_into_lammps(cell):
+    # expects columns to be cell vectors
+    
+    first_along_x = (cell[1, 0] == 0) and (cell[2,0] == 0)
+    second_in_xy = (cell[2,1] == 0)
+    
+    if first_along_x and second_in_xy:
+        # already in LAMMPS format; avoid math
+        return cell
+    
+    ax = np.sqrt(np.dot(cell[0], cell[0]))
+    a_hat = cell[0] / ax
+    
+    bx = np.dot(cell[1], a_hat)
+    by = np.sqrt(np.dot(cell[1], cell[1]) - bx**2)
+    cx = np.dot(cell[2], a_hat)
+    cy = (np.dot(cell[1], cell[2]) - bx*cx) / by
+    cz = np.sqrt(np.dot(cell[2], cell[2]) - cx*cx - cy*cy)
+    
+    return np.array([
+        [ax, bx, cx],
+        [0, by, cy],
+        [0, 0, cz],
+    ])
 
 def build_template(types, inner_cutoff=1.5, outer_cutoff=5.5):
     x_pvec = np.concatenate([
