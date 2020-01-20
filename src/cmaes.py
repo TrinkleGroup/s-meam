@@ -147,14 +147,6 @@ def CMAES(parameters, template, node_manager,):
 
         if is_master:
 
-            costs[:, 0:-3:3] *= parameters['ENERGY_WEIGHT']
-            costs[:, 1:-3:3] *= parameters['FORCES_WEIGHT']
-            costs[:, 2:-3:3] *= parameters['STRESS_WEIGHT']
-
-            best_fit[:, 0:-3:3] *= parameters['ENERGY_WEIGHT']
-            best_fit[:, 1:-3:3] *= parameters['FORCES_WEIGHT']
-            best_fit[:, 2:-3:3] *= parameters['STRESS_WEIGHT']
-
             if generation_number > 1:
                 # log full cost vector of best ever potential
                 with open(parameters['BEST_FIT_FILE'], 'ab') as cost_save_file:
@@ -163,16 +155,6 @@ def CMAES(parameters, template, node_manager,):
                 # log best ever potential
                 with open(parameters['BEST_POT_FILE'], 'ab') as pot_save_file:
                     np.savetxt(pot_save_file, best)
-
-            new_costs = np.sum(costs, axis=1)
-
-            es.tell(
-                population[:, active_ind], new_costs
-            )
-            es.disp()
-
-            if es.stop():
-                time_to_stop = True
 
             sort_indices = np.argsort(new_costs)
 
@@ -191,6 +173,22 @@ def CMAES(parameters, template, node_manager,):
                     generation_number, parameters, template,
                     parameters['NSTEPS']
                 )
+
+            # only apply weights AFTER logging unweighted data
+            costs[:, 0:-3:3] *= parameters['ENERGY_WEIGHT']
+            costs[:, 1:-3:3] *= parameters['FORCES_WEIGHT']
+            costs[:, 2:-3:3] *= parameters['STRESS_WEIGHT']
+
+            new_costs = np.sum(costs, axis=1)
+
+            es.tell(
+                population[:, active_ind], new_costs
+            )
+            es.disp()
+
+            if es.stop():
+                time_to_stop = True
+
 
         if parameters['DO_GROW']:
             if grow_id < len(parameters['GROW_SCHED']):
