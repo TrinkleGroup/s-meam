@@ -156,6 +156,8 @@ def CMAES(parameters, template, node_manager,):
                 with open(parameters['BEST_POT_FILE'], 'ab') as pot_save_file:
                     np.savetxt(pot_save_file, best)
 
+            new_costs = np.sum(costs, axis=1)
+
             sort_indices = np.argsort(new_costs)
 
             sorted_pop = population[sort_indices]
@@ -178,8 +180,6 @@ def CMAES(parameters, template, node_manager,):
             costs[:, 0:-3:3] *= parameters['ENERGY_WEIGHT']
             costs[:, 1:-3:3] *= parameters['FORCES_WEIGHT']
             costs[:, 2:-3:3] *= parameters['STRESS_WEIGHT']
-
-            new_costs = np.sum(costs, axis=1)
 
             es.tell(
                 population[:, active_ind], new_costs

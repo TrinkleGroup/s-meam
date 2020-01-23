@@ -1,6 +1,7 @@
 import os
 import sys
 import glob
+import subprocess
 import matplotlib.pyplot as plt
 from scipy.interpolate import CubicSpline
 from ase import Atoms
@@ -16,8 +17,41 @@ elements = ['Cu', 'Ge', 'Li' , 'Mo', 'Ni', 'Si']
 all_ic   = [2.2, 2.4, 2.4, 2.4, 2.2, 2.2]
 all_oc   = [4.0, 5.3, 5.1, 5.2, 3.9, 5.0]
 crystals = ['fcc', 'diamond', 'bcc', 'bcc', 'fcc', 'diamond']
+expected_a = [3.621, 5.763, 3.427, 3.168, 3.508, 5.469]  # DFT values, not each potential's given value
 
 ulim = [(-1, 1)]
+
+def compute_evf(elem, pot_to_use):
+
+    cryst = crystals[elements.index(elem)]
+    a0 = expected_a[elements.index(elem)]
+
+    os.chdir('/home/jvita/scripts/s-meam/VACANCY')
+
+    command = ['lmp_serial', '<', 'in.formation', f'-var elem {elem}', '-var pot_name /tmp/spline.meam2', f'-var cryst {cryst}', f'-var ao {a0}']
+
+    results = subprocess.run([' '.join(command)], stdout=subprocess.PIPE, shell=True)
+    cleaned = results.stdout.decode('utf-8').split('\n')
+
+    return float([l for l in cleaned if 'Vacancy formation' in l][0].split()[-1])
+
+def compute_cij(elem, pot_to_use):
+    # compute the Cij using the given potential
+    pot_to_use.write_to_file('/tmp/spline.meam2')
+
+    os.chdir('/home/jvita/scripts/s-meam/ELASTIC')
+
+    command = ['lmp_serial', '<', 'in.elastic', f'-var elem {elem}', f'-var str_name {elem.lower()}.data', '-var pot_name /tmp/spline.meam2']
+
+    results = subprocess.run([' '.join(command)], stdout=subprocess.PIPE, shell=True)
+    cleaned = results.stdout.decode('utf-8').split('\n')
+
+    c11 = float([l for l in cleaned if 'C11all' in l][0].split()[-2])
+    c12 = float([l for l in cleaned if 'C12all' in l][0].split()[-2])
+    c44 = float([l for l in cleaned if 'C44all' in l][0].split()[-2])
+    bulk = float([l for l in cleaned if 'Bulk' in l][0].split()[-2])
+    
+    return c11, c12, c44, bulk
 
 def compute_errors(elem, pot_to_use):
     types = [elem]
@@ -133,7 +167,7 @@ def compute_errors(elem, pot_to_use):
             print(e)
 
             skipped.append(short_name)
-    return energy_errors, forces_errors, stress_errors
+    return np.array(energy_errors), np.array(forces_errors), np.array(stress_errors)
 
 def rotate_into_lammps(cell):
     # expects columns to be cell vectors
