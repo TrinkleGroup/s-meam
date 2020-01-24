@@ -156,17 +156,6 @@ def CMAES(parameters, template, node_manager,):
                 with open(parameters['BEST_POT_FILE'], 'ab') as pot_save_file:
                     np.savetxt(pot_save_file, best)
 
-            new_costs = np.sum(costs, axis=1)
-
-            sort_indices = np.argsort(new_costs)
-
-            sorted_pop = population[sort_indices]
-            tmp_max_ni = max_ni[sort_indices]
-            tmp_min_ni = min_ni[sort_indices]
-            tmp_avg_ni = avg_ni[sort_indices]
-
-            costs = costs[sort_indices]
-
             if generation_number % parameters['CHECKPOINT_FREQ'] == 0:
                 src.partools.checkpoint(
                     # sorted_pop, new_costs, tmp_max_ni, tmp_min_ni, tmp_avg_ni,
