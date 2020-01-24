@@ -158,8 +158,7 @@ def CMAES(parameters, template, node_manager,):
 
             if generation_number % parameters['CHECKPOINT_FREQ'] == 0:
                 src.partools.checkpoint(
-                    # sorted_pop, new_costs, tmp_max_ni, tmp_min_ni, tmp_avg_ni,
-                    sorted_pop, costs, tmp_max_ni, tmp_min_ni, tmp_avg_ni,
+                    population, costs, max_ni, min_ni, avg_ni,
                     generation_number, parameters, template,
                     parameters['NSTEPS']
                 )
