@@ -164,7 +164,6 @@ def CMAES(parameters, template, node_manager,):
             tmp_max_ni = max_ni[sort_indices]
             tmp_min_ni = min_ni[sort_indices]
             tmp_avg_ni = avg_ni[sort_indices]
-            new_costs = new_costs[sort_indices]
 
             costs = costs[sort_indices]
 
@@ -180,6 +179,8 @@ def CMAES(parameters, template, node_manager,):
             costs[:, 0:-3:3] *= parameters['ENERGY_WEIGHT']
             costs[:, 1:-3:3] *= parameters['FORCES_WEIGHT']
             costs[:, 2:-3:3] *= parameters['STRESS_WEIGHT']
+
+            new_costs = np.sum(costs, axis=1)
 
             es.tell(
                 population[:, active_ind], new_costs
