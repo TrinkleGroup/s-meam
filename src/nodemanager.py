@@ -262,8 +262,9 @@ class NodeManager:
 
         # TODO: do scaling tests to make sure having optional OpenMP isn't slow
 
-        if self.pool_size == 1:
-            ret_dict = {}
+        ret_dict = {}
+
+        if (self.pool_size == 1) or (potentials.shape[0] <= self.pool_size):
 
             for struct_name in struct_list:
                 ret_dict[struct_name] = self.parallel_compute(
@@ -272,15 +273,52 @@ class NodeManager:
                 )
 
         else:
-            return_values = self.pool.starmap(
-                self.parallel_compute,
-                zip(
-                    struct_list, repeat(potentials), repeat(u_domains),
-                    repeat(compute_type), repeat(convert_to_cost)
-                )
-            )
+            for struct_name in struct_list:
 
-            ret_dict = dict(zip(struct_list, return_values))
+                return_values = self.pool.starmap(
+                    self.parallel_compute,
+                    zip(
+                        repeat(struct_name),
+                        np.array_split(potentials, self.pool_size),
+                        repeat(u_domains), repeat(compute_type),
+                        repeat(convert_to_cost), repeat(stress)
+                    )
+                )
+
+            print('return_values:', return_values)
+            print('return_values:', [len(el) for el in return_values])
+            print('return_values:', [type(el) for el in return_values])
+
+            if compute_type == 'energy':
+                # pool.starmap returns a list of values
+                # compute_energy returns a length 3 tuple of (energy, ni,
+                # stress), 
+
+                """
+                pool.starmap returns a list of values, where for compute_energy
+                each of these values is a length 3 tuple of (energy, ni,
+                stress). We need to stack the energy/ni/stress for the results
+                from each of the workers in the pool
+                """
+
+                # print('shapes:', tuple(np.vstack([v[subcom_id] for subcom_id in
+                #     range(self.pool_size)]) for v in return_values))
+
+                stacked_values = []
+                for value_type in range(3):  # energy, ni, stress_costs
+                    extracted_values = []
+                    for worker_pool_id in range(self.pool_size):
+                        extracted_values.append(return_values[worker_pool_id][value_type])
+
+                    print('extracted_values', extracted_values)
+                    # print([e.shape for e in extracted_values])
+
+                ret_dict[struct_name] = tuple(np.vstack(v) for v in return_values)
+
+            else:
+                ret_dict[struct_name] = np.vstack(return_values)
+
+            # ret_dict = dict(zip(struct_list, np.vstack(return_values)))
 
         return ret_dict
 
