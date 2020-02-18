@@ -273,7 +273,8 @@ class NodeManager:
                 )
 
         else:
-            for struct_name in struct_list:
+            for ii, struct_name in enumerate(struct_list):
+                print(self.node_id, ii, struct_name)
 
                 return_values = self.pool.starmap(
                     self.parallel_compute,
@@ -284,6 +285,8 @@ class NodeManager:
                         repeat(convert_to_cost), repeat(stress)
                     )
                 )
+
+                print(self.node_id, ii, 'done')
 
                 if compute_type == 'energy':
 
@@ -366,16 +369,23 @@ class NodeManager:
             eng = hdf5_file[struct_name]['phi']['energy'][idx][()]
             fcs = hdf5_file[struct_name]['phi']['forces'][idx][()]
 
-            # eng_loc = mp.Array('d', eng, lock=False)
-            # 
-            # ni, nj, nk = fcs.shape
-            # fcs_shm = mp.Array('f', ni*nj*nk, lock=False)
-            # fcs_loc = np.frombuffer(fcs_shm)
-            # fcs_loc = fcs_loc.reshape((ni, nj, nk))
-            # fcs_loc[:] = fcs[:]
+            fd, npots = eng.shape # finite differences arrays, num pots
+            eng_shm = mp.Array('d', fd*npots, lock=False)
+            eng_loc = np.frombuffer(eng_shm)
+            eng_loc = eng_loc.reshape((fd, npots))
+            eng_loc[:] = eng[:]
 
-            struct_vecs[struct_name]['phi']['energy'][idx] = eng
-            struct_vecs[struct_name]['phi']['forces'][idx] = fcs
+            ni, nj, nk = fcs.shape
+            fcs_shm = mp.Array('d', ni*nj*nk, lock=False)
+            fcs_loc = np.frombuffer(fcs_shm)
+            fcs_loc = fcs_loc.reshape((ni, nj, nk))
+            fcs_loc[:] = fcs[:]
+
+            struct_vecs[struct_name]['phi']['energy'][idx] = eng_loc
+            struct_vecs[struct_name]['phi']['forces'][idx] = fcs_loc
+
+            # struct_vecs[struct_name]['phi']['energy'][idx] = eng
+            # struct_vecs[struct_name]['phi']['forces'][idx] = fcs
 
         # load rho structure vectors
         for idx in hdf5_file[struct_name]['rho']['energy']:
@@ -383,8 +393,23 @@ class NodeManager:
             eng = hdf5_file[struct_name]['rho']['energy'][idx][()]
             fcs = hdf5_file[struct_name]['rho']['forces'][idx][()]
 
-            struct_vecs[struct_name]['rho']['energy'][idx] = eng
-            struct_vecs[struct_name]['rho']['forces'][idx] = fcs
+            fd, nat, npots = eng.shape # finite diff arrays, atoms, pots
+            eng_shm = mp.Array('d', fd*nat*npots, lock=False)
+            eng_loc = np.frombuffer(eng_shm)
+            eng_loc = eng_loc.reshape((fd, nat, npots))
+            eng_loc[:] = eng[:]
+
+            ni, nj = fcs.shape  # rho splines are in 2D form for sparse matrices
+            fcs_shm = mp.Array('d', ni*nj, lock=False)
+            fcs_loc = np.frombuffer(fcs_shm)
+            fcs_loc = fcs_loc.reshape((ni, nj))
+            fcs_loc[:] = fcs[:]
+
+            struct_vecs[struct_name]['rho']['energy'][idx] = eng_loc
+            struct_vecs[struct_name]['rho']['forces'][idx] = fcs_loc
+
+            # struct_vecs[struct_name]['rho']['energy'][idx] = eng
+            # struct_vecs[struct_name]['rho']['forces'][idx] = fcs
 
         self.ffg_grad_indices[struct_name] = {}
         self.ffg_grad_indices[struct_name]['ffg_grad_indices'] = {}
@@ -402,8 +427,23 @@ class NodeManager:
                 eng = hdf5_file[struct_name]['ffg']['energy'][j][k][()]
                 fcs = hdf5_file[struct_name]['ffg']['forces'][j][k][()]
 
-                struct_vecs[struct_name]['ffg']['energy'][j][k] = eng
-                struct_vecs[struct_name]['ffg']['forces'][j][k] = fcs
+                fd, nat, npots = eng.shape # finite diff arrays, atoms, pots
+                eng_shm = mp.Array('d', fd*nat*npots, lock=False)
+                eng_loc = np.frombuffer(eng_shm)
+                eng_loc = eng_loc.reshape((fd, nat, npots))
+                eng_loc[:] = eng[:]
+
+                ni, nj = fcs.shape  # rho splines are in 2D form for sparse matrices
+                fcs_shm = mp.Array('d', ni*nj, lock=False)
+                fcs_loc = np.frombuffer(fcs_shm)
+                fcs_loc = fcs_loc.reshape((ni, nj))
+                fcs_loc[:] = fcs[:]
+
+                struct_vecs[struct_name]['ffg']['energy'][j][k] = eng_loc
+                struct_vecs[struct_name]['ffg']['forces'][j][k] = fcs_loc
+
+                # struct_vecs[struct_name]['ffg']['energy'][j][k] = eng
+                # struct_vecs[struct_name]['ffg']['forces'][j][k] = fcs
 
                 # indices for indexing gradients
                 indices_group = hdf5_file[struct_name]['ffg_grad_indices'][j][k]
@@ -412,11 +452,33 @@ class NodeManager:
                 fk = indices_group['fk_indices'][()]
                 g = indices_group['g_indices'][()]
 
+                npots, nindices = fj.shape  # number of potentials, indices
+                fj_shm = mp.Array('d', npots*nindices, lock=False)
+                fj_loc = np.frombuffer(fj_shm)
+                fj_loc = fj_loc.reshape((npots, nindices))
+                fj_loc[:] = fj[:]
+
+                npots, nindices = fk.shape  # number of potentials, indices
+                fk_shm = mp.Array('d', npots*nindices, lock=False)
+                fk_loc = np.frombuffer(fk_shm)
+                fk_loc = fk_loc.reshape((npots, nindices))
+                fk_loc[:] = fk[:]
+
+                npots, nindices = g.shape  # number of potentials, indices
+                g_shm = mp.Array('d', npots*nindices, lock=False)
+                g_loc = np.frombuffer(g_shm)
+                g_loc = g_loc.reshape((npots, nindices))
+                g_loc[:] = g[:]
+
                 self.ffg_grad_indices[struct_name][j][k] = {}
 
-                self.ffg_grad_indices[struct_name][j][k]['fj_indices'] = fj
-                self.ffg_grad_indices[struct_name][j][k]['fk_indices'] = fk
-                self.ffg_grad_indices[struct_name][j][k]['g_indices'] = g
+                self.ffg_grad_indices[struct_name][j][k]['fj_indices'] = fj_loc
+                self.ffg_grad_indices[struct_name][j][k]['fk_indices'] = fk_loc
+                self.ffg_grad_indices[struct_name][j][k]['g_indices'] = g_loc
+
+                # self.ffg_grad_indices[struct_name][j][k]['fj_indices'] = fj
+                # self.ffg_grad_indices[struct_name][j][k]['fk_indices'] = fk
+                # self.ffg_grad_indices[struct_name][j][k]['g_indices'] = g
 
         if load_true:
             # load true values
