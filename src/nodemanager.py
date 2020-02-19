@@ -297,19 +297,29 @@ class NodeManager:
         if type(struct_list) is not list:
             raise ValueError("struct_list must be a list of keys")
 
-        # TODO: do scaling tests to make sure having optional OpenMP isn't slow
+        # TODO: handle the case where pop_size < num_workers
 
-        # TODO: communicator that sends potentials only to node heads
-        # TODO: split and scatter population across sub communicator
-        # TODO: everyone evaluates their chunk, which then gets gathered
-
+        # node heads have to return their evaluations; children can skip eval
         if self.is_node_head:
-            split_pop = np.array_split(potentials, self.num_workers, axis=0)
+            only_eval_on_head = False
+
+            if potentials.shape[0] > self.num_workers:
+                only_eval_on_head = True
+                split_pop = potentials
+            else:
+                split_pop = np.array_split(potentials, self.num_workers, axis=0)
         else:
             split_pop = None
+            only_eval_on_head = None
+
+        only_eval_on_head = self.comm.bcast(only_eval_on_head, root=0)
+
+        if only_eval_on_head and (self.local_rank != 0):  # nothing to do
+            return
 
         local_pop = self.comm.scatter(split_pop, root=0)
 
+        # prepare dictionary of return values
         if self.is_node_head:
             ret_dict = {}
         else:

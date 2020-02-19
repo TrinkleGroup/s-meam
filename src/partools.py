@@ -23,6 +23,7 @@ def build_evaluation_functions(
 
         # TODO: need to gather only results from the node heads (new comm)
 
+        # all of the Nodes need the population, since they //-ize over structs
         if node_manager.is_node_head:
             pop = manager_comm.bcast(master_pop, root=0)
             pop = np.atleast_2d(pop)
@@ -78,17 +79,17 @@ def build_evaluation_functions(
         min_ni = 0
         avg_ni = 0
 
-        mgr_eng = world_comm.gather(eng, root=0)
-        mgr_stress = world_comm.gather(stresses, root=0)
-        mgr_force_costs = world_comm.gather(force_costs, root=0)
+        mgr_eng = manager_comm.gather(eng, root=0)
+        mgr_stress = manager_comm.gather(stresses, root=0)
+        mgr_force_costs = manager_comm.gather(force_costs, root=0)
 
-        mgr_min_ni = world_comm.gather(c_min_ni, root=0)
-        mgr_max_ni = world_comm.gather(c_max_ni, root=0)
-        mgr_avg_ni = world_comm.gather(c_avg_ni, root=0)
-        mgr_ni_var = world_comm.gather(c_ni_var, root=0)
-        mgr_frac_in = world_comm.gather(c_frac_in, root=0)
+        mgr_min_ni = manager_comm.gather(c_min_ni, root=0)
+        mgr_max_ni = manager_comm.gather(c_max_ni, root=0)
+        mgr_avg_ni = manager_comm.gather(c_avg_ni, root=0)
+        mgr_ni_var = manager_comm.gather(c_ni_var, root=0)
+        mgr_frac_in = manager_comm.gather(c_frac_in, root=0)
 
-        mgr_names_list = world_comm.gather(sorted_names, root=0)
+        mgr_names_list = manager_comm.gather(sorted_names, root=0)
 
         if is_master:
             all_names = np.concatenate(mgr_names_list)
