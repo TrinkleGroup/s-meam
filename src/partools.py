@@ -6,7 +6,7 @@ from scipy.interpolate import CubicSpline
 
 def build_evaluation_functions(
         template, all_struct_names, node_manager, world_comm, is_master, true_values,
-        parameters
+        parameters, manager_comm
 ):
     """Builds the function to evaluate populations. Wrapped here for readability
     of main code."""
@@ -21,9 +21,13 @@ def build_evaluation_functions(
 
         """
 
-        # NOTE: master is full program master; manager is just every rank
-        pop = world_comm.bcast(master_pop, root=0)
-        pop = np.atleast_2d(pop)
+        # TODO: need to gather only results from the node heads (new comm)
+
+        if node_manager.is_node_head:
+            pop = manager_comm.bcast(master_pop, root=0)
+            pop = np.atleast_2d(pop)
+        else:
+            pop = None
 
         # TODO: shouldn't update these every time, only when dbOpt needs to
         node_manager.weights = dict(zip(
@@ -45,7 +49,7 @@ def build_evaluation_functions(
 
         sorted_stresses = [
             x for _, x in sorted(
-                zip(list(manager_energies.keys()),unsorted_stresses)
+                zip(list(manager_energies.keys()), unsorted_stresses)
             )
         ]
 

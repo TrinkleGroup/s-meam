@@ -533,9 +533,15 @@ def prepare_node_managers(database, template, parameters, comm, is_master,
         flush=True
     )
 
-    node_manager = NodeManager(comm.Get_rank(), template)
+    global_rank = comm.Get_rank()
+    color   = global_rank // parameters['PROCS_PER_NODE']
+    key     = global_rank % parameters['PROCS_PER_NODE']
+
+    node_comm = MPI.Comm.Split(comm, color, key)
+
+    node_manager = NodeManager(color, template, node_comm)
     node_manager.load_structures(struct_list, database, load_true=True)
-    node_manager.start_pool(parameters['PROCS_PER_NODE'])
+    # node_manager.start_pool(parameters['PROCS_PER_NODE'])
 
     return node_manager
 

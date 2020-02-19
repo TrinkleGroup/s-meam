@@ -4,12 +4,12 @@ Handles energy/forces/etc evaluation with hybrid OpenMP/MPI.
 Each NodeManager object handles the set of processes on a single compute node.
 """
 
-import time
 import numpy as np
 import multiprocessing as mp
 import src.partools
 from itertools import repeat
 from multiprocessing import Manager
+from mpi4py import MPI
 import logging
 
 import cProfile
@@ -50,8 +50,16 @@ true_values = {
     'ref_struct': {},
 }
 
+mpi_double_size = MPI.DOUBLE.Get_size()
+
 class NodeManager:
-    def __init__(self, node_id, template):
+    def __init__(self, node_id, template, comm=None):
+
+        self.comm = comm
+        self.local_rank = self.comm.Get_rank()
+        self.num_workers = self.comm.Get_size()
+        self.is_node_head = (self.local_rank == 0)
+
         self.node_id = node_id
         self.template = template
 
@@ -95,8 +103,8 @@ class NodeManager:
 
         global struct_vecs
 
-        shared_struct_vecs = manager.dict(struct_vecs)
-        struct_vecs = shared_struct_vecs
+        # shared_struct_vecs = manager.dict(struct_vecs)
+        # struct_vecs = shared_struct_vecs
 
         if node_size is None:
             node_size = mp.cpu_count()
@@ -291,32 +299,32 @@ class NodeManager:
 
         # TODO: do scaling tests to make sure having optional OpenMP isn't slow
 
-        ret_dict = {}
+        # TODO: communicator that sends potentials only to node heads
+        # TODO: split and scatter population across sub communicator
+        # TODO: everyone evaluates their chunk, which then gets gathered
 
-        if (self.pool_size == 1) or (potentials.shape[0] <= self.pool_size):
-
-            for struct_name in struct_list:
-                ret_dict[struct_name] = self.parallel_compute(
-                    struct_name, potentials, u_domains, compute_type,
-                    convert_to_cost, stress=stress
-                )
-
+        if self.is_node_head:
+            split_pop = np.array_split(potentials, self.num_workers, axis=0)
         else:
-            for ii, struct_name in enumerate(struct_list):
-                print(self.node_id, ii, struct_name)
+            split_pop = None
 
-                return_values = self.pool.starmap(
-                    self.parallel_compute,
-                    zip(
-                        repeat(struct_name),
-                        np.array_split(potentials, self.pool_size),
-                        repeat(u_domains), repeat(compute_type),
-                        repeat(convert_to_cost), repeat(stress)
-                    )
-                )
+        local_pop = self.comm.scatter(split_pop, root=0)
 
-                print(self.node_id, ii, 'done')
+        if self.is_node_head:
+            ret_dict = {}
+        else:
+            ret_dict = None
 
+        for struct_name in struct_list:
+            local_values = self.parallel_compute(
+                struct_name, local_pop, u_domains, compute_type,
+                # struct_name, potentials, u_domains, compute_type,
+                convert_to_cost, stress=stress
+            )
+
+            return_values = self.comm.gather(local_values, root=0)
+
+            if self.is_node_head:
                 if compute_type == 'energy':
 
                     """
@@ -333,6 +341,44 @@ class NodeManager:
                     ]
                 else:
                     ret_dict[struct_name] = np.hstack(return_values)
+
+        # if (self.pool_size == 1) or (potentials.shape[0] <= self.pool_size):
+        #
+        #     for struct_name in struct_list:
+        #         ret_dict[struct_name] = self.parallel_compute(
+        #             struct_name, local_pop, u_domains, compute_type,
+        #             # struct_name, potentials, u_domains, compute_type,
+        #             convert_to_cost, stress=stress
+        #         )
+        #
+        # else:
+        #     for ii, struct_name in enumerate(struct_list):
+        #         return_values = self.pool.starmap(
+        #             self.parallel_compute,
+        #             zip(
+        #                 repeat(struct_name),
+        #                 np.array_split(potentials, self.pool_size),
+        #                 repeat(u_domains), repeat(compute_type),
+        #                 repeat(convert_to_cost), repeat(stress)
+        #             )
+        #         )
+        #
+        #         if compute_type == 'energy':
+        #
+        #             """
+        #             pool.starmap returns a list of values, where for compute_energy
+        #             each of these values is a length 3 tuple of (energy, ni,
+        #             stress). We need to stack the energy/ni/stress for the results
+        #             from each of the workers in the pool
+        #             """
+        #
+        #             ret_dict[struct_name] = [
+        #                 np.hstack(
+        #                     [return_values[w][v] for w in range(self.pool_size)]
+        #                 ) for v in range(3)  # energy, ni, stress_costs
+        #             ]
+        #         else:
+        #             ret_dict[struct_name] = np.hstack(return_values)
 
         return ret_dict
 
@@ -386,8 +432,6 @@ class NodeManager:
         volume = hdf5_file[struct_name].attrs['volume']
         self.volumes[struct_name] = volume
 
-        # struct_names.append(struct_name)
-
         struct_vecs[struct_name] = {
             'phi': {
                 'energy': {str(ii): None for ii in range(self.nphi)},
@@ -409,85 +453,132 @@ class NodeManager:
                 }
         }
 
-        # TODO: known issue of having nested multiprocessing dicts
-
-        # struct_vecs[struct_name] = manager.dict()
-        # struct_vecs[struct_name]['phi'] = manager.dict()
-        # struct_vecs[struct_name]['phi']['energy'] = manager.dict()
-        # struct_vecs[struct_name]['phi']['forces'] = manager.dict()
-
-        # struct_vecs[struct_name]['rho'] = manager.dict()
-        # struct_vecs[struct_name]['rho']['energy'] = manager.dict()
-        # struct_vecs[struct_name]['rho']['forces'] = manager.dict()
-
-        # struct_vecs[struct_name]['ffg'] = manager.dict()
-        # struct_vecs[struct_name]['ffg']['energy'] = manager.dict()
-        # struct_vecs[struct_name]['ffg']['forces'] = manager.dict()
-
         # load ffg structure vectors
-        eng_tmp_list = []
-        fcs_tmp_list = []
         for idx in hdf5_file[struct_name]['phi']['energy']:
 
-            eng = hdf5_file[struct_name]['phi']['energy'][idx][()]
-            fcs = hdf5_file[struct_name]['phi']['forces'][idx][()]
+            if self.is_node_head:
+                eng = hdf5_file[struct_name]['phi']['energy'][idx][()]
+                fcs = hdf5_file[struct_name]['phi']['forces'][idx][()]
 
-            fd, npots = eng.shape # finite differences arrays, num pots
-            eng_shm = mp.Array('d', fd*npots, lock=False)
-            eng_loc = np.frombuffer(eng_shm)
-            eng_loc = eng_loc.reshape((fd, npots))
-            eng_loc[:] = eng[:]
+                # TODO: have all of these arrays point to shared memory
+                # TODO: also, make sure only rank 0 is actually reading stuff in
+                # although, it's MPI so you *could* have each subproc read too
 
-            ni, nj, nk = fcs.shape
-            fcs_shm = mp.Array('d', ni*nj*nk, lock=False)
-            fcs_loc = np.frombuffer(fcs_shm)
-            fcs_loc = fcs_loc.reshape((ni, nj, nk))
-            fcs_loc[:] = fcs[:]
+                eng_shape = eng.shape
+                eng_nbytes = np.prod(eng_shape)*mpi_double_size
 
-            struct_vecs[struct_name]['phi']['energy'][idx] = eng_loc
-            struct_vecs[struct_name]['phi']['forces'][idx] = fcs_loc
-            # eng_tmp_list.append(eng_loc)
-            # fcs_tmp_list.append(fcs_loc)
+                fcs_shape = fcs.shape
+                fcs_nbytes = np.prod(fcs_shape)*mpi_double_size
+            else:
+                eng_shape = None
+                fcs_shape = None
 
-            # print(struct_vecs[struct_name]['phi']['energy'][idx])
+                eng_nbytes = 0
+                fcs_nbytes = 0
 
-        # energy_struct_vecs['phi'].append(eng_tmp_list)
-        # forces_struct_vecs['phi'].append(fcs_tmp_list)
+            eng_shape = self.comm.bcast(eng_shape, root=0)
+            fcs_shape = self.comm.bcast(fcs_shape, root=0)
 
-            # struct_vecs[struct_name]['phi']['energy'][idx] = eng
-            # struct_vecs[struct_name]['phi']['forces'][idx] = fcs
+            eng_shmem_win = MPI.Win.Allocate_shared(
+                eng_nbytes, mpi_double_size, comm=self.comm
+            )
+
+            fcs_shmem_win = MPI.Win.Allocate_shared(
+                fcs_nbytes, mpi_double_size, comm=self.comm
+            )
+
+            eng_buf, _ = eng_shmem_win.Shared_query(0)
+            fcs_buf, _ = fcs_shmem_win.Shared_query(0)
+
+            eng_shmem_arr = np.ndarray(
+                buffer=eng_buf, dtype='d', shape=eng_shape
+            )
+
+            fcs_shmem_arr = np.ndarray(
+                buffer=fcs_buf, dtype='d', shape=fcs_shape
+            )
+
+            # eng_shm = mp.Array('d', fd*npots, lock=False)
+            # # TODO: this is where you'd put stuff for MPI shmem
+            # eng_loc = np.frombuffer(eng_shm)
+            # eng_loc = eng_loc.reshape((fd, npots))
+            # eng_loc[:] = eng[:]
+            #
+            # ni, nj, nk = fcs.shape
+            # fcs_shm = mp.Array('d', ni*nj*nk, lock=False)
+            # fcs_loc = np.frombuffer(fcs_shm)
+            # fcs_loc = fcs_loc.reshape((ni, nj, nk))
+            # fcs_loc[:] = fcs[:]
+
+            struct_vecs[struct_name]['phi']['energy'][idx] = eng_shmem_arr
+            struct_vecs[struct_name]['phi']['forces'][idx] = fcs_shmem_arr
+
+            if self.is_node_head:
+                struct_vecs[struct_name]['phi']['energy'][idx][...] = eng
+                struct_vecs[struct_name]['phi']['forces'][idx][...] = fcs
 
         # load rho structure vectors
-        eng_tmp_list = []
-        fcs_tmp_list = []
         for idx in hdf5_file[struct_name]['rho']['energy']:
 
-            eng = hdf5_file[struct_name]['rho']['energy'][idx][()]
-            fcs = hdf5_file[struct_name]['rho']['forces'][idx][()]
+            if self.is_node_head:
+                eng = hdf5_file[struct_name]['rho']['energy'][idx][()]
+                fcs = hdf5_file[struct_name]['rho']['forces'][idx][()]
 
-            fd, nat, npots = eng.shape # finite diff arrays, atoms, pots
-            eng_shm = mp.Array('d', fd*nat*npots, lock=False)
-            eng_loc = np.frombuffer(eng_shm)
-            eng_loc = eng_loc.reshape((fd, nat, npots))
-            eng_loc[:] = eng[:]
+                eng_shape = eng.shape
+                eng_nbytes = np.prod(eng_shape)*mpi_double_size
 
-            ni, nj = fcs.shape  # rho splines are in 2D form for sparse matrices
-            fcs_shm = mp.Array('d', ni*nj, lock=False)
-            fcs_loc = np.frombuffer(fcs_shm)
-            fcs_loc = fcs_loc.reshape((ni, nj))
-            fcs_loc[:] = fcs[:]
+                fcs_shape = fcs.shape
+                fcs_nbytes = np.prod(fcs_shape)*mpi_double_size
+            else:
+                eng_shape = None
+                fcs_shape = None
 
-            struct_vecs[struct_name]['rho']['energy'][idx] = eng_loc
-            struct_vecs[struct_name]['rho']['forces'][idx] = fcs_loc
+                eng_nbytes = 0
+                fcs_nbytes = 0
 
-            # eng_tmp_list.append(eng_loc)
-            # fcs_tmp_list.append(fcs_loc)
+            eng_shape = self.comm.bcast(eng_shape, root=0)
+            fcs_shape = self.comm.bcast(fcs_shape, root=0)
 
-        # energy_struct_vecs['rho'].append(eng_tmp_list)
-        # forces_struct_vecs['rho'].append(fcs_tmp_list)
+            eng_shmem_win = MPI.Win.Allocate_shared(
+                eng_nbytes, mpi_double_size, comm=self.comm
+            )
 
-            # struct_vecs[struct_name]['rho']['energy'][idx] = eng
-            # struct_vecs[struct_name]['rho']['forces'][idx] = fcs
+            fcs_shmem_win = MPI.Win.Allocate_shared(
+                fcs_nbytes, mpi_double_size, comm=self.comm
+            )
+
+            eng_buf, _ = eng_shmem_win.Shared_query(0)
+            fcs_buf, _ = fcs_shmem_win.Shared_query(0)
+
+            eng_shmem_arr = np.ndarray(
+                buffer=eng_buf, dtype='d', shape=eng_shape
+            )
+
+            fcs_shmem_arr = np.ndarray(
+                buffer=fcs_buf, dtype='d', shape=fcs_shape
+            )
+
+            struct_vecs[struct_name]['rho']['energy'][idx] = eng_shmem_arr
+            struct_vecs[struct_name]['rho']['forces'][idx] = fcs_shmem_arr
+
+            if self.is_node_head:
+                struct_vecs[struct_name]['rho']['energy'][idx][...] = eng
+                struct_vecs[struct_name]['rho']['forces'][idx][...] = fcs
+
+            # fd, nat, npots = eng.shape # finite diff arrays, atoms, pots
+            # eng_shm = mp.Array('d', fd*nat*npots, lock=False)
+            # eng_loc = np.frombuffer(eng_shm)
+            # eng_loc = eng_loc.reshape((fd, nat, npots))
+            # eng_loc[:] = eng[:]
+
+            # ni, nj = fcs.shape  # rho splines are in 2D form for sparse matrices
+            # fcs_shm = mp.Array('d', ni*nj, lock=False)
+            # fcs_loc = np.frombuffer(fcs_shm)
+            # fcs_loc = fcs_loc.reshape((ni, nj))
+            # fcs_loc[:] = fcs[:]
+
+            # struct_vecs[struct_name]['rho']['energy'][idx] = eng_loc
+            # struct_vecs[struct_name]['rho']['forces'][idx] = fcs_loc
 
         self.ffg_grad_indices[struct_name] = {}
         self.ffg_grad_indices[struct_name]['ffg_grad_indices'] = {}
@@ -501,32 +592,66 @@ class NodeManager:
 
             for k in hdf5_file[struct_name]['ffg']['energy'][j]:
 
-                # structure vectors
-                eng = hdf5_file[struct_name]['ffg']['energy'][j][k][()]
-                fcs = hdf5_file[struct_name]['ffg']['forces'][j][k][()]
+                if self.is_node_head:
+                    # structure vectors
+                    eng = hdf5_file[struct_name]['ffg']['energy'][j][k][()]
+                    fcs = hdf5_file[struct_name]['ffg']['forces'][j][k][()]
 
-                fd, nat, npots = eng.shape # finite diff arrays, atoms, pots
-                eng_shm = mp.Array('d', fd*nat*npots, lock=False)
-                eng_loc = np.frombuffer(eng_shm)
-                eng_loc = eng_loc.reshape((fd, nat, npots))
-                eng_loc[:] = eng[:]
+                    eng_shape = eng.shape
+                    eng_nbytes = np.prod(eng_shape)*mpi_double_size
 
-                ni, nj = fcs.shape  # rho splines are in 2D form for sparse matrices
-                fcs_shm = mp.Array('d', ni*nj, lock=False)
-                fcs_loc = np.frombuffer(fcs_shm)
-                fcs_loc = fcs_loc.reshape((ni, nj))
-                fcs_loc[:] = fcs[:]
+                    fcs_shape = fcs.shape
+                    fcs_nbytes = np.prod(fcs_shape)*mpi_double_size
+                else:
+                    eng_shape = None
+                    fcs_shape = None
 
-                print(list(struct_vecs[struct_name]['ffg']['energy'].keys()))
+                    eng_nbytes = 0
+                    fcs_nbytes = 0
 
-                struct_vecs[struct_name]['ffg']['energy'][j][k] = eng_loc
-                struct_vecs[struct_name]['ffg']['forces'][j][k] = fcs_loc
+                eng_shape = self.comm.bcast(eng_shape, root=0)
+                fcs_shape = self.comm.bcast(fcs_shape, root=0)
 
-                # energy_struct_vecs['ffg'].append(eng_loc)
-                # forces_struct_vecs['ffg'].append(fcs_loc)
+                eng_shmem_win = MPI.Win.Allocate_shared(
+                    eng_nbytes, mpi_double_size, comm=self.comm
+                )
 
-                # struct_vecs[struct_name]['ffg']['energy'][j][k] = eng
-                # struct_vecs[struct_name]['ffg']['forces'][j][k] = fcs
+                fcs_shmem_win = MPI.Win.Allocate_shared(
+                    fcs_nbytes, mpi_double_size, comm=self.comm
+                )
+
+                eng_buf, _ = eng_shmem_win.Shared_query(0)
+                fcs_buf, _ = fcs_shmem_win.Shared_query(0)
+
+                eng_shmem_arr = np.ndarray(
+                    buffer=eng_buf, dtype='d', shape=eng_shape
+                )
+
+                fcs_shmem_arr = np.ndarray(
+                    buffer=fcs_buf, dtype='d', shape=fcs_shape
+                )
+
+                struct_vecs[struct_name]['ffg']['energy'][j][k] = eng_shmem_arr
+                struct_vecs[struct_name]['ffg']['forces'][j][k] = fcs_shmem_arr
+
+                if self.is_node_head:
+                    struct_vecs[struct_name]['ffg']['energy'][j][k] = eng
+                    struct_vecs[struct_name]['ffg']['forces'][j][k] = fcs
+
+                # fd, nat, npots = eng.shape # finite diff arrays, atoms, pots
+                # eng_shm = mp.Array('d', fd*nat*npots, lock=False)
+                # eng_loc = np.frombuffer(eng_shm)
+                # eng_loc = eng_loc.reshape((fd, nat, npots))
+                # eng_loc[:] = eng[:]
+                #
+                # ni, nj = fcs.shape  # rho splines are in 2D form for sparse matrices
+                # fcs_shm = mp.Array('d', ni*nj, lock=False)
+                # fcs_loc = np.frombuffer(fcs_shm)
+                # fcs_loc = fcs_loc.reshape((ni, nj))
+                # fcs_loc[:] = fcs[:]
+
+                # struct_vecs[struct_name]['ffg']['energy'][j][k] = eng_loc
+                # struct_vecs[struct_name]['ffg']['forces'][j][k] = fcs_loc
 
                 # indices for indexing gradients
                 indices_group = hdf5_file[struct_name]['ffg_grad_indices'][j][k]
@@ -535,33 +660,11 @@ class NodeManager:
                 fk = indices_group['fk_indices'][()]
                 g = indices_group['g_indices'][()]
 
-                # npots, nindices = fj.shape  # number of potentials, indices
-                # fj_shm = mp.Array('d', npots*nindices, lock=False)
-                # fj_loc = np.frombuffer(fj_shm)
-                # fj_loc = fj_loc.reshape((npots, nindices))
-                # fj_loc[:] = fj[:]
-
-                # npots, nindices = fk.shape  # number of potentials, indices
-                # fk_shm = mp.Array('d', npots*nindices, lock=False)
-                # fk_loc = np.frombuffer(fk_shm)
-                # fk_loc = fk_loc.reshape((npots, nindices))
-                # fk_loc[:] = fk[:]
-
-                # npots, nindices = g.shape  # number of potentials, indices
-                # g_shm = mp.Array('d', npots*nindices, lock=False)
-                # g_loc = np.frombuffer(g_shm)
-                # g_loc = g_loc.reshape((npots, nindices))
-                # g_loc[:] = g[:]
-
                 self.ffg_grad_indices[struct_name][j][k] = {}
 
                 self.ffg_grad_indices[struct_name][j][k]['fj_indices'] = fj
                 self.ffg_grad_indices[struct_name][j][k]['fk_indices'] = fk
                 self.ffg_grad_indices[struct_name][j][k]['g_indices'] = g
-
-                # self.ffg_grad_indices[struct_name][j][k]['fj_indices'] = fj
-                # self.ffg_grad_indices[struct_name][j][k]['fk_indices'] = fk
-                # self.ffg_grad_indices[struct_name][j][k]['g_indices'] = g
 
         if load_true:
             # load true values

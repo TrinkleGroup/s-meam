@@ -12,11 +12,21 @@ import src.pareto
 
 
 def CMAES(parameters, template, node_manager,):
+    # MPI setup
     world_comm = MPI.COMM_WORLD
     world_rank = world_comm.Get_rank()
+    world_size = world_comm.Get_size()
 
     is_master = (world_rank == 0)
 
+    # every PROCS_PER_NODE-th rank is a node head
+    manager_ranks = np.arange(0, world_size, parameters['PROCS_PER_NODE'])
+
+    world_group = world_comm.Get_group()
+
+    # manager_comm connects all manager processes
+    manager_group = world_group.Incl(manager_ranks)
+    manager_comm = world_comm.Create(manager_group)
 
     template = world_comm.bcast(template, root=0)
 
@@ -37,7 +47,8 @@ def CMAES(parameters, template, node_manager,):
     # run the function constructor to build the objective function
     objective_fxn, gradient = src.partools.build_evaluation_functions(
         template, all_struct_names, node_manager,
-        world_comm, is_master, true_values, parameters
+        world_comm, is_master, true_values, parameters,
+        manager_comm=manager_comm
     )
 
     if is_master:
