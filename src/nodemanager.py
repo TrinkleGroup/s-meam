@@ -19,7 +19,28 @@ logger.setLevel(logging.DEBUG)
 
 # TODO: might be able to avoid using mp.Array since it's read only?
 
+manager = mp.Manager()
+
+# energy_struct_vecs = manager.dict()
+# energy_struct_vecs['phi'] = manager.list()
+# energy_struct_vecs['rho'] = manager.list()
+# energy_struct_vecs['ffg'] = manager.list()
+# 
+# forces_struct_vecs = manager.dict()
+# forces_struct_vecs['phi'] = manager.list()
+# forces_struct_vecs['rho'] = manager.list()
+# forces_struct_vecs['ffg'] = manager.list()
+# 
+# struct_names = manager.list()
+
+# true_values = manager.dict()
+# true_values['energy'] = manager.dict()
+# true_values['forces'] = manager.dict()
+# true_values['stress'] = manager.dict()
+# true_values['ref_struct'] = manager.dict()
+
 struct_vecs = {}
+
 true_values = {
     'energy': {},
     'forces': {},
@@ -357,13 +378,32 @@ class NodeManager:
         volume = hdf5_file[struct_name].attrs['volume']
         self.volumes[struct_name] = volume
 
+        struct_names.append(struct_name)
+
         struct_vecs[struct_name] = {
             'phi': {'energy': {}, 'forces': {}},
             'rho': {'energy': {}, 'forces': {}},
             'ffg': {'energy': {}, 'forces': {}}
         }
 
-        # load phi structure vectors
+        # TODO: known issue of having nested multiprocessing dicts
+
+        # struct_vecs[struct_name] = manager.dict()
+        # struct_vecs[struct_name]['phi'] = manager.dict()
+        # struct_vecs[struct_name]['phi']['energy'] = manager.dict()
+        # struct_vecs[struct_name]['phi']['forces'] = manager.dict()
+
+        # struct_vecs[struct_name]['rho'] = manager.dict()
+        # struct_vecs[struct_name]['rho']['energy'] = manager.dict()
+        # struct_vecs[struct_name]['rho']['forces'] = manager.dict()
+
+        # struct_vecs[struct_name]['ffg'] = manager.dict()
+        # struct_vecs[struct_name]['ffg']['energy'] = manager.dict()
+        # struct_vecs[struct_name]['ffg']['forces'] = manager.dict()
+
+        # load ffg structure vectors
+        eng_tmp_list = []
+        fcs_tmp_list = []
         for idx in hdf5_file[struct_name]['phi']['energy']:
 
             eng = hdf5_file[struct_name]['phi']['energy'][idx][()]
@@ -383,11 +423,18 @@ class NodeManager:
 
             struct_vecs[struct_name]['phi']['energy'][idx] = eng_loc
             struct_vecs[struct_name]['phi']['forces'][idx] = fcs_loc
+            # eng_tmp_list.append(eng_loc)
+            # fcs_tmp_list.append(fcs_loc)
+
+        # energy_struct_vecs['phi'].append(eng_tmp_list)
+        # forces_struct_vecs['phi'].append(fcs_tmp_list)
 
             # struct_vecs[struct_name]['phi']['energy'][idx] = eng
             # struct_vecs[struct_name]['phi']['forces'][idx] = fcs
 
         # load rho structure vectors
+        eng_tmp_list = []
+        fcs_tmp_list = []
         for idx in hdf5_file[struct_name]['rho']['energy']:
 
             eng = hdf5_file[struct_name]['rho']['energy'][idx][()]
@@ -407,6 +454,12 @@ class NodeManager:
 
             struct_vecs[struct_name]['rho']['energy'][idx] = eng_loc
             struct_vecs[struct_name]['rho']['forces'][idx] = fcs_loc
+
+            # eng_tmp_list.append(eng_loc)
+            # fcs_tmp_list.append(fcs_loc)
+
+        # energy_struct_vecs['rho'].append(eng_tmp_list)
+        # forces_struct_vecs['rho'].append(fcs_tmp_list)
 
             # struct_vecs[struct_name]['rho']['energy'][idx] = eng
             # struct_vecs[struct_name]['rho']['forces'][idx] = fcs
@@ -442,6 +495,9 @@ class NodeManager:
                 struct_vecs[struct_name]['ffg']['energy'][j][k] = eng_loc
                 struct_vecs[struct_name]['ffg']['forces'][j][k] = fcs_loc
 
+                # energy_struct_vecs['ffg'].append(eng_loc)
+                # forces_struct_vecs['ffg'].append(fcs_loc)
+
                 # struct_vecs[struct_name]['ffg']['energy'][j][k] = eng
                 # struct_vecs[struct_name]['ffg']['forces'][j][k] = fcs
 
@@ -452,23 +508,23 @@ class NodeManager:
                 fk = indices_group['fk_indices'][()]
                 g = indices_group['g_indices'][()]
 
-                npots, nindices = fj.shape  # number of potentials, indices
-                fj_shm = mp.Array('d', npots*nindices, lock=False)
-                fj_loc = np.frombuffer(fj_shm)
-                fj_loc = fj_loc.reshape((npots, nindices))
-                fj_loc[:] = fj[:]
+                # npots, nindices = fj.shape  # number of potentials, indices
+                # fj_shm = mp.Array('d', npots*nindices, lock=False)
+                # fj_loc = np.frombuffer(fj_shm)
+                # fj_loc = fj_loc.reshape((npots, nindices))
+                # fj_loc[:] = fj[:]
 
-                npots, nindices = fk.shape  # number of potentials, indices
-                fk_shm = mp.Array('d', npots*nindices, lock=False)
-                fk_loc = np.frombuffer(fk_shm)
-                fk_loc = fk_loc.reshape((npots, nindices))
-                fk_loc[:] = fk[:]
+                # npots, nindices = fk.shape  # number of potentials, indices
+                # fk_shm = mp.Array('d', npots*nindices, lock=False)
+                # fk_loc = np.frombuffer(fk_shm)
+                # fk_loc = fk_loc.reshape((npots, nindices))
+                # fk_loc[:] = fk[:]
 
-                npots, nindices = g.shape  # number of potentials, indices
-                g_shm = mp.Array('d', npots*nindices, lock=False)
-                g_loc = np.frombuffer(g_shm)
-                g_loc = g_loc.reshape((npots, nindices))
-                g_loc[:] = g[:]
+                # npots, nindices = g.shape  # number of potentials, indices
+                # g_shm = mp.Array('d', npots*nindices, lock=False)
+                # g_loc = np.frombuffer(g_shm)
+                # g_loc = g_loc.reshape((npots, nindices))
+                # g_loc[:] = g[:]
 
                 self.ffg_grad_indices[struct_name][j][k] = {}
 
@@ -496,7 +552,8 @@ class NodeManager:
         """Returns the per-atom energy for struct_name"""
 
         if stress:
-            if struct_vecs[struct_name]['phi']['energy']['0'].shape[0] < 3:
+            # if struct_vecs[struct_name]['phi']['energy']['0'].shape[0] < 3:
+            if energy_struct_vecs['phi']['0'].shape[0] < 3:
                 raise ValueError(
                     "Finite difference structure vectors not loaded"
                 )
@@ -508,6 +565,8 @@ class NodeManager:
         phi_pvecs, rho_pvecs, u_pvecs, f_pvecs, g_pvecs = \
             self.parse_parameters(potentials)
 
+        struct_index = struct_names.index(struct_name)
+
         if stress:
             energy = np.zeros((13, n_pots))
         else:
@@ -517,10 +576,12 @@ class NodeManager:
         for i, y in enumerate(phi_pvecs):
             if stress:
                 energy += \
-                    struct_vecs[struct_name]['phi']['energy'][str(i)] @ y.T
+                    energy_struct_vecs['phi'][struct_index] @ y.T
+                    # struct_vecs[struct_name]['phi']['energy'][str(i)] @ y.T
             else:
                 energy += \
-                    struct_vecs[struct_name]['phi']['energy'][str(i)][0] @ y.T
+                    energy_struct_vecs['phi'][struct_index][0] @ y.T
+                    # struct_vecs[struct_name]['phi']['energy'][str(i)][0] @ y.T
 
         # embedding terms
         ni = self.compute_ni(
@@ -570,11 +631,14 @@ class NodeManager:
 
         forces = np.zeros((n_pots, self.natoms[struct_name], 3))
 
+        struct_index = struct_names.index(struct_name)
+
         # pair forces (phi)
         for phi_idx, y in enumerate(phi_pvecs):
             forces += np.einsum(
                 'ijk,pk->pij',
-                struct_vecs[struct_name]['phi']['forces'][str(phi_idx)],
+                forces_struct_vecs['phi']['forces'][str(phi_idx)],
+                # struct_vecs[struct_name]['phi']['forces'][str(phi_idx)],
                 y
             )
 
