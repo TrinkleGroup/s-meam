@@ -11,22 +11,13 @@ import src.partools
 import src.pareto
 
 
-def CMAES(parameters, template, node_manager,):
+def CMAES(parameters, template, node_manager, manager_comm):
     # MPI setup
     world_comm = MPI.COMM_WORLD
     world_rank = world_comm.Get_rank()
     world_size = world_comm.Get_size()
 
     is_master = (world_rank == 0)
-
-    # every PROCS_PER_NODE-th rank is a node head
-    manager_ranks = np.arange(0, world_size, parameters['PROCS_PER_NODE'])
-
-    world_group = world_comm.Get_group()
-
-    # manager_comm connects all manager processes
-    manager_group = world_group.Incl(manager_ranks)
-    manager_comm = world_comm.Create(manager_group)
 
     template = world_comm.bcast(template, root=0)
 
@@ -37,9 +28,17 @@ def CMAES(parameters, template, node_manager,):
     ))
 
     # figure out what structures exist on the node managers
-    all_struct_names = collect_structure_names(
-        node_manager, world_comm, is_master
-    )
+    if node_manager.is_node_head:
+        all_struct_names = collect_structure_names(
+            node_manager, manager_comm, is_master
+        )
+
+        weights = np.ones(len(all_struct_names))
+    else:
+        all_struct_names = None
+        weights = None
+
+    weights = node_manager.comm.bcast(weights, root=0)
 
     # gather the true values of each objective target
     true_values = prepare_true_values(node_manager, world_comm, is_master)
@@ -65,8 +64,6 @@ def CMAES(parameters, template, node_manager,):
     else:
         solution = None
 
-    weights = np.ones(len(all_struct_names))
-
     costs, max_ni, min_ni, avg_ni = objective_fxn(
         template.insert_active_splines(np.atleast_2d(solution)), weights,
         return_ni=True, penalty=parameters['PENALTY_ON']
@@ -85,8 +82,7 @@ def CMAES(parameters, template, node_manager,):
 
         solution = full_solution[active_ind]
 
-    costs, max_ni, min_ni, avg_ni = objective_fxn(
-        template.insert_active_splines(np.atleast_2d(solution)), weights,
+    costs, max_ni, min_ni, avg_ni = objective_fxn( template.insert_active_splines(np.atleast_2d(solution)), weights,
         return_ni=True, penalty=parameters['PENALTY_ON']
     )
 

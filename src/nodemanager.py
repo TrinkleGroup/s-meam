@@ -294,16 +294,17 @@ class NodeManager:
                 "'energy_grad', 'forces_grad']"
             )
 
+        # TODO: it's dumb that you're passing struct list in when it's a class
+        # var
+
         if type(struct_list) is not list:
             raise ValueError("struct_list must be a list of keys")
 
-        # TODO: handle the case where pop_size < num_workers
-
-        # node heads have to return their evaluations; children can skip eval
         if self.is_node_head:
             only_eval_on_head = False
 
-            if potentials.shape[0] > self.num_workers:
+            # split the population if you need to scatter it
+            if potentials.shape[0] < self.num_workers:
                 only_eval_on_head = True
                 split_pop = potentials
             else:
@@ -312,12 +313,16 @@ class NodeManager:
             split_pop = None
             only_eval_on_head = None
 
+        # TODO: heads are trying to bcast, but can't bc workers not here
         only_eval_on_head = self.comm.bcast(only_eval_on_head, root=0)
 
         if only_eval_on_head and (self.local_rank != 0):  # nothing to do
             return
 
-        local_pop = self.comm.scatter(split_pop, root=0)
+        if only_eval_on_head:
+            local_pop = split_pop
+        else:
+            local_pop = self.comm.scatter(split_pop, root=0)
 
         # prepare dictionary of return values
         if self.is_node_head:
@@ -332,25 +337,30 @@ class NodeManager:
                 convert_to_cost, stress=stress
             )
 
-            return_values = self.comm.gather(local_values, root=0)
+            # TODO: can't gather if you had people return earlier
+            if not only_eval_on_head:
+                return_values = self.comm.gather(local_values, root=0)
 
-            if self.is_node_head:
-                if compute_type == 'energy':
+            if only_eval_on_head:
+                ret_dict[struct_name] = local_values
+            else:
+                if self.is_node_head:
+                    if compute_type == 'energy':
 
-                    """
-                    pool.starmap returns a list of values, where for compute_energy
-                    each of these values is a length 3 tuple of (energy, ni,
-                    stress). We need to stack the energy/ni/stress for the results
-                    from each of the workers in the pool
-                    """
+                        """
+                        pool.starmap returns a list of values, where for compute_energy
+                        each of these values is a length 3 tuple of (energy, ni,
+                        stress). We need to stack the energy/ni/stress for the results
+                        from each of the workers in the pool
+                        """
 
-                    ret_dict[struct_name] = [
-                        np.hstack(
-                            [return_values[w][v] for w in range(self.pool_size)]
-                        ) for v in range(3)  # energy, ni, stress_costs
-                    ]
-                else:
-                    ret_dict[struct_name] = np.hstack(return_values)
+                        ret_dict[struct_name] = [
+                            np.hstack(
+                                [return_values[w][v] for w in range(self.num_workers)]
+                            ) for v in range(3)  # energy, ni, stress_costs
+                        ]
+                    else:
+                        ret_dict[struct_name] = np.hstack(return_values)
 
         # if (self.pool_size == 1) or (potentials.shape[0] <= self.pool_size):
         #
@@ -408,7 +418,6 @@ class NodeManager:
             shared memory.
 
         """
-
         # things to load: ntypes, num_u_knots, phi, rho, ffg, types_per_atom
         self.ntypes = hdf5_file.attrs['ntypes']
         self.len_pvec = hdf5_file.attrs['len_pvec']

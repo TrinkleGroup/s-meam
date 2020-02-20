@@ -39,9 +39,10 @@ logger.setLevel(logging.WARNING)
 # TODO: have a script that checks the validity of an input script befor qsub
 
 def main(config_name, template_file_name, names_file=None):
-
     world_comm = MPI.COMM_WORLD
+
     world_rank = world_comm.Get_rank()
+    world_size = world_comm.Get_size()
 
     is_master = (world_rank == 0)
 
@@ -57,7 +58,6 @@ def main(config_name, template_file_name, names_file=None):
 
     parameters = world_comm.bcast(parameters, root=0)
     template = world_comm.bcast(template, root=0)
-
     # TODO: don't have different 'NSTEP' params for each algorithm type
 
     # convert types of inputs from str
@@ -88,6 +88,15 @@ def main(config_name, template_file_name, names_file=None):
             parameters[key] = float(val)
         elif key in bool_params:
             parameters[key] = (val == 'True')
+
+    # every PROCS_PER_NODE-th rank is a node head
+    manager_ranks = np.arange(0, world_size, parameters['PROCS_PER_NODE'])
+
+    world_group = world_comm.Get_group()
+
+    # manager_comm connects all manager processes
+    manager_group = world_group.Incl(manager_ranks)
+    manager_comm = world_comm.Create(manager_group)
 
     # prepare save directories
     if os.path.isdir(parameters['SAVE_DIRECTORY']) and \
@@ -155,8 +164,8 @@ def main(config_name, template_file_name, names_file=None):
                 print("Preparing node managers...", flush=True)
 
             node_manager = prepare_node_managers(
-                database, template, parameters, world_comm, is_master,
-                names_file
+                database, template, parameters, manager_comm, is_master,
+                names_file, world_comm
             )
     else:
         with Database(
@@ -170,8 +179,8 @@ def main(config_name, template_file_name, names_file=None):
                 print("Preparing node managers...", flush=True)
 
             node_manager = prepare_node_managers(
-                database, template, parameters, world_comm, is_master,
-                names_file
+                database, template, parameters, manager_comm, is_master,
+                names_file, world_comm
             )
 
     if is_master:
@@ -222,7 +231,7 @@ def main(config_name, template_file_name, names_file=None):
         if is_master:
             print("Running CMAES", flush=True)
 
-        CMAES(parameters, template, node_manager)
+        CMAES(parameters, template, node_manager, manager_comm)
     else:
         if is_master:
             kill_and_write("Invalid optimization type (OPT_TYPE)")
@@ -484,8 +493,8 @@ def prepare_managers(is_master, parameters, potential_template, database):
 
     return is_manager, manager, manager_comm
 
-def prepare_node_managers(database, template, parameters, comm, is_master,
-        names_file):
+def prepare_node_managers(database, template, parameters, manager_comm, is_master,
+        names_file, world_comm):
     if is_master:
 
         ref_keys = [
@@ -520,26 +529,34 @@ def prepare_node_managers(database, template, parameters, comm, is_master,
         key_choices = sorted(key_choices)
 
         split_struct_lists = np.array_split(
-            key_choices, comm.Get_size()
+            key_choices, manager_comm.Get_size()
         )
 
     else:
         split_struct_lists = None
 
-    struct_list = comm.scatter(split_struct_lists, root=0)
+    is_manager = (world_comm.Get_rank() % parameters['PROCS_PER_NODE'] == 0)
 
-    print(
-        "Node", comm.Get_rank(), 'loading', len(struct_list), 'structs',
-        flush=True
-    )
+    if is_manager:
+        struct_list = manager_comm.scatter(split_struct_lists, root=0)
 
-    global_rank = comm.Get_rank()
+        print(
+            "Node", manager_comm.Get_rank(), 'loading', len(struct_list), 'structs',
+            flush=True
+        )
+    else:
+        struct_list = None
+
+    global_rank = world_comm.Get_rank()
     color   = global_rank // parameters['PROCS_PER_NODE']
     key     = global_rank % parameters['PROCS_PER_NODE']
 
-    node_comm = MPI.Comm.Split(comm, color, key)
+    node_comm = MPI.Comm.Split(world_comm, color, key)
 
     node_manager = NodeManager(color, template, node_comm)
+
+    struct_list = node_comm.bcast(struct_list, root=0)
+
     node_manager.load_structures(struct_list, database, load_true=True)
     # node_manager.start_pool(parameters['PROCS_PER_NODE'])
 
@@ -555,8 +572,6 @@ def prepare_save_directory(parameters):
 
 
 if __name__ == "__main__":
-    is_master = MPI.COMM_WORLD.Get_rank() == 0
-
     if len(sys.argv) < 3:
         if is_master:
             kill_and_write("Must specify a config and template file")

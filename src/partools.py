@@ -21,14 +21,15 @@ def build_evaluation_functions(
 
         """
 
-        # TODO: need to gather only results from the node heads (new comm)
-
-        # all of the Nodes need the population, since they //-ize over structs
+        # Node heads need the population, since they //-ize over structs
         if node_manager.is_node_head:
             pop = manager_comm.bcast(master_pop, root=0)
             pop = np.atleast_2d(pop)
+
+            only_eval_on_head = (pop.shape[0] < parameters['PROCS_PER_NODE'])
         else:
             pop = None
+            only_eval_on_head = None
 
         # TODO: shouldn't update these every time, only when dbOpt needs to
         node_manager.weights = dict(zip(
@@ -40,6 +41,28 @@ def build_evaluation_functions(
             'energy', node_manager.loaded_structures, pop, template.u_ranges,
             stress=True
         )
+
+        manager_force_costs = node_manager.compute(
+            'forces', node_manager.loaded_structures, pop, template.u_ranges
+        )
+
+        only_eval_on_head = node_manager.comm.bcast(only_eval_on_head, root=0)
+
+        fitnesses = 0
+        max_ni = 0
+        min_ni = 0
+        avg_ni = 0
+
+        if manager_energies is None:
+            # this indicates that you were an MPI rank that didn't have to
+            # evaluate anything
+
+            if return_ni:
+                return fitnesses, max_ni, min_ni, avg_ni
+            else:
+                return fitnesses
+
+        force_costs = np.array(list(manager_force_costs.values()))
 
         unsorted_energies = [retval[0] for retval in manager_energies.values()]
         sorted_energies = [
@@ -70,26 +93,18 @@ def build_evaluation_functions(
         c_ni_var = ni_stats[3]
         c_frac_in = ni_stats[4]
 
-        force_costs = np.array(list(node_manager.compute(
-            'forces', node_manager.loaded_structures, pop, template.u_ranges
-        ).values()))
+        if node_manager.is_node_head:
+            mgr_eng = manager_comm.gather(eng, root=0)
+            mgr_stress = manager_comm.gather(stresses, root=0)
+            mgr_force_costs = manager_comm.gather(force_costs, root=0)
 
-        fitnesses = 0
-        max_ni = 0
-        min_ni = 0
-        avg_ni = 0
+            mgr_min_ni = manager_comm.gather(c_min_ni, root=0)
+            mgr_max_ni = manager_comm.gather(c_max_ni, root=0)
+            mgr_avg_ni = manager_comm.gather(c_avg_ni, root=0)
+            mgr_ni_var = manager_comm.gather(c_ni_var, root=0)
+            mgr_frac_in = manager_comm.gather(c_frac_in, root=0)
 
-        mgr_eng = manager_comm.gather(eng, root=0)
-        mgr_stress = manager_comm.gather(stresses, root=0)
-        mgr_force_costs = manager_comm.gather(force_costs, root=0)
-
-        mgr_min_ni = manager_comm.gather(c_min_ni, root=0)
-        mgr_max_ni = manager_comm.gather(c_max_ni, root=0)
-        mgr_avg_ni = manager_comm.gather(c_avg_ni, root=0)
-        mgr_ni_var = manager_comm.gather(c_ni_var, root=0)
-        mgr_frac_in = manager_comm.gather(c_frac_in, root=0)
-
-        mgr_names_list = manager_comm.gather(sorted_names, root=0)
+            mgr_names_list = manager_comm.gather(sorted_names, root=0)
 
         if is_master:
             all_names = np.concatenate(mgr_names_list)
@@ -120,6 +135,8 @@ def build_evaluation_functions(
             )
 
             # fitness order: 6 stresses, 1 energy, 1 force, 3 penalties
+
+            # TODO: why was all_struct_names 2x size right here?
 
             # assumes that 'weights' has the same order as all_struct_names
             for fit_id, (name, weight) in enumerate(zip(
