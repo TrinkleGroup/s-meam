@@ -53,14 +53,34 @@ true_values = {
 mpi_double_size = MPI.DOUBLE.Get_size()
 
 class NodeManager:
-    def __init__(self, node_id, template, comm=None):
+    def __init__(self, node_id, template, comm=None, physical_cores_per_node=32):
 
         self.comm = comm
+        self.node_id = node_id
         self.local_rank = self.comm.Get_rank()
         self.num_workers = self.comm.Get_size()
-        self.is_node_head = (self.local_rank == 0)
+        self.is_node_head = ((self.local_rank % physical_cores_per_node) == 0)
+        self.is_node_master = (self.local_rank == 0)
+        self.physical_cores_per_node = physical_cores_per_node
 
-        self.node_id = node_id
+        self.num_nodes = max(1, self.num_workers // self.physical_cores_per_node)
+
+        # used for tracking where the shared memory windows exist
+        self.my_head = self.local_rank // self.physical_cores_per_node
+
+        self.my_head_comm = MPI.Comm.Split(
+            self.comm, self.my_head, self.local_rank % self.physical_cores_per_node
+        )
+
+        # also need a comm for the node "master" to gather from node "heads"
+        all_nodes_group = self.comm.Get_group()
+
+        master_to_heads_group = all_nodes_group.Incl(
+            np.arange(0, self.num_workers, self.physical_cores_per_node)
+        )
+
+        self.master_to_heads_comm = self.comm.Create(master_to_heads_group)
+
         self.template = template
 
         self.loaded_structures = []
@@ -300,32 +320,55 @@ class NodeManager:
         if type(struct_list) is not list:
             raise ValueError("struct_list must be a list of keys")
 
-        if self.is_node_head:
+        # only_eval_on_head now depends on how many potentials there are
+        # relative to the number of workers on each node AND the number of
+        # nodes. Realistically, I can probably trust that I don't have to deal
+        # with the case where 1 < population size < workers_per_node*num_nodes,
+        # or I can at least simply throw an error here
+
+        # now I just need to make sure that if the only_eval_on_head is True,
+        # that the non rank-0 heads don't also try to evaluate the population
+
+        if self.is_node_master:
             only_eval_on_head = False
 
-            # split the population if you need to scatter it
+            # node heads split the population if they need to scatter it
             if potentials.shape[0] < self.num_workers:
+                # this means that you only scatter the population if there's
+                # enough for at least one potential for each sub-worker
+
                 only_eval_on_head = True
-                split_pop = potentials
-            else:
-                split_pop = np.array_split(potentials, self.num_workers, axis=0)
         else:
-            split_pop = None
             only_eval_on_head = None
 
-        # TODO: heads are trying to bcast, but can't bc workers not here
         only_eval_on_head = self.comm.bcast(only_eval_on_head, root=0)
 
-        if only_eval_on_head and (self.local_rank != 0):  # nothing to do
+        if only_eval_on_head and not self.is_node_master:  # nothing to do
             return
 
+        # if a rank is here, then it's either the master rank, or there are
+        # enough potentials that they need to be scattered to the workers
+
         if only_eval_on_head:
-            local_pop = split_pop
+            local_pop = potentials
         else:
-            local_pop = self.comm.scatter(split_pop, root=0)
+            if self.is_node_head:
+                # send potentials from master to all other node heads
+                if self.is_node_master:
+                    potentials = np.array_split(potentials, self.num_nodes)
+                
+                potentials = self.master_to_heads_comm.scatter(potentials, root=0)
+
+                split_pop = np.array_split(
+                    potentials, self.physical_cores_per_node, axis=0
+                )
+            else:
+                split_pop = None
+
+            local_pop = self.my_head_comm.scatter(split_pop, root=0)
 
         # prepare dictionary of return values
-        if self.is_node_head:
+        if self.is_node_master:
             ret_dict = {}
         else:
             ret_dict = None
@@ -339,16 +382,17 @@ class NodeManager:
 
             # TODO: can't gather if you had people return earlier
             if not only_eval_on_head:
+                # note that using the full comm gathers across all nodes
                 return_values = self.comm.gather(local_values, root=0)
 
             if only_eval_on_head:
                 ret_dict[struct_name] = local_values
             else:
-                if self.is_node_head:
+                if self.is_node_master:
                     if compute_type == 'energy':
 
                         """
-                        pool.starmap returns a list of values, where for compute_energy
+                        gathering returns a list of values, where for compute_energy
                         each of these values is a length 3 tuple of (energy, ni,
                         stress). We need to stack the energy/ni/stress for the results
                         from each of the workers in the pool
@@ -499,11 +543,11 @@ class NodeManager:
             fcs_shape = self.comm.bcast(fcs_shape, root=0)
 
             eng_shmem_win = MPI.Win.Allocate_shared(
-                eng_nbytes, mpi_double_size, comm=self.comm
+                eng_nbytes, mpi_double_size, comm=self.my_head_comm
             )
 
             fcs_shmem_win = MPI.Win.Allocate_shared(
-                fcs_nbytes, mpi_double_size, comm=self.comm
+                fcs_nbytes, mpi_double_size, comm=self.my_head_comm
             )
 
             eng_buf, _ = eng_shmem_win.Shared_query(0)
@@ -559,11 +603,11 @@ class NodeManager:
             fcs_shape = self.comm.bcast(fcs_shape, root=0)
 
             eng_shmem_win = MPI.Win.Allocate_shared(
-                eng_nbytes, mpi_double_size, comm=self.comm
+                eng_nbytes, mpi_double_size, comm=self.my_head_comm
             )
 
             fcs_shmem_win = MPI.Win.Allocate_shared(
-                fcs_nbytes, mpi_double_size, comm=self.comm
+                fcs_nbytes, mpi_double_size, comm=self.my_head_comm
             )
 
             eng_buf, _ = eng_shmem_win.Shared_query(0)
@@ -632,11 +676,11 @@ class NodeManager:
                 fcs_shape = self.comm.bcast(fcs_shape, root=0)
 
                 eng_shmem_win = MPI.Win.Allocate_shared(
-                    eng_nbytes, mpi_double_size, comm=self.comm
+                    eng_nbytes, mpi_double_size, comm=self.my_head_comm
                 )
 
                 fcs_shmem_win = MPI.Win.Allocate_shared(
-                    fcs_nbytes, mpi_double_size, comm=self.comm
+                    fcs_nbytes, mpi_double_size, comm=self.my_head_comm
                 )
 
                 eng_buf, _ = eng_shmem_win.Shared_query(0)

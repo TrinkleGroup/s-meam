@@ -89,7 +89,9 @@ def main(config_name, template_file_name, names_file=None):
         elif key in bool_params:
             parameters[key] = (val == 'True')
 
-    # every PROCS_PER_NODE-th rank is a node head
+    # every PROCS_PER_NODE-th rank is a node "master"; note that a node master
+    # may be in charge of multiple node heads (e.g. when multiple nodes are in
+    # charge of the same collection of structures
     manager_ranks = np.arange(0, world_size, parameters['PROCS_PER_NODE'])
 
     world_group = world_comm.Get_group()
@@ -558,7 +560,6 @@ def prepare_node_managers(database, template, parameters, manager_comm, is_maste
     struct_list = node_comm.bcast(struct_list, root=0)
 
     node_manager.load_structures(struct_list, database, load_true=True)
-    # node_manager.start_pool(parameters['PROCS_PER_NODE'])
 
     return node_manager
 

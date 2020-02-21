@@ -22,7 +22,7 @@ def build_evaluation_functions(
         """
 
         # Node heads need the population, since they //-ize over structs
-        if node_manager.is_node_head:
+        if node_manager.is_node_master:
             pop = manager_comm.bcast(master_pop, root=0)
             pop = np.atleast_2d(pop)
 
@@ -80,6 +80,7 @@ def build_evaluation_functions(
         sorted_names = sorted(list(manager_energies.keys()))
 
         eng = np.vstack(sorted_energies)
+
         stresses = np.vstack(sorted_stresses)
 
         # NOTE: doesn't matter that these aren't sorted since we just need stats
@@ -93,7 +94,7 @@ def build_evaluation_functions(
         c_ni_var = ni_stats[3]
         c_frac_in = ni_stats[4]
 
-        if node_manager.is_node_head:
+        if node_manager.is_node_master:
             mgr_eng = manager_comm.gather(eng, root=0)
             mgr_stress = manager_comm.gather(stresses, root=0)
             mgr_force_costs = manager_comm.gather(force_costs, root=0)

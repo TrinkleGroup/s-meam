@@ -28,7 +28,7 @@ def CMAES(parameters, template, node_manager, manager_comm):
     ))
 
     # figure out what structures exist on the node managers
-    if node_manager.is_node_head:
+    if node_manager.is_node_master:
         all_struct_names = collect_structure_names(
             node_manager, manager_comm, is_master
         )
@@ -268,6 +268,8 @@ def CMAES(parameters, template, node_manager, manager_comm):
         time_to_stop = world_comm.bcast(time_to_stop, root=0)
 
     # end CMA-ES loop
+
+    return
 
     if is_master:
         cma_runtime = time.time() - cma_start_time
