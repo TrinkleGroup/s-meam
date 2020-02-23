@@ -4,6 +4,7 @@ Handles energy/forces/etc evaluation with hybrid OpenMP/MPI.
 Each NodeManager object handles the set of processes on a single compute node.
 """
 
+import time
 import numpy as np
 import multiprocessing as mp
 import src.partools
@@ -374,6 +375,9 @@ class NodeManager:
             ret_dict = None
 
         for struct_name in struct_list:
+            if self.is_node_master:
+                struct_start = time.time()
+
             local_values = self.parallel_compute(
                 struct_name, local_pop, u_domains, compute_type,
                 # struct_name, potentials, u_domains, compute_type,
@@ -384,6 +388,10 @@ class NodeManager:
             if not only_eval_on_head:
                 # note that using the full comm gathers across all nodes
                 return_values = self.comm.gather(local_values, root=0)
+
+            if self.is_node_master:
+                print(self.node_id, struct_name, time.time() - struct_start,
+                        's', flush=True)
 
             if only_eval_on_head:
                 ret_dict[struct_name] = local_values
@@ -465,14 +473,24 @@ class NodeManager:
         # things to load: ntypes, num_u_knots, phi, rho, ffg, types_per_atom
         self.ntypes = hdf5_file.attrs['ntypes']
         self.len_pvec = hdf5_file.attrs['len_pvec']
-        self.num_u_knots = hdf5_file.attrs['num_u_knots']
+        # self.num_u_knots = hdf5_file.attrs['num_u_knots']
+        self.num_u_knots = hdf5_file.num_u_knots
         self.x_indices = hdf5_file.attrs['x_indices']
         self.nphi = hdf5_file.attrs['nphi']
 
         # doing it this way so that it only loads a certain amount at once
-        for struct_name in struct_list:
+        if self.is_node_master:
+            load_start = time.time()
+
+        for ii, struct_name in enumerate(struct_list):
+            if self.is_node_master:
+                print(ii, struct_name)
             self.load_one_struct(struct_name, hdf5_file, load_true)
             self.loaded_structures.append(struct_name)
+
+        if self.is_node_master:
+            print(self.node_id, 'total load time:', time.time() - load_start,
+            's')
 
     def unload_structures(self, struct_list, true_values=False):
         for struct_name in struct_list:
@@ -523,10 +541,6 @@ class NodeManager:
                 eng = hdf5_file[struct_name]['phi']['energy'][idx][()]
                 fcs = hdf5_file[struct_name]['phi']['forces'][idx][()]
 
-                # TODO: have all of these arrays point to shared memory
-                # TODO: also, make sure only rank 0 is actually reading stuff in
-                # although, it's MPI so you *could* have each subproc read too
-
                 eng_shape = eng.shape
                 eng_nbytes = np.prod(eng_shape)*mpi_double_size
 
@@ -562,7 +576,6 @@ class NodeManager:
             )
 
             # eng_shm = mp.Array('d', fd*npots, lock=False)
-            # # TODO: this is where you'd put stuff for MPI shmem
             # eng_loc = np.frombuffer(eng_shm)
             # eng_loc = eng_loc.reshape((fd, npots))
             # eng_loc[:] = eng[:]
@@ -579,6 +592,9 @@ class NodeManager:
             if self.is_node_head:
                 struct_vecs[struct_name]['phi']['energy'][idx][...] = eng
                 struct_vecs[struct_name]['phi']['forces'][idx][...] = fcs
+
+            # MPI.Win.Free(eng_shmem_win)
+            # MPI.Win.Free(fcs_shmem_win)
 
         # load rho structure vectors
         for idx in hdf5_file[struct_name]['rho']['energy']:
@@ -628,20 +644,8 @@ class NodeManager:
                 struct_vecs[struct_name]['rho']['energy'][idx][...] = eng
                 struct_vecs[struct_name]['rho']['forces'][idx][...] = fcs
 
-            # fd, nat, npots = eng.shape # finite diff arrays, atoms, pots
-            # eng_shm = mp.Array('d', fd*nat*npots, lock=False)
-            # eng_loc = np.frombuffer(eng_shm)
-            # eng_loc = eng_loc.reshape((fd, nat, npots))
-            # eng_loc[:] = eng[:]
-
-            # ni, nj = fcs.shape  # rho splines are in 2D form for sparse matrices
-            # fcs_shm = mp.Array('d', ni*nj, lock=False)
-            # fcs_loc = np.frombuffer(fcs_shm)
-            # fcs_loc = fcs_loc.reshape((ni, nj))
-            # fcs_loc[:] = fcs[:]
-
-            # struct_vecs[struct_name]['rho']['energy'][idx] = eng_loc
-            # struct_vecs[struct_name]['rho']['forces'][idx] = fcs_loc
+            # MPI.Win.Free(eng_shmem_win)
+            # MPI.Win.Free(fcs_shmem_win)
 
         self.ffg_grad_indices[struct_name] = {}
         self.ffg_grad_indices[struct_name]['ffg_grad_indices'] = {}
@@ -701,20 +705,8 @@ class NodeManager:
                     struct_vecs[struct_name]['ffg']['energy'][j][k] = eng
                     struct_vecs[struct_name]['ffg']['forces'][j][k] = fcs
 
-                # fd, nat, npots = eng.shape # finite diff arrays, atoms, pots
-                # eng_shm = mp.Array('d', fd*nat*npots, lock=False)
-                # eng_loc = np.frombuffer(eng_shm)
-                # eng_loc = eng_loc.reshape((fd, nat, npots))
-                # eng_loc[:] = eng[:]
-                #
-                # ni, nj = fcs.shape  # rho splines are in 2D form for sparse matrices
-                # fcs_shm = mp.Array('d', ni*nj, lock=False)
-                # fcs_loc = np.frombuffer(fcs_shm)
-                # fcs_loc = fcs_loc.reshape((ni, nj))
-                # fcs_loc[:] = fcs[:]
-
-                # struct_vecs[struct_name]['ffg']['energy'][j][k] = eng_loc
-                # struct_vecs[struct_name]['ffg']['forces'][j][k] = fcs_loc
+                # MPI.Win.Free(eng_shmem_win)
+                # MPI.Win.Free(fcs_shmem_win)
 
                 # indices for indexing gradients
                 indices_group = hdf5_file[struct_name]['ffg_grad_indices'][j][k]
