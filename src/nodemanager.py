@@ -18,30 +18,6 @@ import cProfile
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
-# TODO: might be able to avoid using mp.Array since it's read only?
-
-manager = mp.Manager()
-
-# energy_struct_vecs = manager.dict()
-# energy_struct_vecs['phi'] = manager.list()
-# energy_struct_vecs['rho'] = manager.list()
-# energy_struct_vecs['ffg'] = manager.list()
-# 
-# forces_struct_vecs = manager.dict()
-# forces_struct_vecs['phi'] = manager.list()
-# forces_struct_vecs['rho'] = manager.list()
-# forces_struct_vecs['ffg'] = manager.list()
-# 
-# struct_names = manager.list()
-
-# true_values = manager.dict()
-# true_values['energy'] = manager.dict()
-# true_values['forces'] = manager.dict()
-# true_values['stress'] = manager.dict()
-# true_values['ref_struct'] = manager.dict()
-
-shared_struct_vecs = manager.dict()
-
 struct_vecs = {}
 
 true_values = {
@@ -124,9 +100,6 @@ class NodeManager:
 
         global struct_vecs
 
-        # shared_struct_vecs = manager.dict(struct_vecs)
-        # struct_vecs = shared_struct_vecs
-
         if node_size is None:
             node_size = mp.cpu_count()
 
@@ -163,7 +136,6 @@ class NodeManager:
 
         """
 
-        # TODO: instead of reading from Database, take from shared memory
         if compute_type == 'energy':
             # ret = (energy, ni)
             ret = self.compute_energy(
@@ -384,14 +356,9 @@ class NodeManager:
                 convert_to_cost, stress=stress
             )
 
-            # TODO: can't gather if you had people return earlier
             if not only_eval_on_head:
                 # note that using the full comm gathers across all nodes
                 return_values = self.comm.gather(local_values, root=0)
-
-            if self.is_node_master:
-                print(self.node_id, struct_name, time.time() - struct_start,
-                        's', flush=True)
 
             if only_eval_on_head:
                 ret_dict[struct_name] = local_values
@@ -406,52 +373,14 @@ class NodeManager:
                         from each of the workers in the pool
                         """
 
-                        ret_dict[struct_name] = [
-                            np.hstack(
-                                [return_values[w][v] for w in range(self.num_workers)]
-                            ) for v in range(3)  # energy, ni, stress_costs
-                        ]
+                        all_eng, all_ni, all_stress_costs = zip(*return_values)
+                        ret_dict[struct_name] = (
+                            np.hstack(all_eng),
+                            np.hstack(all_ni),
+                            np.hstack(all_stress_costs)
+                        )
                     else:
                         ret_dict[struct_name] = np.hstack(return_values)
-
-        # if (self.pool_size == 1) or (potentials.shape[0] <= self.pool_size):
-        #
-        #     for struct_name in struct_list:
-        #         ret_dict[struct_name] = self.parallel_compute(
-        #             struct_name, local_pop, u_domains, compute_type,
-        #             # struct_name, potentials, u_domains, compute_type,
-        #             convert_to_cost, stress=stress
-        #         )
-        #
-        # else:
-        #     for ii, struct_name in enumerate(struct_list):
-        #         return_values = self.pool.starmap(
-        #             self.parallel_compute,
-        #             zip(
-        #                 repeat(struct_name),
-        #                 np.array_split(potentials, self.pool_size),
-        #                 repeat(u_domains), repeat(compute_type),
-        #                 repeat(convert_to_cost), repeat(stress)
-        #             )
-        #         )
-        #
-        #         if compute_type == 'energy':
-        #
-        #             """
-        #             pool.starmap returns a list of values, where for compute_energy
-        #             each of these values is a length 3 tuple of (energy, ni,
-        #             stress). We need to stack the energy/ni/stress for the results
-        #             from each of the workers in the pool
-        #             """
-        #
-        #             ret_dict[struct_name] = [
-        #                 np.hstack(
-        #                     [return_values[w][v] for w in range(self.pool_size)]
-        #                 ) for v in range(3)  # energy, ni, stress_costs
-        #             ]
-        #         else:
-        #             ret_dict[struct_name] = np.hstack(return_values)
-
         return ret_dict
 
     def load_structures(self, struct_list, hdf5_file, load_true=False):
@@ -483,8 +412,8 @@ class NodeManager:
             load_start = time.time()
 
         for ii, struct_name in enumerate(struct_list):
-            if self.is_node_master:
-                print(ii, struct_name)
+            # if self.is_node_master:
+            #     print(ii, struct_name)
             self.load_one_struct(struct_name, hdf5_file, load_true)
             self.loaded_structures.append(struct_name)
 
@@ -644,6 +573,8 @@ class NodeManager:
                 struct_vecs[struct_name]['rho']['energy'][idx][...] = eng
                 struct_vecs[struct_name]['rho']['forces'][idx][...] = fcs
 
+            self.my_head_comm.Barrier()
+
             # MPI.Win.Free(eng_shmem_win)
             # MPI.Win.Free(fcs_shmem_win)
 
@@ -676,8 +607,8 @@ class NodeManager:
                     eng_nbytes = 0
                     fcs_nbytes = 0
 
-                eng_shape = self.comm.bcast(eng_shape, root=0)
-                fcs_shape = self.comm.bcast(fcs_shape, root=0)
+                eng_shape = self.my_head_comm.bcast(eng_shape, root=0)
+                fcs_shape = self.my_head_comm.bcast(fcs_shape, root=0)
 
                 eng_shmem_win = MPI.Win.Allocate_shared(
                     eng_nbytes, mpi_double_size, comm=self.my_head_comm
@@ -702,8 +633,10 @@ class NodeManager:
                 struct_vecs[struct_name]['ffg']['forces'][j][k] = fcs_shmem_arr
 
                 if self.is_node_head:
-                    struct_vecs[struct_name]['ffg']['energy'][j][k] = eng
-                    struct_vecs[struct_name]['ffg']['forces'][j][k] = fcs
+                    struct_vecs[struct_name]['ffg']['energy'][j][k][...] = eng
+                    struct_vecs[struct_name]['ffg']['forces'][j][k][...] = fcs
+
+                self.my_head_comm.Barrier()
 
                 # MPI.Win.Free(eng_shmem_win)
                 # MPI.Win.Free(fcs_shmem_win)
@@ -876,7 +809,6 @@ class NodeManager:
 
         energy = np.zeros((n_pots, 13))
 
-        # TODO: need to change normal energy calcs to only use SV[0]
         for phi_idx, y in enumerate(phi_pvecs):
             energy += np.einsum(
                 'fk,pk->pf',

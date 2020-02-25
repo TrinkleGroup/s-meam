@@ -137,8 +137,6 @@ def build_evaluation_functions(
 
             # fitness order: 6 stresses, 1 energy, 1 force, 3 penalties
 
-            # TODO: why was all_struct_names 2x size right here?
-
             # assumes that 'weights' has the same order as all_struct_names
             for fit_id, (name, weight) in enumerate(zip(
                 all_struct_names, weights
@@ -152,6 +150,8 @@ def build_evaluation_functions(
                 true_ediff = true_values['energy'][name]
                 comp_ediff = all_eng[s_id] - all_eng[r_id]
 
+                # NOTE: error weights are applied AFTER logging
+
                 # tmp = (comp_ediff - true_ediff) ** 2
                 tmp = abs(comp_ediff - true_ediff)
 
@@ -159,7 +159,6 @@ def build_evaluation_functions(
 
                 fitnesses[:, 3*fit_id + 1] = \
                     all_force_costs[fit_id]#*parameters['FORCES_WEIGHT']
-
 
                 # fitnesses[:, 8*fit_id+2:8*fit_id+8] = \
                 #     all_stress_costs[fit_id]*parameters['STRESS_WEIGHT']
