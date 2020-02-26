@@ -11,12 +11,23 @@ import src.partools
 import src.pareto
 
 
-def CMAES(parameters, template, node_manager,):
+def CMAES(parameters, template, node_manager, manager_comm):
+    # MPI setup
     world_comm = MPI.COMM_WORLD
     world_rank = world_comm.Get_rank()
+    world_size = world_comm.Get_size()
 
     is_master = (world_rank == 0)
 
+    if is_master:
+        print()
+        print('='*80)
+        print()
+        for k,v in parameters.items():
+            print(k, v)
+        print()
+        print('='*80)
+        print()
 
     template = world_comm.bcast(template, root=0)
 
@@ -27,9 +38,17 @@ def CMAES(parameters, template, node_manager,):
     ))
 
     # figure out what structures exist on the node managers
-    all_struct_names = collect_structure_names(
-        node_manager, world_comm, is_master
-    )
+    if node_manager.is_node_master:
+        all_struct_names = collect_structure_names(
+            node_manager, manager_comm, is_master
+        )
+
+        weights = np.ones(len(all_struct_names))
+    else:
+        all_struct_names = None
+        weights = None
+
+    weights = node_manager.comm.bcast(weights, root=0)
 
     # gather the true values of each objective target
     true_values = prepare_true_values(node_manager, world_comm, is_master)
@@ -37,7 +56,8 @@ def CMAES(parameters, template, node_manager,):
     # run the function constructor to build the objective function
     objective_fxn, gradient = src.partools.build_evaluation_functions(
         template, all_struct_names, node_manager,
-        world_comm, is_master, true_values, parameters
+        world_comm, is_master, true_values, parameters,
+        manager_comm=manager_comm
     )
 
     if is_master:
@@ -53,8 +73,6 @@ def CMAES(parameters, template, node_manager,):
         print('solution.shape:', solution.shape)
     else:
         solution = None
-
-    weights = np.ones(len(all_struct_names))
 
     costs, max_ni, min_ni, avg_ni = objective_fxn(
         template.insert_active_splines(np.atleast_2d(solution)), weights,
@@ -74,8 +92,7 @@ def CMAES(parameters, template, node_manager,):
 
         solution = full_solution[active_ind]
 
-    costs, max_ni, min_ni, avg_ni = objective_fxn(
-        template.insert_active_splines(np.atleast_2d(solution)), weights,
+    costs, max_ni, min_ni, avg_ni = objective_fxn( template.insert_active_splines(np.atleast_2d(solution)), weights,
         return_ni=True, penalty=parameters['PENALTY_ON']
     )
 
@@ -134,27 +151,6 @@ def CMAES(parameters, template, node_manager,):
         )
 
         if is_master:
-            best = template.insert_active_splines(np.atleast_2d(
-                es.result.xbest
-            ))
-
-        else:
-            best = None
-
-        best_fit, best_max_ni, best_min_ni, best_avg_ni = objective_fxn(
-            best, weights, return_ni=True, penalty=parameters['PENALTY_ON']
-        )
-
-        if is_master:
-
-            if generation_number > 1:
-                # log full cost vector of best ever potential
-                with open(parameters['BEST_FIT_FILE'], 'ab') as cost_save_file:
-                    np.savetxt(cost_save_file, np.atleast_2d(best_fit))
-
-                # log best ever potential
-                with open(parameters['BEST_POT_FILE'], 'ab') as pot_save_file:
-                    np.savetxt(pot_save_file, best)
 
             if generation_number % parameters['CHECKPOINT_FREQ'] == 0:
                 src.partools.checkpoint(
@@ -163,6 +159,7 @@ def CMAES(parameters, template, node_manager,):
                     parameters['NSTEPS']
                 )
 
+            org_costs = costs.copy()
             # only apply weights AFTER logging unweighted data
             costs[:, 0:-3:3] *= parameters['ENERGY_WEIGHT']
             costs[:, 1:-3:3] *= parameters['FORCES_WEIGHT']
@@ -178,6 +175,19 @@ def CMAES(parameters, template, node_manager,):
             if es.stop():
                 time_to_stop = True
 
+        if is_master:
+
+            min_idx = np.argmin(new_costs)
+            best_fit = org_costs[min_idx]
+            best = population[min_idx]
+
+            # log full cost vector of best ever potential
+            with open(parameters['BEST_FIT_FILE'], 'ab') as cost_save_file:
+                np.savetxt(cost_save_file, np.atleast_2d(best_fit))
+
+            # log best ever potential
+            with open(parameters['BEST_POT_FILE'], 'ab') as pot_save_file:
+                np.savetxt(pot_save_file, best)
 
         if parameters['DO_GROW']:
             if grow_id < len(parameters['GROW_SCHED']):
@@ -266,11 +276,6 @@ def CMAES(parameters, template, node_manager,):
         cma_runtime = time.time() - cma_start_time
 
         es.result_pretty()
-
-        # best = np.atleast_2d(es.result.xbest[np.where(template.active_mask)[0]])
-        # best = np.atleast_2d(es.result.xbest)
-        # best = np.atleast_2d(template.insert_active_splines(best))
-        # print("Fitness before LM:", es.result.fbest)
 
         polish_start_time = time.time()
     else:

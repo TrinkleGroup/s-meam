@@ -6,7 +6,7 @@ from scipy.interpolate import CubicSpline
 
 def build_evaluation_functions(
         template, all_struct_names, node_manager, world_comm, is_master, true_values,
-        parameters
+        parameters, manager_comm
 ):
     """Builds the function to evaluate populations. Wrapped here for readability
     of main code."""
@@ -21,9 +21,15 @@ def build_evaluation_functions(
 
         """
 
-        # NOTE: master is full program master; manager is just every rank
-        pop = world_comm.bcast(master_pop, root=0)
-        pop = np.atleast_2d(pop)
+        # Node heads need the population, since they //-ize over structs
+        if node_manager.is_node_master:
+            pop = manager_comm.bcast(master_pop, root=0)
+            pop = np.atleast_2d(pop)
+
+            only_eval_on_head = (pop.shape[0] < parameters['PROCS_PER_NODE'])
+        else:
+            pop = None
+            only_eval_on_head = None
 
         # TODO: shouldn't update these every time, only when dbOpt needs to
         node_manager.weights = dict(zip(
@@ -36,6 +42,28 @@ def build_evaluation_functions(
             stress=True
         )
 
+        manager_force_costs = node_manager.compute(
+            'forces', node_manager.loaded_structures, pop, template.u_ranges
+        )
+
+        only_eval_on_head = node_manager.comm.bcast(only_eval_on_head, root=0)
+
+        fitnesses = 0
+        max_ni = 0
+        min_ni = 0
+        avg_ni = 0
+
+        if manager_energies is None:
+            # this indicates that you were an MPI rank that didn't have to
+            # evaluate anything
+
+            if return_ni:
+                return fitnesses, max_ni, min_ni, avg_ni
+            else:
+                return fitnesses
+
+        force_costs = np.array(list(manager_force_costs.values()))
+
         unsorted_energies = [retval[0] for retval in manager_energies.values()]
         sorted_energies = [
             x for _, x in sorted(zip(list(manager_energies.keys()), unsorted_energies))
@@ -45,13 +73,14 @@ def build_evaluation_functions(
 
         sorted_stresses = [
             x for _, x in sorted(
-                zip(list(manager_energies.keys()),unsorted_stresses)
+                zip(list(manager_energies.keys()), unsorted_stresses)
             )
         ]
 
         sorted_names = sorted(list(manager_energies.keys()))
 
         eng = np.vstack(sorted_energies)
+
         stresses = np.vstack(sorted_stresses)
 
         # NOTE: doesn't matter that these aren't sorted since we just need stats
@@ -65,26 +94,18 @@ def build_evaluation_functions(
         c_ni_var = ni_stats[3]
         c_frac_in = ni_stats[4]
 
-        force_costs = np.array(list(node_manager.compute(
-            'forces', node_manager.loaded_structures, pop, template.u_ranges
-        ).values()))
+        if node_manager.is_node_master:
+            mgr_eng = manager_comm.gather(eng, root=0)
+            mgr_stress = manager_comm.gather(stresses, root=0)
+            mgr_force_costs = manager_comm.gather(force_costs, root=0)
 
-        fitnesses = 0
-        max_ni = 0
-        min_ni = 0
-        avg_ni = 0
+            mgr_min_ni = manager_comm.gather(c_min_ni, root=0)
+            mgr_max_ni = manager_comm.gather(c_max_ni, root=0)
+            mgr_avg_ni = manager_comm.gather(c_avg_ni, root=0)
+            mgr_ni_var = manager_comm.gather(c_ni_var, root=0)
+            mgr_frac_in = manager_comm.gather(c_frac_in, root=0)
 
-        mgr_eng = world_comm.gather(eng, root=0)
-        mgr_stress = world_comm.gather(stresses, root=0)
-        mgr_force_costs = world_comm.gather(force_costs, root=0)
-
-        mgr_min_ni = world_comm.gather(c_min_ni, root=0)
-        mgr_max_ni = world_comm.gather(c_max_ni, root=0)
-        mgr_avg_ni = world_comm.gather(c_avg_ni, root=0)
-        mgr_ni_var = world_comm.gather(c_ni_var, root=0)
-        mgr_frac_in = world_comm.gather(c_frac_in, root=0)
-
-        mgr_names_list = world_comm.gather(sorted_names, root=0)
+            mgr_names_list = manager_comm.gather(sorted_names, root=0)
 
         if is_master:
             all_names = np.concatenate(mgr_names_list)
@@ -129,6 +150,8 @@ def build_evaluation_functions(
                 true_ediff = true_values['energy'][name]
                 comp_ediff = all_eng[s_id] - all_eng[r_id]
 
+                # NOTE: error weights are applied AFTER logging
+
                 # tmp = (comp_ediff - true_ediff) ** 2
                 tmp = abs(comp_ediff - true_ediff)
 
@@ -136,7 +159,6 @@ def build_evaluation_functions(
 
                 fitnesses[:, 3*fit_id + 1] = \
                     all_force_costs[fit_id]#*parameters['FORCES_WEIGHT']
-
 
                 # fitnesses[:, 8*fit_id+2:8*fit_id+8] = \
                 #     all_stress_costs[fit_id]*parameters['STRESS_WEIGHT']
