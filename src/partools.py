@@ -131,7 +131,8 @@ def build_evaluation_functions(
                     # len(all_struct_names)*6 \
                     # + len(all_struct_names)*2 \
                     len(all_struct_names)*3 \
-                    + 3*frac_in.shape[1]
+                    + 3*frac_in.shape[1] \
+                    + 1  # used to penalize non-negative LHS phi derivatives
                 )
             )
 
@@ -171,16 +172,26 @@ def build_evaluation_functions(
             # ns = len(all_struct_names)
 
             # fraction that falls in U[]
-            fitnesses[:, -frac_in.shape[1]*3:-frac_in.shape[1]*2] = lambda_pen*abs(1-frac_in)
+            fitnesses[:, -frac_in.shape[1]*3:-frac_in.shape[1]*2 - 1] = \
+                lambda_pen*abs(1-frac_in)
             # fitnesses[:, -frac_in.shape[1]:] = lambda_pen*abs(ns - frac_in)
 
 
             # penalize too small variance
-            fitnesses[:, -frac_in.shape[1]*2:-frac_in.shape[1]] = \
+            fitnesses[:, -frac_in.shape[1]*2 - 1:-frac_in.shape[1] - 1] = \
                     lambda_pen*np.clip(0.05-ni_var, 0, None)
 
             # penalize too big variance
-            fitnesses[:, -frac_in.shape[1]:] = lambda_pen*np.clip(ni_var-1, 0, None)
+            fitnesses[:, -frac_in.shape[1] - 1: - 1] = lambda_pen*np.clip(
+                ni_var-1, 0, None)
+
+            # penalize non-negative LHS phi derivatives; this is done to make
+            # sure that the potential has repulsive forces for small pair
+            # distances, even if the database doesn't have data like this.
+
+            fitnesses[:, -1] = lambda_pen*np.clip(
+                pop[:, template.phi_lhs_deriv_indices], 0, None
+            ).sum(axis=1)
 
         if is_master:
             if not penalty:
