@@ -57,8 +57,6 @@ class WorkerSpline:
         form as the rest; they rely on the results of previous y'
         calculations, whereas the others only depend on y values. In short,
         they can't be treated the same mathematically
-
-        Apologies for the vague naming conventions... see README for explanation
         """
 
         if M is None:
@@ -815,7 +813,7 @@ def build_M(num_x, dx, bc_type):
     In addition to N equations from internal knots and 2 equations from boundary
     conditions, there are an additional 2 equations for requiring linear
     extrapolation outside of the spline range. Linear extrapolation is
-    achieved by specifying a spline who's first derivatives match at each end
+    achieved by specifying a spline whose first derivatives match at each end
     and whose endpoints lie in a line with that derivative.
 
     With these specifications, A and B are both (N+2, N+2) matrices
@@ -823,7 +821,7 @@ def build_M(num_x, dx, bc_type):
     A's core is a tridiagonal matrix with [h''_10(1), h''_11(1)-h''_10(0),
     -h''_11(0)] on the diagonal which is dx*[2, 8, 2] based on their definitions
 
-    B's core is tridiagonal matrix with [-h''_00(1), h''_00(0)-h''_01(1),
+    B's core is a tridiagonal matrix with [-h''_00(1), h''_00(0)-h''_01(1),
     h''_01(0)] on the diagonal which is [-6, 0, 6] based on their definitions
 
     Note that the dx is a scaling factor defined as dx = x_k+1 - x_k, assuming

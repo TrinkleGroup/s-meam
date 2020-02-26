@@ -283,7 +283,8 @@ def plot_splines(potential_template, guess_pvec, fig, ax, inner_cutoff, outer_cu
             y_guess, dy_guess = dat_guess[i][j, :-2], dat_guess[i][j, -2:]
 
             cs1 = CubicSpline(x_rngs[i], y_guess)
-            cs1 = CubicSpline(x_rngs[i], y_guess, bc_type=((1,dy_guess[0]), (1,dy_guess[1])))
+#             cs1 = CubicSpline(x_rngs[i], y_guess, bc_type=((1,dy_guess[0]), (1,dy_guess[1])))
+            cs1 = CubicSpline(x_rngs[i], y_guess, bc_type=('natural', 'natural'))
 
             shown_label = shown_label_true = None
 

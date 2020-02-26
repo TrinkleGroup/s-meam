@@ -333,6 +333,10 @@ def read_template(template_file_name):
             knot_values = data[:, 1]
 
             nphi = template_args['ntypes']*(template_args['ntypes'] + 1) / 2
+            nphi = int(nphi)
+
+            # TODO: these indices have been hard-coded for a binary system...
+            # TODO: they're also completely un-used
 
             rho_indices = np.where(
                 np.logical_or(
@@ -363,6 +367,9 @@ def read_template(template_file_name):
             x_indices = np.concatenate([
                 [0], np.cumsum(spline_npts)
                 ])[:-1]
+
+            # parameter order goes: N knots, 1 LHS deriv, 1 RHS deriv
+            template.phi_lhs_deriv_indices = spline_npts[:nphi]
 
             template.active_mask = mask
             template.pvec = knot_values
