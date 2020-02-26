@@ -132,7 +132,7 @@ class Database(h5py.File):
                 - self.attrs['x_indices'][tmp]
             )
 
-        self.attrs['num_u_knots'] = num_u_knots
+        self.num_u_knots = num_u_knots
 
     def add_true_value(self, info_file_name, ref_name):
 
