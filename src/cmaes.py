@@ -180,6 +180,7 @@ def CMAES(parameters, template, node_manager, manager_comm):
             min_idx = np.argmin(new_costs)
             best_fit = org_costs[min_idx]
             best = population[min_idx]
+            best = np.atleast_2d(best)
 
             # log full cost vector of best ever potential
             with open(parameters['BEST_FIT_FILE'], 'ab') as cost_save_file:
