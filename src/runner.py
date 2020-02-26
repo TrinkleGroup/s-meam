@@ -38,7 +38,7 @@ logger.setLevel(logging.WARNING)
 
 # TODO: have a script that checks the validity of an input script befor qsub
 
-def main(config_name, template_file_name, names_file=None):
+def main(config_name, template_file_name, ppn, names_file=None):
     world_comm = MPI.COMM_WORLD
 
     world_rank = world_comm.Get_rank()
@@ -67,7 +67,7 @@ def main(config_name, template_file_name, names_file=None):
         'RESCALE_FREQ', 'RESCALE_STOP_STEP', 'U_NSTEPS',
         'MCMC_BLOCK_SIZE', 'SGD_BATCH_SIZE', 'SHIFT_FREQ',
         'TOGGLE_FREQ', 'TOGGLE_DURATION', 'MCMC_FREQ', 'MCMC_NSTEPS',
-        'PROCS_PER_NODE', 'GRID_DIVS', 'ARCHIVE_SIZE'
+        'GRID_DIVS', 'ARCHIVE_SIZE'
     ]
 
     float_params = [
@@ -92,6 +92,9 @@ def main(config_name, template_file_name, names_file=None):
     # every PROCS_PER_NODE-th rank is a node "master"; note that a node master
     # may be in charge of multiple node heads (e.g. when multiple nodes are in
     # charge of the same collection of structures
+
+    parameters['PROCS_PER_NODE'] = ppn
+
     manager_ranks = np.arange(0, world_size, parameters['PROCS_PER_NODE'])
 
     world_group = world_comm.Get_group()
@@ -155,11 +158,12 @@ def main(config_name, template_file_name, names_file=None):
     if world_comm.Get_size() > 1:
 
         with Database(
-            parameters['DATABASE_FILE'], 'a',
+            parameters['DATABASE_FILE'], 'r',
             template.pvec_len, template.types,
             knot_xcoords=template.knot_positions, x_indices=template.x_indices,
             cutoffs=template.cutoffs,
             driver='mpio', comm=world_comm
+            # driver='mpio', comm=manager_comm
             ) as database:
 
             if is_master:
@@ -171,7 +175,7 @@ def main(config_name, template_file_name, names_file=None):
             )
     else:
         with Database(
-            parameters['DATABASE_FILE'], 'a',
+            parameters['DATABASE_FILE'], 'r',
             template.pvec_len, template.types,
             knot_xcoords=template.knot_positions, x_indices=template.x_indices,
             cutoffs=template.cutoffs,
@@ -534,6 +538,29 @@ def prepare_node_managers(database, template, parameters, manager_comm, is_maste
             key_choices, manager_comm.Get_size()
         )
 
+        # with open('fast_structs.txt', 'r') as f:
+        #     fast_names = f.readlines()
+        #     fast_names = [n.strip() for n in fast_names]
+
+        # key_choices = fast_names[:8]
+        # split_struct_lists = np.array_split(
+        #     key_choices, manager_comm.Get_size()
+        # )
+
+        # with open('normal_structs.txt', 'r') as f:
+        #     normal_names = f.readlines()
+        #     normal_names = [n.strip() for n in normal_names]
+
+        # with open('slow_structs.txt', 'r') as f:
+        #     slow_names = f.readlines()
+        #     slow_names = [n.strip() for n in slow_names]
+
+        # split_struct_lists = []
+        # split_struct_lists.append(fast_names + normal_names[:4])
+        # split_struct_lists.append(slow_names + normal_names[4:8])
+
+        # split_struct_lists += np.array_split(normal_names[8:], 30)
+
     else:
         split_struct_lists = None
 
@@ -555,7 +582,10 @@ def prepare_node_managers(database, template, parameters, manager_comm, is_maste
 
     node_comm = MPI.Comm.Split(world_comm, color, key)
 
-    node_manager = NodeManager(color, template, node_comm)
+    node_manager = NodeManager(
+        color, template, node_comm,
+        min(32, parameters['PROCS_PER_NODE']),  # can't have more than 32 ppn
+    )
 
     struct_list = node_comm.bcast(struct_list, root=0)
 
@@ -577,7 +607,13 @@ if __name__ == "__main__":
         if is_master:
             kill_and_write("Must specify a config and template file")
     else:
-        if len(sys.argv) > 3:
-            main(sys.argv[1], sys.argv[2], sys.argv[3])
+        if len(sys.argv) > 4:
+            main(
+                config_name=sys.argv[1], template_file_name=sys.argv[2],
+                ppn=sys.argv[3], names_file=sys.argv[4]
+            )
         else:
-            main(sys.argv[1], sys.argv[2], None)
+            main(
+                config_name=sys.argv[1], template_file_name=sys.argv[2],
+                ppn=int(sys.argv[3]), names_file=None
+            )
