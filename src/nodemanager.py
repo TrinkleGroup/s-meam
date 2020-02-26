@@ -10,6 +10,7 @@ import multiprocessing as mp
 import src.partools
 from itertools import repeat
 from multiprocessing import Manager
+from mpi4py import MPI
 import logging
 
 import cProfile
@@ -17,9 +18,8 @@ import cProfile
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
-# TODO: might be able to avoid using mp.Array since it's read only?
-
 struct_vecs = {}
+
 true_values = {
     'energy': {},
     'forces': {},
@@ -27,9 +27,37 @@ true_values = {
     'ref_struct': {},
 }
 
+mpi_double_size = MPI.DOUBLE.Get_size()
+
 class NodeManager:
-    def __init__(self, node_id, template):
+    def __init__(self, node_id, template, comm=None, physical_cores_per_node=32):
+
+        self.comm = comm
         self.node_id = node_id
+        self.local_rank = self.comm.Get_rank()
+        self.num_workers = self.comm.Get_size()
+        self.is_node_head = ((self.local_rank % physical_cores_per_node) == 0)
+        self.is_node_master = (self.local_rank == 0)
+        self.physical_cores_per_node = physical_cores_per_node
+
+        self.num_nodes = max(1, self.num_workers // self.physical_cores_per_node)
+
+        # used for tracking where the shared memory windows exist
+        self.my_head = self.local_rank // self.physical_cores_per_node
+
+        self.my_head_comm = MPI.Comm.Split(
+            self.comm, self.my_head, self.local_rank % self.physical_cores_per_node
+        )
+
+        # also need a comm for the node "master" to gather from node "heads"
+        all_nodes_group = self.comm.Get_group()
+
+        master_to_heads_group = all_nodes_group.Incl(
+            np.arange(0, self.num_workers, self.physical_cores_per_node)
+        )
+
+        self.master_to_heads_comm = self.comm.Create(master_to_heads_group)
+
         self.template = template
 
         self.loaded_structures = []
@@ -69,6 +97,9 @@ class NodeManager:
             self.pool.close()
 
     def start_pool(self, node_size=None):
+
+        global struct_vecs
+
         if node_size is None:
             node_size = mp.cpu_count()
 
@@ -105,7 +136,6 @@ class NodeManager:
 
         """
 
-        # TODO: instead of reading from Database, take from shared memory
         if compute_type == 'energy':
             # ret = (energy, ni)
             ret = self.compute_energy(
@@ -257,31 +287,100 @@ class NodeManager:
                 "'energy_grad', 'forces_grad']"
             )
 
+        # TODO: it's dumb that you're passing struct list in when it's a class
+        # var
+
         if type(struct_list) is not list:
             raise ValueError("struct_list must be a list of keys")
 
-        # TODO: do scaling tests to make sure having optional OpenMP isn't slow
+        # only_eval_on_head now depends on how many potentials there are
+        # relative to the number of workers on each node AND the number of
+        # nodes. Realistically, I can probably trust that I don't have to deal
+        # with the case where 1 < population size < workers_per_node*num_nodes,
+        # or I can at least simply throw an error here
 
-        if self.pool_size == 1:
-            ret_dict = {}
+        # now I just need to make sure that if the only_eval_on_head is True,
+        # that the non rank-0 heads don't also try to evaluate the population
 
-            for struct_name in struct_list:
-                ret_dict[struct_name] = self.parallel_compute(
-                    struct_name, potentials, u_domains, compute_type,
-                    convert_to_cost, stress=stress
-                )
+        if self.is_node_master:
+            only_eval_on_head = False
 
+            # node heads split the population if they need to scatter it
+            if potentials.shape[0] < self.num_workers:
+                # this means that you only scatter the population if there's
+                # enough for at least one potential for each sub-worker
+
+                only_eval_on_head = True
         else:
-            return_values = self.pool.starmap(
-                self.parallel_compute,
-                zip(
-                    struct_list, repeat(potentials), repeat(u_domains),
-                    repeat(compute_type), repeat(convert_to_cost)
+            only_eval_on_head = None
+
+        only_eval_on_head = self.comm.bcast(only_eval_on_head, root=0)
+
+        if only_eval_on_head and not self.is_node_master:  # nothing to do
+            return
+
+        # if a rank is here, then it's either the master rank, or there are
+        # enough potentials that they need to be scattered to the workers
+
+        if only_eval_on_head:
+            local_pop = potentials
+        else:
+            if self.is_node_head:
+                # send potentials from master to all other node heads
+                if self.is_node_master:
+                    potentials = np.array_split(potentials, self.num_nodes)
+                
+                potentials = self.master_to_heads_comm.scatter(potentials, root=0)
+
+                split_pop = np.array_split(
+                    potentials, self.physical_cores_per_node, axis=0
                 )
+            else:
+                split_pop = None
+
+            local_pop = self.my_head_comm.scatter(split_pop, root=0)
+
+        # prepare dictionary of return values
+        if self.is_node_master:
+            ret_dict = {}
+        else:
+            ret_dict = None
+
+        for struct_name in struct_list:
+            if self.is_node_master:
+                struct_start = time.time()
+
+            local_values = self.parallel_compute(
+                struct_name, local_pop, u_domains, compute_type,
+                # struct_name, potentials, u_domains, compute_type,
+                convert_to_cost, stress=stress
             )
 
-            ret_dict = dict(zip(struct_list, return_values))
+            if not only_eval_on_head:
+                # note that using the full comm gathers across all nodes
+                return_values = self.comm.gather(local_values, root=0)
 
+            if only_eval_on_head:
+                ret_dict[struct_name] = local_values
+            else:
+                if self.is_node_master:
+                    if compute_type == 'energy':
+
+                        """
+                        gathering returns a list of values, where for compute_energy
+                        each of these values is a length 3 tuple of (energy, ni,
+                        stress). We need to stack the energy/ni/stress for the results
+                        from each of the workers in the pool
+                        """
+
+                        all_eng, all_ni, all_stress_costs = zip(*return_values)
+                        ret_dict[struct_name] = (
+                            np.hstack(all_eng),
+                            np.hstack(all_ni),
+                            np.hstack(all_stress_costs)
+                        )
+                    else:
+                        ret_dict[struct_name] = np.hstack(return_values)
         return ret_dict
 
     def load_structures(self, struct_list, hdf5_file, load_true=False):
@@ -300,18 +399,27 @@ class NodeManager:
             shared memory.
 
         """
-
         # things to load: ntypes, num_u_knots, phi, rho, ffg, types_per_atom
         self.ntypes = hdf5_file.attrs['ntypes']
         self.len_pvec = hdf5_file.attrs['len_pvec']
-        self.num_u_knots = hdf5_file.attrs['num_u_knots']
+        # self.num_u_knots = hdf5_file.attrs['num_u_knots']
+        self.num_u_knots = hdf5_file.num_u_knots
         self.x_indices = hdf5_file.attrs['x_indices']
         self.nphi = hdf5_file.attrs['nphi']
 
         # doing it this way so that it only loads a certain amount at once
-        for struct_name in struct_list:
+        if self.is_node_master:
+            load_start = time.time()
+
+        for ii, struct_name in enumerate(struct_list):
+            # if self.is_node_master:
+            #     print(ii, struct_name)
             self.load_one_struct(struct_name, hdf5_file, load_true)
             self.loaded_structures.append(struct_name)
+
+        if self.is_node_master:
+            print(self.node_id, 'total load time:', time.time() - load_start,
+            's')
 
     def unload_structures(self, struct_list, true_values=False):
         for struct_name in struct_list:
@@ -335,36 +443,140 @@ class NodeManager:
         self.volumes[struct_name] = volume
 
         struct_vecs[struct_name] = {
-            'phi': {'energy': {}, 'forces': {}},
-            'rho': {'energy': {}, 'forces': {}},
-            'ffg': {'energy': {}, 'forces': {}}
+            'phi': {
+                'energy': {str(ii): None for ii in range(self.nphi)},
+                'forces': {str(ii): None for ii in range(self.nphi)}
+                },
+            'rho': {
+                'energy': {str(ii): None for ii in range(self.nphi)},
+                'forces': {str(ii): None for ii in range(self.nphi)}
+                },
+            'ffg': {
+                'energy': {
+                    str(ii): {str(jj): None for jj in range(self.ntypes)}
+                    for ii in range(self.ntypes)
+                    },
+                'forces': {
+                    str(ii): {str(jj): None for jj in range(self.ntypes)}
+                    for ii in range(self.ntypes)
+                    }
+                }
         }
 
-        # load phi structure vectors
+        # load ffg structure vectors
         for idx in hdf5_file[struct_name]['phi']['energy']:
 
-            eng = hdf5_file[struct_name]['phi']['energy'][idx][()]
-            fcs = hdf5_file[struct_name]['phi']['forces'][idx][()]
+            if self.is_node_head:
+                eng = hdf5_file[struct_name]['phi']['energy'][idx][()]
+                fcs = hdf5_file[struct_name]['phi']['forces'][idx][()]
 
-            # eng_loc = mp.Array('d', eng, lock=False)
-            # 
+                eng_shape = eng.shape
+                eng_nbytes = np.prod(eng_shape)*mpi_double_size
+
+                fcs_shape = fcs.shape
+                fcs_nbytes = np.prod(fcs_shape)*mpi_double_size
+            else:
+                eng_shape = None
+                fcs_shape = None
+
+                eng_nbytes = 0
+                fcs_nbytes = 0
+
+            eng_shape = self.comm.bcast(eng_shape, root=0)
+            fcs_shape = self.comm.bcast(fcs_shape, root=0)
+
+            eng_shmem_win = MPI.Win.Allocate_shared(
+                eng_nbytes, mpi_double_size, comm=self.my_head_comm
+            )
+
+            fcs_shmem_win = MPI.Win.Allocate_shared(
+                fcs_nbytes, mpi_double_size, comm=self.my_head_comm
+            )
+
+            eng_buf, _ = eng_shmem_win.Shared_query(0)
+            fcs_buf, _ = fcs_shmem_win.Shared_query(0)
+
+            eng_shmem_arr = np.ndarray(
+                buffer=eng_buf, dtype='d', shape=eng_shape
+            )
+
+            fcs_shmem_arr = np.ndarray(
+                buffer=fcs_buf, dtype='d', shape=fcs_shape
+            )
+
+            # eng_shm = mp.Array('d', fd*npots, lock=False)
+            # eng_loc = np.frombuffer(eng_shm)
+            # eng_loc = eng_loc.reshape((fd, npots))
+            # eng_loc[:] = eng[:]
+            #
             # ni, nj, nk = fcs.shape
-            # fcs_shm = mp.Array('f', ni*nj*nk, lock=False)
+            # fcs_shm = mp.Array('d', ni*nj*nk, lock=False)
             # fcs_loc = np.frombuffer(fcs_shm)
             # fcs_loc = fcs_loc.reshape((ni, nj, nk))
             # fcs_loc[:] = fcs[:]
 
-            struct_vecs[struct_name]['phi']['energy'][idx] = eng
-            struct_vecs[struct_name]['phi']['forces'][idx] = fcs
+            struct_vecs[struct_name]['phi']['energy'][idx] = eng_shmem_arr
+            struct_vecs[struct_name]['phi']['forces'][idx] = fcs_shmem_arr
+
+            if self.is_node_head:
+                struct_vecs[struct_name]['phi']['energy'][idx][...] = eng
+                struct_vecs[struct_name]['phi']['forces'][idx][...] = fcs
+
+            # MPI.Win.Free(eng_shmem_win)
+            # MPI.Win.Free(fcs_shmem_win)
 
         # load rho structure vectors
         for idx in hdf5_file[struct_name]['rho']['energy']:
 
-            eng = hdf5_file[struct_name]['rho']['energy'][idx][()]
-            fcs = hdf5_file[struct_name]['rho']['forces'][idx][()]
+            if self.is_node_head:
+                eng = hdf5_file[struct_name]['rho']['energy'][idx][()]
+                fcs = hdf5_file[struct_name]['rho']['forces'][idx][()]
 
-            struct_vecs[struct_name]['rho']['energy'][idx] = eng
-            struct_vecs[struct_name]['rho']['forces'][idx] = fcs
+                eng_shape = eng.shape
+                eng_nbytes = np.prod(eng_shape)*mpi_double_size
+
+                fcs_shape = fcs.shape
+                fcs_nbytes = np.prod(fcs_shape)*mpi_double_size
+            else:
+                eng_shape = None
+                fcs_shape = None
+
+                eng_nbytes = 0
+                fcs_nbytes = 0
+
+            eng_shape = self.comm.bcast(eng_shape, root=0)
+            fcs_shape = self.comm.bcast(fcs_shape, root=0)
+
+            eng_shmem_win = MPI.Win.Allocate_shared(
+                eng_nbytes, mpi_double_size, comm=self.my_head_comm
+            )
+
+            fcs_shmem_win = MPI.Win.Allocate_shared(
+                fcs_nbytes, mpi_double_size, comm=self.my_head_comm
+            )
+
+            eng_buf, _ = eng_shmem_win.Shared_query(0)
+            fcs_buf, _ = fcs_shmem_win.Shared_query(0)
+
+            eng_shmem_arr = np.ndarray(
+                buffer=eng_buf, dtype='d', shape=eng_shape
+            )
+
+            fcs_shmem_arr = np.ndarray(
+                buffer=fcs_buf, dtype='d', shape=fcs_shape
+            )
+
+            struct_vecs[struct_name]['rho']['energy'][idx] = eng_shmem_arr
+            struct_vecs[struct_name]['rho']['forces'][idx] = fcs_shmem_arr
+
+            if self.is_node_head:
+                struct_vecs[struct_name]['rho']['energy'][idx][...] = eng
+                struct_vecs[struct_name]['rho']['forces'][idx][...] = fcs
+
+            self.my_head_comm.Barrier()
+
+            # MPI.Win.Free(eng_shmem_win)
+            # MPI.Win.Free(fcs_shmem_win)
 
         self.ffg_grad_indices[struct_name] = {}
         self.ffg_grad_indices[struct_name]['ffg_grad_indices'] = {}
@@ -378,12 +590,56 @@ class NodeManager:
 
             for k in hdf5_file[struct_name]['ffg']['energy'][j]:
 
-                # structure vectors
-                eng = hdf5_file[struct_name]['ffg']['energy'][j][k][()]
-                fcs = hdf5_file[struct_name]['ffg']['forces'][j][k][()]
+                if self.is_node_head:
+                    # structure vectors
+                    eng = hdf5_file[struct_name]['ffg']['energy'][j][k][()]
+                    fcs = hdf5_file[struct_name]['ffg']['forces'][j][k][()]
 
-                struct_vecs[struct_name]['ffg']['energy'][j][k] = eng
-                struct_vecs[struct_name]['ffg']['forces'][j][k] = fcs
+                    eng_shape = eng.shape
+                    eng_nbytes = np.prod(eng_shape)*mpi_double_size
+
+                    fcs_shape = fcs.shape
+                    fcs_nbytes = np.prod(fcs_shape)*mpi_double_size
+                else:
+                    eng_shape = None
+                    fcs_shape = None
+
+                    eng_nbytes = 0
+                    fcs_nbytes = 0
+
+                eng_shape = self.my_head_comm.bcast(eng_shape, root=0)
+                fcs_shape = self.my_head_comm.bcast(fcs_shape, root=0)
+
+                eng_shmem_win = MPI.Win.Allocate_shared(
+                    eng_nbytes, mpi_double_size, comm=self.my_head_comm
+                )
+
+                fcs_shmem_win = MPI.Win.Allocate_shared(
+                    fcs_nbytes, mpi_double_size, comm=self.my_head_comm
+                )
+
+                eng_buf, _ = eng_shmem_win.Shared_query(0)
+                fcs_buf, _ = fcs_shmem_win.Shared_query(0)
+
+                eng_shmem_arr = np.ndarray(
+                    buffer=eng_buf, dtype='d', shape=eng_shape
+                )
+
+                fcs_shmem_arr = np.ndarray(
+                    buffer=fcs_buf, dtype='d', shape=fcs_shape
+                )
+
+                struct_vecs[struct_name]['ffg']['energy'][j][k] = eng_shmem_arr
+                struct_vecs[struct_name]['ffg']['forces'][j][k] = fcs_shmem_arr
+
+                if self.is_node_head:
+                    struct_vecs[struct_name]['ffg']['energy'][j][k][...] = eng
+                    struct_vecs[struct_name]['ffg']['forces'][j][k][...] = fcs
+
+                self.my_head_comm.Barrier()
+
+                # MPI.Win.Free(eng_shmem_win)
+                # MPI.Win.Free(fcs_shmem_win)
 
                 # indices for indexing gradients
                 indices_group = hdf5_file[struct_name]['ffg_grad_indices'][j][k]
@@ -415,6 +671,7 @@ class NodeManager:
 
         if stress:
             if struct_vecs[struct_name]['phi']['energy']['0'].shape[0] < 3:
+            # if energy_struct_vecs['phi']['0'].shape[0] < 3:
                 raise ValueError(
                     "Finite difference structure vectors not loaded"
                 )
@@ -426,6 +683,8 @@ class NodeManager:
         phi_pvecs, rho_pvecs, u_pvecs, f_pvecs, g_pvecs = \
             self.parse_parameters(potentials)
 
+        # struct_index = struct_names.index(struct_name)
+
         if stress:
             energy = np.zeros((13, n_pots))
         else:
@@ -436,9 +695,11 @@ class NodeManager:
             if stress:
                 energy += \
                     struct_vecs[struct_name]['phi']['energy'][str(i)] @ y.T
+                    # energy_struct_vecs['phi'][struct_index] @ y.T
             else:
                 energy += \
                     struct_vecs[struct_name]['phi']['energy'][str(i)][0] @ y.T
+                    # energy_struct_vecs['phi'][struct_index][0] @ y.T
 
         # embedding terms
         ni = self.compute_ni(
@@ -488,10 +749,13 @@ class NodeManager:
 
         forces = np.zeros((n_pots, self.natoms[struct_name], 3))
 
+        # struct_index = struct_names.index(struct_name)
+
         # pair forces (phi)
         for phi_idx, y in enumerate(phi_pvecs):
             forces += np.einsum(
                 'ijk,pk->pij',
+                # forces_struct_vecs['phi']['forces'][str(phi_idx)],
                 struct_vecs[struct_name]['phi']['forces'][str(phi_idx)],
                 y
             )
@@ -545,7 +809,6 @@ class NodeManager:
 
         energy = np.zeros((n_pots, 13))
 
-        # TODO: need to change normal energy calcs to only use SV[0]
         for phi_idx, y in enumerate(phi_pvecs):
             energy += np.einsum(
                 'fk,pk->pf',
