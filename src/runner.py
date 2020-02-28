@@ -617,6 +617,15 @@ def prepare_node_managers(database, template, parameters, manager_comm, is_maste
     node_manager.load_structures(struct_list, database, load_true=True)
     node_manager.update_popsize(parameters['POP_SIZE'])
 
+    if node_manager.is_node_master:
+        global_num_atoms = manager_comm.allreduce(
+            node_manager.local_num_atoms, MPI.SUM
+        )
+    else:
+        global_num_atoms = None
+
+    node_manager.global_num_atoms = world_comm.bcast(global_num_atoms, root=0)
+
     return node_manager
 
 def prepare_save_directory(parameters):

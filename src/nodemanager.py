@@ -94,6 +94,11 @@ class NodeManager:
         # set up shared memory for storing results and population
 
         self.num_structs = num_structs
+
+        # will be updated later; used for count ni values
+        self.local_num_atoms = 0
+        self.global_num_atoms = 0
+
         self.max_pop_size = max_pop_size
 
         self.full_popsize = 0
@@ -115,22 +120,45 @@ class NodeManager:
 
             pop_nbytes = np.prod(pop_shape)*mpi_double_size
 
-            # 3 + 3 for energy, force_cost, stress_cost, ni_min, ni_max, ni_avg
-            results_shape = (self.num_structs, self.max_pop_size, 3 + 3)
+            # energy, force_cost, stress_cost
+            results_shape = (self.num_structs, self.physical_node_popsize, 3)
             results_nbytes = np.prod(results_shape)*mpi_double_size
 
+            # for each structure, for each potential, for each
+            # atom type, reserve space to log the min/max/avg ni
+
+            ni_shape = (self.num_structs, self.physical_node_popsize,
+                        self.template.ntypes, 3)
+            ni_nbytes = np.prod(ni_shape)*mpi_double_size
+
+            # also need a shmem array for the global ni averages
+            ni_avg_shape = (self.physical_node_popsize, self.template.ntypes)
+            ni_avg_nbytes = np.prod(ni_shape)*mpi_double_size
         else:
             pop_shape = None
             results_shape = None
+            ni_shape = None
+            ni_avg_shape = None
 
             pop_nbytes = 0
             results_nbytes = 0
+            ni_nbytes = 0
+            ni_avg_nbytes = 0
 
         pop_shape = self.my_head_comm.bcast(pop_shape, root=0)
         results_shape = self.my_head_comm.bcast(results_shape, root=0)
+        ni_shape = self.my_head_comm.bcast(ni_shape, root=0)
 
         pop_shmem_win = MPI.Win.Allocate_shared(
             pop_nbytes, mpi_double_size, comm=self.my_head_comm
+        )
+
+        ni_shmem_win = MPI.Win.Allocate_shared(
+            ni_nbytes, mpi_double_size, comm=self.my_head_comm
+        )
+
+        ni_avg_shmem_win = MPI.Win.Allocate_shared(
+            ni_avg_nbytes, mpi_double_size, comm=self.my_head_comm
         )
 
         results_shmem_win = MPI.Win.Allocate_shared(
@@ -139,9 +167,19 @@ class NodeManager:
 
         pop_buf, _ = pop_shmem_win.Shared_query(0)
         results_buf, _ = results_shmem_win.Shared_query(0)
+        ni_buf, _ = ni_shmem_win.Shared_query(0)
+        ni_avg_buf, _ = ni_avg_shmem_win.Shared_query(0)
 
         pop_shmem_arr = np.ndarray(
             buffer=pop_buf, dtype='d', shape=pop_shape
+        )
+
+        ni_shmem_arr = np.ndarray(
+            buffer=ni_buf, dtype='d', shape=ni_shape
+        )
+
+        ni_avg_shmem_arr = np.ndarray(
+            buffer=ni_avg_buf, dtype='d', shape=ni_avg_shape
         )
 
         results_shmem_arr = np.ndarray(
@@ -150,20 +188,12 @@ class NodeManager:
 
         self.pop_shmem_arr = pop_shmem_arr
         self.results_shmem_arr = results_shmem_arr
+        self.ni_shmem_arr = ni_shmem_arr
+        self.ni_avg_shmem_arr = ni_avg_shmem_arr
 
         self.my_head_comm.Barrier()
 
         # done setting up shared memory arrays
-
-        # TODO: when a node head recieves their split of the population,
-        # they need to store it in the shmem array (and use Barrier)
-
-        # TODO: when each node evaluates their sub-subset of the population,
-        # they need to store it in the correct place in the results array
-
-        # TODO: node master should only return the dimension being calculated
-        #  (e.g. energy/forces/stress)
-
 
         self.loaded_structures = []
 
@@ -413,7 +443,8 @@ class NodeManager:
 
         self.my_slice = slice(my_start_index, my_end_index)
 
-        self.comm.Barrier()
+        # I *think* it's okay not to have a barrier here...
+        # self.comm.Barrier()
 
     # @profile
     def compute(self, compute_type, struct_list, potentials, u_domains,
@@ -511,31 +542,19 @@ class NodeManager:
             # split over every worker on every node
 
             local_pop = self.pop_shmem_arr[self.my_slice]
-            # local_pop = np.array_split(
-            #     self.pop_shmem_arr, self.physical_cores_per_node
-            # )[self.my_rank_on_physical_node]
 
         for struct_name in struct_list:
-
-            print('local_pop:', local_pop.shape)
 
             local_values = self.parallel_compute(
                 struct_name, local_pop, u_domains, compute_type,
                 convert_to_cost, stress=stress
             )
 
-            print('local_values[0]', local_values[0].shape)
-
             # anyone here is either the master a worker with a portion of the
             # population; either way, they should stack their results and
             # add them into the shared memory array
 
             name_idx = self.loaded_structures.index(struct_name)
-
-            # if only_eval_on_head:
-            #     return_values = [local_values]
-            # else:
-            #     return_values = self.comm.gather(local_values, root=0)
 
             if compute_type == 'energy':  # energy, stresses, ni
                 # my_eng, my_ni, my_stress_costs = zip(*local_values)
@@ -557,28 +576,37 @@ class NodeManager:
                 all_ni = np.hstack(my_ni),
                 print('all_ni:', [el.shape for el in all_ni])
 
+                # TODO: make a separate array for the ni min/max/avg
+
                 # all_ni is a length-ntypes list, where each entry is an array
                 # of (P, natoms) computed ni values. Each of these lists will be
                 # stored locally; later, the per-type groups of lists will be
                 # concatenated together for computing the variance
 
                 for pt, per_type_ni in enumerate(my_ni):
-                    self.my_ni[pt].append(per_type_ni)
+                    self.my_ni[pt].append(per_type_ni, axis=1)
 
-                # I need to store the min/max/avg ni for each atom type. It
-                # might be easier to store these in their own shmem arrays
-
-                self.results_shmem_arr[name_idx, self.my_slice, -3] = \
-                    np.min(all_ni, axis=1)
-
-                self.results_shmem_arr[name_idx, self.my_slice, -2] = \
-                    np.max(all_ni, axis=1)
-
-                self.results_shmem_arr[name_idx, self.my_slice, -1] = \
-                    np.average(all_ni, axis=1)
             else:  # forces
                 self.results_shmem_arr[name_idx, self.my_slice, 1] = \
                     np.hstack(local_values)
+
+
+        if compute_type == 'energy':
+            # I need to store the min/max/avg ni for each atom type. It
+            # might be easier to store these in their own shmem arrays
+
+            for pt, per_type_ni in enumerate(self.my_ni):
+                per_type_ni = np.hstack(per_type_ni)
+                self.my_ni = per_type_ni
+
+                self.ni_shmem_arr[name_idx, self.my_slice, pt, 0] = \
+                    np.min(per_type_ni, axis=1)
+
+                self.ni_shmem_arr[name_idx, self.my_slice, pt, 1] = \
+                    np.max(per_type_ni, axis=1)
+
+                self.ni_shmem_arr[name_idx, self.my_slice, pt, 2] = \
+                    np.average(per_type_ni, axis=1)
 
         # make sure all workers have finished their calculations
         self.comm.Barrier()
@@ -590,7 +618,6 @@ class NodeManager:
             if compute_type == 'energy':
                 return (
                     self.results_shmem_arr[:, :self.full_popsize, 0],    # energies
-                    self.results_shmem_arr[:, :self.full_popsize, -3:],  # ni stats
                     self.results_shmem_arr[:, :self.full_popsize, 2]     # stress costs
                 )
 
@@ -620,7 +647,7 @@ class NodeManager:
                     all_ni = np.vstack(all_ni)
                     all_stress_costs = np.vstack(all_stress_costs)
 
-                    return all_eng, all_ni, all_stress_costs
+                    return all_eng, all_stress_costs
             else:  # forces
                 if self.is_node_head:
                     all_force_costs = self.master_to_heads_comm.gather(
@@ -668,6 +695,8 @@ class NodeManager:
             #     print(ii, struct_name)
             self.load_one_struct(struct_name, hdf5_file, load_true)
             self.loaded_structures.append(struct_name)
+
+            self.local_num_atoms += hdf5_file[struct_name].attrs['natoms']
 
         if self.is_node_master:
             print(self.node_id, 'total load time:', time.time() - load_start,
