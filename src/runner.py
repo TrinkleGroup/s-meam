@@ -93,7 +93,14 @@ def main(config_name, template_file_name, ppn, names_file=None):
     # may be in charge of multiple node heads (e.g. when multiple nodes are in
     # charge of the same collection of structures
 
-    parameters['PROCS_PER_NODE'] = ppn
+    parameters['PROCS_PER_NODE'] = ppn  # ppn is a command-line arg
+
+    if parameters['DO_GROW']:
+        parameters['MAX_POP_SIZE'] = max(
+            parameters['POP_SIZE'], max(parameters['GROW_SIZE'])
+        )
+    else:
+        parameters['MAX_POP_SIZE'] = parameters['POP_SIZE']
 
     manager_ranks = np.arange(0, world_size, parameters['PROCS_PER_NODE'])
 
@@ -364,6 +371,14 @@ def read_template(template_file_name):
                 spline_indices=spline_indices
             )
 
+            template.biggest_min = max(
+                [el[0] for el in template.u_ranges]
+            )
+
+            template.biggest_max = max(
+                [el[1] for el in template.u_ranges]
+            )
+
             x_indices = np.concatenate([
                 [0], np.cumsum(spline_npts)
                 ])[:-1]
@@ -591,12 +606,16 @@ def prepare_node_managers(database, template, parameters, manager_comm, is_maste
 
     node_manager = NodeManager(
         color, template, node_comm,
-        min(32, parameters['PROCS_PER_NODE']),  # can't have more than 32 ppn
+        max_pop_size=parameters['MAX_POP_SIZE'],
+        num_structs = len(struct_list),
+        # can't have more than 32 processors on one node
+        physical_cores_per_node=(32, parameters['PROCS_PER_NODE']),
     )
 
     struct_list = node_comm.bcast(struct_list, root=0)
 
     node_manager.load_structures(struct_list, database, load_true=True)
+    node_manager.update_popsize(parameters['POP_SIZE'])
 
     return node_manager
 
@@ -611,8 +630,7 @@ def prepare_save_directory(parameters):
 
 if __name__ == "__main__":
     if len(sys.argv) < 3:
-        if is_master:
-            kill_and_write("Must specify a config and template file")
+        kill_and_write("Must specify a config and template file")
     else:
         if len(sys.argv) > 4:
             main(

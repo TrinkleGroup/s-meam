@@ -37,23 +37,21 @@ def build_evaluation_functions(
             weights[:len(node_manager.loaded_structures)]
         ))
 
-        manager_energies = node_manager.compute(
+        manager_returns = node_manager.compute(
             'energy', node_manager.loaded_structures, pop, template.u_ranges,
             stress=True
         )
 
-        manager_force_costs = node_manager.compute(
+        force_costs = node_manager.compute(
             'forces', node_manager.loaded_structures, pop, template.u_ranges
         )
 
-        only_eval_on_head = node_manager.comm.bcast(only_eval_on_head, root=0)
-
-        fitnesses = 0
+        fitnesses = 1
         max_ni = 0
         min_ni = 0
         avg_ni = 0
 
-        if manager_energies is None:
+        if manager_returns is None:
             # this indicates that you were an MPI rank that didn't have to
             # evaluate anything
 
@@ -62,29 +60,18 @@ def build_evaluation_functions(
             else:
                 return fitnesses
 
-        force_costs = np.array(list(manager_force_costs.values()))
-
-        unsorted_energies = [retval[0] for retval in manager_energies.values()]
-        sorted_energies = [
-            x for _, x in sorted(zip(list(manager_energies.keys()), unsorted_energies))
-        ]
-
-        unsorted_stresses = [retval[2] for retval in manager_energies.values()]
-
-        sorted_stresses = [
+        unsorted_energies = manager_returns[0]
+        eng = [  # sort according to structure name
             x for _, x in sorted(
-                zip(list(manager_energies.keys()), unsorted_stresses)
+                zip(node_manager.loaded_structures, unsorted_energies)
             )
         ]
 
-        sorted_names = sorted(list(manager_energies.keys()))
-
-        eng = np.vstack(sorted_energies)
-
-        stresses = np.vstack(sorted_stresses)
-
         # NOTE: doesn't matter that these aren't sorted since we just need stats
-        ni = [retval[1] for retval in manager_energies.values()]
+        ni_stats = manager_returns[1]
+        ni_min = ni_stats[:, 0]
+        ni_max = ni_stats[:, 1]
+        ni_avg = ni_stats[:, 2]  # TODO: I can't remember the form of these ni.
 
         ni_stats = calculate_ni_stats(ni, template)
 
@@ -93,6 +80,16 @@ def build_evaluation_functions(
         c_avg_ni = ni_stats[2]
         c_ni_var = ni_stats[3]
         c_frac_in = ni_stats[4]
+
+        unsorted_stresses = manager_returns[2]
+
+        stresses = [  # sort according to structure name
+            x for _, x in sorted(
+                zip(node_manager.loaded_structures, unsorted_stresses)
+            )
+        ]
+
+        sorted_names = sorted(node_manager.loaded_structures)
 
         if node_manager.is_node_master:
             mgr_eng = manager_comm.gather(eng, root=0)
@@ -128,15 +125,11 @@ def build_evaluation_functions(
             fitnesses = np.zeros(
                 (
                     len(pop),
-                    # len(all_struct_names)*6 \
-                    # + len(all_struct_names)*2 \
                     len(all_struct_names)*3 \
                     + 3*frac_in.shape[1] \
                     + 1  # used to penalize non-negative LHS phi derivatives
                 )
             )
-
-            # fitness order: 6 stresses, 1 energy, 1 force, 3 penalties
 
             # assumes that 'weights' has the same order as all_struct_names
             for fit_id, (name, weight) in enumerate(zip(
@@ -1023,17 +1016,9 @@ def calculate_ni_stats(grouped_ni, template):
 
     for i, type_ni in enumerate(stacked_groups):
 
-        biggest_min = max(
-            [el[0] for el in template.u_ranges]
-        )
-
-        biggest_max = max(
-            [el[1] for el in template.u_ranges]
-        )
-
         num_in = np.logical_and(
-            type_ni >= biggest_min - 0.1,
-            type_ni <= biggest_max + 0.1
+            type_ni >= template.biggest_min - 0.1,
+            type_ni <= template.biggest_max + 0.1
         ).sum(axis=1)
 
         # num_in = np.logical_and(

@@ -196,7 +196,9 @@ def CMAES(parameters, template, node_manager, manager_comm):
                     if is_master:
                         es = cma.CMAEvolutionStrategy(
                             es.result.xbest,
-                            0.01,
+                            # TODO: figure out how to get the final sigma
+                            es.sigma,
+                            # 0.01,
                             {
                                 'verb_disp': 1,
                                 'popsize': parameters['GROW_SIZE'][grow_id],
@@ -205,6 +207,10 @@ def CMAES(parameters, template, node_manager, manager_comm):
                         )
 
                     grow_id += 1
+
+                    node_manager.update_popsize(
+                        parameters['GROW_SIZE'][grow_id]
+                    )
 
         if parameters['DO_SHIFT']:
             if shift_time == 0:

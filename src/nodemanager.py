@@ -27,10 +27,41 @@ true_values = {
     'ref_struct': {},
 }
 
+"""
+Preparing shmem for populations and fitness results:
+
+    NOTE: all of these arrays need to be ordered in the same order as a 
+    'names' list so that the master node can sort them properly later
+    
+    NOTE: to make things simpler, a NodeManager should be aware of the 
+    largest population that they'll ever need to evaluate so that they can 
+    reserve the proper amount of shared memory at the start of the run. On 
+    eval, the node master can then just pull only the necessary rows.
+
+    Energies:
+        An NxP array where N is the number of structures, and P is the number of
+        potentials. Since the structures are already in shared memory (so 
+        everyone has access to them), each sub-worker just needs to keep 
+        track of which portion of the array they are updating.
+        
+    Forces:
+        These will already have been converted to fitnesses, so this should 
+        also be an NxP array.
+        
+    Stresses:
+        Same as above.
+        
+    So in total, we just need an NxPx3 matrix, where the 3rd dimension is 
+    ordered as [energies, force_costs, stress_costs].
+
+"""
+
 mpi_double_size = MPI.DOUBLE.Get_size()
 
 class NodeManager:
-    def __init__(self, node_id, template, comm=None, physical_cores_per_node=32):
+    def __init__(self, node_id, template, comm=None, max_pop_size=2,
+                 num_structs=0,
+                 physical_cores_per_node=32):
 
         self.comm = comm
         self.node_id = node_id
@@ -49,6 +80,8 @@ class NodeManager:
             self.comm, self.my_head, self.local_rank % self.physical_cores_per_node
         )
 
+        self.my_rank_on_physical_node = self.my_head_comm.Get_rank()
+
         # also need a comm for the node "master" to gather from node "heads"
         all_nodes_group = self.comm.Get_group()
 
@@ -57,6 +90,75 @@ class NodeManager:
         )
 
         self.master_to_heads_comm = self.comm.Create(master_to_heads_group)
+
+        # set up shared memory for storing results and population
+
+        self.num_structs = num_structs
+        self.max_pop_size = max_pop_size
+
+        self.full_popsize = 0
+        self.physical_node_popsize = 0
+        self.popsize = 0
+        self.physical_node_slice = None
+        self.my_slice = None
+
+        if self.is_node_head:
+
+            # Each node in the same NodeManager only needs part of the pop
+            pop_shape = (
+                self.max_pop_size/self.num_nodes, self.template.pvec_len
+            )
+
+            pop_nbytes = np.prod(pop_shape)*mpi_double_size
+
+            # 3 + 3 for energy, force_cost, stress_cost, ni_min, ni_max, ni_avg
+            results_shape = (self.num_structs, self.max_pop_size, 3 + 3)
+            results_nbytes = np.prod(results_shape)*mpi_double_size
+
+        else:
+            pop_shape = None
+            results_shape = None
+
+            pop_nbytes = 0
+            results_nbytes = 0
+
+        pop_shape = self.my_head_comm.bcast(pop_shape, root=0)
+        results_shape = self.my_head_comm.bcast(results_shape, root=0)
+
+        pop_shmem_win = MPI.Win.Allocate_shared(
+            pop_nbytes, mpi_double_size, comm=self.my_head_comm
+        )
+
+        results_shmem_win = MPI.Win.Allocate_shared(
+            results_nbytes, mpi_double_size, comm=self.my_head_comm
+        )
+
+        pop_buf, _ = pop_shmem_win.Shared_query(0)
+        results_buf, _ = results_shmem_win.Shared_query(0)
+
+        pop_shmem_arr = np.ndarray(
+            buffer=pop_buf, dtype='d', shape=pop_shape
+        )
+
+        results_shmem_arr = np.ndarray(
+            buffer=results_buf, dtype='d', shape=results_shape
+        )
+
+        self.pop_shmem_arr = pop_shmem_arr
+        self.results_shmem_arr = results_shmem_arr
+
+        self.my_head_comm.Barrier()
+
+        # done setting up shared memory arrays
+
+        # TODO: when a node head recieves their split of the population,
+        # they need to store it in the shmem array (and use Barrier)
+
+        # TODO: when each node evaluates their sub-subset of the population,
+        # they need to store it in the correct place in the results array
+
+        # TODO: node master should only return the dimension being calculated
+        #  (e.g. energy/forces/stress)
 
         self.template = template
 
@@ -71,6 +173,8 @@ class NodeManager:
         self.ntypes = None
         self.len_pvec = None
         self.nphi = None
+
+        self.my_ni = [list() for _ in range(self.ntypes)]
 
         self.ffg_grad_indices = {}
         self.num_u_knots = []
@@ -253,6 +357,58 @@ class NodeManager:
 
         return summed
 
+    def update_popsize(self, full_population_size=None):
+        """Tells all workers what the new population size is, that way they
+        can figure out what indices they are in charge of in the shared
+        memory arrays."""
+
+        self.full_popsize = full_population_size
+
+        if full_population_size < self.num_workers:
+            if self.is_node_master:
+                self.popsize = full_population_size
+            else:
+                self.popsize = 0
+        else:
+            # split the population across the nodes
+            num_per_node = full_population_size // self.num_nodes
+            leftovers = full_population_size - num_per_node*self.num_nodes
+            leftovers = max(0, leftovers)
+
+            if self.my_head == 0:
+                self.physical_node_popsize = num_per_node + leftovers
+            else:
+                self.physical_node_popsize = num_per_node
+
+            # split the node population across its workers
+            num_per_worker = full_population_size // self.physical_cores_per_node
+            leftovers = full_population_size - num_per_worker *self.physical_cores_per_node
+            leftovers = max(0, leftovers)
+
+            if self.is_node_master:
+                self.popsize = num_per_worker  + leftovers
+            else:
+                self.popsize = num_per_worker
+
+        # now compute your start/stop indices in the shared memory arrays
+        all_sizes = self.comm.Allgather(self.physical_node_popsize)
+
+        cumsum = np.cumsum(all_sizes)
+        cumsum.append(-1)
+        my_start_index = cumsum[self.my_head]
+        my_end_index = cumsum[self.my_head + 1]
+
+        self.physical_node_slice = slice(my_start_index, my_end_index)
+
+        # now compute your start/stop indices in the shared memory arrays
+        all_sizes = self.comm.Allgather(self.popsize)
+
+        cumsum = np.cumsum(all_sizes)
+        cumsum.append(-1)
+        my_start_index = cumsum[self.local_rank]
+        my_end_index = cumsum[self.local_rank + 1]
+
+        self.my_slice = slice(my_start_index, my_end_index)
 
     # @profile
     def compute(self, compute_type, struct_list, potentials, u_domains,
@@ -279,6 +435,10 @@ class NodeManager:
 
         """
 
+        if compute_type == 'energy':
+            # ni should be reset on every new energy evaluation
+            self.my_ni = [list() for _ in range(self.ntypes)]
+
         type_list = ['energy', 'forces', 'energy_grad', 'forces_grad']
 
         if compute_type not in type_list:
@@ -287,8 +447,7 @@ class NodeManager:
                 "'energy_grad', 'forces_grad']"
             )
 
-        # TODO: it's dumb that you're passing struct list in when it's a class
-        # var
+        # TODO: it's dumb that you pass struct list in when it's a class var
 
         if type(struct_list) is not list:
             raise ValueError("struct_list must be a list of keys")
@@ -320,9 +479,10 @@ class NodeManager:
             return
 
         # if a rank is here, then it's either the master rank, or there are
-        # enough potentials that they need to be scattered to the workers
+        # enough potentials that they need to be scattered to all the workers
 
         if only_eval_on_head:
+            # TODO: need to make sure this is updating shmem properly
             local_pop = potentials
         else:
             if self.is_node_head:
@@ -332,56 +492,126 @@ class NodeManager:
                 
                 potentials = self.master_to_heads_comm.scatter(potentials, root=0)
 
-                split_pop = np.array_split(
-                    potentials, self.physical_cores_per_node, axis=0
-                )
-            else:
-                split_pop = None
+                # instead of MPI sending to workers, just add to shmem
 
-            local_pop = self.my_head_comm.scatter(split_pop, root=0)
+                # need to Barrier so that everyone uses updated potentials
+                self.pop_shmem_arr[:potentials.shape[0], :] = potentials
+                self.my_head_comm.Barrier()
 
-        # prepare dictionary of return values
-        if self.is_node_master:
-            ret_dict = {}
-        else:
-            ret_dict = None
+            # if the node master isn't the only one evaluating the
+            # population, then it's assumed that the population is to be
+            # split over every worker on every node
+
+            local_pop = np.array_split(
+                self.pop_shmem_arr, self.physical_cores_per_node
+            )[self.my_rank_on_physical_node]
 
         for struct_name in struct_list:
-            if self.is_node_master:
-                struct_start = time.time()
 
             local_values = self.parallel_compute(
                 struct_name, local_pop, u_domains, compute_type,
-                # struct_name, potentials, u_domains, compute_type,
                 convert_to_cost, stress=stress
             )
 
-            if not only_eval_on_head:
-                # note that using the full comm gathers across all nodes
-                return_values = self.comm.gather(local_values, root=0)
+            # anyone here is either the master a worker with a portion of the
+            # population; either way, they should stack their results and
+            # add them into the shared memory array
 
-            if only_eval_on_head:
-                ret_dict[struct_name] = local_values
-            else:
+            name_idx = self.loaded_structures.index(struct_name)
+
+            return_values = self.comm.gather(local_values, root=0)
+
+            if compute_type == 'energy':  # energy, stresses, ni
+                my_eng, my_ni, my_stress_costs = zip(*return_values)
+
+                # TODO: I forget what the structure of my_ni is right here.
+                # Probably an N-dim list where each element is the ni for a
+                # single type
+
+                # save ni so that np.var can be computed later (for U penalties)
+                # ni need to be sorted by atom type
+                for pt, per_type_ni in enumerate(my_ni):
+
+                    self.my_ni[pt].append(my_ni)
+
+                # note: self.my_slice is the slice of the shared memory
+                # array that the given process is in charge of; this
+                # should be updated whenever the population size changes
+
+                self.results_shmem_arr[name_idx, self.my_slice, 0] = \
+                    np.hstack(my_eng)
+
+                self.results_shmem_arr[name_idx, self.my_slice, 2] = \
+                    np.hstack(my_stress_costs)
+
+                all_ni = np.hstack(my_ni),
+
+                self.results_shmem_arr[name_idx, self.my_slice, -3] = \
+                    np.min(all_ni, axis=1)
+
+                self.results_shmem_arr[name_idx, self.my_slice, -2] = \
+                    np.max(all_ni, axis=1)
+
+                self.results_shmem_arr[name_idx, self.my_slice, -1] = \
+                    np.average(all_ni, axis=1)
+            else:  # forces
+                self.results_shmem_arr[name_idx, self.my_slice, 1] = \
+                    np.hstack(return_values)
+
+        # make sure all workers have finished their calculations
+        self.comm.Barrier()
+
+        # now have the node master extract the values that it should return
+        if only_eval_on_head:
+            # then you're the master rank, and you evaluated everything
+
+            if compute_type == 'energy':
+                return (
+                    self.results_shmem_arr[:, :self.full_popsize, 0],    # energies
+                    self.results_shmem_arr[:, :self.full_popsize, -3:],  # ni stats
+                    self.results_shmem_arr[:, :self.full_popsize, 2]     # stress costs
+                )
+
+            else:  # forces
+                return self.results_shmem_arr[:, :self.full_popsize, 1]
+        else:
+            # master needs to gather from node managers
+            if compute_type == 'energy':
+                if self.is_node_head:
+                    all_eng = self.master_to_heads_comm.gather(
+                        self.results_shmem_arr[:, self.physical_node_slice, 0],
+                        root=0
+                    )
+
+                    all_ni = self.master_to_heads_comm.gather(
+                        self.results_shmem_arr[:, self.physical_node_slice, -3:],
+                        root=0
+                    )
+
+                    all_stress_costs = self.master_to_heads_comm.gather(
+                        self.results_shmem_arr[:, self.physical_node_slice, 2],
+                        root=0
+                    )
+
                 if self.is_node_master:
-                    if compute_type == 'energy':
+                    all_eng = np.vstack(all_eng)
+                    all_ni = np.vstack(all_ni)
+                    all_stress_costs = np.vstack(all_stress_costs)
 
-                        """
-                        gathering returns a list of values, where for compute_energy
-                        each of these values is a length 3 tuple of (energy, ni,
-                        stress). We need to stack the energy/ni/stress for the results
-                        from each of the workers in the pool
-                        """
+                    return all_eng, all_ni, all_stress_costs
+            else:  # forces
+                if self.is_node_head:
+                    all_force_costs = self.master_to_heads_comm.gather(
+                        self.results_shmem_arr[:, self.physical_node_slice, 1],
+                        root=0
+                    )
 
-                        all_eng, all_ni, all_stress_costs = zip(*return_values)
-                        ret_dict[struct_name] = (
-                            np.hstack(all_eng),
-                            np.hstack(all_ni),
-                            np.hstack(all_stress_costs)
-                        )
-                    else:
-                        ret_dict[struct_name] = np.hstack(return_values)
-        return ret_dict
+                if self.is_node_master:
+                    return np.vstack(all_force_costs)
+
+        # everyone except master returns None
+        return None
+
 
     def load_structures(self, struct_list, hdf5_file, load_true=False):
         """
