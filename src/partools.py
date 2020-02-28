@@ -31,6 +31,8 @@ def build_evaluation_functions(
             pop = None
             only_eval_on_head = None
 
+        only_eval_on_head = world_comm.bcast(only_eval_on_head, root=0)
+
         # TODO: shouldn't update these every time, only when dbOpt needs to
         node_manager.weights = dict(zip(
             node_manager.loaded_structures,
@@ -51,7 +53,12 @@ def build_evaluation_functions(
         min_ni = 0
         avg_ni = 0
 
+        min_ni, max_ni, avg_ni, ni_var = calculate_ni_stats(
+            node_manager, is_master, manager_comm, only_eval_on_head
+        )
+
         if energy_returns is None:
+        # if only_eval_on_head and not node_manager.is_node_head:
             # this indicates that you were an MPI rank that didn't have to
             # evaluate anything
 
@@ -66,10 +73,6 @@ def build_evaluation_functions(
                 zip(node_manager.loaded_structures, unsorted_energies)
             )
         ]
-
-        c_min_ni, c_max_ni, c_avg_ni, c_ni_var = calculate_ni_stats(
-            node_manager, is_master, manager_comm, len(all_struct_names)
-        )
 
         unsorted_stresses = energy_returns[1]
 
@@ -86,10 +89,10 @@ def build_evaluation_functions(
             mgr_stress = manager_comm.gather(stresses, root=0)
             mgr_force_costs = manager_comm.gather(force_costs, root=0)
 
-            mgr_min_ni = manager_comm.gather(c_min_ni, root=0)
-            mgr_max_ni = manager_comm.gather(c_max_ni, root=0)
-            mgr_avg_ni = manager_comm.gather(c_avg_ni, root=0)
-            mgr_ni_var = manager_comm.gather(c_ni_var, root=0)
+            # mgr_min_ni = manager_comm.gather(c_min_ni, root=0)
+            # mgr_max_ni = manager_comm.gather(c_max_ni, root=0)
+            # mgr_avg_ni = manager_comm.gather(c_avg_ni, root=0)
+            # mgr_ni_var = manager_comm.gather(c_ni_var, root=0)
 
             mgr_names_list = manager_comm.gather(sorted_names, root=0)
 
@@ -105,10 +108,15 @@ def build_evaluation_functions(
 
             # do operations so that the final shape is (2, num_pots)
 
-            min_ni = np.min(np.dstack(mgr_min_ni), axis=2).T
-            max_ni = np.max(np.dstack(mgr_max_ni), axis=2).T
-            avg_ni = np.average(np.dstack(mgr_avg_ni), axis=2).T
-            ni_var = np.average(np.dstack(mgr_ni_var), axis=2).T
+            # min_ni = np.min(np.dstack(mgr_min_ni), axis=2).T
+            # max_ni = np.max(np.dstack(mgr_max_ni), axis=2).T
+            # avg_ni = np.average(np.dstack(mgr_avg_ni), axis=2).T
+            # ni_var = np.average(np.dstack(mgr_ni_var), axis=2).T
+
+            min_ni = np.min(np.dstack(min_ni), axis=2).T
+            max_ni = np.max(np.dstack(max_ni), axis=2).T
+            avg_ni = np.average(np.dstack(avg_ni), axis=2).T
+            ni_var = np.average(np.dstack(ni_var), axis=2).T
 
             fitnesses = np.zeros(
                 (
@@ -974,7 +982,62 @@ def local_minimization(
 
     return final_pop
 
-def calculate_ni_stats(node_manager, is_master, manager_comm):
+def calculate_ni_stats(node_manager, is_master, manager_comm, only_eval_on_head):
+
+    if is_master:
+        min_ni = np.zeros(
+            (node_manager.full_popsize, node_manager.template.ntypes)
+        )
+
+        max_ni = np.zeros_like(min_ni)
+        avg_ni = np.zeros_like(min_ni)
+        ni_var = np.zeros_like(min_ni)
+
+    if only_eval_on_head:
+        global_ni = [node_manager.my_ni]
+    else:
+        physical_node_ni = node_manager.my_head_comm.gather(node_manager.my_ni, root=0)
+
+        if node_manager.is_node_head:
+            physical_node_ni = [
+                # vstack because shape is (P, natoms), and each worker has a pop
+                np.vstack(worker_pop_ni) for worker_pop_ni in zip(*physical_node_ni)
+            ]
+
+            node_ni = node_manager.master_to_heads_comm.gather(
+                physical_node_ni, root=0
+            )
+
+        if node_manager.is_node_master:
+            node_ni = [
+                # vstack because physical nodes are also parallel over pop
+                np.vstack(pnode_pop_ni) for pnode_pop_ni in zip(*node_ni)
+            ]
+
+            global_ni = manager_comm.gather(node_ni, root=0)
+
+    if is_master:
+
+        global_ni = [
+            # hstack because each NodeManager parallelizes over structures
+            np.hstack(nm_struct_ni) for nm_struct_ni in zip(*global_ni)
+        ]
+
+        # recall: each entry is for a different atomic type
+        min_ni = [np.min(ni) for ni in global_ni]
+        max_ni = [np.max(ni) for ni in global_ni]
+        avg_ni = [np.average(ni) for ni in global_ni]
+        ni_var = [np.std(ni)**2 for ni in global_ni]
+
+    else:
+        min_ni = None
+        max_ni = None
+        avg_ni = None
+        ni_var = None
+
+    return min_ni, max_ni, avg_ni, ni_var
+
+def calculate_ni_stats2(node_manager, is_master, manager_comm):
     """
     Once everyone has finished their calculations, we can start computing ni
     statistics. First, the master node must gather all of the averages to
@@ -995,8 +1058,11 @@ def calculate_ni_stats(node_manager, is_master, manager_comm):
 
     # have each node master gather the statistics from their physical nodes
     node_ni_stats = node_manager.master_to_heads_comm.gather(
-        node_manager.ni_shmem, root=0
+        node_manager.ni_shmem_arr, root=0
     )
+
+    # TODO: seems like it would be better to just NOT compute any statistics
+    # locally, then you only need a single group operation
 
     if node_manager.is_node_master:
         node_ni_stats = np.stack(node_ni_stats, axis=1)

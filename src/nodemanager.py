@@ -473,7 +473,7 @@ class NodeManager:
 
         if compute_type == 'energy':
             # ni should be reset on every new energy evaluation
-            self.my_ni = [list() for _ in range(self.ntypes)]
+            self.my_ni = [np.empty((self.popsize, 0)) for _ in range(self.ntypes)]
 
         type_list = ['energy', 'forces', 'energy_grad', 'forces_grad']
 
@@ -498,7 +498,6 @@ class NodeManager:
         # that the non rank-0 heads don't also try to evaluate the population
 
         if self.is_node_master:
-            print("potentials:", potentials.shape)
             only_eval_on_head = False
 
             # node heads split the population if they need to scatter it
@@ -511,9 +510,6 @@ class NodeManager:
             only_eval_on_head = None
 
         only_eval_on_head = self.comm.bcast(only_eval_on_head, root=0)
-
-        print('only_eval_on_head:', only_eval_on_head, self.node_id,
-                self.local_rank)
 
         if only_eval_on_head and not self.is_node_master:  # nothing to do
             return
@@ -535,7 +531,7 @@ class NodeManager:
 
                 # need to Barrier so that everyone uses updated potentials
                 self.pop_shmem_arr[:potentials.shape[0], :] = potentials
-                self.my_head_comm.Barrier()
+            self.my_head_comm.Barrier()
 
             # if the node master isn't the only one evaluating the
             # population, then it's assumed that the population is to be
@@ -564,19 +560,13 @@ class NodeManager:
                 # array that the given process is in charge of; this
                 # should be updated whenever the population size changes
 
-                print('my_eng:', my_eng[0].shape)
                 self.results_shmem_arr[name_idx, self.my_slice, 0] = \
                     np.hstack(my_eng)
 
                 self.results_shmem_arr[name_idx, self.my_slice, 2] = \
                     np.hstack(my_stress_costs)
 
-                print('my_ni:', [[el.shape for el in lst] for lst in my_ni])
-                print('my_slice:', self.my_slice)
                 all_ni = np.hstack(my_ni),
-                print('all_ni:', [el.shape for el in all_ni])
-
-                # TODO: make a separate array for the ni min/max/avg
 
                 # all_ni is a length-ntypes list, where each entry is an array
                 # of (P, natoms) computed ni values. Each of these lists will be
@@ -584,20 +574,22 @@ class NodeManager:
                 # concatenated together for computing the variance
 
                 for pt, per_type_ni in enumerate(my_ni):
-                    self.my_ni[pt].append(per_type_ni, axis=1)
+                    self.my_ni[pt] = np.hstack(
+                        [self.my_ni[pt], per_type_ni]
+                    )
+
+                    # self.my_ni[pt].append(per_type_ni, axis=1)
 
             else:  # forces
                 self.results_shmem_arr[name_idx, self.my_slice, 1] = \
                     np.hstack(local_values)
-
 
         if compute_type == 'energy':
             # I need to store the min/max/avg ni for each atom type. It
             # might be easier to store these in their own shmem arrays
 
             for pt, per_type_ni in enumerate(self.my_ni):
-                per_type_ni = np.hstack(per_type_ni)
-                self.my_ni = per_type_ni
+                self.my_ni[pt] = per_type_ni
 
                 self.ni_shmem_arr[name_idx, self.my_slice, pt, 0] = \
                     np.min(per_type_ni, axis=1)
@@ -607,9 +599,6 @@ class NodeManager:
 
                 self.ni_shmem_arr[name_idx, self.my_slice, pt, 2] = \
                     np.average(per_type_ni, axis=1)
-
-        # make sure all workers have finished their calculations
-        self.comm.Barrier()
 
         # now have the node master extract the values that it should return
         if only_eval_on_head:
@@ -627,15 +616,16 @@ class NodeManager:
             # master needs to gather from node managers
             if compute_type == 'energy':
                 if self.is_node_head:
+
                     all_eng = self.master_to_heads_comm.gather(
                         self.results_shmem_arr[:, self.physical_node_slice, 0],
                         root=0
                     )
 
-                    all_ni = self.master_to_heads_comm.gather(
-                        self.results_shmem_arr[:, self.physical_node_slice, -3:],
-                        root=0
-                    )
+                    # all_ni = self.master_to_heads_comm.gather(
+                    #     self.results_shmem_arr[:, self.physical_node_slice, -3:],
+                    #     root=0
+                    # )
 
                     all_stress_costs = self.master_to_heads_comm.gather(
                         self.results_shmem_arr[:, self.physical_node_slice, 2],
@@ -643,11 +633,11 @@ class NodeManager:
                     )
 
                 if self.is_node_master:
-                    all_eng = np.vstack(all_eng)
-                    all_ni = np.vstack(all_ni)
-                    all_stress_costs = np.vstack(all_stress_costs)
+                    all_eng = np.hstack(all_eng)
+                    all_stress_costs = np.hstack(all_stress_costs)
 
                     return all_eng, all_stress_costs
+
             else:  # forces
                 if self.is_node_head:
                     all_force_costs = self.master_to_heads_comm.gather(
@@ -656,7 +646,7 @@ class NodeManager:
                     )
 
                 if self.is_node_master:
-                    return np.vstack(all_force_costs)
+                    return np.hstack(all_force_costs)
 
         # everyone except master returns None
         return None
@@ -691,8 +681,6 @@ class NodeManager:
             load_start = time.time()
 
         for ii, struct_name in enumerate(struct_list):
-            # if self.is_node_master:
-            #     print(ii, struct_name)
             self.load_one_struct(struct_name, hdf5_file, load_true)
             self.loaded_structures.append(struct_name)
 
