@@ -74,6 +74,8 @@ def CMAES(parameters, template, node_manager, manager_comm):
     else:
         solution = None
 
+    node_manager.update_popsize(1)
+
     costs, max_ni, min_ni, avg_ni = objective_fxn(
         template.insert_active_splines(np.atleast_2d(solution)), weights,
         return_ni=True, penalty=parameters['PENALTY_ON']
@@ -105,6 +107,8 @@ def CMAES(parameters, template, node_manager, manager_comm):
 
 
     solution = world_comm.bcast(solution, root=0)
+
+    node_manager.update_popsize(parameters['POP_SIZE'])
 
     if is_master:
         # opts = cma.CMAOptions()
@@ -223,10 +227,14 @@ def CMAES(parameters, template, node_manager, manager_comm):
                 else:
                     best = None
 
+                node_manager.update_popsize(1)
+
                 best_costs, best_max_ni, best_min_ni, best_avg_ni = objective_fxn(
                     best, weights, return_ni=True,
                     penalty=parameters['PENALTY_ON']
                 )
+
+                node_manager.update_popsize(parameters['POP_SIZE'])
 
                 # if is_master:
                 # 

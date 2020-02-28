@@ -604,15 +604,15 @@ def prepare_node_managers(database, template, parameters, manager_comm, is_maste
 
     node_comm = MPI.Comm.Split(world_comm, color, key)
 
+    struct_list = node_comm.bcast(struct_list, root=0)
+
     node_manager = NodeManager(
         color, template, node_comm,
         max_pop_size=parameters['MAX_POP_SIZE'],
         num_structs = len(struct_list),
         # can't have more than 32 processors on one node
-        physical_cores_per_node=(32, parameters['PROCS_PER_NODE']),
+        physical_cores_per_node=min(32, parameters['PROCS_PER_NODE']),
     )
-
-    struct_list = node_comm.bcast(struct_list, root=0)
 
     node_manager.load_structures(struct_list, database, load_true=True)
     node_manager.update_popsize(parameters['POP_SIZE'])
