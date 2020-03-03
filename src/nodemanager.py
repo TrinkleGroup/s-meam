@@ -13,6 +13,8 @@ from multiprocessing import Manager
 from mpi4py import MPI
 import logging
 
+from numba import jit
+
 import cProfile
 
 logger = logging.getLogger(__name__)
@@ -408,14 +410,16 @@ class NodeManager:
             leftovers = full_population_size - num_per_node*self.num_nodes
             leftovers = max(0, leftovers)
 
+            # place leftovers on first node
             if self.my_head == 0:
                 self.physical_node_popsize = num_per_node + leftovers
             else:
                 self.physical_node_popsize = num_per_node
 
             # split the node population across its workers
-            num_per_worker = full_population_size // self.physical_cores_per_node
-            leftovers = full_population_size - num_per_worker *self.physical_cores_per_node
+            num_per_worker = self.physical_node_popsize // self.physical_cores_per_node
+            # num_per_worker = full_population_size // self.physical_cores_per_node
+            leftovers = self.physical_node_popsize - num_per_worker *self.physical_cores_per_node
             leftovers = max(0, leftovers)
 
             if self.is_node_master:
@@ -530,7 +534,8 @@ class NodeManager:
                 # instead of MPI sending to workers, just add to shmem
 
                 # need to Barrier so that everyone uses updated potentials
-                self.pop_shmem_arr[:potentials.shape[0], :] = potentials
+                self.pop_shmem_arr[self.physical_node_slice, :] = potentials
+
             self.my_head_comm.Barrier()
 
             # if the node master isn't the only one evaluating the
@@ -613,6 +618,8 @@ class NodeManager:
             else:  # forces
                 return self.results_shmem_arr[:, :self.full_popsize, 1]
         else:
+            self.comm.Barrier()
+
             # master needs to gather from node managers
             if compute_type == 'energy':
                 if self.is_node_head:
@@ -1008,6 +1015,14 @@ class NodeManager:
 
         return [energy/self.natoms[struct_name], grouped_ni]
 
+    @staticmethod
+    @jit(
+        '(float64[:,:])(float64[:,:], float64[:,:])',
+        nopython=True
+    )
+    def ffg_force_multiplication(ffg_struct_vec, cart_y):
+        return (ffg_struct_vec @ cart_y.T).T
+
     # @profile
     def compute_forces(self, struct_name, potentials, u_ranges):
         potentials = np.atleast_2d(potentials)
@@ -1057,8 +1072,13 @@ class NodeManager:
                     (cart2.shape[0], cart2.shape[1]*cart2.shape[2])
                 )
 
-                embedding_forces += \
-                    (struct_vecs[struct_name]['ffg']['forces'][str(j)][str(k)] @ cart_y.T).T
+                # embedding_forces += \
+                #     (struct_vecs[struct_name]['ffg']['forces'][str(j)][str(k)] @ cart_y.T).T
+
+                embedding_forces += self.ffg_force_multiplication(
+                    struct_vecs[struct_name]['ffg']['forces'][str(j)][str(k)],
+                    cart_y
+                )
 
         embedding_forces = embedding_forces.reshape(
             (n_pots, 3, self.natoms[struct_name], self.natoms[struct_name])

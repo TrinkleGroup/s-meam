@@ -606,6 +606,12 @@ def prepare_node_managers(database, template, parameters, manager_comm, is_maste
 
     struct_list = node_comm.bcast(struct_list, root=0)
 
+    if len(struct_list) < 1:
+        kill_and_write(
+            'num_procs / procs_per_manager must be '
+            '<= number of structures in the database.'
+        )
+
     node_manager = NodeManager(
         color, template, node_comm,
         max_pop_size=parameters['MAX_POP_SIZE'],

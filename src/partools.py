@@ -49,9 +49,6 @@ def build_evaluation_functions(
         )
 
         fitnesses = 1
-        max_ni = 0
-        min_ni = 0
-        avg_ni = 0
 
         min_ni, max_ni, avg_ni, ni_var = calculate_ni_stats(
             node_manager, is_master, manager_comm, only_eval_on_head
@@ -982,6 +979,7 @@ def local_minimization(
 
     return final_pop
 
+# @profile
 def calculate_ni_stats(node_manager, is_master, manager_comm, only_eval_on_head):
 
     if is_master:
