@@ -323,17 +323,9 @@ def CMAES(parameters, template, node_manager, manager_comm):
 
         final_costs = np.sum(costs, axis=1)
 
-        sort_indices = np.argsort(final_costs)
-        tmp_max_ni = max_ni[sort_indices]
-        tmp_min_ni = min_ni[sort_indices]
-        tmp_avg_ni = avg_ni[sort_indices]
-        final_costs = final_costs[sort_indices]
-
-        costs = costs[sort_indices]
-
         src.partools.checkpoint(
             # population, final_costs, tmp_max_ni, tmp_min_ni, tmp_avg_ni,
-            population, costs, tmp_max_ni, tmp_min_ni, tmp_avg_ni,
+            population, costs, max_ni, min_ni, avg_ni,
             generation_number, parameters, template,
             parameters['NSTEPS']
         )
