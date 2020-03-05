@@ -26,7 +26,7 @@ def build_evaluation_functions(
             pop = manager_comm.bcast(master_pop, root=0)
             pop = np.atleast_2d(pop)
 
-            only_eval_on_head = (pop.shape[0] < parameters['PROCS_PER_NODE'])
+            only_eval_on_head = (pop.shape[0] < parameters['PROCS_PER_NODE_MANAGER'])
         else:
             pop = None
             only_eval_on_head = None
@@ -50,7 +50,9 @@ def build_evaluation_functions(
 
         fitnesses = 1
 
-        min_ni, max_ni, avg_ni, ni_var = calculate_ni_stats(
+        world_comm.Barrier()
+
+        min_ni, max_ni, avg_ni, ni_var, frac_in = calculate_ni_stats(
             node_manager, is_master, manager_comm, only_eval_on_head
         )
 
@@ -86,41 +88,32 @@ def build_evaluation_functions(
             mgr_stress = manager_comm.gather(stresses, root=0)
             mgr_force_costs = manager_comm.gather(force_costs, root=0)
 
-            # mgr_min_ni = manager_comm.gather(c_min_ni, root=0)
-            # mgr_max_ni = manager_comm.gather(c_max_ni, root=0)
-            # mgr_avg_ni = manager_comm.gather(c_avg_ni, root=0)
-            # mgr_ni_var = manager_comm.gather(c_ni_var, root=0)
-
             mgr_names_list = manager_comm.gather(sorted_names, root=0)
 
         if is_master:
             all_names = np.concatenate(mgr_names_list)
+
             # note: can't stack mgr_fcs b/c different dimensions per struct
             all_eng = np.vstack(mgr_eng)
 
             all_stress_costs = np.vstack(mgr_stress)
 
+            # TODO: why are all_eng sorted, but forces aren't?
+
             all_eng = all_eng[np.argsort(all_names), :]
             all_force_costs = np.vstack(mgr_force_costs)
 
-            # do operations so that the final shape is (2, num_pots)
-
-            # min_ni = np.min(np.dstack(mgr_min_ni), axis=2).T
-            # max_ni = np.max(np.dstack(mgr_max_ni), axis=2).T
-            # avg_ni = np.average(np.dstack(mgr_avg_ni), axis=2).T
-            # ni_var = np.average(np.dstack(mgr_ni_var), axis=2).T
-
-            min_ni = np.min(np.dstack(min_ni), axis=2).T
-            max_ni = np.max(np.dstack(max_ni), axis=2).T
-            avg_ni = np.average(np.dstack(avg_ni), axis=2).T
-            ni_var = np.average(np.dstack(ni_var), axis=2).T
+            # note that ni stats should be in the shape (ntypes, popsize)
 
             fitnesses = np.zeros(
                 (
                     len(pop),
+                    # len()*3 for energy/force/stress, 3*ntypes for
+                    # frac_in/small_var/big_var, +1 for LHS phi deriv
+
                     len(all_struct_names)*3 \
-                    + 2*template.ntypes \
-                    + 1  # used to penalize non-negative LHS phi derivatives
+                    + 3*template.ntypes \
+                    + 1
                 )
             )
 
@@ -153,6 +146,9 @@ def build_evaluation_functions(
                     all_stress_costs[fit_id]#*parameters['STRESS_WEIGHT']
 
             lambda_pen = parameters['NI_PENALTY']
+
+            # penalize fraction outside of U domains
+            fitnesses[:, -template.ntypes*3-1:-template.ntypes*2-1] = lambda_pen*abs(1-frac_in)
 
             # penalize too small variance
             fitnesses[:, -template.ntypes*2-1:-template.ntypes-1] = \
@@ -997,6 +993,7 @@ def calculate_ni_stats(node_manager, is_master, manager_comm, only_eval_on_head)
         physical_node_ni = node_manager.my_head_comm.gather(node_manager.my_ni, root=0)
 
         if node_manager.is_node_head:
+
             physical_node_ni = [
                 # vstack because shape is (P, natoms), and each worker has a pop
                 np.vstack(worker_pop_ni) for worker_pop_ni in zip(*physical_node_ni)
@@ -1007,6 +1004,7 @@ def calculate_ni_stats(node_manager, is_master, manager_comm, only_eval_on_head)
             )
 
         if node_manager.is_node_master:
+
             node_ni = [
                 # vstack because physical nodes are also parallel over pop
                 np.vstack(pnode_pop_ni) for pnode_pop_ni in zip(*node_ni)
@@ -1022,18 +1020,37 @@ def calculate_ni_stats(node_manager, is_master, manager_comm, only_eval_on_head)
         ]
 
         # recall: each entry is for a different atomic type
-        min_ni = [np.min(ni) for ni in global_ni]
-        max_ni = [np.max(ni) for ni in global_ni]
-        avg_ni = [np.average(ni) for ni in global_ni]
-        ni_var = [np.std(ni)**2 for ni in global_ni]
+        min_ni = np.array([np.min(ni, axis=1) for ni in global_ni]).T
+        max_ni = np.array([np.max(ni, axis=1) for ni in global_ni]).T
+        avg_ni = np.array([np.average(ni, axis=1) for ni in global_ni]).T
+        ni_var = np.array([np.std(ni, axis=1)**2 for ni in global_ni]).T
+
+        biggest_min = max(
+            [el[0] for el in node_manager.template.u_ranges]
+        )
+
+        biggest_max = max(
+            [el[1] for el in node_manager.template.u_ranges]
+        )
+
+        frac_in = np.zeros_like(min_ni)
+        for ii, ni in enumerate(global_ni):  # loop over atom types
+
+            num_in = np.logical_and(
+                ni >= biggest_min - 0.1,  # +/- 0.1 for some wiggle room
+                ni <= biggest_max + 0.1
+            ).sum(axis=1)
+
+            frac_in[:, ii] = num_in / ni.shape[1]
 
     else:
         min_ni = None
         max_ni = None
         avg_ni = None
         ni_var = None
+        frac_in = None
 
-    return min_ni, max_ni, avg_ni, ni_var
+    return min_ni, max_ni, avg_ni, ni_var, frac_in
 
 def calculate_ni_stats2(node_manager, is_master, manager_comm):
     """

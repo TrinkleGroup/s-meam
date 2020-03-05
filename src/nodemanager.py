@@ -115,26 +115,32 @@ class NodeManager:
 
         if self.is_node_head:
 
-            # Each node in the same NodeManager only needs part of the pop
+            # Note that although each NodeManager only technically needs a
+            # subset of the population, I found that it made indexing a *lot*
+            # easier if I never changed the shape of the shmem arrays 
+
             pop_shape = (
-                self.physical_node_popsize, self.template.pvec_len
+                # self.physical_node_popsize, self.template.pvec_len
+
+                # this was a decision that was made...
+                self.full_popsize, self.template.pvec_len
             )
 
             pop_nbytes = np.prod(pop_shape)*mpi_double_size
 
             # energy, force_cost, stress_cost
-            results_shape = (self.num_structs, self.physical_node_popsize, 3)
+            results_shape = (self.num_structs, self.full_popsize, 3)
             results_nbytes = np.prod(results_shape)*mpi_double_size
 
             # for each structure, for each potential, for each
             # atom type, reserve space to log the min/max/avg ni
 
-            ni_shape = (self.num_structs, self.physical_node_popsize,
+            ni_shape = (self.num_structs, self.full_popsize,
                         self.template.ntypes, 3)
             ni_nbytes = np.prod(ni_shape)*mpi_double_size
 
             # also need a shmem array for the global ni averages
-            ni_avg_shape = (self.physical_node_popsize, self.template.ntypes)
+            ni_avg_shape = (self.full_popsize, self.template.ntypes)
             ni_avg_nbytes = np.prod(ni_shape)*mpi_double_size
         else:
             pop_shape = None
@@ -405,21 +411,8 @@ class NodeManager:
             else:
                 self.popsize = 0
         else:
-            # split the population across the nodes
-            num_per_node = full_population_size // self.num_nodes
-            leftovers = full_population_size - num_per_node*self.num_nodes
-            leftovers = max(0, leftovers)
-
-            # place leftovers on first node
-            if self.my_head == 0:
-                self.physical_node_popsize = num_per_node + leftovers
-            else:
-                self.physical_node_popsize = num_per_node
-
-            # split the node population across its workers
-            num_per_worker = self.physical_node_popsize // self.physical_cores_per_node
-            # num_per_worker = full_population_size // self.physical_cores_per_node
-            leftovers = self.physical_node_popsize - num_per_worker *self.physical_cores_per_node
+            num_per_worker = self.full_popsize // self.num_workers
+            leftovers = self.full_popsize - num_per_worker*self.num_workers
             leftovers = max(0, leftovers)
 
             if self.is_node_master:
@@ -428,27 +421,42 @@ class NodeManager:
                 self.popsize = num_per_worker
 
         # now compute your start/stop indices in the shared memory arrays
-        all_sizes = self.comm.allgather(self.physical_node_popsize)
-
-        cumsum = np.cumsum(all_sizes)
-        cumsum = np.append([0], cumsum)
-        my_start_index = cumsum[self.my_head]
-        my_end_index = cumsum[self.my_head + 1]
-
-        self.physical_node_slice = slice(my_start_index, my_end_index)
-
-        # now compute your start/stop indices in the shared memory arrays
         all_sizes = self.comm.allgather(self.popsize)
 
         cumsum = np.cumsum(all_sizes)
+
         cumsum = np.append([0], cumsum)
+
+        self.physical_node_popsize = cumsum[
+            self.physical_cores_per_node*(self.my_head + 1)
+        ]
+
+        # subtract off the number of potentials on all previous nodes
+        self.physical_node_popsize -= cumsum[
+                self.physical_cores_per_node*(self.my_head + 1 - 1)
+        ]
+
         my_start_index = cumsum[self.local_rank]
         my_end_index = cumsum[self.local_rank + 1]
 
         self.my_slice = slice(my_start_index, my_end_index)
 
-        # I *think* it's okay not to have a barrier here...
-        # self.comm.Barrier()
+        if self.is_node_head:
+            all_sizes = self.master_to_heads_comm.allgather(self.physical_node_popsize)
+
+            cumsum = np.cumsum(all_sizes)
+            self.physical_node_cumsum = cumsum.copy()
+
+            cumsum = np.append([0], cumsum)
+
+            # used for splitting the population across physical nodes
+
+            my_start_index = cumsum[self.my_head]
+            my_end_index = cumsum[self.my_head + 1]
+
+            self.physical_node_slice = slice(my_start_index, my_end_index)
+        else:
+            self.physical_node_slice = None
 
     # @profile
     def compute(self, compute_type, struct_list, potentials, u_domains,
@@ -527,11 +535,12 @@ class NodeManager:
             if self.is_node_head:
                 # send potentials from master to all other node heads
                 if self.is_node_master:
-                    potentials = np.array_split(potentials, self.num_nodes)
+
+                    potentials = np.array_split(
+                        potentials, self.physical_node_cumsum[:-1]
+                    )
                 
                 potentials = self.master_to_heads_comm.scatter(potentials, root=0)
-
-                # instead of MPI sending to workers, just add to shmem
 
                 # need to Barrier so that everyone uses updated potentials
                 self.pop_shmem_arr[self.physical_node_slice, :] = potentials
@@ -1074,6 +1083,12 @@ class NodeManager:
 
                 # embedding_forces += \
                 #     (struct_vecs[struct_name]['ffg']['forces'][str(j)][str(k)] @ cart_y.T).T
+
+                # embedding_forces += \
+                #     np.dot(
+                #         struct_vecs[struct_name]['ffg']['forces'][str(j)][str(k)],
+                #         cart_y.T
+                #     ).T
 
                 embedding_forces += self.ffg_force_multiplication(
                     struct_vecs[struct_name]['ffg']['forces'][str(j)][str(k)],

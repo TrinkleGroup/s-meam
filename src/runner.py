@@ -38,7 +38,8 @@ logger.setLevel(logging.WARNING)
 
 # TODO: have a script that checks the validity of an input script befor qsub
 
-def main(config_name, template_file_name, ppn, names_file=None):
+def main(config_name, template_file_name, procs_per_node_manager,
+        procs_per_phys_node=32, names_file=None):
     world_comm = MPI.COMM_WORLD
 
     world_rank = world_comm.Get_rank()
@@ -67,7 +68,8 @@ def main(config_name, template_file_name, ppn, names_file=None):
         'RESCALE_FREQ', 'RESCALE_STOP_STEP', 'U_NSTEPS',
         'MCMC_BLOCK_SIZE', 'SGD_BATCH_SIZE', 'SHIFT_FREQ',
         'TOGGLE_FREQ', 'TOGGLE_DURATION', 'MCMC_FREQ', 'MCMC_NSTEPS',
-        'GRID_DIVS', 'ARCHIVE_SIZE'
+        'GRID_DIVS', 'ARCHIVE_SIZE', 'PROCS_PER_PHYS_NODE',
+        'PROCS_PER_NODE_MANAGER'
     ]
 
     float_params = [
@@ -93,7 +95,8 @@ def main(config_name, template_file_name, ppn, names_file=None):
     # may be in charge of multiple node heads (e.g. when multiple nodes are in
     # charge of the same collection of structures
 
-    parameters['PROCS_PER_NODE'] = ppn  # ppn is a command-line arg
+    parameters['PROCS_PER_NODE_MANAGER'] = int(procs_per_node_manager)  # command-line arg
+    parameters['PROCS_PER_PHYS_NODE'] = int(procs_per_phys_node)  # command-line arg
 
     if parameters['DO_GROW']:
         parameters['MAX_POP_SIZE'] = max(
@@ -102,7 +105,7 @@ def main(config_name, template_file_name, ppn, names_file=None):
     else:
         parameters['MAX_POP_SIZE'] = parameters['POP_SIZE']
 
-    manager_ranks = np.arange(0, world_size, parameters['PROCS_PER_NODE'])
+    manager_ranks = np.arange(0, world_size, parameters['PROCS_PER_NODE_MANAGER'])
 
     world_group = world_comm.Get_group()
 
@@ -586,7 +589,7 @@ def prepare_node_managers(database, template, parameters, manager_comm, is_maste
     else:
         split_struct_lists = None
 
-    is_manager = (world_comm.Get_rank() % parameters['PROCS_PER_NODE'] == 0)
+    is_manager = (world_comm.Get_rank() % parameters['PROCS_PER_NODE_MANAGER'] == 0)
 
     if is_manager:
         struct_list = manager_comm.scatter(split_struct_lists, root=0)
@@ -599,8 +602,8 @@ def prepare_node_managers(database, template, parameters, manager_comm, is_maste
         struct_list = None
 
     global_rank = world_comm.Get_rank()
-    color   = global_rank // parameters['PROCS_PER_NODE']
-    key     = global_rank % parameters['PROCS_PER_NODE']
+    color   = global_rank // parameters['PROCS_PER_NODE_MANAGER']
+    key     = global_rank % parameters['PROCS_PER_NODE_MANAGER']
 
     node_comm = MPI.Comm.Split(world_comm, color, key)
 
@@ -617,7 +620,7 @@ def prepare_node_managers(database, template, parameters, manager_comm, is_maste
         max_pop_size=parameters['MAX_POP_SIZE'],
         num_structs = len(struct_list),
         # can't have more than 32 processors on one node
-        physical_cores_per_node=min(32, parameters['PROCS_PER_NODE']),
+        physical_cores_per_node=min(32, parameters['PROCS_PER_PHYS_NODE']),
     )
 
     node_manager.load_structures(struct_list, database, load_true=True)
@@ -647,13 +650,15 @@ if __name__ == "__main__":
     if len(sys.argv) < 3:
         kill_and_write("Must specify a config and template file")
     else:
-        if len(sys.argv) > 4:
+        if len(sys.argv) > 5:  # names file included
             main(
                 config_name=sys.argv[1], template_file_name=sys.argv[2],
-                ppn=sys.argv[3], names_file=sys.argv[4]
+                procs_per_node_manager=sys.argv[3],
+                procs_per_phys_node=sys.argv[4], names_file=sys.argv[5]
             )
         else:
             main(
                 config_name=sys.argv[1], template_file_name=sys.argv[2],
-                ppn=int(sys.argv[3]), names_file=None
+                procs_per_node_manager=sys.argv[3],
+                procs_per_phys_node=sys.argv[4], names_file=None
             )

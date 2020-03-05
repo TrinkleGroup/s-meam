@@ -84,9 +84,9 @@ def CMAES(parameters, template, node_manager, manager_comm):
     if is_master:
         print("Initial min/max ni:", min_ni[0], max_ni[0])
 
-        costs[:, 0:-3:3] *= parameters['ENERGY_WEIGHT']
-        costs[:, 1:-3:3] *= parameters['FORCES_WEIGHT']
-        costs[:, 2:-3:3] *= parameters['STRESS_WEIGHT']
+        costs[:, 0:-4:3] *= parameters['ENERGY_WEIGHT']
+        costs[:, 1:-4:3] *= parameters['FORCES_WEIGHT']
+        costs[:, 2:-4:3] *= parameters['STRESS_WEIGHT']
 
         full_solution = src.partools.rescale_ni(
             np.atleast_2d(full_solution), min_ni, max_ni, template
@@ -101,9 +101,9 @@ def CMAES(parameters, template, node_manager, manager_comm):
     if is_master:
         print("Rescaled initial min/max ni:", min_ni[0], max_ni[0])
 
-        costs[:, 0:-3:3] *= parameters['ENERGY_WEIGHT']
-        costs[:, 1:-3:3] *= parameters['FORCES_WEIGHT']
-        costs[:, 2:-3:3] *= parameters['STRESS_WEIGHT']
+        costs[:, 0:-4:3] *= parameters['ENERGY_WEIGHT']
+        costs[:, 1:-4:3] *= parameters['FORCES_WEIGHT']
+        costs[:, 2:-4:3] *= parameters['STRESS_WEIGHT']
 
 
     solution = world_comm.bcast(solution, root=0)
@@ -165,9 +165,9 @@ def CMAES(parameters, template, node_manager, manager_comm):
 
             org_costs = costs.copy()
             # only apply weights AFTER logging unweighted data
-            costs[:, 0:-3:3] *= parameters['ENERGY_WEIGHT']
-            costs[:, 1:-3:3] *= parameters['FORCES_WEIGHT']
-            costs[:, 2:-3:3] *= parameters['STRESS_WEIGHT']
+            costs[:, 0:-4:3] *= parameters['ENERGY_WEIGHT']
+            costs[:, 1:-4:3] *= parameters['FORCES_WEIGHT']
+            costs[:, 2:-4:3] *= parameters['STRESS_WEIGHT']
 
             new_costs = np.sum(costs, axis=1)
 
@@ -316,9 +316,9 @@ def CMAES(parameters, template, node_manager, manager_comm):
     if is_master:
         polish_runtime = time.time() - polish_start_time
 
-        costs[:, 0:-3:3] *= parameters['ENERGY_WEIGHT']
-        costs[:, 1:-3:3] *= parameters['FORCES_WEIGHT']
-        costs[:, 2:-3:3] *= parameters['STRESS_WEIGHT']
+        costs[:, 0:-4:3] *= parameters['ENERGY_WEIGHT']
+        costs[:, 1:-4:3] *= parameters['FORCES_WEIGHT']
+        costs[:, 2:-4:3] *= parameters['STRESS_WEIGHT']
 
 
         final_costs = np.sum(costs, axis=1)
