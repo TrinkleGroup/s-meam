@@ -74,8 +74,6 @@ def CMAES(parameters, template, node_manager, manager_comm):
     else:
         solution = None
 
-    node_manager.update_popsize(1)
-
     costs, max_ni, min_ni, avg_ni = objective_fxn(
         template.insert_active_splines(np.atleast_2d(solution)), weights,
         return_ni=True, penalty=parameters['PENALTY_ON']
@@ -88,9 +86,9 @@ def CMAES(parameters, template, node_manager, manager_comm):
         costs[:, 1:-4:3] *= parameters['FORCES_WEIGHT']
         costs[:, 2:-4:3] *= parameters['STRESS_WEIGHT']
 
-        full_solution = src.partools.rescale_ni(
-            np.atleast_2d(full_solution), min_ni, max_ni, template
-        )[0]
+        # full_solution = src.partools.rescale_ni(
+        #     np.atleast_2d(full_solution), min_ni, max_ni, template
+        # )[0]
 
         solution = full_solution[active_ind]
 
@@ -107,8 +105,6 @@ def CMAES(parameters, template, node_manager, manager_comm):
 
 
     solution = world_comm.bcast(solution, root=0)
-
-    node_manager.update_popsize(parameters['POP_SIZE'])
 
     if is_master:
         # opts = cma.CMAOptions()
@@ -212,10 +208,6 @@ def CMAES(parameters, template, node_manager, manager_comm):
 
                     grow_id += 1
 
-                    node_manager.update_popsize(
-                        parameters['GROW_SIZE'][grow_id]
-                    )
-
         if parameters['DO_SHIFT']:
             if shift_time == 0:
 
@@ -227,14 +219,10 @@ def CMAES(parameters, template, node_manager, manager_comm):
                 else:
                     best = None
 
-                node_manager.update_popsize(1)
-
                 best_costs, best_max_ni, best_min_ni, best_avg_ni = objective_fxn(
                     best, weights, return_ni=True,
                     penalty=parameters['PENALTY_ON']
                 )
-
-                node_manager.update_popsize(parameters['POP_SIZE'])
 
                 # if is_master:
                 # 

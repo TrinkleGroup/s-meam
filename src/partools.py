@@ -39,24 +39,27 @@ def build_evaluation_functions(
             weights[:len(node_manager.loaded_structures)]
         ))
 
-        energy_returns = node_manager.compute(
+        manager_energies = node_manager.compute(
             'energy', node_manager.loaded_structures, pop, template.u_ranges,
             stress=True
         )
 
-        force_costs = node_manager.compute(
+        manager_force_costs = node_manager.compute(
             'forces', node_manager.loaded_structures, pop, template.u_ranges
         )
 
-        fitnesses = 1
+        fitnesses = np.ones((parameters['POP_SIZE'], template.ntypes))
+        min_ni = np.ones_like(fitnesses)*-1
+        max_ni = np.ones_like(fitnesses)
+        avg_ni = np.zeros_like(fitnesses)
 
-        world_comm.Barrier()
+        # world_comm.Barrier()
 
-        min_ni, max_ni, avg_ni, ni_var, frac_in = calculate_ni_stats(
-            node_manager, is_master, manager_comm, only_eval_on_head
-        )
+        # min_ni, max_ni, avg_ni, ni_var, frac_in = calculate_ni_stats(
+        #     node_manager, is_master, manager_comm, only_eval_on_head
+        # )
 
-        if energy_returns is None:
+        if manager_energies is None:
         # if only_eval_on_head and not node_manager.is_node_head:
             # this indicates that you were an MPI rank that didn't have to
             # evaluate anything
@@ -66,14 +69,16 @@ def build_evaluation_functions(
             else:
                 return fitnesses
 
-        unsorted_energies = energy_returns [0]
+        force_costs = np.array(list(manager_force_costs.values()))
+
+        unsorted_energies = [retval[0] for retval in manager_energies.values()]
         eng = [  # sort according to structure name
             x for _, x in sorted(
                 zip(node_manager.loaded_structures, unsorted_energies)
             )
         ]
 
-        unsorted_stresses = energy_returns[1]
+        unsorted_stresses = [retval[1] for retval in manager_energies.values()]
 
         stresses = [  # sort according to structure name
             x for _, x in sorted(
@@ -148,23 +153,25 @@ def build_evaluation_functions(
             lambda_pen = parameters['NI_PENALTY']
 
             # penalize fraction outside of U domains
-            fitnesses[:, -template.ntypes*3-1:-template.ntypes*2-1] = lambda_pen*abs(1-frac_in)
+            # fitnesses[:, -template.ntypes*3-1:-template.ntypes*2-1] = lambda_pen*abs(1-frac_in)
 
-            # penalize too small variance
-            fitnesses[:, -template.ntypes*2-1:-template.ntypes-1] = \
-                    lambda_pen*np.clip(0.05-ni_var, 0, None)
+            fitnesses[:, -1] = 10*np.abs(master_pop).sum(axis=1)
 
-            # penalize too big variance
-            fitnesses[:, -template.ntypes-1:-1] = lambda_pen*np.clip(
-                ni_var-1, 0, None)
+            # # penalize too small variance
+            # fitnesses[:, -template.ntypes*2-1:-template.ntypes-1] = \
+            #         lambda_pen*np.clip(0.05-ni_var, 0, None)
 
-            # penalize non-negative LHS phi derivatives; this is done to make
-            # sure that the potential has repulsive forces for small pair
-            # distances, even if the database doesn't have data like this.
+            # # penalize too big variance
+            # fitnesses[:, -template.ntypes-1:-1] = lambda_pen*np.clip(
+            #     ni_var-1, 0, None)
 
-            fitnesses[:, -1] = lambda_pen*np.clip(
-                pop[:, template.phi_lhs_deriv_indices], 0, None
-            ).sum(axis=1)
+            # # penalize non-negative LHS phi derivatives; this is done to make
+            # # sure that the potential has repulsive forces for small pair
+            # # distances, even if the database doesn't have data like this.
+
+            # fitnesses[:, -1] = lambda_pen*np.clip(
+            #     pop[:, template.phi_lhs_deriv_indices], 0, None
+            # ).sum(axis=1)*0
 
         if is_master:
             if not penalty:
