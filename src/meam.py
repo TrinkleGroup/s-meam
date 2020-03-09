@@ -238,6 +238,7 @@ class MEAM:
             if len(neighbors[0]) > 0:
                 total_phi = 0.0
                 total_ni = 0.0
+                ni_without_ffg = 0.0
 
                 u = self.us[i_to_potl(itype)]
 
@@ -304,14 +305,16 @@ class MEAM:
 
                     total_ni += fj_val * partialsum
                     total_ni += rho(r_ij)
+                    ni_without_ffg += rho(r_ij)
 
-                    all_rho_ni.append(rho(r_ij))
-                    all_ffg_ni.append(fj_val * partialsum)
+                    # all_rho_ni.append(rho(r_ij))
+                    # all_ffg_ni.append(fj_val * partialsum)
                 # end u loop
 
                 atom_e = total_phi + u(total_ni)
 
                 all_ni.append(total_ni)
+                all_rho_ni.append(ni_without_ffg)
 
                 self.energies[i] = atom_e
                 total_pe += atom_e
@@ -319,7 +322,8 @@ class MEAM:
                 self.uprimes[i] = u(total_ni, 1)
             # end atom loop
 
-        return total_pe, all_ni, all_rho_ni, all_ffg_ni, all_rij
+        return total_pe, all_ni, all_rho_ni, all_rij
+        # return total_pe, all_ni, all_rho_ni, all_ffg_ni, all_rij
 
     def compute_forces(self, atoms):
         """Evaluates the energies for the given system using the MEAM potential,
