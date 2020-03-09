@@ -155,7 +155,7 @@ def build_evaluation_functions(
             # penalize fraction outside of U domains
             # fitnesses[:, -template.ntypes*3-1:-template.ntypes*2-1] = lambda_pen*abs(1-frac_in)
 
-            fitnesses[:, -1] = 10*np.abs(master_pop).sum(axis=1)
+            fitnesses[:, -1] = 10*np.linalg.norm(master_pop, axis=1)
 
             # # penalize too small variance
             # fitnesses[:, -template.ntypes*2-1:-template.ntypes-1] = \
