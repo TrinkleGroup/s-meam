@@ -205,10 +205,11 @@ class NodeManager:
             )
 
             if convert_to_cost:
-                stress_costs = self.stresses_to_costs(ret[1], struct_name)
+                # stress_costs = self.stresses_to_costs(ret[1], struct_name)
+                stress_costs = self.stresses_to_costs(ret[2], struct_name)
 
-                # ret = (ret[0], ret[1], stress_costs)
-                ret = (ret[0], stress_costs)
+                ret = (ret[0], ret[1], stress_costs)
+                # ret = (ret[0], stress_costs)
 
 
         elif compute_type == 'forces':
@@ -440,11 +441,12 @@ class NodeManager:
                         from each of the workers in the pool
                         """
 
-                        # all_eng, all_ni, all_stress_costs = zip(*return_values)
-                        all_eng, all_stress_costs = zip(*return_values)
+                        all_eng, all_ni, all_stress_costs = zip(*return_values)
+                        # all_eng, all_stress_costs = zip(*return_values)
+
                         ret_dict[struct_name] = (
                             np.hstack(all_eng),
-                            # np.hstack(all_ni),
+                            np.hstack(all_ni),
                             np.hstack(all_stress_costs)
                         )
                     else:
@@ -803,10 +805,11 @@ class NodeManager:
 
             stresses /= self.volumes[struct_name]
 
-            # return [energy[0]/self.natoms[struct_name], grouped_ni, stresses.T]
-            return [energy[0]/self.natoms[struct_name], stresses.T]
+            return [energy[0]/self.natoms[struct_name], grouped_ni, stresses.T]
+            # return [energy[0]/self.natoms[struct_name], stresses.T]
 
-        return energy/self.natoms[struct_name]
+        return energy/self.natoms[struct_name], grouped_ni
+        # return energy/self.natoms[struct_name]
 
     @staticmethod
     @jit(
