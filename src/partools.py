@@ -27,6 +27,7 @@ def build_evaluation_functions(
             pop = np.atleast_2d(pop)
 
             only_eval_on_head = (pop.shape[0] < parameters['PROCS_PER_NODE_MANAGER'])
+
         else:
             pop = None
             only_eval_on_head = None
@@ -53,11 +54,7 @@ def build_evaluation_functions(
         max_ni = np.ones_like(fitnesses)
         avg_ni = np.zeros_like(fitnesses)
 
-        # world_comm.Barrier()
-
-        # min_ni, max_ni, avg_ni, ni_var, frac_in = calculate_ni_stats(
-        #     node_manager, is_master, manager_comm, only_eval_on_head
-        # )
+        world_comm.Barrier()
 
         if manager_energies is None:
         # if only_eval_on_head and not node_manager.is_node_head:
@@ -78,7 +75,8 @@ def build_evaluation_functions(
             )
         ]
 
-        unsorted_stresses = [retval[1] for retval in manager_energies.values()]
+        # unsorted_stresses = [retval[1] for retval in manager_energies.values()]
+        unsorted_stresses = [retval[2] for retval in manager_energies.values()]
 
         stresses = [  # sort according to structure name
             x for _, x in sorted(
@@ -88,12 +86,28 @@ def build_evaluation_functions(
 
         sorted_names = sorted(node_manager.loaded_structures)
 
+        ni = [retval[1] for retval in manager_energies.values()]
+
+        ni_stats = calculate_ni_stats_old(ni, template)
+
+        c_min_ni = ni_stats[0]
+        c_max_ni = ni_stats[1]
+        c_avg_ni = ni_stats[2]
+        c_ni_var = ni_stats[3]
+        c_frac_in = ni_stats[4]
+
         if node_manager.is_node_master:
             mgr_eng = manager_comm.gather(eng, root=0)
             mgr_stress = manager_comm.gather(stresses, root=0)
             mgr_force_costs = manager_comm.gather(force_costs, root=0)
 
             mgr_names_list = manager_comm.gather(sorted_names, root=0)
+
+            mgr_min_ni = manager_comm.gather(c_min_ni, root=0)
+            mgr_max_ni = manager_comm.gather(c_max_ni, root=0)
+            mgr_avg_ni = manager_comm.gather(c_avg_ni, root=0)
+            mgr_ni_var = manager_comm.gather(c_ni_var, root=0)
+            mgr_frac_in = manager_comm.gather(c_frac_in, root=0)
 
         if is_master:
             all_names = np.concatenate(mgr_names_list)
@@ -109,6 +123,12 @@ def build_evaluation_functions(
             all_force_costs = np.vstack(mgr_force_costs)
 
             # note that ni stats should be in the shape (ntypes, popsize)
+
+            min_ni = np.min(np.dstack(mgr_min_ni), axis=2).T
+            max_ni = np.max(np.dstack(mgr_max_ni), axis=2).T
+            avg_ni = np.average(np.dstack(mgr_avg_ni), axis=2).T
+            ni_var = np.average(np.dstack(mgr_ni_var), axis=2).T
+            frac_in = np.average(np.dstack(mgr_frac_in), axis=2).T
 
             fitnesses = np.zeros(
                 (
@@ -153,17 +173,17 @@ def build_evaluation_functions(
             lambda_pen = parameters['NI_PENALTY']
 
             # penalize fraction outside of U domains
-            # fitnesses[:, -template.ntypes*3-1:-template.ntypes*2-1] = lambda_pen*abs(1-frac_in)
+            fitnesses[:, -template.ntypes*3-1:-template.ntypes*2-1] = lambda_pen*abs(1-frac_in)
 
-            fitnesses[:, -1] = 10*np.abs(master_pop).sum(axis=1)
+            # fitnesses[:, -1] = 0.5*np.linalg.norm(master_pop, axis=1)
 
             # # penalize too small variance
-            # fitnesses[:, -template.ntypes*2-1:-template.ntypes-1] = \
-            #         lambda_pen*np.clip(0.05-ni_var, 0, None)
+            fitnesses[:, -template.ntypes*2-1:-template.ntypes-1] = \
+                    lambda_pen*np.clip(0.05-ni_var, 0, None)
 
             # # penalize too big variance
-            # fitnesses[:, -template.ntypes-1:-1] = lambda_pen*np.clip(
-            #     ni_var-1, 0, None)
+            fitnesses[:, -template.ntypes-1:-1] = lambda_pen*np.clip(
+                ni_var-1, 0, None)
 
             # # penalize non-negative LHS phi derivatives; this is done to make
             # # sure that the potential has repulsive forces for small pair
@@ -995,7 +1015,10 @@ def calculate_ni_stats(node_manager, is_master, manager_comm, only_eval_on_head)
         ni_var = np.zeros_like(min_ni)
 
     if only_eval_on_head:
-        global_ni = [node_manager.my_ni]
+        global_ni = node_manager.my_ni
+
+        print('global:', [len(el) for el in global_ni])
+        # global_ni = [np.vstack(ni) for ni in node_manager.my_ni]
     else:
         physical_node_ni = node_manager.my_head_comm.gather(node_manager.my_ni, root=0)
 
@@ -1056,6 +1079,54 @@ def calculate_ni_stats(node_manager, is_master, manager_comm, only_eval_on_head)
         avg_ni = None
         ni_var = None
         frac_in = None
+
+    return min_ni, max_ni, avg_ni, ni_var, frac_in
+
+def calculate_ni_stats_old(grouped_ni, template):
+    # TODO: ni will probably be a dict coming out of node_manager
+    frac_in = []
+
+    stacked_groups = []
+    for i in range(template.ntypes):
+        type_ni = []
+
+
+        for struct_groups in grouped_ni:
+            type_ni.append(struct_groups[i])
+
+        stacked_groups.append(np.concatenate(type_ni, axis=1))
+
+    min_ni = []
+    max_ni = []
+    avg_ni = []
+    ni_var = []
+
+    for i, type_ni in enumerate(stacked_groups):
+
+        biggest_min = max(
+            [el[0] for el in template.u_ranges]
+        )
+
+        biggest_max = max(
+            [el[1] for el in template.u_ranges]
+        )
+
+        num_in = np.logical_and(
+            type_ni >= biggest_min - 0.1,
+            type_ni <= biggest_max + 0.1
+        ).sum(axis=1)
+
+        # num_in = np.logical_and(
+        #     type_ni >= -1.5,
+        #     type_ni <= 1.5
+        # ).sum(axis=1)
+
+        frac_in.append(num_in / type_ni.shape[1])
+
+        min_ni.append(np.min(type_ni, axis=1))
+        max_ni.append(np.max(type_ni, axis=1))
+        avg_ni.append(np.average(type_ni, axis=1))
+        ni_var.append(np.std(type_ni, axis=1)**2)
 
     return min_ni, max_ni, avg_ni, ni_var, frac_in
 
