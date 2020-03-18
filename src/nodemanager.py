@@ -17,10 +17,6 @@ from numba import jit
 
 import cProfile
 
-import line_profiler
-import atexit
-profile = line_profiler.LineProfiler()
-
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
@@ -76,9 +72,6 @@ class NodeManager:
         self.is_node_head = ((self.local_rank % physical_cores_per_node) == 0)
         self.is_node_master = (self.local_rank == 0)
         self.physical_cores_per_node = physical_cores_per_node
-
-        atexit.register(profile.dump_stats,
-                'dump-nm-'+str(node_id)+str(self.local_rank))
 
         self.num_nodes = max(1, self.num_workers // self.physical_cores_per_node)
 
@@ -318,7 +311,7 @@ class NodeManager:
 
         return summed
 
-    @profile
+    # @profile
     def compute(self, compute_type, struct_list, potentials, u_domains,
             convert_to_cost=True, stress=False):
         """
