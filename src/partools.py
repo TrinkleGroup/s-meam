@@ -175,8 +175,6 @@ def build_evaluation_functions(
             # penalize fraction outside of U domains
             fitnesses[:, -template.ntypes*3-1:-template.ntypes*2-1] = lambda_pen*abs(1-frac_in)
 
-            # fitnesses[:, -1] = 0.5*np.linalg.norm(master_pop, axis=1)
-
             # # penalize too small variance
             fitnesses[:, -template.ntypes*2-1:-template.ntypes-1] = \
                     lambda_pen*np.clip(0.05-ni_var, 0, None)
@@ -184,6 +182,9 @@ def build_evaluation_functions(
             # # penalize too big variance
             fitnesses[:, -template.ntypes-1:-1] = lambda_pen*np.clip(
                 ni_var-1, 0, None)
+
+            # ridge penalty
+            fitnesses[:, -1] = 0.1*np.linalg.norm(master_pop, axis=1)
 
             # # penalize non-negative LHS phi derivatives; this is done to make
             # # sure that the potential has repulsive forces for small pair

@@ -69,9 +69,6 @@ class WorkerSpline:
         self.structure_vectors['forces'] = np.zeros((natoms, 3, self.n_knots+2))
         # self.structure_vectors['forces'] = np.zeros((natoms, self.n_knots+2, 3))
 
-    # @profile
-    # @jit
-    # @njit(debug=False)
     @staticmethod
     @jit(
         'Tuple((float64[:,:], float64[:,:]))(float64[:], int64, float64, float64[:], int64)',
@@ -593,6 +590,33 @@ class ffgSpline:
 
         self.structure_vectors['energy'][atom_id, :] += cart
 
+
+    @staticmethod
+    @jit(
+        'Tuple((float64[:,:], float64[:,:]))(float64[:], float64[:], float64[:],float64[:], float64[:], float64[:],float64[:], float64[:], float64[:], float64[:,:])',
+        nopython=True
+    )
+    def ffg_abcd_mixer(fj_1, fk_1, g_1, fj_2, fk_2, g_2, fj_3, fk_3, g_3, dirs):
+        v1 = np.outer(np.outer(fj_1, fk_1), g_1).ravel()
+        v2 = np.outer(np.outer(fj_2, fk_2), g_2).ravel()
+        v3 = np.outer(np.outer(fj_3, fk_3), g_3).ravel()
+
+        # all 6 terms to be added
+        t0 = dirs[0]*v1.reshape((-1, 1))
+        t1 = dirs[1]*v3.reshape((-1, 1))
+        t2 = dirs[2]*v3.reshape((-1, 1))
+
+        t3 = dirs[3]*v2.reshape((-1, 1))
+        t4 = dirs[4]*v3.reshape((-1, 1))
+        t5 = dirs[5]*v3.reshape((-1, 1))
+
+        # condensed versions
+        fj = t0 + t1 + t2
+        fk = t3 + t4 + t5
+
+        return fj, fk
+
+
     def add_to_forces_struct_vec(self, rij, rik, cos, dirs, i, j, k):
         """Adds all 6 directional information to the struct vector for the
         given triplet values
@@ -607,40 +631,13 @@ class ffgSpline:
             k : atom k tag
         """
 
-        # fj_1, fk_1, g_1 = self.get_abcd(rij, rik, cos, [1, 0, 0])
-        # fj_2, fk_2, g_2 = self.get_abcd(rij, rik, cos, [0, 1, 0])
-        # fj_3, fk_3, g_3 = self.get_abcd(rij, rik, cos, [0, 0, 1])
         fj_1, fk_1, g_1 = self.get_abcd(rij, rik, cos, [1, 0, 0])
         fj_2, fk_2, g_2 = self.get_abcd(rij, rik, cos, [0, 1, 0])
         fj_3, fk_3, g_3 = self.get_abcd(rij, rik, cos, [0, 0, 1])
 
-        v1 = np.outer(np.outer(fj_1, fk_1), g_1).ravel()
-        v2 = np.outer(np.outer(fj_2, fk_2), g_2).ravel()
-        v3 = np.outer(np.outer(fj_3, fk_3), g_3).ravel()
-
-        # v1 = np.zeros(fj_1.shape[0]*fk_1.shape[0]*g_1.shape[0])
-        # v2 = np.zeros(fj_2.shape[0]*fk_2.shape[0]*g_2.shape[0])
-        # v3 = np.zeros(fj_3.shape[0]*fk_3.shape[0]*g_3.shape[0])
-        #
-        # outer_prod_1d(fj_1, fk_1, g_1, fj_1.shape[0], fk_1.shape[0],
-        #                    g_1.shape[0], v1) # fj' fk g
-        # outer_prod_1d(fj_2, fk_2, g_2, fj_2.shape[0], fk_2.shape[0],
-        #                    g_2.shape[0], v2) # fj' fk g
-        # outer_prod_1d(fj_3, fk_3, g_3, fj_3.shape[0], fk_3.shape[0],
-        #                    g_3.shape[0], v3) # fj' fk g
-
-        # all 6 terms to be added
-        t0 = np.einsum('i,k->ik', v1, dirs[0])
-        t1 = np.einsum('i,k->ik', v3, dirs[1])
-        t2 = np.einsum('i,k->ik', v3, dirs[2])
-
-        t3 = np.einsum('i,k->ik', v2, dirs[3])
-        t4 = np.einsum('i,k->ik', v3, dirs[4])
-        t5 = np.einsum('i,k->ik', v3, dirs[5])
-
-        # condensed versions
-        fj = t0 + t1 + t2
-        fk = t3 + t4 + t5
+        fj, fk = self.ffg_abcd_mixer(
+            fj_1, fk_1, g_1, fj_2, fk_2, g_2, fj_3, fk_3, g_3, dirs
+        )
 
         N = self.natoms
         N2 = N*N

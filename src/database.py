@@ -347,6 +347,7 @@ class Database(h5py.File):
 
             # Stores pair information for phi
             for j, offset in zip(neighbors_noboth, offsets_noboth):
+
                 jtype = new_group.attrs["type_of_each_atom"][j]
 
                 # Find displacement vector (with periodic boundary conditions)
@@ -381,7 +382,6 @@ class Database(h5py.File):
             # TODO: rename j_idx to be more clear
             j_idx = 0  # for tracking neighbor
             for j, offsetj in zip(neighbors, offsets):
-
                 jtype = new_group.attrs["type_of_each_atom"][j]
 
                 # offset accounts for periodic images
@@ -443,6 +443,7 @@ class Database(h5py.File):
         # save all energy structure vectors
         # for spline_type, splines in zip(['phi', 'rho'], all_splines):
         #     for i, sp in enumerate(splines):
+
         for i, sp in enumerate(phis):
             """
             Note: HDF5 datasets must be resized before putting new data into
@@ -474,8 +475,6 @@ class Database(h5py.File):
 
             for k, ffg in enumerate(ffg_list):
 
-                # TODO: rzm still something wrong with ffg struct vecs
-
                 energy_ds = new_group['ffg']['energy'][str(j)][str(k)]
                 energy_ds.resize((1, ) + ffg.structure_vectors['energy'].shape)
                 energy_ds[:] = ffg.structure_vectors['energy']
@@ -483,14 +482,6 @@ class Database(h5py.File):
                 forces_ds = new_group['ffg']['forces'][str(j)][str(k)]
                 forces_ds.resize(ffg.structure_vectors['forces'].shape)
                 forces_ds[:] = ffg.structure_vectors['forces']
-
-                if False: print()
-
-                # new_group['ffg']['energy'][str(j)][str(k)] = \
-                #     ffg.structure_vectors['energy']
-
-                # new_group['ffg']['forces'][str(j)][str(k)] = \
-                #     ffg.structure_vectors['forces']
 
         new_group.attrs['volume'] = atoms.get_volume()
 
