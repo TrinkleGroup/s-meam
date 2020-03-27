@@ -347,6 +347,7 @@ class Database(h5py.File):
 
             # Stores pair information for phi
             for j, offset in zip(neighbors_noboth, offsets_noboth):
+
                 jtype = new_group.attrs["type_of_each_atom"][j]
 
                 # Find displacement vector (with periodic boundary conditions)
@@ -381,7 +382,6 @@ class Database(h5py.File):
             # TODO: rename j_idx to be more clear
             j_idx = 0  # for tracking neighbor
             for j, offsetj in zip(neighbors, offsets):
-
                 jtype = new_group.attrs["type_of_each_atom"][j]
 
                 # offset accounts for periodic images
@@ -443,6 +443,7 @@ class Database(h5py.File):
         # save all energy structure vectors
         # for spline_type, splines in zip(['phi', 'rho'], all_splines):
         #     for i, sp in enumerate(splines):
+
         for i, sp in enumerate(phis):
             """
             Note: HDF5 datasets must be resized before putting new data into
