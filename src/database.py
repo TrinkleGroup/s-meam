@@ -474,8 +474,6 @@ class Database(h5py.File):
 
             for k, ffg in enumerate(ffg_list):
 
-                # TODO: rzm still something wrong with ffg struct vecs
-
                 energy_ds = new_group['ffg']['energy'][str(j)][str(k)]
                 energy_ds.resize((1, ) + ffg.structure_vectors['energy'].shape)
                 energy_ds[:] = ffg.structure_vectors['energy']
@@ -483,14 +481,6 @@ class Database(h5py.File):
                 forces_ds = new_group['ffg']['forces'][str(j)][str(k)]
                 forces_ds.resize(ffg.structure_vectors['forces'].shape)
                 forces_ds[:] = ffg.structure_vectors['forces']
-
-                if False: print()
-
-                # new_group['ffg']['energy'][str(j)][str(k)] = \
-                #     ffg.structure_vectors['energy']
-
-                # new_group['ffg']['forces'][str(j)][str(k)] = \
-                #     ffg.structure_vectors['forces']
 
         new_group.attrs['volume'] = atoms.get_volume()
 
