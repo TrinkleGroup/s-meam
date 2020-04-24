@@ -22,6 +22,7 @@ from src.database import Database
 from src.nodemanager import NodeManager
 from src.pareto import GrEA
 from src.cmaes import CMAES
+from src.como import COMO_CMAES
 
 np.set_printoptions(linewidth=1000)
 
@@ -248,6 +249,8 @@ def main(config_name, template_file_name, procs_per_node_manager,
             print("Running CMAES", flush=True)
 
         CMAES(parameters, template, node_manager, manager_comm)
+    elif parameters['OPT_TYPE'] == 'COMO':
+        COMO_CMAES(parameters, template, node_manager, manager_comm)
     else:
         if is_master:
             kill_and_write("Invalid optimization type (OPT_TYPE)")

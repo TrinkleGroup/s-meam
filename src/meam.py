@@ -301,6 +301,7 @@ class MEAM:
                             g_val = g(cos_theta)
 
                             partialsum += fk_val * g_val
+
                     # end triplet loop
 
                     total_ni += fj_val * partialsum
@@ -490,6 +491,8 @@ class MEAM:
                   'boundary': 'p p p',
                   'mass': [str(i+1) + ' 1.008' for i in range(len(types))],
                   'pair_style': 'meam/spline',
+                  'neigh_modify': 'once no every 1 delay 0 check yes',
+                  'neighbor': '1.0 nsq',
                   'pair_coeff': ['* * test.meam.spline ' + ' '.join(types)],
                   'newton': 'on'}
 
@@ -499,7 +502,7 @@ class MEAM:
         self.write_to_file('test.meam.spline')
 
         calc = LAMMPS(no_data_file=False, parameters=params,
-                      keep_tmp_files=False, specorder=types,
+                      keep_tmp_files=True, specorder=types,
                       always_triclinic=True,
                       files=['test.meam.spline'])
 
@@ -733,6 +736,23 @@ class MEAM:
 
         return MEAM(splines=splines, types=self.types)
 
+    def get_ase_calculator(self):
+        pot_file_name = 'test.meam.spline-tmp'
+        self.write_to_file(pot_file_name)
+
+        params = {'units': 'metal',
+              'boundary': 'p p p',
+              'mass': ['1 1.008'],
+              'pair_style': 'meam/spline',
+              'pair_coeff': [f'* * {pot_file_name} ' + ' '.join(self.types)],
+              'neigh_modify': 'once no every 1 delay 0 check yes',
+              'neighbor': '1.0 nsq',
+              'newton': 'on'}
+
+        return LAMMPS(no_data_file=True, parameters=params,
+                      keep_tmp_files=False, specorder=self.types,
+                      files=[pot_file_name])
+
 
 def ij_to_potl(itype, jtype, ntypes):
     """Maps i and j element numbers to a single index of a 1D list; used for
@@ -870,7 +890,6 @@ def splines_from_pvec(x_pvec, y_pvec, x_indices):
             # x_knots, y_knots, bc_type=((1, bc[0]), (1, bc[1])), end_derivs=bc))
 
     return splines
-
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)

@@ -16,6 +16,7 @@ class Spline(CubicSpline):
         self.cutoff = (x[0],x[len(x)-1])
 
         self.h = x[1]-x[0]
+        self.y = y
 
     def __eq__(self, other):
         x_eq = np.allclose(self.x, other.x)
