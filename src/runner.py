@@ -390,7 +390,7 @@ def read_template(template_file_name):
                 ])[:-1]
 
             # parameter order goes: N knots, 1 LHS deriv, 1 RHS deriv
-            template.phi_lhs_deriv_indices = spline_npts[:nphi]
+            template.phi_lhs_deriv_indices = np.array([spline_npts[i]+2*i for i in range(nphi)])
 
             template.active_mask = mask
             template.pvec = knot_values

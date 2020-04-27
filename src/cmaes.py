@@ -86,9 +86,9 @@ def CMAES(parameters, template, node_manager, manager_comm):
         costs[:, 1:-4:3] *= parameters['FORCES_WEIGHT']
         costs[:, 2:-4:3] *= parameters['STRESS_WEIGHT']
 
-        # full_solution = src.partools.rescale_ni(
-        #     np.atleast_2d(full_solution), min_ni, max_ni, template
-        # )[0]
+        full_solution = src.partools.rescale_ni(
+            np.atleast_2d(full_solution), min_ni, max_ni, template
+        )[0]
 
         solution = full_solution[active_ind]
 
@@ -111,6 +111,8 @@ def CMAES(parameters, template, node_manager, manager_comm):
         #
         # for key, val in opts.defaults().items():
         #     print(key, val)
+
+        bestever = cma.optimization_tools.BestSolution()
 
         es = cma.CMAEvolutionStrategy(
             solution,
@@ -196,13 +198,13 @@ def CMAES(parameters, template, node_manager, manager_comm):
                     if is_master:
                         es = cma.CMAEvolutionStrategy(
                             es.result.xbest,
-                            # TODO: figure out how to get the final sigma
-                            es.sigma,
+                            parameters['CMAES_STEP_SIZE'],
+                            # es.sigma,
                             # 0.01,
                             {
                                 'verb_disp': 1,
                                 'popsize': parameters['GROW_SIZE'][grow_id],
-                                # 'verb_append': generation_number,
+                                'verb_append': bestever.evalsall
                             }
                         )
 
@@ -269,6 +271,9 @@ def CMAES(parameters, template, node_manager, manager_comm):
                 shift_time = parameters['SHIFT_FREQ'] - 1 
             else:
                 shift_time -= 1
+
+        if is_master:
+            bestever.update(es.best)
 
         generation_number += 1
         time_to_stop = world_comm.bcast(time_to_stop, root=0)

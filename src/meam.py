@@ -744,7 +744,7 @@ class MEAM:
               'boundary': 'p p p',
               'mass': ['1 1.008'],
               'pair_style': 'meam/spline',
-              'pair_coeff': [f'* * {pot_file_name} ' + ' '.join(self.types)],
+              'pair_coeff': ['* * {0} '.format(pot_file_name) + ' '.join(self.types)],
               'neigh_modify': 'once no every 1 delay 0 check yes',
               'neighbor': '1.0 nsq',
               'newton': 'on'}
