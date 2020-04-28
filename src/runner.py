@@ -345,7 +345,7 @@ def read_template(template_file_name):
             mask = data[:, 0].astype(int)
             knot_values = data[:, 1]
 
-            nphi = template_args['ntypes']*(template_args['ntypes'] + 1) / 2
+            nphi = template_args['ntypes']*(template_args['ntypes'] + 1) // 2
             nphi = int(nphi)
 
             # TODO: these indices have been hard-coded for a binary system...
