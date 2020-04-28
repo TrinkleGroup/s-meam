@@ -120,6 +120,7 @@ def COMO_CMAES(parameters, template, node_manager, manager_comm):
                 parameters['CMAES_STEP_SIZE'],
                 {
                     'popsize': parameters['POP_SIZE'],
+                    'verb_disp': 1,
                 }
             )
 
@@ -172,7 +173,31 @@ def COMO_CMAES(parameters, template, node_manager, manager_comm):
 
         if is_master:
 
-            if generation_number % parameters['CHECKPOINT_FREQ'] == 0:
+            if (generation_number % parameters['CHECKPOINT_FREQ'] == 0) and (
+                    generation_number > 1):
+                front = [k.best.x for k in moes.kernels]
+                front = np.stack(front)
+
+                digits = np.floor(np.log10(parameters['NSTEPS']))
+
+                format_str = os.path.join(
+                    parameters['SAVE_DIRECTORY'],
+                    'front_{0:0' + str(int(digits) + 1)+ 'd}.dat'
+                ).format(generation_number)
+
+                np.savetxt(
+                    os.path.join(parameters['SAVE_DIRECTORY'], format_str),
+                    template.insert_active_splines(np.atleast_2d(front)),
+                )
+
+                format_str = os.path.join(
+                    parameters['SAVE_DIRECTORY'],
+                    'moes_{0:0' + str(int(digits) + 1)+ 'd}.pkl'
+                ).format(generation_number)
+
+
+                pickle.dump(moes, open(format_str, 'wb'))
+
                 src.partools.checkpoint(
                     population, costs, max_ni, min_ni, avg_ni,
                     generation_number, parameters, template,
