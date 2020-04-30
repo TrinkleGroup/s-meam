@@ -186,7 +186,7 @@ def COMO_CMAES(parameters, template, node_manager, manager_comm):
                 ).format(generation_number)
 
                 np.savetxt(
-                    os.path.join(parameters['SAVE_DIRECTORY'], format_str),
+                    format_str,
                     template.insert_active_splines(np.atleast_2d(front)),
                 )
 
