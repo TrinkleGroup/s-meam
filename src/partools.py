@@ -147,8 +147,6 @@ def build_evaluation_functions(
                 # tmp = (comp_ediff - true_ediff) ** 2
                 tmp = abs(comp_ediff - true_ediff)
 
-                print(name, all_eng[s_id][0], all_eng[r_id][0], all_force_costs[fit_id][0])
-
                 fitnesses[:, 3*fit_id] = tmp#*parameters['ENERGY_WEIGHT']
 
                 fitnesses[:, 3*fit_id+1] = \
