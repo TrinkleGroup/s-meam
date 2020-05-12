@@ -566,29 +566,6 @@ def prepare_node_managers(database, template, parameters, manager_comm, is_maste
             key_choices, manager_comm.Get_size()
         )
 
-        # with open('fast_structs.txt', 'r') as f:
-        #     fast_names = f.readlines()
-        #     fast_names = [n.strip() for n in fast_names]
-
-        # key_choices = fast_names[:8]
-        # split_struct_lists = np.array_split(
-        #     key_choices, manager_comm.Get_size()
-        # )
-
-        # with open('normal_structs.txt', 'r') as f:
-        #     normal_names = f.readlines()
-        #     normal_names = [n.strip() for n in normal_names]
-
-        # with open('slow_structs.txt', 'r') as f:
-        #     slow_names = f.readlines()
-        #     slow_names = [n.strip() for n in slow_names]
-
-        # split_struct_lists = []
-        # split_struct_lists.append(fast_names + normal_names[:4])
-        # split_struct_lists.append(slow_names + normal_names[4:8])
-
-        # split_struct_lists += np.array_split(normal_names[8:], 30)
-
     else:
         split_struct_lists = None
 

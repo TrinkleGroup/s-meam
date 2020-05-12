@@ -42,7 +42,7 @@ def build_evaluation_functions(
 
         manager_energies = node_manager.compute(
             'energy', node_manager.loaded_structures, pop, template.u_ranges,
-            stress=True
+            stress=True, convert_to_cost=True
         )
 
         manager_force_costs = node_manager.compute(
@@ -67,24 +67,18 @@ def build_evaluation_functions(
                 return fitnesses
 
         force_costs = np.array(list(manager_force_costs.values()))
-
-        unsorted_energies = [retval[0] for retval in manager_energies.values()]
+        
         eng = [  # sort according to structure name
-            x for _, x in sorted(
-                zip(node_manager.loaded_structures, unsorted_energies)
+            x[0] for _, x in sorted(
+                manager_energies.items()
             )
         ]
-
-        # unsorted_stresses = [retval[1] for retval in manager_energies.values()]
-        unsorted_stresses = [retval[2] for retval in manager_energies.values()]
 
         stresses = [  # sort according to structure name
-            x for _, x in sorted(
-                zip(node_manager.loaded_structures, unsorted_stresses)
+            x[2] for _, x in sorted(
+                manager_energies.items()
             )
         ]
-
-        sorted_names = sorted(node_manager.loaded_structures)
 
         ni = [retval[1] for retval in manager_energies.values()]
 
@@ -101,8 +95,6 @@ def build_evaluation_functions(
             mgr_stress = manager_comm.gather(stresses, root=0)
             mgr_force_costs = manager_comm.gather(force_costs, root=0)
 
-            mgr_names_list = manager_comm.gather(sorted_names, root=0)
-
             mgr_min_ni = manager_comm.gather(c_min_ni, root=0)
             mgr_max_ni = manager_comm.gather(c_max_ni, root=0)
             mgr_avg_ni = manager_comm.gather(c_avg_ni, root=0)
@@ -110,16 +102,11 @@ def build_evaluation_functions(
             mgr_frac_in = manager_comm.gather(c_frac_in, root=0)
 
         if is_master:
-            all_names = np.concatenate(mgr_names_list)
-
             # note: can't stack mgr_fcs b/c different dimensions per struct
             all_eng = np.vstack(mgr_eng)
 
             all_stress_costs = np.vstack(mgr_stress)
 
-            # TODO: why are all_eng sorted, but forces aren't?
-
-            all_eng = all_eng[np.argsort(all_names), :]
             all_force_costs = np.vstack(mgr_force_costs)
 
             # note that ni stats should be in the shape (ntypes, popsize)
@@ -160,13 +147,13 @@ def build_evaluation_functions(
                 # tmp = (comp_ediff - true_ediff) ** 2
                 tmp = abs(comp_ediff - true_ediff)
 
+                print(name, all_eng[s_id][0], all_eng[r_id][0], all_force_costs[fit_id][0])
+
                 fitnesses[:, 3*fit_id] = tmp#*parameters['ENERGY_WEIGHT']
 
                 fitnesses[:, 3*fit_id+1] = \
                     all_force_costs[fit_id]#*parameters['FORCES_WEIGHT']
 
-                # fitnesses[:, 8*fit_id+2:8*fit_id+8] = \
-                #     all_stress_costs[fit_id]*parameters['STRESS_WEIGHT']
                 fitnesses[:, 3*fit_id+2] = \
                     all_stress_costs[fit_id]#*parameters['STRESS_WEIGHT']
 
@@ -184,15 +171,15 @@ def build_evaluation_functions(
                 ni_var-1, 0, None)
 
             # ridge penalty
-            fitnesses[:, -1] = 0.1*np.linalg.norm(master_pop, axis=1)
+            # fitnesses[:, -1] = 0.1*np.linalg.norm(master_pop, axis=1)
 
             # # penalize non-negative LHS phi derivatives; this is done to make
             # # sure that the potential has repulsive forces for small pair
             # # distances, even if the database doesn't have data like this.
 
-            # fitnesses[:, -1] = lambda_pen*np.clip(
+            # fitnesses[:, -1] = np.clip(
             #     pop[:, template.phi_lhs_deriv_indices], 0, None
-            # ).sum(axis=1)*0
+            # ).sum(axis=1)*10
 
         if is_master:
             if not penalty:

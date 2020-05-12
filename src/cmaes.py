@@ -309,10 +309,17 @@ def CMAES(parameters, template, node_manager, manager_comm):
     if is_master:
         polish_runtime = time.time() - polish_start_time
 
+        # log full cost vector of best ever potential
+        with open(parameters['BEST_FIT_FILE'], 'ab') as cost_save_file:
+            np.savetxt(cost_save_file, np.atleast_2d(costs[0]))
+
+        # log best ever potential
+        with open(parameters['BEST_POT_FILE'], 'ab') as pot_save_file:
+            np.savetxt(pot_save_file, np.atleast_2d(population[0]))
+
         costs[:, 0:-4:3] *= parameters['ENERGY_WEIGHT']
         costs[:, 1:-4:3] *= parameters['FORCES_WEIGHT']
         costs[:, 2:-4:3] *= parameters['STRESS_WEIGHT']
-
 
         final_costs = np.sum(costs, axis=1)
 

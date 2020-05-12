@@ -434,14 +434,21 @@ class NodeManager:
                         from each of the workers in the pool
                         """
 
-                        all_eng, all_ni, all_stress_costs = zip(*return_values)
-                        # all_eng, all_stress_costs = zip(*return_values)
+                        if stress:
+                            all_eng, all_ni, all_stress_costs = zip(*return_values)
 
-                        ret_dict[struct_name] = (
-                            np.hstack(all_eng),
-                            np.hstack(all_ni),
-                            np.hstack(all_stress_costs)
-                        )
+                            ret_dict[struct_name] = (
+                                np.hstack(all_eng),
+                                np.hstack(all_ni),
+                                np.hstack(all_stress_costs)
+                            )
+                        else:
+                            all_eng, all_ni = zip(*return_values)
+
+                            ret_dict[struct_name] = (
+                                np.hstack(all_eng),
+                                np.hstack(all_ni),
+                            )
                     else:
                         ret_dict[struct_name] = np.hstack(return_values)
         return ret_dict
@@ -777,16 +784,24 @@ class NodeManager:
                     struct_name, fd_ni, u_pvecs, u_ranges
                 )
 
+            grouped_ni = [
+                # don't extract all of the finite-difference arrays...
+                np.array(ni[:, self.type_of_each_atom[struct_name] - 1 == i, 0])
+                for i in range(self.ntypes)
+            ]
+
+
         else:
             energy += self.embedding_energy(
                 struct_name, ni, u_pvecs, u_ranges
             )
 
-        grouped_ni = [
-            # don't extract all of the finite-difference arrays...
-            np.array(ni[:, self.type_of_each_atom[struct_name] - 1 == i, 0])
-            for i in range(self.ntypes)
-        ]
+            grouped_ni = [
+                # don't extract all of the finite-difference arrays...
+                np.array(ni[:, self.type_of_each_atom[struct_name] - 1 == i])
+                for i in range(self.ntypes)
+            ]
+
 
         if stress:
             fd_energies = energy[1:]
@@ -799,10 +814,8 @@ class NodeManager:
             stresses /= self.volumes[struct_name]
 
             return [energy[0]/self.natoms[struct_name], grouped_ni, stresses.T]
-            # return [energy[0]/self.natoms[struct_name], stresses.T]
 
         return energy/self.natoms[struct_name], grouped_ni
-        # return energy/self.natoms[struct_name]
 
     @staticmethod
     @jit(
