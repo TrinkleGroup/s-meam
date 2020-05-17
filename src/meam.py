@@ -749,10 +749,15 @@ class MEAM:
               'neighbor': '1.0 nsq',
               'newton': 'on'}
 
-        return LAMMPS(no_data_file=True, parameters=params,
-                      keep_tmp_files=False, specorder=self.types,
-                      files=[pot_file_name])
+        calc = LAMMPS(
+            no_data_file=True,
+            keep_tmp_files=False, specorder=self.types,
+            files=[pot_file_name]
+        )
 
+        calc.set(**params)
+
+        return calc
 
 def ij_to_potl(itype, jtype, ntypes):
     """Maps i and j element numbers to a single index of a 1D list; used for
