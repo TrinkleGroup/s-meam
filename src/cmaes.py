@@ -167,7 +167,8 @@ def CMAES(parameters, template, node_manager, manager_comm):
             costs[:, 1:-4:3] *= parameters['FORCES_WEIGHT']
             costs[:, 2:-4:3] *= parameters['STRESS_WEIGHT']
 
-            new_costs = np.sum(costs, axis=1)
+            new_costs = np.sqrt(np.average(costs[:, :-4]**2, axis=1))
+            new_costs += np.sum(costs[:, -4:], axis=1)
 
             es.tell(
                 population[:, active_ind], new_costs
@@ -317,18 +318,18 @@ def CMAES(parameters, template, node_manager, manager_comm):
         with open(parameters['BEST_POT_FILE'], 'ab') as pot_save_file:
             np.savetxt(pot_save_file, np.atleast_2d(population[0]))
 
-        costs[:, 0:-4:3] *= parameters['ENERGY_WEIGHT']
-        costs[:, 1:-4:3] *= parameters['FORCES_WEIGHT']
-        costs[:, 2:-4:3] *= parameters['STRESS_WEIGHT']
-
-        final_costs = np.sum(costs, axis=1)
-
         src.partools.checkpoint(
             # population, final_costs, tmp_max_ni, tmp_min_ni, tmp_avg_ni,
             population, costs, max_ni, min_ni, avg_ni,
             generation_number, parameters, template,
             parameters['NSTEPS']
         )
+
+        costs[:, 0:-4:3] *= parameters['ENERGY_WEIGHT']
+        costs[:, 1:-4:3] *= parameters['FORCES_WEIGHT']
+        costs[:, 2:-4:3] *= parameters['STRESS_WEIGHT']
+
+        final_costs = np.sum(costs, axis=1)
 
         print()
         print("Final best cost = ", final_costs[0])
