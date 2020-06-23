@@ -60,7 +60,6 @@ def main(config_name, template_file_name, procs_per_node_manager,
 
     parameters = world_comm.bcast(parameters, root=0)
     template = world_comm.bcast(template, root=0)
-    # TODO: don't have different 'NSTEP' params for each algorithm type
 
     # convert types of inputs from str
     int_params = [
@@ -70,13 +69,13 @@ def main(config_name, template_file_name, procs_per_node_manager,
         'MCMC_BLOCK_SIZE', 'SGD_BATCH_SIZE', 'SHIFT_FREQ',
         'TOGGLE_FREQ', 'TOGGLE_DURATION', 'MCMC_FREQ', 'MCMC_NSTEPS',
         'GRID_DIVS', 'ARCHIVE_SIZE', 'PROCS_PER_PHYS_NODE',
-        'PROCS_PER_NODE_MANAGER'
+        'PROCS_PER_NODE_MANAGER', 'NUM_SOLVERS'
     ]
 
     float_params = [
-        'MUT_PB', 'COOLING_RATE', 'TMIN', 'TSTART', 'SGD_STEP_SIZE',
+        'MUT_PB', 'SGD_STEP_SIZE',
         'MOVE_PROB', 'MOVE_SCALE', 'CMAES_STEP_SIZE', 'NI_PENALTY',
-        'ENERGY_WEIGHT', 'FORCES_WEIGHT', 'STRESS_WEIGHT',
+        'ENERGY_WEIGHT', 'FORCES_WEIGHT', 'STRESS_WEIGHT', 'HUBER_THRESHOLD'
     ]
 
     bool_params = [
@@ -329,9 +328,13 @@ def read_template(template_file_name):
             # should a potential be loaded from a file? randomly generated?
             if f.readline().strip().split(" ")[-1] == "True":
                 fname = f.readline().strip().split(" ")[-1]
-                print("Loading mask and parameter vector from:", fname)
+                print(
+                    "Loading mask and parameter vector from:",
+                    template_file_name
+                )
 
                 data = np.genfromtxt(fname)
+
             else:
                 print(
                     "Loading mask and parameter vector from:",
@@ -369,6 +372,8 @@ def read_template(template_file_name):
                 )
             )[0]
 
+            print('spline_ranges:', spline_ranges)
+
             template = Template(
                 template_args['types'],
                 pvec_len=len(knot_values),
@@ -387,7 +392,7 @@ def read_template(template_file_name):
 
             x_indices = np.concatenate([
                 [0], np.cumsum(spline_npts)
-                ])[:-1]
+            ])[:-1]
 
             # parameter order goes: N knots, 1 LHS deriv, 1 RHS deriv
             template.phi_lhs_deriv_indices = np.array([spline_npts[i]+2*i for i in range(nphi)])

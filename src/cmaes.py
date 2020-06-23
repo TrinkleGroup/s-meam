@@ -2,15 +2,13 @@ import os
 import cma
 import time
 import random
-import itertools
 import numpy as np
 from mpi4py import MPI
-from deap import tools
 
 import src.partools
-import src.pareto
 
 
+@profile
 def CMAES(parameters, template, node_manager, manager_comm):
     # MPI setup
     world_comm = MPI.COMM_WORLD
@@ -19,6 +17,7 @@ def CMAES(parameters, template, node_manager, manager_comm):
 
     is_master = (world_rank == 0)
 
+    # print settings used
     if is_master:
         print()
         print('='*80)
@@ -60,6 +59,7 @@ def CMAES(parameters, template, node_manager, manager_comm):
         manager_comm=manager_comm
     )
 
+    # prepare the initial solution
     if is_master:
         full_solution = template.pvec.copy()
 
@@ -70,10 +70,12 @@ def CMAES(parameters, template, node_manager, manager_comm):
 
         solution = full_solution[active_ind].copy()
 
+        print('full_solution.shape:', full_solution.shape)
         print('solution.shape:', solution.shape)
     else:
         solution = None
 
+    # compute the initial ni values and scale if necessary
     costs, max_ni, min_ni, avg_ni = objective_fxn(
         template.insert_active_splines(np.atleast_2d(solution)), weights,
         return_ni=True, penalty=parameters['PENALTY_ON']
@@ -106,11 +108,8 @@ def CMAES(parameters, template, node_manager, manager_comm):
 
     solution = world_comm.bcast(solution, root=0)
 
+    # initialize optimizer
     if is_master:
-        # opts = cma.CMAOptions()
-        #
-        # for key, val in opts.defaults().items():
-        #     print(key, val)
 
         bestever = cma.optimization_tools.BestSolution()
 
@@ -120,8 +119,6 @@ def CMAES(parameters, template, node_manager, manager_comm):
             {
                 'verb_disp': 1,
                 'popsize': parameters['POP_SIZE'],
-                # 'CMA_mu': 19,
-                # 'CMA_rankmu': 0.1
             }
         )
 
@@ -131,19 +128,15 @@ def CMAES(parameters, template, node_manager, manager_comm):
     else:
         population = None
 
-    shift_time = 0
-
-    if parameters['DO_SHIFT']:
-        shift_time = parameters['SHIFT_FREQ']
-
+    # begin optimization
     time_to_stop = False
 
     grow_id = 0
     generation_number = 1
     while (not time_to_stop) and (generation_number <= parameters['NSTEPS']):
-        if is_master:
 
-            # population = np.array(es.ask_geno())
+        # get new population
+        if is_master:
             population = np.array(es.ask())
             population = template.insert_active_splines(population)
 
@@ -162,13 +155,26 @@ def CMAES(parameters, template, node_manager, manager_comm):
                 )
 
             org_costs = costs.copy()
+
             # only apply weights AFTER logging unweighted data
             costs[:, 0:-4:3] *= parameters['ENERGY_WEIGHT']
             costs[:, 1:-4:3] *= parameters['FORCES_WEIGHT']
             costs[:, 2:-4:3] *= parameters['STRESS_WEIGHT']
 
-            new_costs = np.sqrt(np.average(costs[:, :-4]**2, axis=1))
-            new_costs += np.sum(costs[:, -4:], axis=1)
+            # new_costs = np.sqrt(np.average(costs[:, :-4]**2, axis=1))
+            # new_costs += np.sum(costs[:, -4:], axis=1)
+
+            delta = parameters['HUBER_THRESHOLD']
+
+            data_costs, penalties = costs[:, :-4], costs[:, -4:]
+
+            mask = np.ma.masked_where(data_costs <= delta, data_costs)
+
+            new_costs = np.sum((data_costs*mask.mask)**2, axis=1)
+            new_costs += delta*np.sum(np.abs(data_costs*(~mask.mask)), axis=1)
+            new_costs -= delta*delta/2
+
+            new_costs += np.sum(penalties, axis=1)
 
             es.tell(
                 population[:, active_ind], new_costs
@@ -179,6 +185,7 @@ def CMAES(parameters, template, node_manager, manager_comm):
                 time_to_stop = True
 
         if is_master:
+            # log best potential and fitness
 
             min_idx = np.argmin(new_costs)
             best_fit = org_costs[min_idx]
@@ -200,8 +207,6 @@ def CMAES(parameters, template, node_manager, manager_comm):
                         es = cma.CMAEvolutionStrategy(
                             es.result.xbest,
                             parameters['CMAES_STEP_SIZE'],
-                            # es.sigma,
-                            # 0.01,
                             {
                                 'verb_disp': 1,
                                 'popsize': parameters['GROW_SIZE'][grow_id],
@@ -210,68 +215,6 @@ def CMAES(parameters, template, node_manager, manager_comm):
                         )
 
                     grow_id += 1
-
-        if parameters['DO_SHIFT']:
-            if shift_time == 0:
-
-                if is_master:
-                    best = template.insert_active_splines(np.atleast_2d(
-                        es.result.xbest
-                    ))
-
-                else:
-                    best = None
-
-                best_costs, best_max_ni, best_min_ni, best_avg_ni = objective_fxn(
-                    best, weights, return_ni=True,
-                    penalty=parameters['PENALTY_ON']
-                )
-
-                # if is_master:
-                # 
-                #     print('Rescaling ...')
-                #     solution = src.partools.rescale_ni(
-                #         template.insert_active_splines(np.atleast_2d(es.result.xbest)),
-                #         best_min_ni, best_max_ni, template
-                #     )
-                # 
-                # best_costs, best_max_ni, best_min_ni, best_avg_ni = objective_fxn(
-                #     solution, weights, return_ni=True,
-                #     penalty=parameters['PENALTY_ON']
-                # )
-
-                if is_master:
-
-                    solution = solution[:, np.where(template.active_mask)[0]]
-
-                    new_u_domains = src.partools.shift_u(
-                        best_min_ni, best_max_ni
-                    )
-
-                    print("New U domains:", new_u_domains)
-                    print("Restarting with new U[]...", flush=True)
-
-                    es = cma.CMAEvolutionStrategy(
-                        solution[0],
-                        parameters['CMAES_STEP_SIZE'],
-                        {
-                            'verb_disp': 1,
-                            'popsize': parameters['POP_SIZE'],
-                            'verb_append': generation_number,
-                            # 'CMA_mu': 19,
-                            # 'CMA_rankmu': 0.1
-                        }
-                    )
-
-                else:
-                    new_u_domains = None
-
-                new_u_domains = world_comm.bcast(new_u_domains, root=0)
-                template.u_ranges = new_u_domains
-
-                shift_time = parameters['SHIFT_FREQ'] - 1 
-            else:
-                shift_time -= 1
 
         if is_master:
             bestever.update(es.best)
@@ -290,18 +233,6 @@ def CMAES(parameters, template, node_manager, manager_comm):
     else:
         best = np.empty((1, template.pvec_len))
 
-    # best = src.partools.local_minimization(
-    #     best[:, np.where(template.active_mask)[0]], best, template, objective_fxn,
-    #     gradient, weights, world_comm, is_master, nsteps=10, lm_output=True,
-    #     penalty=parameters['PENALTY_ON']
-    # )
-
-    # if is_master:
-        # sorted_pop[0, np.where(template.active_mask)[0]] = best
-        # sorted_pop[0, active_ind] = best
-        # sorted_pop[0] = best
-        # population = sorted_pop
-
     costs, max_ni, min_ni, avg_ni = objective_fxn(
         population, weights, return_ni=True,
         penalty=parameters['PENALTY_ON']
@@ -319,7 +250,6 @@ def CMAES(parameters, template, node_manager, manager_comm):
             np.savetxt(pot_save_file, np.atleast_2d(population[0]))
 
         src.partools.checkpoint(
-            # population, final_costs, tmp_max_ni, tmp_min_ni, tmp_avg_ni,
             population, costs, max_ni, min_ni, avg_ni,
             generation_number, parameters, template,
             parameters['NSTEPS']
@@ -352,6 +282,14 @@ def CMAES(parameters, template, node_manager, manager_comm):
 
 
 def prepare_true_values(node_manager, world_comm, is_master):
+    """
+    Extracts the DFT-computed energy differences and reference structures from
+    the NodeManager objects so that the master rank can compute the energy
+    errors once it has gathered everything. Note that we don't need to gather
+    the force values since each NodeManager will convert those to costs before
+    passing back to the master.
+    """
+
     local_true_eng = {}
     local_true_ref = {}
 
@@ -392,6 +330,7 @@ def prepare_true_values(node_manager, world_comm, is_master):
 
 def collect_structure_names(node_manager, world_comm, is_master):
     local_structs = world_comm.gather(node_manager.loaded_structures, root=0)
+    """Gather the names of all structures loaded on the NodeManager objects"""
 
     if is_master:
         all_struct_names = []

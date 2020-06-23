@@ -3,18 +3,12 @@ boundary    p p p
 units       metal
 newton      on
 
-read_data   data.trimeraaa
-#read_data   ../src/Ti_only_crowd.Ti
+read_data   sfe/image_$i.data
 
-mass        1 1.008
-#mass        2 4.0026
+mass        1 63.546
 
 pair_style  meam/spline
-#pair_coeff  * * ../src/test-files/TiO.meam.spline Ti
-#pair_coeff  * * test.meam.spline H He
-pair_coeff  * * TiO.meam.spline Ti
-
-delete_atoms overlap 0.3 all all
+pair_coeff  * * /tmp/test.meam.spline Cu
 
 thermo_style custom step pe
 thermo_modify format line "%d %.15g"
@@ -23,6 +17,9 @@ thermo_modify format line "%d %.15g"
 #dump 2 all custom 1 dump.forces id fx fy fz
 #dump_modify 2 format line "%d %.16f %.16f %.16f"
 
+neigh_modify once no every 1 delay 0 check yes
+neighbor 1.0 nsq
+
 #min_style   cg
-#minimize    1e-8 1e-8 1000 1000
+minimize    1e-8 1e-8 1000 1000
 run 0

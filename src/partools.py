@@ -246,19 +246,16 @@ def build_evaluation_functions(
                     all_struct_names, weights
                 )):
 
-                # ref_name = database[name].attrs['ref_struct']
-                # ref_name = true_values['ref_struct'][name]
+                ref_name = database[name].attrs['ref_struct']
 
                 # find index of structures to know which energies to use
                 s_id = all_struct_names.index(name)
-                # r_id = all_struct_names.index(ref_name)
-
+                r_id = all_struct_names.index(ref_name)
 
                 gradient[:, :, 2*fit_id + 1] += all_fcs_grad[:, :, s_id]
 
-                # true_ediff = database[name]['true_values']['energy']
-                true_ediff = true_values['energy'][name]
-                comp_ediff = all_eng[s_id] # - all_eng[r_id]
+                true_ediff = database[name]['true_values']['energy']
+                comp_ediff = all_eng[s_id] - all_eng[r_id]
 
                 eng_err = comp_ediff - true_ediff
                 s_grad = all_eng_grad[:, :, s_id]

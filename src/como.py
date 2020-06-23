@@ -62,7 +62,7 @@ def COMO_CMAES(parameters, template, node_manager, manager_comm):
     )
 
     if is_master:
-        num_solvers = 100
+        num_solvers = parameters['NUM_SOLVERS']
         full_solution = template.pvec.copy()
         full_solution = np.tile(full_solution, (num_solvers, 1))
 

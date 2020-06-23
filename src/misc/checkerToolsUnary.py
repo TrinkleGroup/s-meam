@@ -11,7 +11,7 @@ import src.meam
 from src.potential_templates import Template
 from src.meam import MEAM
 
-points_per_spline = 7
+# points_per_spline = 7
 
 elements = ['Cu', 'Ge', 'Li' , 'Mo', 'Ni', 'Si']
 all_ic   = [2.2, 2.4, 2.4, 2.4, 2.2, 2.2]
@@ -194,42 +194,26 @@ def rotate_into_lammps(cell):
         [0, 0, cz],
     ])
 
-def build_template(types, inner_cutoff=1.5, outer_cutoff=5.5):
-    x_pvec = np.concatenate([
-        np.tile(np.linspace(inner_cutoff, outer_cutoff, points_per_spline), 2),
-        np.tile(np.linspace(-1, 1, points_per_spline), 1),
-        np.tile(np.linspace(inner_cutoff, outer_cutoff, points_per_spline), 1),
-        np.tile(np.linspace(-1, 1, points_per_spline), 1)],
-    )
-
-    x_indices = range(0, points_per_spline * 12, points_per_spline)
+def build_template(types, inner_cutoff=1.5, outer_cutoff=5.5, spline_nknots=[]):
+    cumsum = [0] + np.cumsum(spline_nknots).tolist()
 
     potential_template = Template(
-        pvec_len=45,
+        pvec_len=cumsum[-1]+10,
         u_ranges=[(-1, 1), (-1, 1)],
-        spline_ranges=[(-1, 1), (-1, 1),
-                       (-1, 1), (-1, 1),
-                       (-1, 1)],
-        spline_indices=[(0, 9), (9, 18), (18, 27), (27, 36), (36, 45)],
+        spline_ranges=[
+            (-1, 1), (-1, 1),
+            (-1, 1), (-1, 1),
+            (-1, 1)
+        ],
+        spline_indices=[(x+2*i, cumsum[i+1]+2*(i+1)) for i,x in enumerate(cumsum[:-1])],
         types=types
     )
 
-    mask = np.ones(potential_template.pvec_len)
-
-    potential_template.pvec[6] = 0; mask[6] = 0  # rhs value phi
-    potential_template.pvec[8] = 0; mask[8] = 0  # rhs deriv phi
-
-    potential_template.pvec[15] = 0; mask[15] = 0  # rhs value rho
-    potential_template.pvec[17] = 0; mask[17] = 0  # rhs deriv rho
-
-    potential_template.pvec[33] = 0; mask[33] = 0  # rhs value f
-    potential_template.pvec[35] = 0; mask[35] = 0  # rhs deriv f
-
-    potential_template.active_mask = mask
+    potential_template.active_mask = np.ones(potential_template.pvec_len)
     
     return potential_template
 
-def plot_splines(potential_template, guess_pvec, fig, ax, inner_cutoff, outer_cutoff, ext=0, lines=None, points=None, u_dom=[(-1, 1)], title=''):
+def plot_splines(potential_template, guess_pvec, fig, ax, inner_cutoff, outer_cutoff, x_indices=None, x_pvec=None, ext=0, lines=None, points=None, u_dom=[(-1, 1)], title=''):
 
     labels = ['A']
 
@@ -238,17 +222,16 @@ def plot_splines(potential_template, guess_pvec, fig, ax, inner_cutoff, outer_cu
              r"$U$",
              r"$f$",
              r"$g$"]
+    
+    points_per_spline = (potential_template.pvec_len // 5) - 2
 
-    x_pvec = np.concatenate([
-        np.tile(np.linspace(inner_cutoff, outer_cutoff, points_per_spline), 2),
-        np.linspace(u_dom[0][0], u_dom[0][1], points_per_spline),
-        np.tile(np.linspace(inner_cutoff, outer_cutoff, points_per_spline), 1),
-        np.tile(np.linspace(-1, 1, points_per_spline), 1)]
-    )
+#     split_indices = [el[0] for el in potential_template.x_indices[1:]]
+    split_indices = x_indices[1:]
 
-    x_rng_tups = np.split(x_pvec, 5)
-    x_rng_tups = [(t[0], t[6], 7) for t in x_rng_tups]
-
+#     x_rng_tups = np.split(x_pvec, split_indices)
+#     x_rng_tups = [(t[0], t[points_per_spline-1], points_per_spline) for t in x_rng_tups]
+    x_rng_tups = [(x[0], x[-1], len(x)) for x in np.split(x_pvec, split_indices)]
+    
     x_rngs = [np.linspace(t[0], t[1], t[2]) for t in x_rng_tups]
     x_plts = [np.linspace(t[0], t[1], 100) for t in x_rng_tups]
     
@@ -258,9 +241,7 @@ def plot_splines(potential_template, guess_pvec, fig, ax, inner_cutoff, outer_cu
     for i in [2]:  # U
         x_plts[i] = np.linspace(x_plts[i][0] - ext*abs(x_plts[i][0]), x_plts[i][-1] + ext*abs(x_plts[i][-1]), 100)
 
-    split_indices = [el[0] for el in potential_template.spline_indices[1:]]
-
-    dat_guess = np.split(guess_pvec, split_indices, axis=1)
+    dat_guess = np.split(guess_pvec, [x[0] for x in potential_template.spline_indices[1:]], axis=1)
 
     row_num = 0
     col_num = 0
@@ -281,7 +262,7 @@ def plot_splines(potential_template, guess_pvec, fig, ax, inner_cutoff, outer_cu
         for j in range(dat_guess[i].shape[0]):
 
             y_guess, dy_guess = dat_guess[i][j, :-2], dat_guess[i][j, -2:]
-
+            
             cs1 = CubicSpline(x_rngs[i], y_guess)
 #             cs1 = CubicSpline(x_rngs[i], y_guess, bc_type=((1,dy_guess[0]), (1,dy_guess[1])))
             cs1 = CubicSpline(x_rngs[i], y_guess, bc_type=('natural', 'natural'))
