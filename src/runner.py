@@ -1,28 +1,25 @@
 import os
 import sys
 sys.path.append('./')
+
 import glob
 import shutil
 import mpi4py
+import logging
 import numpy as np
 import src.lammpsTools
-import logging
+
+from mpi4py import MPI
 
 mpl_logger = logging.getLogger('matplotlib')
 mpl_logger.setLevel(logging.WARNING) 
 
-from mpi4py import MPI
-# from src.sa import sa
-# from src.ga import ga
-# from src.sgd import sgd
-# from src.mcmc import mcmc
-from src.potential_templates import Template
 import src.partools as partools
 from src.database import Database
 from src.nodemanager import NodeManager
-from src.pareto import GrEA
 from src.cmaes import CMAES
 from src.como import COMO_CMAES
+from src.potential_templates import Template
 
 np.set_printoptions(linewidth=1000)
 
@@ -36,6 +33,8 @@ random.seed(seed)
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.WARNING)
+
+################################################################################
 
 # TODO: have a script that checks the validity of an input script befor qsub
 
@@ -64,23 +63,18 @@ def main(config_name, template_file_name, procs_per_node_manager,
     # convert types of inputs from str
     int_params = [
         'NUM_STRUCTS', 'POP_SIZE', 'NSTEPS', 'LMIN_FREQ',
-        'INIT_NSTEPS', 'LMIN_NSTEPS', 'FINAL_NSTEPS', 'CHECKPOINT_FREQ',
-        'RESCALE_FREQ', 'RESCALE_STOP_STEP', 'U_NSTEPS',
-        'MCMC_BLOCK_SIZE', 'SGD_BATCH_SIZE', 'SHIFT_FREQ',
-        'TOGGLE_FREQ', 'TOGGLE_DURATION', 'MCMC_FREQ', 'MCMC_NSTEPS',
-        'GRID_DIVS', 'ARCHIVE_SIZE', 'PROCS_PER_PHYS_NODE',
+        'INIT_NSTEPS', 'FINAL_NSTEPS', 'CHECKPOINT_FREQ',
+        'ARCHIVE_SIZE', 'PROCS_PER_PHYS_NODE',
         'PROCS_PER_NODE_MANAGER', 'NUM_SOLVERS'
     ]
 
     float_params = [
-        'MUT_PB', 'SGD_STEP_SIZE',
         'MOVE_PROB', 'MOVE_SCALE', 'CMAES_STEP_SIZE', 'NI_PENALTY',
         'ENERGY_WEIGHT', 'FORCES_WEIGHT', 'STRESS_WEIGHT', 'HUBER_THRESHOLD'
     ]
 
     bool_params = [
-        'RUN_NEW_GA', 'DO_LMIN', 'DEBUG', 'DO_RESCALE', 'OVERWRITE_OLD_FILES',
-        'DO_SHIFT', 'DO_TOGGLE', 'PENALTY_ON', 'DO_MCMC', 'DO_GROW'
+        'DO_LMIN', 'DEBUG', 'OVERWRITE_OLD_FILES', 'PENALTY_ON'
     ]
 
     for key, val in parameters.items():
@@ -218,38 +212,16 @@ def main(config_name, template_file_name, procs_per_node_manager,
         )
 
         debug_module.main(parameters, template)
-    elif parameters['OPT_TYPE'] == 'GA':
-        if is_master:
-            print("Running GA", flush=True)
-            print()
-
-        ga(parameters, template, node_manager)
-    elif parameters['OPT_TYPE'] == 'SA':
-        if is_master:
-            print("Running SA", flush=True)
-            print()
-        sa(parameters, database, template, node_manager)
-    elif parameters['OPT_TYPE'] == 'MCMC':
-        if is_master:
-            print("Running MCMC", flush=True)
-            print()
-        mcmc(parameters, database, template, node_manager)
-    elif parameters['OPT_TYPE'] == 'SGD':
-        if is_master:
-            print("Running SGD", flush=True)
-        sgd(parameters, database, template, node_manager)
-    elif parameters['OPT_TYPE'] == 'GREA':
-        if is_master:
-            print("Running GrEA", flush=True)
-        GrEA(parameters, template, node_manager)
 
     elif parameters['OPT_TYPE'] == 'CMAES':
         if is_master:
             print("Running CMAES", flush=True)
 
         CMAES(parameters, template, node_manager, manager_comm)
+
     elif parameters['OPT_TYPE'] == 'COMO':
         COMO_CMAES(parameters, template, node_manager, manager_comm)
+
     else:
         if is_master:
             kill_and_write("Invalid optimization type (OPT_TYPE)")

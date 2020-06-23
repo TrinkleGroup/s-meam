@@ -11,7 +11,6 @@ def build_evaluation_functions(
     """Builds the function to evaluate populations. Wrapped here for readability
     of main code."""
 
-    # @profile
     def fxn_wrap(master_pop, weights, return_ni=False, output=False,
             penalty=False):
         """Master: returns all potentials for all structures.
@@ -82,7 +81,7 @@ def build_evaluation_functions(
 
         ni = [retval[1] for retval in manager_energies.values()]
 
-        ni_stats = calculate_ni_stats_old(ni, template)
+        ni_stats = calculate_ni_stats(ni, template)
 
         c_min_ni = ni_stats[0]
         c_max_ni = ni_stats[1]
@@ -754,319 +753,12 @@ def checkpoint(population, costs, max_ni, min_ni, avg_ni, i, parameters,
             ))
         )
 
-def build_M(num_x, dx, bc_type):
-    """Builds the A and B matrices that are needed to find the function
-    derivatives at all knot points. A and B come from the system of equations
-    that comes from matching second derivatives at internal spline knots
-    (using Hermitian cubic splines) and specifying boundary conditions
 
-        Ap' = Bk
+def calculate_ni_stats(grouped_ni, template):
+    """Computes the min/max/avg/variance of the ni values evaluated using the
+    current population, which are necessary for applying the ni penalty to
+    ensure that good ni sampling is maintained."""
 
-    where p' is the vector of derivatives for the interpolant at each knot
-    point and k is the vector of parameters for the spline (y-coordinates of
-    knots and second derivatives at endpoints).
-
-    Let N be the number of knot points
-
-    In addition to N equations from internal knots and 2 equations from boundary
-    conditions, there are an additional 2 equations for requiring linear
-    extrapolation outside of the spline range. Linear extrapolation is
-    achieved by specifying a spline who's first derivatives match at each end
-    and whose endpoints lie in a line with that derivative.
-
-    With these specifications, A and B are both (N+2, N+2) matrices
-
-    A's core is a tridiagonal matrix with [h''_10(1), h''_11(1)-h''_10(0),
-    -h''_11(0)] on the diagonal which is dx*[2, 8, 2] based on their definitions
-
-    B's core is tridiagonal matrix with [-h''_00(1), h''_00(0)-h''_01(1),
-    h''_01(0)] on the diagonal which is [-6, 0, 6] based on their definitions
-
-    Note that the dx is a scaling factor defined as dx = x_k+1 - x_k, assuming
-    uniform grid points and is needed to correct for the change into the
-    variable t, defined below.
-
-    and functions h_ij are defined as:
-
-        h_00 = (1+2t)(1-t)^2
-        h_10 = t (1-t)^2
-        h_01 = t^2 (3-2t)
-        h_11 = t^2 (t-1)
-
-        with t = (x-x_k)/dx
-
-    which means that the h''_ij functions are:
-
-        h''_00 = 12t - 6
-        h''_10 = 6t - 4
-        h''_01 = -12t + 6
-        h''_11 = 6t - 2
-
-    Args:
-        num_x (int): the total number of knots
-
-        dx (float): knot spacing (assuming uniform spacing)
-
-        bc_type (tuple): tuple of 'natural' or 'fixed'
-
-    Returns:
-        M (np.arr):
-            A^(-1)B
-    """
-
-    n = num_x - 2
-
-    if n <= 0:
-        raise ValueError("the number of knots must be greater than 2")
-
-    # note that values for h''_ij(0) and h''_ij(1) are substituted in
-    # TODO: add checks for non-grid x-coordinates
-
-    bc_lhs, bc_rhs = bc_type
-    bc_lhs = bc_lhs.lower()
-    bc_rhs = bc_rhs.lower()
-
-    A = np.zeros((n + 2, n + 2))
-    B = np.zeros((n + 2, n + 4))
-
-    # match 2nd deriv for internal knots
-    fillA = diags(np.array([2, 8, 2]), [0, 1, 2], (n, n + 2))
-    fillB = diags([-6, 0, 6], [0, 1, 2], (n, n + 2))
-    A[1:n+1, :n+2] = fillA.toarray()
-    B[1:n+1, :n+2] = fillB.toarray()
-
-    # equation accounting for lhs bc
-    if bc_lhs == 'natural':
-        A[0,0] = -4; A[0,1] = -2
-        B[0,0] = 6; B[0,1] = -6; B[0,-2] = 1
-    elif bc_lhs == 'fixed':
-        A[0,0] = 1/dx;
-        B[0,-2] = 1
-    else:
-        raise ValueError("Invalid boundary condition. Must be 'natural' or 'fixed'")
-
-    # equation accounting for rhs bc
-    if bc_rhs == 'natural':
-        A[-1,-2] = 2; A[-1,-1] = 4
-        B[-1,-4] = -6; B[-1,-3] = 6; B[-1,-1] = 1
-    elif bc_rhs == 'fixed':
-        A[-1,-1] = 1/dx
-        B[-1,-1] = 1
-    else:
-        raise ValueError("Invalid boundary condition. Must be 'natural' or 'fixed'")
-
-    A *= dx
-
-    # M = A^(-1)B
-    return np.dot(np.linalg.inv(A), B)
-
-def local_minimization(
-        pop_to_opt, master_pop, template, fxn, grad, weights, world_comm,
-        is_master, nsteps=20, lm_output=False, penalty=False
-    ):
-
-    # TODO: remove master_pop as argument; it's unused
-
-    # NOTE: if LM throws size errors, you probaly need to add more padding
-    pad = 100
-
-    def lm_fxn_wrap(raveled_pop, original_shape):
-        if is_master:
-            if lm_output:
-                print('LM step: ', end="", flush=True)
-
-            # full = template.insert_active_splines(
-            #     raveled_pop.reshape(original_shape)
-            # )
-            full = master_pop.copy()
-            full[:, np.where(template.active_mask)[0]] = raveled_pop.reshape(original_shape)
-        else:
-            full = None
-
-        val = fxn(full, weights, output=lm_output, penalty=penalty)
-
-        if is_master:
-            if penalty:
-                val = val[:, :-3]
-
-        val = world_comm.bcast(val, root=0)
-
-        # pad with zeros since num structs is less than num knots
-        tmp = np.concatenate([val.ravel(), np.zeros(pad * original_shape[0])])
-
-        return tmp
-
-    def lm_grad_wrap(raveled_pop, original_shape):
-
-        if is_master:
-            # full = template.insert_active_splines(
-            #     raveled_pop.reshape(original_shape)
-            # )
-            full = master_pop.copy()
-            full[:, np.where(template.active_mask)[0]] = raveled_pop.reshape(original_shape)
-            # full = raveled_pop.reshape(original_shape)
-        else:
-            full = None
-
-        grads = grad(full, weights)
-
-        if is_master:
-            grads = grads[:, :, np.where(template.active_mask)[0]]
-            # gradient = gradient[:, indices, :].swapaxes(1, 2)
-
-        grads = world_comm.bcast(grads, root=0)
-
-        num_pots, num_structs_2, num_params = grads.shape
-
-        padded_grad = np.zeros(
-            (num_pots, num_structs_2, num_pots, num_params)
-        )
-
-        for pot_id, g in enumerate(grads):
-            padded_grad[pot_id, :, pot_id, :] = g
-
-        padded_grad = padded_grad.reshape(
-            (num_pots * num_structs_2, num_pots * num_params)
-        )
-
-        # also pad with zeros since num structs is less than num knots
-
-        tmp = np.vstack([
-            padded_grad,
-            np.zeros((pad * num_pots, num_pots * num_params))]
-        )
-
-        return tmp
-
-    # uncomment if want to use centered differences for gradient approximation
-    # lm_grad_wrap = '2-point'
-
-    pop_to_opt = world_comm.bcast(pop_to_opt, root=0)
-    pop_to_opt = np.array(pop_to_opt)
-
-    opt_results = least_squares(
-        lm_fxn_wrap, pop_to_opt.ravel(), lm_grad_wrap,
-        method='lm', max_nfev=nsteps, args=(pop_to_opt.shape,)
-    )
-
-    if is_master:
-        new_pop = opt_results['x'].reshape(pop_to_opt.shape)
-
-        tmp = master_pop.copy()
-        tmp[:, np.where(template.active_mask)[0]] = pop_to_opt
-
-        new_tmp = master_pop.copy()
-        new_tmp[:, np.where(template.active_mask)[0]] = new_pop
-
-        tmp = np.atleast_2d(tmp)
-        new_tmp = np.atleast_2d(new_tmp)
-
-    else:
-        tmp = None
-        new_tmp = None
-        new_pop = None
-
-    org_fits = fxn(tmp, weights, penalty=penalty)
-    new_fits = fxn(new_tmp, weights, penalty=penalty)
-
-    if is_master:
-        updated_pop = []
-
-        for i, ind in enumerate(new_pop):
-            if np.sum(new_fits[i]) < np.sum(org_fits[i]):
-                updated_pop.append(new_pop[i])
-            else:
-                updated_pop.append(pop_to_opt[i])
-                updated_pop[i] = updated_pop[i]
-
-        final_pop = np.array(updated_pop)
-    else:
-        final_pop = None
-
-    return final_pop
-
-# @profile
-def calculate_ni_stats(node_manager, is_master, manager_comm, only_eval_on_head):
-
-    if is_master:
-        min_ni = np.zeros(
-            (node_manager.full_popsize, node_manager.template.ntypes)
-        )
-
-        max_ni = np.zeros_like(min_ni)
-        avg_ni = np.zeros_like(min_ni)
-        ni_var = np.zeros_like(min_ni)
-
-    if only_eval_on_head:
-        global_ni = node_manager.my_ni
-
-        print('global:', [len(el) for el in global_ni])
-        # global_ni = [np.vstack(ni) for ni in node_manager.my_ni]
-    else:
-        physical_node_ni = node_manager.my_head_comm.gather(node_manager.my_ni, root=0)
-
-        if node_manager.is_node_head:
-
-            physical_node_ni = [
-                # vstack because shape is (P, natoms), and each worker has a pop
-                np.vstack(worker_pop_ni) for worker_pop_ni in zip(*physical_node_ni)
-            ]
-
-            node_ni = node_manager.master_to_heads_comm.gather(
-                physical_node_ni, root=0
-            )
-
-        if node_manager.is_node_master:
-
-            node_ni = [
-                # vstack because physical nodes are also parallel over pop
-                np.vstack(pnode_pop_ni) for pnode_pop_ni in zip(*node_ni)
-            ]
-
-            global_ni = manager_comm.gather(node_ni, root=0)
-
-    if is_master:
-
-        global_ni = [
-            # hstack because each NodeManager parallelizes over structures
-            np.hstack(nm_struct_ni) for nm_struct_ni in zip(*global_ni)
-        ]
-
-        # recall: each entry is for a different atomic type
-        min_ni = np.array([np.min(ni, axis=1) for ni in global_ni]).T
-        max_ni = np.array([np.max(ni, axis=1) for ni in global_ni]).T
-        avg_ni = np.array([np.average(ni, axis=1) for ni in global_ni]).T
-        ni_var = np.array([np.std(ni, axis=1)**2 for ni in global_ni]).T
-
-        biggest_min = max(
-            [el[0] for el in node_manager.template.u_ranges]
-        )
-
-        biggest_max = max(
-            [el[1] for el in node_manager.template.u_ranges]
-        )
-
-        frac_in = np.zeros_like(min_ni)
-        for ii, ni in enumerate(global_ni):  # loop over atom types
-
-            num_in = np.logical_and(
-                ni >= biggest_min - 0.1,  # +/- 0.1 for some wiggle room
-                ni <= biggest_max + 0.1
-            ).sum(axis=1)
-
-            frac_in[:, ii] = num_in / ni.shape[1]
-
-    else:
-        min_ni = None
-        max_ni = None
-        avg_ni = None
-        ni_var = None
-        frac_in = None
-
-    return min_ni, max_ni, avg_ni, ni_var, frac_in
-
-def calculate_ni_stats_old(grouped_ni, template):
-    # TODO: ni will probably be a dict coming out of node_manager
     frac_in = []
 
     stacked_groups = []
@@ -1099,11 +791,6 @@ def calculate_ni_stats_old(grouped_ni, template):
             type_ni <= biggest_max + 0.1
         ).sum(axis=1)
 
-        # num_in = np.logical_and(
-        #     type_ni >= -1.5,
-        #     type_ni <= 1.5
-        # ).sum(axis=1)
-
         frac_in.append(num_in / type_ni.shape[1])
 
         min_ni.append(np.min(type_ni, axis=1))
@@ -1113,163 +800,133 @@ def calculate_ni_stats_old(grouped_ni, template):
 
     return min_ni, max_ni, avg_ni, ni_var, frac_in
 
-def calculate_ni_stats2(node_manager, is_master, manager_comm):
-    """
-    Once everyone has finished their calculations, we can start computing ni
-    statistics. First, the master node must gather all of the averages to
-    compute the overall average. Second, the master must broadcast the
-    overall average to all node heads. The node heads can then compute the
-    sum of the squared differences to the mean value, which the master can
-    then gather to compute the final variance.
 
-    Args:
-        node_manager: NodeManager object on each process
-        is_master: True if the process is the global master rank
-        manager_comm: communicator between the master rank and the Node masters
+# def local_minimization(
+#         pop_to_opt, master_pop, template, fxn, grad, weights, world_comm,
+#         is_master, nsteps=20, lm_output=False, penalty=False
+#     ):
+#     """Old code from when the Levenberg-Marquadt algorithm was used at the end
+#     of an optimization run."""
+# 
+#     # TODO: remove master_pop as argument; it's unused
+# 
+#     # NOTE: if LM throws size errors, you probaly need to add more padding
+#     pad = 100
+# 
+#     def lm_fxn_wrap(raveled_pop, original_shape):
+#         if is_master:
+#             if lm_output:
+#                 print('LM step: ', end="", flush=True)
+# 
+#             # full = template.insert_active_splines(
+#             #     raveled_pop.reshape(original_shape)
+#             # )
+#             full = master_pop.copy()
+#             full[:, np.where(template.active_mask)[0]] = raveled_pop.reshape(original_shape)
+#         else:
+#             full = None
+# 
+#         val = fxn(full, weights, output=lm_output, penalty=penalty)
+# 
+#         if is_master:
+#             if penalty:
+#                 val = val[:, :-3]
+# 
+#         val = world_comm.bcast(val, root=0)
+# 
+#         # pad with zeros since num structs is less than num knots
+#         tmp = np.concatenate([val.ravel(), np.zeros(pad * original_shape[0])])
+# 
+#         return tmp
+# 
+#     def lm_grad_wrap(raveled_pop, original_shape):
+# 
+#         if is_master:
+#             # full = template.insert_active_splines(
+#             #     raveled_pop.reshape(original_shape)
+#             # )
+#             full = master_pop.copy()
+#             full[:, np.where(template.active_mask)[0]] = raveled_pop.reshape(original_shape)
+#             # full = raveled_pop.reshape(original_shape)
+#         else:
+#             full = None
+# 
+#         grads = grad(full, weights)
+# 
+#         if is_master:
+#             grads = grads[:, :, np.where(template.active_mask)[0]]
+#             # gradient = gradient[:, indices, :].swapaxes(1, 2)
+# 
+#         grads = world_comm.bcast(grads, root=0)
+# 
+#         num_pots, num_structs_2, num_params = grads.shape
+# 
+#         padded_grad = np.zeros(
+#             (num_pots, num_structs_2, num_pots, num_params)
+#         )
+# 
+#         for pot_id, g in enumerate(grads):
+#             padded_grad[pot_id, :, pot_id, :] = g
+# 
+#         padded_grad = padded_grad.reshape(
+#             (num_pots * num_structs_2, num_pots * num_params)
+#         )
+# 
+#         # also pad with zeros since num structs is less than num knots
+# 
+#         tmp = np.vstack([
+#             padded_grad,
+#             np.zeros((pad * num_pots, num_pots * num_params))]
+#         )
+# 
+#         return tmp
+# 
+#     # uncomment if want to use centered differences for gradient approximation
+#     # lm_grad_wrap = '2-point'
+# 
+#     pop_to_opt = world_comm.bcast(pop_to_opt, root=0)
+#     pop_to_opt = np.array(pop_to_opt)
+# 
+#     opt_results = least_squares(
+#         lm_fxn_wrap, pop_to_opt.ravel(), lm_grad_wrap,
+#         method='lm', max_nfev=nsteps, args=(pop_to_opt.shape,)
+#     )
+# 
+#     if is_master:
+#         new_pop = opt_results['x'].reshape(pop_to_opt.shape)
+# 
+#         tmp = master_pop.copy()
+#         tmp[:, np.where(template.active_mask)[0]] = pop_to_opt
+# 
+#         new_tmp = master_pop.copy()
+#         new_tmp[:, np.where(template.active_mask)[0]] = new_pop
+# 
+#         tmp = np.atleast_2d(tmp)
+#         new_tmp = np.atleast_2d(new_tmp)
+# 
+#     else:
+#         tmp = None
+#         new_tmp = None
+#         new_pop = None
+# 
+#     org_fits = fxn(tmp, weights, penalty=penalty)
+#     new_fits = fxn(new_tmp, weights, penalty=penalty)
+# 
+#     if is_master:
+#         updated_pop = []
+# 
+#         for i, ind in enumerate(new_pop):
+#             if np.sum(new_fits[i]) < np.sum(org_fits[i]):
+#                 updated_pop.append(new_pop[i])
+#             else:
+#                 updated_pop.append(pop_to_opt[i])
+#                 updated_pop[i] = updated_pop[i]
+# 
+#         final_pop = np.array(updated_pop)
+#     else:
+#         final_pop = None
+# 
+#     return final_pop
+# 
 
-    Returns:
-        global_variances: (P, ntypes) array of ni variances
 
-    """
-
-    # have each node master gather the statistics from their physical nodes
-    node_ni_stats = node_manager.master_to_heads_comm.gather(
-        node_manager.ni_shmem_arr, root=0
-    )
-
-    # TODO: seems like it would be better to just NOT compute any statistics
-    # locally, then you only need a single group operation
-
-    if node_manager.is_node_master:
-        node_ni_stats = np.stack(node_ni_stats, axis=1)
-
-        # now gather the ni stats from all NodeManager masters
-        node_ni_stats = manager_comm.gather(node_ni_stats, root=0)
-
-    # master now has all of the min/max/avg ni for all structures and pots
-
-    if is_master:
-        global_ni_stats = np.stack(node_ni_stats, axis=0)
-
-        # compute the overall average ni for each element type
-        overall_average = np.average(global_ni_stats[:, :, :, -1], axis=(0, 1))
-    else:
-        overall_average = None
-
-    # send to all node masters
-    if node_manager.is_node_master:
-        overall_average = manager_comm.bcast(overall_average, root=0)
-
-    # send from node masters to all physical nodes
-    if node_manager.is_node_head:
-        node_manager.master_to_heads_comm.bcast(overall_average, root=0)
-
-    # and finally, from physical node heads down to individual workers since
-    # they're the ones that stored the actual ni values
-
-    overall_average = node_manager.my_head_comm.bcast(overall_average, root=0)
-
-    # then compute the variances on each physical node
-
-    # recall that node_manager.my_ni is now a list of length ntypes where each
-    # entry is a (P, natoms_per_struct*nstructs) array of ni values
-
-    my_variances = [
-        (node_manager.my_ni[ii] - overall_average[ii])**2
-        for ii in range(node_manager.template.ntypes)
-    ]
-
-    my_variances = [np.sum(var, axis=1) for var in my_variances]
-
-    # my_variances is now a list of length ntypes where each entry is a
-    # length-P array of squared deviations
-
-    # now start gather back up to the top
-    # also, gather the min/max/avg ni for each potential
-
-    if node_manager.is_node_head:
-        # stack along population dimension
-
-        # when we gather, we get a (num_workers, P, ntypes) array of values
-        physical_node_variances = np.stack(node_manager.my_head_comm.gather(
-            my_variances, root=0
-        ), axis=1).sum(axis=0)
-
-    if node_manager.is_node_master:
-        node_manager_variances = np.stack(
-            node_manager.master_to_heads_comm.gather(
-                physical_node_variances, root=0
-            )
-        ).sum(axis=0)  # stack along a new dimension, then sum along it
-
-    if is_master:
-        global_variances = np.stack(
-            manager_comm.gather(node_manager_variances, root=0),
-        ).sum(axis=0)  # same; stack along new dimension, then sum
-
-        global_min_ni = np.min(global_ni_stats[:, :, :, 0])
-        global_max_ni = np.min(global_ni_stats[:, :, :, 1])
-        global_avg_ni = np.min(global_ni_stats[:, :, :, 2])
-
-        global_variances /= node_manager.global_num_atoms
-    else:
-        global_min_ni = None
-        global_max_ni = None
-        global_avg_ni = None
-        global_variances = None
-
-    return global_min_ni, global_max_ni, global_avg_ni, global_variances
-
-
-def cs_convert_domains(old_u_knots, new_type):
-
-    new_u_knots = []
-
-    for old in old_u_knots:
-        if new_type == 0:
-            old_x = np.linspace(-1, 1, len(old) - 2)
-            new_x = np.linspace(0, 1, len(old) - 2)
-
-            old_cs = CubicSpline(
-                old_x, old[:-2],
-                bc_type=((1, old[-2]), (1, old[-1]))
-            )
-
-            new_y = old_cs(new_x)
-            new_bc = [old_cs(new_x[0], 1), old_cs(new_x[-1], 1)]
-
-            new = np.concatenate([new_y, new_bc])
-
-        if new_type == 1:
-            old_x = np.linspace(0, 1, len(old) - 2)
-            new_x = np.linspace(-1, 1, len(old) - 2)
-
-            old_cs = CubicSpline(
-                old_x, old[:-2],
-                bc_type=((2, 0), (1, old[-1]))
-            )
-
-            new_y = old_cs(new_x)
-
-            old_spacing = old_x[1] - old_x[0]
-            new_spacing = new_x[1] - new_x[0]
-
-            midpoint = len(new_y)//2
-
-            if len(new_y) % 2 == 0:
-                shift = new_spacing
-            else:
-                shift = 2*new_spacing
-
-            new_y[:midpoint] = np.linspace(
-                old[0] - (midpoint+1)*new_spacing*old[-2],
-                old[0] + shift, midpoint
-            )
-
-            new_bc = old[-2:]
-
-            new = np.concatenate([new_y, new_bc])
-
-        new_u_knots.append(new)
-
-    return new_u_knots

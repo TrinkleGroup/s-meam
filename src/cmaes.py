@@ -8,7 +8,6 @@ from mpi4py import MPI
 import src.partools
 
 
-@profile
 def CMAES(parameters, template, node_manager, manager_comm):
     # MPI setup
     world_comm = MPI.COMM_WORLD

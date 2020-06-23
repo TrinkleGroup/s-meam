@@ -5,17 +5,18 @@ Each NodeManager object handles the set of processes on a single compute node.
 """
 
 import time
+import logging
 import numpy as np
 import multiprocessing as mp
-import src.partools
-from itertools import repeat
-from multiprocessing import Manager
-from mpi4py import MPI
-import logging
 
 from numba import jit
+from mpi4py import MPI
+from itertools import repeat
+from multiprocessing import Manager
 
-import cProfile
+import src.meam
+
+from src.workerSplines import build_M
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -32,28 +33,28 @@ true_values = {
 """
 Preparing shmem for populations and fitness results:
 
-    NOTE: all of these arrays need to be ordered in the same order as a 
+    NOTE: all of these arrays need to be ordered in the same order as a
     'names' list so that the master node can sort them properly later
-    
-    NOTE: to make things simpler, a NodeManager should be aware of the 
-    largest population that they'll ever need to evaluate so that they can 
-    reserve the proper amount of shared memory at the start of the run. On 
+
+    NOTE: to make things simpler, a NodeManager should be aware of the
+    largest population that they'll ever need to evaluate so that they can
+    reserve the proper amount of shared memory at the start of the run. On
     eval, the node master can then just pull only the necessary rows.
 
     Energies:
         An NxP array where N is the number of structures, and P is the number of
-        potentials. Since the structures are already in shared memory (so 
-        everyone has access to them), each sub-worker just needs to keep 
+        potentials. Since the structures are already in shared memory (so
+        everyone has access to them), each sub-worker just needs to keep
         track of which portion of the array they are updating.
-        
+
     Forces:
-        These will already have been converted to fitnesses, so this should 
+        These will already have been converted to fitnesses, so this should
         also be an NxP array.
-        
+
     Stresses:
         Same as above.
-        
-    So in total, we just need an NxPx3 matrix, where the 3rd dimension is 
+
+    So in total, we just need an NxPx3 matrix, where the 3rd dimension is
     ordered as [energies, force_costs, stress_costs].
 
 """
@@ -118,8 +119,6 @@ class NodeManager:
         self.pool = None  # should only be started once local data is loaded
         self.pool_size = None
 
-        # struct_vecs = {}
-
         self.x_indices = None
         self.ntypes = self.template.ntypes
         self.len_pvec = self.template.pvec_len
@@ -151,20 +150,9 @@ class NodeManager:
         if self.pool:
             self.pool.close()
 
-    def start_pool(self, node_size=None):
-
-        global struct_vecs
-
-        if node_size is None:
-            node_size = mp.cpu_count()
-
-        self.pool = mp.Pool(node_size)
-        self.pool_size = node_size
-
     def get_true_value(self, val_type, struct_name):
         return true_values[val_type][struct_name]
 
-    # @profile
     def parallel_compute(self, struct_name, potentials, u_domains,
                          compute_type, convert_to_cost, stress=False):
         """
@@ -192,21 +180,17 @@ class NodeManager:
         """
 
         if compute_type == 'energy':
-            # ret = (energy, ni)
             ret = self.compute_energy(
                 struct_name, potentials, u_domains, stress=stress
             )
 
             if convert_to_cost:
-                # stress_costs = self.stresses_to_costs(ret[1], struct_name)
                 stress_costs = self.stresses_to_costs(ret[2], struct_name)
 
                 ret = (ret[0], ret[1], stress_costs)
-                # ret = (ret[0], stress_costs)
 
 
         elif compute_type == 'forces':
-            # ret = forces
             ret = self.compute_forces(
                 struct_name, potentials, u_domains
             )
@@ -216,13 +200,11 @@ class NodeManager:
                 ret = self.forces_to_costs(ret, struct_name)
 
         elif compute_type == 'energy_grad':
-            # ret = energy_gradient
             ret = self.compute_energy_grad(
                 struct_name, potentials, u_domains
             )
 
         elif compute_type == 'forces_grad':
-            # ret = forces_gradient
 
             forces = self.compute_forces(
                 struct_name, potentials, u_domains
@@ -261,7 +243,7 @@ class NodeManager:
 
         diff = forces - true_forces
 
-        # epsilon = np.linalg.norm(diff, 'fro', axis=(1, 2))
+        # TODO: consider something other than MAE for per-struct force errors
         epsilon = np.average(np.abs(diff), axis=(1, 2))
 
         return epsilon*self.weights[struct_name]
@@ -311,7 +293,6 @@ class NodeManager:
 
         return summed
 
-    # @profile
     def compute(self, compute_type, struct_list, potentials, u_domains,
             convert_to_cost=True, stress=False):
         """
@@ -413,7 +394,7 @@ class NodeManager:
                 convert_to_cost, stress=stress
             )
 
-            # anyone here is either the master a worker with a portion of the
+            # anyone here is either the master or a worker with a portion of the
             # population; either way, they should stack their results and
             # add them into the shared memory array
 
@@ -472,7 +453,6 @@ class NodeManager:
         # things to load: ntypes, num_u_knots, phi, rho, ffg, types_per_atom
         self.ntypes = hdf5_file.attrs['ntypes']
         self.len_pvec = hdf5_file.attrs['len_pvec']
-        # self.num_u_knots = hdf5_file.attrs['num_u_knots']
         self.num_u_knots = hdf5_file.num_u_knots
         self.x_indices = hdf5_file.attrs['x_indices']
         self.nphi = hdf5_file.attrs['nphi']
@@ -501,7 +481,6 @@ class NodeManager:
                 del true_values['stress'][struct_name]
                 del true_values['ref_struct'][struct_name]
 
-    # @profile
     def load_one_struct(self, struct_name, hdf5_file, load_true):
         natoms = hdf5_file[struct_name].attrs['natoms']
         self.natoms[struct_name] = natoms
@@ -574,26 +553,12 @@ class NodeManager:
                 buffer=fcs_buf, dtype='d', shape=fcs_shape
             )
 
-            # eng_shm = mp.Array('d', fd*npots, lock=False)
-            # eng_loc = np.frombuffer(eng_shm)
-            # eng_loc = eng_loc.reshape((fd, npots))
-            # eng_loc[:] = eng[:]
-            #
-            # ni, nj, nk = fcs.shape
-            # fcs_shm = mp.Array('d', ni*nj*nk, lock=False)
-            # fcs_loc = np.frombuffer(fcs_shm)
-            # fcs_loc = fcs_loc.reshape((ni, nj, nk))
-            # fcs_loc[:] = fcs[:]
-
             struct_vecs[struct_name]['phi']['energy'][idx] = eng_shmem_arr
             struct_vecs[struct_name]['phi']['forces'][idx] = fcs_shmem_arr
 
             if self.is_node_head:
                 struct_vecs[struct_name]['phi']['energy'][idx][...] = eng
                 struct_vecs[struct_name]['phi']['forces'][idx][...] = fcs
-
-            # MPI.Win.Free(eng_shmem_win)
-            # MPI.Win.Free(fcs_shmem_win)
 
         # load rho structure vectors
         for idx in hdf5_file[struct_name]['rho']['energy']:
@@ -644,9 +609,6 @@ class NodeManager:
                 struct_vecs[struct_name]['rho']['forces'][idx][...] = fcs
 
             self.my_head_comm.Barrier()
-
-            # MPI.Win.Free(eng_shmem_win)
-            # MPI.Win.Free(fcs_shmem_win)
 
         self.ffg_grad_indices[struct_name] = {}
         self.ffg_grad_indices[struct_name]['ffg_grad_indices'] = {}
@@ -708,9 +670,6 @@ class NodeManager:
 
                 self.my_head_comm.Barrier()
 
-                # MPI.Win.Free(eng_shmem_win)
-                # MPI.Win.Free(fcs_shmem_win)
-
                 # indices for indexing gradients
                 indices_group = hdf5_file[struct_name]['ffg_grad_indices'][j][k]
 
@@ -765,11 +724,9 @@ class NodeManager:
             if stress:
                 energy += \
                     struct_vecs[struct_name]['phi']['energy'][str(i)] @ y.T
-                    # energy_struct_vecs['phi'][struct_index] @ y.T
             else:
                 energy += \
                     struct_vecs[struct_name]['phi']['energy'][str(i)][0] @ y.T
-                    # energy_struct_vecs['phi'][struct_index][0] @ y.T
 
         # embedding terms
         ni = self.compute_ni(
@@ -825,7 +782,6 @@ class NodeManager:
     def ffg_force_multiplication(ffg_struct_vec, cart_y):
         return (ffg_struct_vec @ cart_y.T).T
 
-    # @profile
     def compute_forces(self, struct_name, potentials, u_ranges):
         potentials = np.atleast_2d(potentials)
 
@@ -836,13 +792,10 @@ class NodeManager:
 
         forces = np.zeros((n_pots, self.natoms[struct_name], 3))
 
-        # struct_index = struct_names.index(struct_name)
-
         # pair forces (phi)
         for phi_idx, y in enumerate(phi_pvecs):
             forces += np.einsum(
                 'ijk,pk->pij',
-                # forces_struct_vecs['phi']['forces'][str(phi_idx)],
                 struct_vecs[struct_name]['phi']['forces'][str(phi_idx)],
                 y
             )
@@ -874,15 +827,6 @@ class NodeManager:
                     (cart2.shape[0], cart2.shape[1]*cart2.shape[2])
                 )
 
-                # embedding_forces += \
-                #     (struct_vecs[struct_name]['ffg']['forces'][str(j)][str(k)] @ cart_y.T).T
-
-                # embedding_forces += \
-                #     np.dot(
-                #         struct_vecs[struct_name]['ffg']['forces'][str(j)][str(k)],
-                #         cart_y.T
-                #     ).T
-
                 embedding_forces += self.ffg_force_multiplication(
                     struct_vecs[struct_name]['ffg']['forces'][str(j)][str(k)],
                     cart_y
@@ -895,6 +839,7 @@ class NodeManager:
         embedding_forces = np.einsum('pijk,pk->pji', embedding_forces, uprimes)
 
         return forces + embedding_forces
+
 
     def compute_stress(self, struct_name, potentials, u_ranges):
 
@@ -913,6 +858,7 @@ class NodeManager:
                 struct_vecs[struct_name]['phi']['energy'][str(phi_idx)],
                 y
             )
+
 
     def compute_energy_grad(self, struct_name, potentials, u_ranges):
         potentials = np.atleast_2d(potentials)
@@ -965,9 +911,7 @@ class NodeManager:
             knot_spacing = new_knots[1] - new_knots[0]
 
             # U splines assumed to have fixed derivatives at boundaries
-            M = src.partools.build_M(
-                num_knots, knot_spacing, ['fixed', 'fixed']
-            )
+            M = build_M(num_knots, knot_spacing, ['fixed', 'fixed'])
 
             extrap_dist = (u_ranges[u_idx][1] - u_ranges[u_idx][0]) / 2
 
@@ -1428,9 +1372,7 @@ class NodeManager:
                 knot_spacing = new_knots[1] - new_knots[0]
 
                 # U splines assumed to have fixed derivatives at boundaries
-                M = src.partools.build_M(
-                    num_knots, knot_spacing, ['fixed', 'fixed']
-                )
+                M = build_M(num_knots, knot_spacing, ['fixed', 'fixed'])
 
                 extrap_dist = (u_range[1] - u_range[0]) / 2
 
@@ -1486,9 +1428,8 @@ class NodeManager:
             knot_spacing = new_knots[1] - new_knots[0]
 
             # U splines assumed to have fixed derivatives at boundaries
-            M = src.partools.build_M(
-                num_knots, knot_spacing, ['fixed', 'fixed']
-            )
+            M = build_M(num_knots, knot_spacing, ['fixed', 'fixed'])
+
             extrap_dist = (u_ranges[i][1] - u_ranges[i][0]) / 2
 
             if second:

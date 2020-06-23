@@ -9,7 +9,6 @@ from mpi4py import MPI
 from deap import tools
 
 import src.partools
-import src.pareto
 
 
 def COMO_CMAES(parameters, template, node_manager, manager_comm):
@@ -89,10 +88,6 @@ def COMO_CMAES(parameters, template, node_manager, manager_comm):
         costs[:, 1:-4:3] *= parameters['FORCES_WEIGHT']
         costs[:, 2:-4:3] *= parameters['STRESS_WEIGHT']
 
-        # full_solution = src.partools.rescale_ni(
-        #     np.atleast_2d(full_solution), min_ni, max_ni, template
-        # )[0]
-
         solutions = full_solution[:, active_ind]
 
     costs, max_ni, min_ni, avg_ni = objective_fxn(
@@ -111,8 +106,6 @@ def COMO_CMAES(parameters, template, node_manager, manager_comm):
     solutions = world_comm.bcast(solutions, root=0)
 
     if is_master:
-
-        # solvers = comocma.get_cmas(solutions, parameters['CMAES_STEP_SIZE'])
 
         solvers = [
             comocma.como.CmaKernel(
@@ -213,7 +206,6 @@ def COMO_CMAES(parameters, template, node_manager, manager_comm):
             energy_costs  = costs[:, 0:-4:3].sum(axis=1)
             forces_costs  = costs[:, 1:-4:3].sum(axis=1)
             penalty_costs = costs[:, -4:].sum(axis=1)
-
 
             eng_plus_pen = energy_costs + penalty_costs
 
