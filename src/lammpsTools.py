@@ -269,20 +269,26 @@ def atoms_from_file(fname, types, fmt='lammps-data', style='atomic', pbc=True):
             collection of atoms"""
 
     # TODO: use **kwargs, like in ase.io.read()
-    atoms = ase.io.read(fname, format=fmt, style=style)
+    atoms = ase.io.read(fname, format=fmt, style=style, parallel=False)
     atoms.set_tags(range(1,len(atoms)+1))
     atoms.set_chemical_symbols([types[i-1] for i in atoms.get_atomic_numbers()])
     atoms.set_pbc(pbc)
 
     return atoms
 
-def atoms_to_LAMMPS_file(fname, atoms):
-    """Writes atoms to a LAMMPS style data file. Assumes box starts at origin"""
+def atoms_to_LAMMPS_file(fname, atoms, types):
+    """Writes atoms to a LAMMPS style data file. Assumes box starts at origin
+
+    Args:
+        types:
+    """
 
     if not atoms.get_cell().any():
         raise AttributeError("Must specify cell size")
 
-    types = atoms.get_chemical_symbols()
+    atom_types = atoms.get_chemical_symbols()
+    if not types: types = list(set(atom_types))
+
     types_idx = range(1, len(types)+1)
     p = atoms.positions
 
@@ -304,10 +310,10 @@ def atoms_to_LAMMPS_file(fname, atoms):
 
         f.write("Atoms\n\n")
 
-        for i in range(len(types_idx)):
+        for i in range(len(atoms)):
             f.write("%d %d %.16f %.16f %.16f\n" % (i+1,\
-                symbol_to_type(types[i],list(set(types))),p[i][0],p[i][1],
-                                                   p[i][2]))
+                symbol_to_type(atom_types[i],types),p[i][0],
+                               p[i][1],p[i][2]))
 
 def read_forces(fname):
     """Reads in the atomic forces from a file with the following format:
@@ -349,7 +355,7 @@ def symbol_to_type(symbol, types):
         e.g. for ['Ti', 'O'], symbol_to_type('Ti',types) returns 1"""
 
     try:
-        return np.where(np.array(types)==symbol)[0][0] + 1
+        return types.index(symbol)+1
     except (IndexError):
         raise ValueError('Atom type could not be found in the given set of '
                          'types')

@@ -1,10 +1,10 @@
 """Generates N random potentials and 'subtypes' potentials for use in testing"""
 import numpy as np
 
-from spline import Spline
-from spline import ZeroSpline
-from meam import MEAM
-from .testVars import a0
+from src.spline import Spline
+from src.spline import ZeroSpline
+from src.meam import MEAM
+from tests.testVars import a0
 
 N = 0
 zero_potential = None
@@ -22,7 +22,7 @@ rng_rhophis = None
 def get_zero_potential():
     """Zero potential: gives 0.0 in all cases"""
 
-    num_knots = 11
+    num_knots = 7
 
     global zero_potential
 
@@ -49,7 +49,7 @@ def get_constant_potential():
         rhos = 2*#pairs
         rhophi = 3*#pairs"""
 
-    num_knots = 11
+    num_knots = 7
 
     global constant_potential
 
@@ -116,7 +116,7 @@ def get_random_pots(new_n):
         rng_norhophis = [None] * N
         rng_rhophis = [None] * N
 
-        num_knots = 11
+        num_knots = 7
         knots_x = np.linspace(0, a0, num=num_knots)
         for n in range(N):
             # Generate splines with 10 knots, random y-coords of knots, equally
@@ -144,12 +144,6 @@ def get_random_pots(new_n):
                 splines.append(temp)
 
             p = MEAM(splines=splines, types=['H', 'He'])
-            # p = MEAM.from_file("../data/pot_files/HHe.meam.spline")
-
-            # import meam
-            # x_pvec, y_pvec, indices = meam.splines_to_pvec(p.splines)
-            # splines = meam.splines_from_pvec(x_pvec, y_pvec, indices)
-            # p = MEAM(splines=splines, types=p.types)
 
             rng_meams[n] = p
             rng_nophis[n] = p.nophi_subtype()
@@ -164,8 +158,6 @@ def get_random_pots(new_n):
                    'norhos': rng_norhos, 'norhophis': rng_norhophis,
                    'rhophis': rng_rhophis}
         return allpots
-
-    # print("Created %d potentials (%d main, %d subtypes)" % (7*N, N, 6*N))
 
 # allPotentials = {'meams':meams, 'nophis':nophis, 'phionlys':phionlys,\
 #        'rhos':rhos, 'norhos':norhos, 'norhophis':norhophis, 'rhophis':rhophis}

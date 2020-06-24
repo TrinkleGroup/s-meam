@@ -1,19 +1,22 @@
 # Note: this imports a generic 1D spline obect that does not have smoothing
 from scipy.interpolate import CubicSpline
-import matplotlib.pyplot as plt
 import numpy as np
 
 # TODO: binning for non-grid knot values
 
 class Spline(CubicSpline):
 
-    def __init__(self,x,y,bc_type='natural', end_derivs=(0,0)):
+    def __init__(self, x, y, bc_type='natural', end_derivs=(0,0)):
 
-        super(Spline,self).__init__(x,y,bc_type=bc_type)#,bc_type=((1,d0),(1,dN)))
+        # super(Spline,self).__init__(x,y,bc_type=bc_type)#,bc_type=((1,d0),(1,dN)))
+        self.d0, self.dN = end_derivs
+
+        # TODO: don't hard-code in (1, self.d0) ...
+        super(Spline,self).__init__(x, y, bc_type=((1, self.d0),(1, self.dN)))
         self.cutoff = (x[0],x[len(x)-1])
 
-        self.d0, self.dN = end_derivs
         self.h = x[1]-x[0]
+        self.y = y
 
     def __eq__(self, other):
         x_eq = np.allclose(self.x, other.x)
@@ -30,32 +33,18 @@ class Spline(CubicSpline):
         """Performs linear extrapolation past the endpoints of the spline"""
 
         if x < self.cutoff[0]:
-            return self(self.x[0]) - self.d0*(self.x[0]-x)
+            val = self(self.x[0]) - self.d0*(self.x[0]-x)
         elif x > self.cutoff[1]:
-            return self(self.x[-1]) + self.dN*(x-self.x[-1])
+            val = self(self.x[-1]) + self.dN*(x-self.x[-1])
 
-    def plot(self,xr=None,yr=None,xl=None,yl=None,saveName=None):
-        """Plots the spline"""
+        # print("SPLINE: extrapolating value of", x, "returning", val)
+        return val
 
-        low,high = self.cutoff
-        low -= abs(0.2*low)
-        high += abs(0.2*high)
-
-        x = np.linspace(low,high,1000)
-        y = list(map(lambda e: self(e) if self.in_range(e) else self.extrap(
-            e), x))
-        yi = list(map(lambda e: self(e), self.x))
-
-        plt.figure()
-        plt.plot(self.x, yi, 'o', x, y)
-
-        if xr: plt.xlim(xr)
-        if yr: plt.ylim(yr)
-        if xl: plt.xlabel(xl)
-        if yl: plt.ylabel(yl)
-
-        if saveName: plt.savefig(saveName)
-        else: plt.show()
+    def __call__(self, x, i):
+        if self.in_range(x):
+            return super(Spline, self).__call__(x)
+        else:
+            return self.extrap(x)
 
     def __call__(self,x,i=None):
         """Evaluates the spline at the given point, linearly extrapolating if
@@ -75,7 +64,6 @@ class Spline(CubicSpline):
             return super(Spline,self).__call__(x)
         else:
             return self.extrap(x)
-            #return super(Spline,self).__call__(x,extrapolate=True)
 
     # TODO: add a to_matrix() function for matrix form?
 

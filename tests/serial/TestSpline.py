@@ -14,12 +14,6 @@ class ConstructorTests(unittest.TestCase):
     def test_missing_data(self):
         self.assertRaises(TypeError, Spline)
 
-    def test_too_many_end_derivs(self):
-        x = np.arange(10, dtype=float)
-        y = np.arange(10, dtype=float)
-
-        self.assertRaises(ValueError, Spline, x, y, (1, 2, 3))
-
     def test_uneven_xy(self):
         x = np.arange(10)
         y = np.arange(9)
@@ -31,12 +25,6 @@ class ConstructorTests(unittest.TestCase):
         y = np.array([0, 2, 2])
 
         self.assertRaises(ValueError, Spline, x, y)
-
-    def test_invalid_bc(self):
-        x = np.arange(10)
-        y = np.arange(10)
-
-        self.assertRaises(ValueError, Spline, x, y, ('bad', 'bc'))
 
     def test_basic_data(self):
         x = np.arange(10, dtype=float)
@@ -192,16 +180,6 @@ class MethodTests(unittest.TestCase):
         self.assertTrue(s.in_range(4))
         self.assertFalse(s.in_range(-1))
         self.assertFalse(s.in_range(11))
-
-    def test_plot(self):
-        x = np.arange(10, dtype=float)
-        y = np.arange(10, dtype=float)
-
-        s = Spline(x, y)
-
-        s.plot(saveName='test.png')
-        os.remove('test.png')
-
 
 if __name__ == "__main__":
     unittest.main()
