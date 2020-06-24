@@ -135,7 +135,8 @@ def COMO_CMAES(parameters, template, node_manager, manager_comm):
         # first_costs = np.vstack([eng_plus_pen, forces_costs]).T
 
         reference_point = np.max(first_costs, axis=0)*10
-        print('Reference point:', reference_point, flush=True)
+        print('Reference point:', reference_point)
+        print('Ideal hyper-volume:', np.prod(reference_point), flush=True)
 
         moes = comocma.Sofomore(
             solvers,
@@ -189,6 +190,7 @@ def COMO_CMAES(parameters, template, node_manager, manager_comm):
                 ).format(generation_number)
 
 
+                print(moes.archive)
                 pickle.dump(moes, open(format_str, 'wb'))
 
                 src.partools.checkpoint(
@@ -214,11 +216,11 @@ def COMO_CMAES(parameters, template, node_manager, manager_comm):
             forces_costs = np.atleast_2d(forces_costs)
 
             new_costs = np.vstack([energy_costs, forces_costs]).T
-            # new_costs = np.vstack([eng_plus_pen, forces_costs]).T
 
             moes.tell(
                 population[:, active_ind], new_costs
             )
+
             moes.disp()
 
             summed = new_costs.sum(axis=0)
@@ -228,20 +230,20 @@ def COMO_CMAES(parameters, template, node_manager, manager_comm):
             if stopping_info:
                 time_to_stop = True
 
-        # if is_master:
+        if is_master:
 
-        #     min_idx = np.argmin(new_costs)
-        #     best_fit = org_costs[min_idx]
-        #     best = population[min_idx]
-        #     best = np.atleast_2d(best)
+            min_idx = np.argmin(new_costs, axis=0)
+            best_fit = org_costs[min_idx]
+            best = population[min_idx]
+            best = np.atleast_2d(best)
 
-        #     # log full cost vector of best ever potential
-        #     with open(parameters['BEST_FIT_FILE'], 'ab') as cost_save_file:
-        #         np.savetxt(cost_save_file, np.atleast_2d(best_fit))
+            # log full cost vector of best ever potential
+            with open(parameters['BEST_FIT_FILE'], 'ab') as cost_save_file:
+                np.savetxt(cost_save_file, np.atleast_2d(best_fit))
 
-        #     # log best ever potential
-        #     with open(parameters['BEST_POT_FILE'], 'ab') as pot_save_file:
-        #         np.savetxt(pot_save_file, best)
+            # log best ever potential
+            with open(parameters['BEST_POT_FILE'], 'ab') as pot_save_file:
+                np.savetxt(pot_save_file, best)
 
         generation_number += 1
         time_to_stop = world_comm.bcast(time_to_stop, root=0)
