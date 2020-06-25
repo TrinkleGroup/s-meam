@@ -190,7 +190,6 @@ def COMO_CMAES(parameters, template, node_manager, manager_comm):
                 ).format(generation_number)
 
 
-                print(moes.archive)
                 pickle.dump(moes, open(format_str, 'wb'))
 
                 src.partools.checkpoint(
