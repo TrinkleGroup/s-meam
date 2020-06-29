@@ -185,11 +185,11 @@ def COMO_CMAES(parameters, template, node_manager, manager_comm):
 
                 format_str = os.path.join(
                     parameters['SAVE_DIRECTORY'],
-                    'moes_{0:0' + str(int(digits) + 1)+ 'd}.pkl'
+                    'archive_{0:0' + str(int(digits) + 1)+ 'd}.pkl'
                 ).format(generation_number)
 
 
-                pickle.dump(moes, open(format_str, 'wb'))
+                pickle.dump(moes.archive, open(format_str, 'wb'))
 
                 src.partools.checkpoint(
                     population, costs, max_ni, min_ni, avg_ni,
