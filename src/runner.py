@@ -4,6 +4,7 @@ sys.path.append('./')
 
 import glob
 import shutil
+import pickle
 import mpi4py
 import logging
 import numpy as np
@@ -53,6 +54,7 @@ def main(config_name, template_file_name, procs_per_node_manager,
 
         parameters = read_config(config_name)
         template = read_template(template_file_name)
+
     else:
         parameters = None
         template = None
@@ -156,6 +158,14 @@ def main(config_name, template_file_name, procs_per_node_manager,
         ))
 
         f.close()
+
+        template_path = os.path.join(
+            parameters['SAVE_DIRECTORY'], 'template.pkl'
+        )
+
+        pickle.dump(template, open(template_path, 'wb'))
+
+        print("Saved template to:", template_path)
 
         print("Loading database ...", flush=True)
 
