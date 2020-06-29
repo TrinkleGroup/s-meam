@@ -6,7 +6,6 @@ import random
 import itertools
 import numpy as np
 from mpi4py import MPI
-from deap import tools
 
 import src.partools
 
