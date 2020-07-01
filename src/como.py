@@ -168,8 +168,6 @@ def COMO_CMAES(parameters, template, node_manager, manager_comm):
 
             if (generation_number % parameters['CHECKPOINT_FREQ'] == 0) and (
                     generation_number > 1):
-                front = [k.best.x for k in moes.kernels]
-                front = np.stack(front)
 
                 digits = np.floor(np.log10(parameters['NSTEPS']))
 
@@ -180,6 +178,14 @@ def COMO_CMAES(parameters, template, node_manager, manager_comm):
 
 
                 pickle.dump(moes.archive, open(format_str, 'wb'))
+
+                # TODO: edit CmaKernel to save solutions of pareto_front_cut
+                format_str = os.path.join(
+                    parameters['SAVE_DIRECTORY'],
+                    'front_{0:0' + str(int(digits) + 1)+ 'd}.pkl'
+                ).format(generation_number)
+
+                pickle.dump(moes.pareto_front_cut, open(format_str, 'wb'))
 
                 src.partools.checkpoint(
                     population, costs, max_ni, min_ni, avg_ni,
