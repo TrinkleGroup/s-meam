@@ -130,8 +130,8 @@ def COMO_CMAES(parameters, template, node_manager, manager_comm):
         eng_plus_pen = np.atleast_2d(eng_plus_pen)
         forces_costs = np.atleast_2d(forces_costs)
 
-        # first_costs = np.vstack([energy_costs, forces_costs]).T
-        first_costs = np.vstack([eng_plus_pen, forces_costs]).T
+        first_costs = np.vstack([energy_costs, forces_costs]).T
+        # first_costs = np.vstack([eng_plus_pen, forces_costs]).T
 
         reference_point = np.max(first_costs, axis=0)*10
         print('Reference point:', reference_point)
@@ -210,10 +210,10 @@ def COMO_CMAES(parameters, template, node_manager, manager_comm):
             forces_costs = np.atleast_2d(forces_costs)
 
             # new_costs = np.vstack([energy_costs, forces_costs]).T
-            new_Costs = np.vstack([eng_plus_pen, forces_costs]).T
+            new_costs = np.vstack([energy_costs, forces_costs]).T
 
             moes.tell(
-                population[:, active_ind], new_costs
+                population[:, active_ind], new_costs, penalties=penalty_costs
             )
 
             moes.disp()
