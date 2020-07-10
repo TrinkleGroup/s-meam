@@ -208,6 +208,8 @@ def main(config_name, template_file_name, procs_per_node_manager,
 
     world_comm.Barrier()
 
+    cost_fxn = define_cost_function(parameters)
+
     # run the optimizer
     if parameters.get('DEBUG', False):
         if is_master:
@@ -227,10 +229,10 @@ def main(config_name, template_file_name, procs_per_node_manager,
         if is_master:
             print("Running CMAES", flush=True)
 
-        CMAES(parameters, template, node_manager, manager_comm)
+        CMAES(parameters, template, node_manager, manager_comm, cost_fxn)
 
     elif parameters['OPT_TYPE'] == 'COMO':
-        COMO_CMAES(parameters, template, node_manager, manager_comm)
+        COMO_CMAES(parameters, template, node_manager, manager_comm, cost_fxn)
 
     else:
         if is_master:
@@ -425,6 +427,99 @@ def read_config(config_name):
         kill_and_write("Config file does not exist")
 
     return parameters
+
+
+def define_cost_function(parameters):
+    """
+    Used to define the cost function, which assumes a 2D input where each row is
+    the full fitness vector of a single potential. The cost functions will
+    return a P-dimensional vector corresponding to P-dimensional costs for each
+    potential. It will also optionally return a second 1D vector corresponding
+    to the additional penalties for each potential and/or add it into the cost.
+    """
+
+    N = parameters['NUM_STRUCTS']
+
+    def mae(errors, sum_all=True, return_penalty=False):
+
+        energy_costs  = errors[:, 0:-4:3].sum(axis=1)/N
+        forces_costs  = errors[:, 1:-4:3].sum(axis=1)/N
+        penalty_costs = errors[:, -4:].sum(axis=1)
+
+        energy_costs = np.atleast_2d(energy_costs)
+        forces_costs = np.atleast_2d(forces_costs)
+
+        new_costs = np.vstack([energy_costs, forces_costs]).T
+
+        if sum_all:
+            new_costs = np.sum(new_costs, axis=1) + penalty_costs
+
+        if return_penalty:
+            return new_costs, penalty_costs
+        else:
+            return new_costs
+
+
+    def rmse(errors, sum_all=True, return_penalty=False):
+
+        energy_costs  = np.sqrt(np.average(errors[:, 0:-4:3]**2, axis=1))
+        forces_costs  = np.sqrt(np.average(errors[:, 1:-4:3]**2, axis=1))
+        penalty_costs = errors[:, -4:].sum(axis=1)
+
+        energy_costs = np.atleast_2d(energy_costs)
+        forces_costs = np.atleast_2d(forces_costs)
+
+        new_costs = np.vstack([energy_costs, forces_costs]).T
+
+        if sum_all:
+            new_costs = np.sum(new_costs, axis=1) + penalty_costs
+
+        if return_penalty:
+            return new_costs, penalty_costs
+        else:
+            return new_costs
+
+    delta = parameters['HUBER_THRESHOLD']
+
+    def huber(errors, sum_all=True, return_penalty=False):
+
+        energy_errors  = errors[:, 0:-4:3]
+        forces_errors  = errors[:, 1:-4:3]
+        penalty_costs = errors[:, -4:].sum(axis=1)
+
+        mask = np.ma.masked_where(energy_errors <= delta, energy_errors)
+
+        energy_costs = np.sum((energy_errors*mask.mask)**2, axis=1)
+        energy_costs += delta*np.sum(np.abs(energy_errors*(~mask.mask)), axis=1)
+        energy_costs -= delta*delta/2
+
+        mask = np.ma.masked_where(forces_errors <= delta, forces_errors)
+
+        forces_costs = np.sum((forces_errors*mask.mask)**2, axis=1)
+        forces_costs += delta*np.sum(np.abs(forces_errors*(~mask.mask)), axis=1)
+        forces_costs -= delta*delta/2
+
+        new_costs = np.vstack([energy_costs, forces_costs]).T
+
+        if sum_all:
+            new_costs = np.sum(new_costs, axis=1) + penalty_costs
+
+        if return_penalty:
+            return new_costs, penalty_costs
+        else:
+            return new_costs
+
+
+    if parameters['COST_FXN'] == 'MAE':
+        return mae
+    elif parameters['COST_FXN'] == 'RMSE':
+        return rmse
+    elif parameters['COST_FXN'] == 'HUBER':
+        return huber
+    else:
+        raise kill_and_write(
+            'Available cost functions: "MAE" or "RMSE" or "HUBER"'
+        )
 
 def kill_and_write(msg):
     print(msg, flush=True)

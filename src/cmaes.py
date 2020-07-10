@@ -8,7 +8,7 @@ from mpi4py import MPI
 import src.partools
 
 
-def CMAES(parameters, template, node_manager, manager_comm):
+def CMAES(parameters, template, node_manager, manager_comm, cost_fxn):
     # MPI setup
     world_comm = MPI.COMM_WORLD
     world_rank = world_comm.Get_rank()
@@ -75,7 +75,7 @@ def CMAES(parameters, template, node_manager, manager_comm):
         solution = None
 
     # compute the initial ni values and scale if necessary
-    costs, max_ni, min_ni, avg_ni = objective_fxn(
+    errors, max_ni, min_ni, avg_ni = objective_fxn(
         template.insert_active_splines(np.atleast_2d(solution)), weights,
         return_ni=True, penalty=parameters['PENALTY_ON']
     )
@@ -83,9 +83,9 @@ def CMAES(parameters, template, node_manager, manager_comm):
     if is_master:
         print("Initial min/max ni:", min_ni[0], max_ni[0])
 
-        costs[:, 0:-4:3] *= parameters['ENERGY_WEIGHT']
-        costs[:, 1:-4:3] *= parameters['FORCES_WEIGHT']
-        costs[:, 2:-4:3] *= parameters['STRESS_WEIGHT']
+        errors[:, 0:-4:3] *= parameters['ENERGY_WEIGHT']
+        errors[:, 1:-4:3] *= parameters['FORCES_WEIGHT']
+        errors[:, 2:-4:3] *= parameters['STRESS_WEIGHT']
 
         full_solution = src.partools.rescale_ni(
             np.atleast_2d(full_solution), min_ni, max_ni, template
@@ -93,16 +93,16 @@ def CMAES(parameters, template, node_manager, manager_comm):
 
         solution = full_solution[active_ind]
 
-    costs, max_ni, min_ni, avg_ni = objective_fxn( template.insert_active_splines(np.atleast_2d(solution)), weights,
+    errors, max_ni, min_ni, avg_ni = objective_fxn( template.insert_active_splines(np.atleast_2d(solution)), weights,
         return_ni=True, penalty=parameters['PENALTY_ON']
     )
 
     if is_master:
         print("Rescaled initial min/max ni:", min_ni[0], max_ni[0])
 
-        costs[:, 0:-4:3] *= parameters['ENERGY_WEIGHT']
-        costs[:, 1:-4:3] *= parameters['FORCES_WEIGHT']
-        costs[:, 2:-4:3] *= parameters['STRESS_WEIGHT']
+        errors[:, 0:-4:3] *= parameters['ENERGY_WEIGHT']
+        errors[:, 1:-4:3] *= parameters['FORCES_WEIGHT']
+        errors[:, 2:-4:3] *= parameters['STRESS_WEIGHT']
 
 
     solution = world_comm.bcast(solution, root=0)
@@ -139,7 +139,7 @@ def CMAES(parameters, template, node_manager, manager_comm):
             population = np.array(es.ask())
             population = template.insert_active_splines(population)
 
-        costs, max_ni, min_ni, avg_ni = objective_fxn(
+        errors, max_ni, min_ni, avg_ni = objective_fxn(
             population, weights, return_ni=True,
             penalty=parameters['PENALTY_ON']
         )
@@ -148,32 +148,19 @@ def CMAES(parameters, template, node_manager, manager_comm):
 
             if generation_number % parameters['CHECKPOINT_FREQ'] == 0:
                 src.partools.checkpoint(
-                    population, costs, max_ni, min_ni, avg_ni,
+                    population, errors, max_ni, min_ni, avg_ni,
                     generation_number, parameters, template,
                     parameters['NSTEPS']
                 )
 
-            org_costs = costs.copy()
+            org_errors = errors.copy()
 
             # only apply weights AFTER logging unweighted data
-            costs[:, 0:-4:3] *= parameters['ENERGY_WEIGHT']
-            costs[:, 1:-4:3] *= parameters['FORCES_WEIGHT']
-            costs[:, 2:-4:3] *= parameters['STRESS_WEIGHT']
+            errors[:, 0:-4:3] *= parameters['ENERGY_WEIGHT']
+            errors[:, 1:-4:3] *= parameters['FORCES_WEIGHT']
+            errors[:, 2:-4:3] *= parameters['STRESS_WEIGHT']
 
-            # new_costs = np.sqrt(np.average(costs[:, :-4]**2, axis=1))
-            # new_costs += np.sum(costs[:, -4:], axis=1)
-
-            delta = parameters['HUBER_THRESHOLD']
-
-            data_costs, penalties = costs[:, :-4], costs[:, -4:]
-
-            mask = np.ma.masked_where(data_costs <= delta, data_costs)
-
-            new_costs = np.sum((data_costs*mask.mask)**2, axis=1)
-            new_costs += delta*np.sum(np.abs(data_costs*(~mask.mask)), axis=1)
-            new_costs -= delta*delta/2
-
-            new_costs += np.sum(penalties, axis=1)
+            new_costs = cost_fxn(errors, sum_all=True, return_penalty=False)
 
             es.tell(
                 population[:, active_ind], new_costs
@@ -187,7 +174,7 @@ def CMAES(parameters, template, node_manager, manager_comm):
             # log best potential and fitness
 
             min_idx = np.argmin(new_costs)
-            best_fit = org_costs[min_idx]
+            best_fit = org_errors[min_idx]
             best = population[min_idx]
             best = np.atleast_2d(best)
 
@@ -232,7 +219,7 @@ def CMAES(parameters, template, node_manager, manager_comm):
     else:
         best = np.empty((1, template.pvec_len))
 
-    costs, max_ni, min_ni, avg_ni = objective_fxn(
+    errors, max_ni, min_ni, avg_ni = objective_fxn(
         population, weights, return_ni=True,
         penalty=parameters['PENALTY_ON']
     )
@@ -242,26 +229,26 @@ def CMAES(parameters, template, node_manager, manager_comm):
 
         # log full cost vector of best ever potential
         with open(parameters['BEST_FIT_FILE'], 'ab') as cost_save_file:
-            np.savetxt(cost_save_file, np.atleast_2d(costs[0]))
+            np.savetxt(cost_save_file, np.atleast_2d(errors[0]))
 
         # log best ever potential
         with open(parameters['BEST_POT_FILE'], 'ab') as pot_save_file:
             np.savetxt(pot_save_file, np.atleast_2d(population[0]))
 
         src.partools.checkpoint(
-            population, costs, max_ni, min_ni, avg_ni,
+            population, errors, max_ni, min_ni, avg_ni,
             generation_number, parameters, template,
             parameters['NSTEPS']
         )
 
-        costs[:, 0:-4:3] *= parameters['ENERGY_WEIGHT']
-        costs[:, 1:-4:3] *= parameters['FORCES_WEIGHT']
-        costs[:, 2:-4:3] *= parameters['STRESS_WEIGHT']
+        errors[:, 0:-4:3] *= parameters['ENERGY_WEIGHT']
+        errors[:, 1:-4:3] *= parameters['FORCES_WEIGHT']
+        errors[:, 2:-4:3] *= parameters['STRESS_WEIGHT']
 
-        final_costs = np.sum(costs, axis=1)
+        final_cost = cost_fxn(errors, sum_all=True, return_penalty=False)
 
         print()
-        print("Final best cost = ", final_costs[0])
+        print("Final best cost = ", final_cost[0])
 
         print()
         print(

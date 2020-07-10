@@ -213,8 +213,11 @@ def build_template(types, inner_cutoff=1.5, outer_cutoff=5.5, spline_nknots=[]):
     
     return potential_template
 
-def plot_splines(potential_template, guess_pvec, fig, ax, inner_cutoff, outer_cutoff, x_indices=None, x_pvec=None, ext=0, lines=None, points=None, u_dom=[(-1, 1)], title=''):
+def plot_splines(potential_template, guess_pvec, fig, ax, inner_cutoff, outer_cutoff, x_indices=None, x_pvec=None, ext=0, lines=None, points=None, u_dom=[(-1, 1)], title='', colors='k', alpha=1, output=False):
 
+    if guess_pvec.shape[0] == 1:
+        colors = [colors]
+        
     labels = ['A']
 
     titles= [r"$\phi$",
@@ -260,6 +263,8 @@ def plot_splines(potential_template, guess_pvec, fig, ax, inner_cutoff, outer_cu
         col_num = i % len(ax[0])
             
         for j in range(dat_guess[i].shape[0]):
+            if output:
+                print(i, j)
 
             y_guess, dy_guess = dat_guess[i][j, :-2], dat_guess[i][j, -2:]
             
@@ -270,8 +275,8 @@ def plot_splines(potential_template, guess_pvec, fig, ax, inner_cutoff, outer_cu
             shown_label = shown_label_true = None
 
             if lines is None:
-                l = ax[row_num, col_num].plot(x_plts[i], cs1(x_plts[i]))
-                dots = ax[row_num, col_num].plot(x_rngs[i], y_guess, 'o')
+                l = ax[row_num, col_num].plot(x_plts[i], cs1(x_plts[i]), color=colors[j], alpha=alpha)
+                dots = ax[row_num, col_num].plot(x_rngs[i], y_guess, 'o', alpha=alpha)
                 plt.setp(dots, 'color', plt.getp(l[0], 'color'))
                 new_lines.append(l[0])
                 new_points.append(dots[0])
