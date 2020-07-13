@@ -121,9 +121,17 @@ def COMO_CMAES(parameters, template, node_manager, manager_comm, cost_fxn):
 
         first_costs = cost_fxn(errors, sum_all=False, return_penalty=False)
 
-        reference_point = np.max(first_costs, axis=0)*10
+        # reference_point = np.max(first_costs, axis=0)*10
+        reference_point = [0.1, 0.1, 1]
+
         print('Reference point:', reference_point)
         print('Ideal hyper-volume:', np.prod(reference_point), flush=True)
+
+        # Build the indices for identifying surface structures
+
+        surf_indices = np.array([
+            1 for n in all_struct_names if 'surf' in n else 0
+        ])
 
         moes = comocma.Sofomore(
             solvers,

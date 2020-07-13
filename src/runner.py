@@ -440,7 +440,10 @@ def define_cost_function(parameters):
 
     N = parameters['NUM_STRUCTS']
 
-    def mae(errors, sum_all=True, return_penalty=False):
+    def mae(errors, sum_all=True, return_penalty=False, surf_indices=None):
+
+        if surf_indices is None:
+            surf_indices = np.ones(N)
 
         energy_costs  = errors[:, 0:-4:3].sum(axis=1)/N
         forces_costs  = errors[:, 1:-4:3].sum(axis=1)/N
@@ -449,7 +452,13 @@ def define_cost_function(parameters):
         energy_costs = np.atleast_2d(energy_costs)
         forces_costs = np.atleast_2d(forces_costs)
 
-        new_costs = np.vstack([energy_costs, forces_costs]).T
+        surf_eng_costs = energy_costs[:, surf_indices]
+        non_surf_eng_costs = energy_costs[:, ~surf_indices]
+
+        # new_costs = np.vstack([energy_costs, forces_costs]).T
+        new_costs = np.vstack([
+            non_surf_eng_costs, surf_eng_costs, forces_costs
+        ]).T
 
         if sum_all:
             new_costs = np.sum(new_costs, axis=1) + penalty_costs
@@ -469,7 +478,13 @@ def define_cost_function(parameters):
         energy_costs = np.atleast_2d(energy_costs)
         forces_costs = np.atleast_2d(forces_costs)
 
-        new_costs = np.vstack([energy_costs, forces_costs]).T
+        surf_eng_costs = energy_costs[:, surf_indices]
+        non_surf_eng_costs = energy_costs[:, ~surf_indices]
+
+        # new_costs = np.vstack([energy_costs, forces_costs]).T
+        new_costs = np.vstack([
+            non_surf_eng_costs, surf_eng_costs, forces_costs
+        ]).T
 
         if sum_all:
             new_costs = np.sum(new_costs, axis=1) + penalty_costs
@@ -499,7 +514,13 @@ def define_cost_function(parameters):
         forces_costs += delta*np.sum(np.abs(forces_errors*(~mask.mask)), axis=1)
         forces_costs -= delta*delta/2
 
-        new_costs = np.vstack([energy_costs, forces_costs]).T
+        surf_eng_costs = energy_costs[:, surf_indices]
+        non_surf_eng_costs = energy_costs[:, ~surf_indices]
+
+        # new_costs = np.vstack([energy_costs, forces_costs]).T
+        new_costs = np.vstack([
+            non_surf_eng_costs, surf_eng_costs, forces_costs
+        ]).T
 
         if sum_all:
             new_costs = np.sum(new_costs, axis=1) + penalty_costs
