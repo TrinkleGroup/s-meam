@@ -119,19 +119,21 @@ def COMO_CMAES(parameters, template, node_manager, manager_comm, cost_fxn):
             for sol in solutions
         ]
 
-        first_costs = cost_fxn(errors, sum_all=False, return_penalty=False)
+        # Build the indices for identifying surface structures
+        surf_indices = np.array([
+            1 if 'surf' in n else 0 for n in all_struct_names
+        ])
+
+        first_costs = cost_fxn(
+            errors, sum_all=False, return_penalty=False,
+            surf_indices=surf_indices
+        )
 
         # reference_point = np.max(first_costs, axis=0)*10
         reference_point = [0.1, 0.1, 1]
 
         print('Reference point:', reference_point)
         print('Ideal hyper-volume:', np.prod(reference_point), flush=True)
-
-        # Build the indices for identifying surface structures
-
-        surf_indices = np.array([
-            1 for n in all_struct_names if 'surf' in n else 0
-        ])
 
         moes = comocma.Sofomore(
             solvers,
@@ -196,7 +198,8 @@ def COMO_CMAES(parameters, template, node_manager, manager_comm, cost_fxn):
             errors[:, 2:-4:3] *= parameters['STRESS_WEIGHT']
 
             new_costs, penalty_costs = cost_fxn(
-                errors, sum_all=False, return_penalty=True
+                errors, sum_all=False, return_penalty=True,
+                surf_indices=surf_indices
             )
 
             moes.tell(
@@ -271,7 +274,10 @@ def COMO_CMAES(parameters, template, node_manager, manager_comm, cost_fxn):
         errors[:, 2:-4:3] *= parameters['STRESS_WEIGHT']
 
 
-        final_costs = cost_fxn(errors, sum_all=False, return_penalty=False)
+        final_costs = cost_fxn(
+            errors, sum_all=False, return_penalty=False,
+            surf_indices=surf_indices
+        )
 
         src.partools.checkpoint(
             # population, final_costs, tmp_max_ni, tmp_min_ni, tmp_avg_ni,
