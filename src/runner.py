@@ -686,9 +686,6 @@ def prepare_node_managers(database, template, parameters, manager_comm, is_maste
 
         key_choices = sorted(key_choices)
 
-        for k in key_choices:
-            print(k)
-
         split_struct_lists = np.array_split(
             key_choices, manager_comm.Get_size()
         )
