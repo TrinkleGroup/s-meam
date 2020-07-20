@@ -440,26 +440,40 @@ def define_cost_function(parameters):
 
     N = parameters['NUM_STRUCTS']
 
-    def mae(errors, sum_all=True, return_penalty=False, surf_indices=None):
+    def mae(errors, sum_all=True, return_penalty=False, group_indices=None):
 
-        if surf_indices is None:
-            surf_indices = np.ones(N)
-
-        energy_costs = errors[:, 0:-4:3]
-
-        surf_eng_costs     = energy_costs[:, surf_indices].sum(axis=1)/N
-        non_surf_eng_costs = energy_costs[:, ~surf_indices].sum(axis=1)/N
-
-        forces_costs  = errors[:, 1:-4:3].sum(axis=1)/N
+        energy_costs  = np.atleast_2d(errors[:, 0:-4:3])
+        forces_costs  = np.atleast_2d(errors[:, 1:-4:3])
         penalty_costs = errors[:, -4:].sum(axis=1)
 
-        forces_costs = np.atleast_2d(forces_costs)
+        if group_indices is None:
+            energy_cost_groups = [energy_costs]
+            forces_cost_groups = [forces_costs]
+        else:
+            energy_cost_groups = []
+            forces_cost_groups = []
 
-        surf_eng_costs     = np.atleast_2d(surf_eng_costs)
-        non_surf_eng_costs = np.atleast_2d(non_surf_eng_costs)
+            for group in group_indices:
+                group_eng_costs = energy_costs[:, group]
+                group_fcs_costs = forces_costs[:, group]
+
+                energy_cost_groups.append(np.average(group_eng_costs, axis=1))
+                forces_cost_groups.append(np.average(group_fcs_costs, axis=1))
+
+
+        energy_cost_groups = [
+            np.atleast_2d(grp_cost) for grp_cost in energy_cost_groups
+        ]
+
+        forces_cost_groups = [
+            np.atleast_2d(grp_cost) for grp_cost in forces_cost_groups
+        ]
+
+        energy_cost_groups = np.vstack(energy_cost_groups)
+        forces_cost_groups = np.vstack(forces_cost_groups)
 
         new_costs = np.vstack([
-            non_surf_eng_costs, surf_eng_costs, forces_costs
+            energy_cost_groups, forces_cost_groups
         ]).T
 
         if sum_all:

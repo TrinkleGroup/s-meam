@@ -121,16 +121,39 @@ def COMO_CMAES(parameters, template, node_manager, manager_comm, cost_fxn):
 
         # Build the indices for identifying surface structures
         surf_indices = np.array([
-            1 if 'surf' in n else 0 for n in all_struct_names
+            1 if 'Snapshot' in n else 0 for n in all_struct_names
         ])
+
+        surf_indices = np.where(surf_indices)[0].tolist()
+
+        strain_indices = np.array([
+            1 if 'surface' in n else 0 for n in all_struct_names
+        ]).tolist()
+
+        strain_indices = np.where(strain_indices)[0].tolist()
+
+        group_indices = [surf_indices, strain_indices]
+
+        everything_else = np.arange(len(all_struct_names)).tolist()
+
+        del_indices = []
+        for group in group_indices:
+            del_indices += group
+
+        del_indices = sorted(del_indices)
+
+        for ind in del_indices[::-1]:
+            del everything_else[ind]
+
+        group_indices.append(everything_else)
 
         first_costs = cost_fxn(
             errors, sum_all=False, return_penalty=False,
-            surf_indices=surf_indices
+            group_indices=group_indices,
         )
 
         # reference_point = np.max(first_costs, axis=0)*10
-        reference_point = [0.1, 0.1, 1]
+        reference_point = [0.1, 0.1, 0.1, 1, 1, 1]
 
         print('Reference point:', reference_point)
         print('Ideal hyper-volume:', np.prod(reference_point), flush=True)
@@ -164,6 +187,7 @@ def COMO_CMAES(parameters, template, node_manager, manager_comm, cost_fxn):
 
         if is_master:
 
+            # TODO: shouldn't logging go _after_ updating moes?
             if (generation_number % parameters['CHECKPOINT_FREQ'] == 0) and (
                     generation_number > 1):
 
@@ -199,12 +223,34 @@ def COMO_CMAES(parameters, template, node_manager, manager_comm, cost_fxn):
 
             new_costs, penalty_costs = cost_fxn(
                 errors, sum_all=False, return_penalty=True,
-                surf_indices=surf_indices
+                group_indices=group_indices,
             )
 
             moes.tell(
                 population[:, active_ind], new_costs, penalties=penalty_costs
             )
+
+            # ref_point_check = np.max(np.atleast_2d(moes.archive), axis=0)
+
+            # # dynamically update reference point
+            # # this might cause weirdness?
+            # if np.any(ref_point_check < np.array(moes.reference_point)/10):
+            #     new_ref_point = [
+            #         ref_point_check[ri]*1.5
+            #         if ref_point_check[ri] < moes.reference_point[ri]
+            #         else moes.reference_point[ri]
+            #         for ri in range(len(moes.reference_point))
+            #     ]
+
+            #     print(
+            #         "Updating reference point:\n\t",
+            #         moes.reference_point,
+            #         " -> ",
+            #         new_ref_point,
+            #         flush=True
+            #     )
+
+            #     moes.reference_point = new_ref_point
 
             moes.disp()
 
@@ -276,7 +322,7 @@ def COMO_CMAES(parameters, template, node_manager, manager_comm, cost_fxn):
 
         final_costs = cost_fxn(
             errors, sum_all=False, return_penalty=False,
-            surf_indices=surf_indices
+            group_indices=group_indices,
         )
 
         src.partools.checkpoint(
