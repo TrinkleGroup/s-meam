@@ -119,9 +119,56 @@ def COMO_CMAES(parameters, template, node_manager, manager_comm, cost_fxn):
             for sol in solutions
         ]
 
-        first_costs = cost_fxn(errors, sum_all=False, return_penalty=False)
+        # Build the indices for identifying surface structures
+
+        group_conditions = [
+                lambda n: 1 if 'strain' in n else 0,
+                lambda n: 1 if 'surface' in n else 0,
+                lambda n: 1 if 'Vacancy' in n else 0,
+                lambda n: 1 if ('3374_K' in n) and ('Vacancy' not in n) else 0,
+        ]
+
+        group_indices = []
+
+        for cond in group_conditions:
+            indices = np.array([
+                # 1 if group_name in n else 0 for n in all_struct_names
+                cond(n) for n in all_struct_names
+            ])
+
+            indices = np.where(indices)[0].tolist()
+
+            group_indices.append(indices)
+
+
+        everything_else = np.arange(len(all_struct_names)).tolist()
+
+        del_indices = []
+        for group in group_indices:
+            del_indices += group
+
+        del_indices = sorted(del_indices)
+
+        for ind in del_indices[::-1]:
+            del everything_else[ind]
+
+        group_indices.append(everything_else)
+
+        first_costs = cost_fxn(
+            errors, sum_all=False, return_penalty=False,
+            group_indices=group_indices,
+        )
 
         reference_point = np.max(first_costs, axis=0)*10
+        # reference_point = [1]*(len(groups)+1)
+
+        ideal_hypervolume = np.prod(reference_point)
+
+        # set the ni penalty to be extremely large (relative to the ideal cost)
+        # to ensure that the ni sampling is optimized early
+
+        parameters['NI_PENALTY'] = ideal_hypervolume*10
+
         print('Reference point:', reference_point)
         print('Ideal hyper-volume:', np.prod(reference_point), flush=True)
 
@@ -154,6 +201,7 @@ def COMO_CMAES(parameters, template, node_manager, manager_comm, cost_fxn):
 
         if is_master:
 
+            # TODO: shouldn't logging go _after_ updating moes?
             if (generation_number % parameters['CHECKPOINT_FREQ'] == 0) and (
                     generation_number > 1):
 
@@ -167,19 +215,19 @@ def COMO_CMAES(parameters, template, node_manager, manager_comm, cost_fxn):
 
                 pickle.dump(moes.archive, open(format_str, 'wb'))
 
-                # TODO: edit CmaKernel to save solutions of pareto_front_cut
-                format_str = os.path.join(
-                    parameters['SAVE_DIRECTORY'],
-                    'front_{0:0' + str(int(digits) + 1)+ 'd}.pkl'
-                ).format(generation_number)
+                # # TODO: edit CmaKernel to save solutions of pareto_front_cut
+                # format_str = os.path.join(
+                #     parameters['SAVE_DIRECTORY'],
+                #     'front_{0:0' + str(int(digits) + 1)+ 'd}.pkl'
+                # ).format(generation_number)
 
-                pickle.dump(moes.pareto_front_cut, open(format_str, 'wb'))
+                # pickle.dump(moes.pareto_front_cut, open(format_str, 'wb'))
 
-                src.partools.checkpoint(
-                    population, errors, max_ni, min_ni, avg_ni,
-                    generation_number, parameters, template,
-                    parameters['NSTEPS']
-                )
+                # src.partools.checkpoint(
+                #     population, errors, max_ni, min_ni, avg_ni,
+                #     generation_number, parameters, template,
+                #     parameters['NSTEPS']
+                # )
 
             org_errors = errors.copy()
             # only apply weights AFTER logging unweighted data
@@ -188,12 +236,35 @@ def COMO_CMAES(parameters, template, node_manager, manager_comm, cost_fxn):
             errors[:, 2:-4:3] *= parameters['STRESS_WEIGHT']
 
             new_costs, penalty_costs = cost_fxn(
-                errors, sum_all=False, return_penalty=True
+                errors, sum_all=False, return_penalty=True,
+                group_indices=group_indices,
             )
 
             moes.tell(
                 population[:, active_ind], new_costs, penalties=penalty_costs
             )
+
+            # ref_point_check = np.max(np.atleast_2d(moes.archive), axis=0)
+
+            # # dynamically update reference point
+            # # this might cause weirdness?
+            # if np.any(ref_point_check < np.array(moes.reference_point)/10):
+            #     new_ref_point = [
+            #         ref_point_check[ri]*1.5
+            #         if ref_point_check[ri] < moes.reference_point[ri]
+            #         else moes.reference_point[ri]
+            #         for ri in range(len(moes.reference_point))
+            #     ]
+
+            #     print(
+            #         "Updating reference point:\n\t",
+            #         moes.reference_point,
+            #         " -> ",
+            #         new_ref_point,
+            #         flush=True
+            #     )
+
+            #     moes.reference_point = new_ref_point
 
             moes.disp()
 
@@ -263,14 +334,17 @@ def COMO_CMAES(parameters, template, node_manager, manager_comm, cost_fxn):
         errors[:, 2:-4:3] *= parameters['STRESS_WEIGHT']
 
 
-        final_costs = cost_fxn(errors, sum_all=False, return_penalty=False)
-
-        src.partools.checkpoint(
-            # population, final_costs, tmp_max_ni, tmp_min_ni, tmp_avg_ni,
-            population, errors, max_ni, min_ni, avg_ni,
-            generation_number, parameters, template,
-            parameters['NSTEPS']
+        final_costs = cost_fxn(
+            errors, sum_all=False, return_penalty=False,
+            group_indices=group_indices,
         )
+
+        # src.partools.checkpoint(
+        #     # population, final_costs, tmp_max_ni, tmp_min_ni, tmp_avg_ni,
+        #     population, errors, max_ni, min_ni, avg_ni,
+        #     generation_number, parameters, template,
+        #     parameters['NSTEPS']
+        # )
 
         print()
         print("Final best cost = ", final_costs[0])

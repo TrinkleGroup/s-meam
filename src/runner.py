@@ -440,16 +440,41 @@ def define_cost_function(parameters):
 
     N = parameters['NUM_STRUCTS']
 
-    def mae(errors, sum_all=True, return_penalty=False):
+    def mae(errors, sum_all=True, return_penalty=False, group_indices=None):
 
-        energy_costs  = errors[:, 0:-4:3].sum(axis=1)/N
-        forces_costs  = errors[:, 1:-4:3].sum(axis=1)/N
+        energy_costs  = np.atleast_2d(errors[:, 0:-4:3])
+        forces_costs  = np.atleast_2d(errors[:, 1:-4:3])
         penalty_costs = errors[:, -4:].sum(axis=1)
 
-        energy_costs = np.atleast_2d(energy_costs)
-        forces_costs = np.atleast_2d(forces_costs)
+        if group_indices is None:
+            energy_cost_groups = [energy_costs]
+            forces_cost_groups = [forces_costs]
+        else:
+            energy_cost_groups = []
+            forces_cost_groups = []
 
-        new_costs = np.vstack([energy_costs, forces_costs]).T
+            for group in group_indices:
+                group_eng_costs = energy_costs[:, group]
+                group_fcs_costs = forces_costs[:, group]
+
+                energy_cost_groups.append(np.average(group_eng_costs, axis=1))
+                forces_cost_groups.append(np.average(group_fcs_costs, axis=1))
+
+
+        energy_cost_groups = [
+            np.atleast_2d(grp_cost) for grp_cost in energy_cost_groups
+        ]
+
+        forces_cost_groups = [
+            np.atleast_2d(grp_cost) for grp_cost in forces_cost_groups
+        ]
+
+        energy_cost_groups = np.vstack(energy_cost_groups)
+        forces_cost_groups = np.vstack(forces_cost_groups)
+
+        new_costs = np.vstack([
+            energy_cost_groups, forces_cost_groups
+        ]).T
 
         if sum_all:
             new_costs = np.sum(new_costs, axis=1) + penalty_costs
@@ -460,16 +485,27 @@ def define_cost_function(parameters):
             return new_costs
 
 
-    def rmse(errors, sum_all=True, return_penalty=False):
+    def rmse(errors, sum_all=True, return_penalty=False, surf_indices=None):
 
-        energy_costs  = np.sqrt(np.average(errors[:, 0:-4:3]**2, axis=1))
+        energy_costs = errors[:, 0:-4:3]
+
+        surf_eng_costs     = energy_costs[:, surf_indices]
+        non_surf_eng_costs = energy_costs[:, ~surf_indices]
+
+        surf_eng_costs     = np.sqrt(np.average(surf_eng_costs**2, axis=1))
+        non_surf_eng_costs = np.sqrt(np.average(non_surf_eng_costs**2, axis=1))
+
         forces_costs  = np.sqrt(np.average(errors[:, 1:-4:3]**2, axis=1))
         penalty_costs = errors[:, -4:].sum(axis=1)
 
-        energy_costs = np.atleast_2d(energy_costs)
+        surf_eng_costs     = np.atleast_2d(surf_eng_costs)
+        non_surf_eng_costs = np.atleast_2d(non_surf_eng_costs)
+
         forces_costs = np.atleast_2d(forces_costs)
 
-        new_costs = np.vstack([energy_costs, forces_costs]).T
+        new_costs = np.vstack([
+            non_surf_eng_costs, surf_eng_costs, forces_costs
+        ]).T
 
         if sum_all:
             new_costs = np.sum(new_costs, axis=1) + penalty_costs
@@ -481,17 +517,35 @@ def define_cost_function(parameters):
 
     delta = parameters['HUBER_THRESHOLD']
 
-    def huber(errors, sum_all=True, return_penalty=False):
+    def huber(errors, sum_all=True, return_penalty=False, surf_indices=None):
 
-        energy_errors  = errors[:, 0:-4:3]
+        energy_costs = errors[:, 0:-4:3]
+
+        surf_eng_errors     = energy_costs[:, surf_indices]
+        non_surf_eng_errors = energy_costs[:, ~surf_indices]
+
         forces_errors  = errors[:, 1:-4:3]
         penalty_costs = errors[:, -4:].sum(axis=1)
 
-        mask = np.ma.masked_where(energy_errors <= delta, energy_errors)
+        mask = np.ma.masked_where(surf_eng_errors <= delta, surf_eng_errors)
 
         energy_costs = np.sum((energy_errors*mask.mask)**2, axis=1)
         energy_costs += delta*np.sum(np.abs(energy_errors*(~mask.mask)), axis=1)
         energy_costs -= delta*delta/2
+
+        surf_eng_costs = np.sum((surf_eng_errors*mask.mask)**2, axis=1)
+        surf_eng_costs += delta*np.sum(np.abs(energy_errors*(~mask.mask)), axis=1)
+        surf_eng_costs -= delta*delta/2
+
+        mask = np.ma.masked_where(non_surf_eng_errors <= delta, non_surf_eng_errors)
+
+        energy_costs = np.sum((energy_errors*mask.mask)**2, axis=1)
+        energy_costs += delta*np.sum(np.abs(energy_errors*(~mask.mask)), axis=1)
+        energy_costs -= delta*delta/2
+
+        non_surf_eng_costs = np.sum((non_surf_eng_errors*mask.mask)**2, axis=1)
+        non_surf_eng_costs += delta*np.sum(np.abs(energy_errors*(~mask.mask)), axis=1)
+        non_surf_eng_costs -= delta*delta/2
 
         mask = np.ma.masked_where(forces_errors <= delta, forces_errors)
 
@@ -499,7 +553,9 @@ def define_cost_function(parameters):
         forces_costs += delta*np.sum(np.abs(forces_errors*(~mask.mask)), axis=1)
         forces_costs -= delta*delta/2
 
-        new_costs = np.vstack([energy_costs, forces_costs]).T
+        new_costs = np.vstack([
+            non_surf_eng_costs, surf_eng_costs, forces_costs
+        ]).T
 
         if sum_all:
             new_costs = np.sum(new_costs, axis=1) + penalty_costs
