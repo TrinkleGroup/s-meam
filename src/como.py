@@ -120,19 +120,26 @@ def COMO_CMAES(parameters, template, node_manager, manager_comm, cost_fxn):
         ]
 
         # Build the indices for identifying surface structures
-        surf_indices = np.array([
-            1 if 'Snapshot' in n else 0 for n in all_struct_names
-        ])
 
-        surf_indices = np.where(surf_indices)[0].tolist()
+        group_conditions = [
+                lambda n: 1 if 'strain' in n else 0,
+                lambda n: 1 if 'surface' in n else 0,
+                lambda n: 1 if 'Vacancy' in n else 0,
+                lambda n: 1 if ('3374_K' in n) and ('Vacancy' not in n) else 0,
+        ]
 
-        strain_indices = np.array([
-            1 if 'surface' in n else 0 for n in all_struct_names
-        ]).tolist()
+        group_indices = []
 
-        strain_indices = np.where(strain_indices)[0].tolist()
+        for cond in group_conditions:
+            indices = np.array([
+                # 1 if group_name in n else 0 for n in all_struct_names
+                cond(n) for n in all_struct_names
+            ])
 
-        group_indices = [surf_indices, strain_indices]
+            indices = np.where(indices)[0].tolist()
+
+            group_indices.append(indices)
+
 
         everything_else = np.arange(len(all_struct_names)).tolist()
 
@@ -152,8 +159,15 @@ def COMO_CMAES(parameters, template, node_manager, manager_comm, cost_fxn):
             group_indices=group_indices,
         )
 
-        # reference_point = np.max(first_costs, axis=0)*10
-        reference_point = [0.1, 0.1, 0.1, 1, 1, 1]
+        reference_point = np.max(first_costs, axis=0)*10
+        # reference_point = [1]*(len(groups)+1)
+
+        ideal_hypervolume = np.prod(reference_point)
+
+        # set the ni penalty to be extremely large (relative to the ideal cost)
+        # to ensure that the ni sampling is optimized early
+
+        parameters['NI_PENALTY'] = ideal_hypervolume*10
 
         print('Reference point:', reference_point)
         print('Ideal hyper-volume:', np.prod(reference_point), flush=True)
@@ -201,19 +215,19 @@ def COMO_CMAES(parameters, template, node_manager, manager_comm, cost_fxn):
 
                 pickle.dump(moes.archive, open(format_str, 'wb'))
 
-                # TODO: edit CmaKernel to save solutions of pareto_front_cut
-                format_str = os.path.join(
-                    parameters['SAVE_DIRECTORY'],
-                    'front_{0:0' + str(int(digits) + 1)+ 'd}.pkl'
-                ).format(generation_number)
+                # # TODO: edit CmaKernel to save solutions of pareto_front_cut
+                # format_str = os.path.join(
+                #     parameters['SAVE_DIRECTORY'],
+                #     'front_{0:0' + str(int(digits) + 1)+ 'd}.pkl'
+                # ).format(generation_number)
 
-                pickle.dump(moes.pareto_front_cut, open(format_str, 'wb'))
+                # pickle.dump(moes.pareto_front_cut, open(format_str, 'wb'))
 
-                src.partools.checkpoint(
-                    population, errors, max_ni, min_ni, avg_ni,
-                    generation_number, parameters, template,
-                    parameters['NSTEPS']
-                )
+                # src.partools.checkpoint(
+                #     population, errors, max_ni, min_ni, avg_ni,
+                #     generation_number, parameters, template,
+                #     parameters['NSTEPS']
+                # )
 
             org_errors = errors.copy()
             # only apply weights AFTER logging unweighted data
@@ -325,12 +339,12 @@ def COMO_CMAES(parameters, template, node_manager, manager_comm, cost_fxn):
             group_indices=group_indices,
         )
 
-        src.partools.checkpoint(
-            # population, final_costs, tmp_max_ni, tmp_min_ni, tmp_avg_ni,
-            population, errors, max_ni, min_ni, avg_ni,
-            generation_number, parameters, template,
-            parameters['NSTEPS']
-        )
+        # src.partools.checkpoint(
+        #     # population, final_costs, tmp_max_ni, tmp_min_ni, tmp_avg_ni,
+        #     population, errors, max_ni, min_ni, avg_ni,
+        #     generation_number, parameters, template,
+        #     parameters['NSTEPS']
+        # )
 
         print()
         print("Final best cost = ", final_costs[0])
