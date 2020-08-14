@@ -6,12 +6,11 @@ import random
 import itertools
 import numpy as np
 from mpi4py import MPI
-from deap import tools
 
 import src.partools
 
 
-def COMO_CMAES(parameters, template, node_manager, manager_comm):
+def COMO_CMAES(parameters, template, node_manager, manager_comm, cost_fxn):
     # MPI setup
     world_comm = MPI.COMM_WORLD
     world_rank = world_comm.Get_rank()
@@ -76,7 +75,7 @@ def COMO_CMAES(parameters, template, node_manager, manager_comm):
     else:
         solutions = None
 
-    costs, max_ni, min_ni, avg_ni = objective_fxn(
+    errors, max_ni, min_ni, avg_ni = objective_fxn(
         template.insert_active_splines(np.atleast_2d(solutions)), weights,
         return_ni=True, penalty=parameters['PENALTY_ON']
     )
@@ -84,13 +83,13 @@ def COMO_CMAES(parameters, template, node_manager, manager_comm):
     if is_master:
         print("Initial min/max ni:", min_ni[0], max_ni[0])
 
-        costs[:, 0:-4:3] *= parameters['ENERGY_WEIGHT']
-        costs[:, 1:-4:3] *= parameters['FORCES_WEIGHT']
-        costs[:, 2:-4:3] *= parameters['STRESS_WEIGHT']
+        errors[:, 0:-4:3] *= parameters['ENERGY_WEIGHT']
+        errors[:, 1:-4:3] *= parameters['FORCES_WEIGHT']
+        errors[:, 2:-4:3] *= parameters['STRESS_WEIGHT']
 
         solutions = full_solution[:, active_ind]
 
-    costs, max_ni, min_ni, avg_ni = objective_fxn(
+    errors, max_ni, min_ni, avg_ni = objective_fxn(
         template.insert_active_splines(np.atleast_2d(solutions)), weights,
         return_ni=True, penalty=parameters['PENALTY_ON']
     )
@@ -98,9 +97,9 @@ def COMO_CMAES(parameters, template, node_manager, manager_comm):
     if is_master:
         print("Rescaled initial min/max ni:", min_ni[0], max_ni[0])
 
-        costs[:, 0:-4:3] *= parameters['ENERGY_WEIGHT']
-        costs[:, 1:-4:3] *= parameters['FORCES_WEIGHT']
-        costs[:, 2:-4:3] *= parameters['STRESS_WEIGHT']
+        errors[:, 0:-4:3] *= parameters['ENERGY_WEIGHT']
+        errors[:, 1:-4:3] *= parameters['FORCES_WEIGHT']
+        errors[:, 2:-4:3] *= parameters['STRESS_WEIGHT']
 
 
     solutions = world_comm.bcast(solutions, root=0)
@@ -120,21 +119,56 @@ def COMO_CMAES(parameters, template, node_manager, manager_comm):
             for sol in solutions
         ]
 
+        # Build the indices for identifying surface structures
 
-        energy_costs  = costs[:, 0:-4:3].sum(axis=1)
-        forces_costs  = costs[:, 1:-4:3].sum(axis=1)
-        penalty_costs = costs[:, -4:].sum(axis=1)
+        group_conditions = [
+                lambda n: 1 if 'strain' in n else 0,
+                lambda n: 1 if 'surface' in n else 0,
+                lambda n: 1 if 'Vacancy' in n else 0,
+                lambda n: 1 if ('6000_K' in n) and ('Vacancy' not in n) else 0,
+        ]
 
-        eng_plus_pen = energy_costs + penalty_costs
+        group_indices = []
 
-        energy_costs = np.atleast_2d(energy_costs)
-        eng_plus_pen = np.atleast_2d(eng_plus_pen)
-        forces_costs = np.atleast_2d(forces_costs)
+        for cond in group_conditions:
+            indices = np.array([
+                # 1 if group_name in n else 0 for n in all_struct_names
+                cond(n) for n in all_struct_names
+            ])
 
-        first_costs = np.vstack([energy_costs, forces_costs]).T
-        # first_costs = np.vstack([eng_plus_pen, forces_costs]).T
+            indices = np.where(indices)[0].tolist()
+
+            group_indices.append(indices)
+
+
+        everything_else = np.arange(len(all_struct_names)).tolist()
+
+        del_indices = []
+        for group in group_indices:
+            del_indices += group
+
+        del_indices = sorted(del_indices)
+
+        for ind in del_indices[::-1]:
+            del everything_else[ind]
+
+        group_indices.append(everything_else)
+
+        first_costs = cost_fxn(
+            errors, sum_all=False, return_penalty=False,
+            group_indices=group_indices,
+        )
 
         reference_point = np.max(first_costs, axis=0)*10
+        # reference_point = [1]*2*len(group_indices)
+
+        ideal_hypervolume = np.prod(reference_point)
+
+        # set the ni penalty to be extremely large (relative to the ideal cost)
+        # to ensure that the ni sampling is optimized early
+
+        parameters['NI_PENALTY'] = ideal_hypervolume*0.5
+
         print('Reference point:', reference_point)
         print('Ideal hyper-volume:', np.prod(reference_point), flush=True)
 
@@ -143,7 +177,8 @@ def COMO_CMAES(parameters, template, node_manager, manager_comm):
             reference_point=reference_point,
             opts={
                 'verb_disp': 1
-            }
+            },
+            threads_per_node=parameters['PROCS_PER_PHYS_NODE']
         )
 
         cma_start_time = time.time()
@@ -160,67 +195,81 @@ def COMO_CMAES(parameters, template, node_manager, manager_comm):
             population = np.array(moes.ask('all'))
             population = template.insert_active_splines(population)
 
-        costs, max_ni, min_ni, avg_ni = objective_fxn(
+        errors, max_ni, min_ni, avg_ni = objective_fxn(
             population, weights, return_ni=True,
             penalty=parameters['PENALTY_ON']
         )
 
         if is_master:
 
+            # TODO: shouldn't logging go _after_ updating moes?
             if (generation_number % parameters['CHECKPOINT_FREQ'] == 0) and (
                     generation_number > 1):
-                front = [k.best.x for k in moes.kernels]
-                front = np.stack(front)
 
                 digits = np.floor(np.log10(parameters['NSTEPS']))
 
                 format_str = os.path.join(
                     parameters['SAVE_DIRECTORY'],
-                    'front_{0:0' + str(int(digits) + 1)+ 'd}.dat'
-                ).format(generation_number)
-
-                np.savetxt(
-                    format_str,
-                    template.insert_active_splines(np.atleast_2d(front)),
-                )
-
-                format_str = os.path.join(
-                    parameters['SAVE_DIRECTORY'],
-                    'moes_{0:0' + str(int(digits) + 1)+ 'd}.pkl'
+                    'archive_{0:0' + str(int(digits) + 1)+ 'd}.pkl'
                 ).format(generation_number)
 
 
-                pickle.dump(moes, open(format_str, 'wb'))
+                pickle.dump(moes.archive, open(format_str, 'wb'))
 
-                src.partools.checkpoint(
-                    population, costs, max_ni, min_ni, avg_ni,
-                    generation_number, parameters, template,
-                    parameters['NSTEPS']
-                )
+                # # TODO: edit CmaKernel to save solutions of pareto_front_cut
+                # format_str = os.path.join(
+                #     parameters['SAVE_DIRECTORY'],
+                #     'front_{0:0' + str(int(digits) + 1)+ 'd}.pkl'
+                # ).format(generation_number)
 
-            org_costs = costs.copy()
+                # pickle.dump(moes.pareto_front_cut, open(format_str, 'wb'))
+
+                # src.partools.checkpoint(
+                #     population, errors, max_ni, min_ni, avg_ni,
+                #     generation_number, parameters, template,
+                #     parameters['NSTEPS']
+                # )
+
+            org_errors = errors.copy()
             # only apply weights AFTER logging unweighted data
-            costs[:, 0:-4:3] *= parameters['ENERGY_WEIGHT']
-            costs[:, 1:-4:3] *= parameters['FORCES_WEIGHT']
-            costs[:, 2:-4:3] *= parameters['STRESS_WEIGHT']
+            errors[:, 0:-4:3] *= parameters['ENERGY_WEIGHT']
+            errors[:, 1:-4:3] *= parameters['FORCES_WEIGHT']
+            errors[:, 2:-4:3] *= parameters['STRESS_WEIGHT']
 
-            energy_costs  = costs[:, 0:-4:3].sum(axis=1)
-            forces_costs  = costs[:, 1:-4:3].sum(axis=1)
-            penalty_costs = costs[:, -4:].sum(axis=1)
-
-            eng_plus_pen = energy_costs + penalty_costs
-
-            energy_costs = np.atleast_2d(energy_costs)
-            eng_plus_pen = np.atleast_2d(eng_plus_pen)
-            forces_costs = np.atleast_2d(forces_costs)
-
-            new_costs = np.vstack([energy_costs, forces_costs]).T
-
-            moes.tell(
-                population[:, active_ind], new_costs
+            new_costs, penalty_costs = cost_fxn(
+                errors, sum_all=False, return_penalty=True,
+                group_indices=group_indices,
             )
 
+            moes.tell(
+                population[:, active_ind], new_costs, penalties=penalty_costs
+            )
+
+            # ref_point_check = np.max(np.atleast_2d(moes.archive), axis=0)
+
+            # # dynamically update reference point
+            # # this might cause weirdness?
+            # if np.any(ref_point_check < np.array(moes.reference_point)/10):
+            #     new_ref_point = [
+            #         ref_point_check[ri]*1.5
+            #         if ref_point_check[ri] < moes.reference_point[ri]
+            #         else moes.reference_point[ri]
+            #         for ri in range(len(moes.reference_point))
+            #     ]
+
+            #     print(
+            #         "Updating reference point:\n\t",
+            #         moes.reference_point,
+            #         " -> ",
+            #         new_ref_point,
+            #         flush=True
+            #     )
+
+            #     moes.reference_point = new_ref_point
+
             moes.disp()
+
+            # seems like the front is kicking things out 
 
             summed = new_costs.sum(axis=0)
 
@@ -232,7 +281,7 @@ def COMO_CMAES(parameters, template, node_manager, manager_comm):
         if is_master:
 
             min_idx = np.argmin(new_costs, axis=0)
-            best_fit = org_costs[min_idx]
+            best_fit = org_errors[min_idx]
             best = population[min_idx]
             best = np.atleast_2d(best)
 
@@ -275,7 +324,7 @@ def COMO_CMAES(parameters, template, node_manager, manager_comm):
         # sorted_pop[0] = best
         # population = sorted_pop
 
-    costs, max_ni, min_ni, avg_ni = objective_fxn(
+    errors, max_ni, min_ni, avg_ni = objective_fxn(
         population, weights, return_ni=True,
         penalty=parameters['PENALTY_ON']
     )
@@ -283,19 +332,22 @@ def COMO_CMAES(parameters, template, node_manager, manager_comm):
     if is_master:
         polish_runtime = time.time() - polish_start_time
 
-        costs[:, 0:-4:3] *= parameters['ENERGY_WEIGHT']
-        costs[:, 1:-4:3] *= parameters['FORCES_WEIGHT']
-        costs[:, 2:-4:3] *= parameters['STRESS_WEIGHT']
+        errors[:, 0:-4:3] *= parameters['ENERGY_WEIGHT']
+        errors[:, 1:-4:3] *= parameters['FORCES_WEIGHT']
+        errors[:, 2:-4:3] *= parameters['STRESS_WEIGHT']
 
 
-        final_costs = np.sum(costs, axis=1)
-
-        src.partools.checkpoint(
-            # population, final_costs, tmp_max_ni, tmp_min_ni, tmp_avg_ni,
-            population, costs, max_ni, min_ni, avg_ni,
-            generation_number, parameters, template,
-            parameters['NSTEPS']
+        final_costs = cost_fxn(
+            errors, sum_all=False, return_penalty=False,
+            group_indices=group_indices,
         )
+
+        # src.partools.checkpoint(
+        #     # population, final_costs, tmp_max_ni, tmp_min_ni, tmp_avg_ni,
+        #     population, errors, max_ni, min_ni, avg_ni,
+        #     generation_number, parameters, template,
+        #     parameters['NSTEPS']
+        # )
 
         print()
         print("Final best cost = ", final_costs[0])
@@ -370,5 +422,3 @@ def collect_structure_names(node_manager, world_comm, is_master):
     all_struct_names = world_comm.bcast(all_struct_names, root=0)
 
     return all_struct_names
-
-

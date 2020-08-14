@@ -738,7 +738,7 @@ class MEAM:
         return MEAM(splines=splines, types=self.types)
 
     def get_ase_calculator(self):
-        pot_file_name = 'test.meam.spline-tmp'
+        pot_file_name = '/tmp/test.meam.spline-tmp'
         self.write_to_file(pot_file_name)
 
         params = {'units': 'metal',

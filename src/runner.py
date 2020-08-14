@@ -4,6 +4,7 @@ sys.path.append('./')
 
 import glob
 import shutil
+import pickle
 import mpi4py
 import logging
 import numpy as np
@@ -38,7 +39,7 @@ logger.setLevel(logging.WARNING)
 
 # TODO: have a script that checks the validity of an input script befor qsub
 
-def main(config_name, template_file_name, procs_per_node_manager,
+def main(settings_folder, procs_per_node_manager,
         procs_per_phys_node=32, names_file=None):
     world_comm = MPI.COMM_WORLD
 
@@ -51,8 +52,14 @@ def main(config_name, template_file_name, procs_per_node_manager,
     if is_master:
         print("Random seed:", seed)
 
+        config_name = os.path.join(settings_folder, 'config.in')
+        template_file_name = os.path.join(settings_folder, 'template.in')
+
         parameters = read_config(config_name)
         template = read_template(template_file_name)
+
+        parameters['PROCS_PER_PHYS_NODE'] = procs_per_phys_node
+
     else:
         parameters = None
         template = None
@@ -157,6 +164,14 @@ def main(config_name, template_file_name, procs_per_node_manager,
 
         f.close()
 
+        template_path = os.path.join(
+            parameters['SAVE_DIRECTORY'], 'template.pkl'
+        )
+
+        pickle.dump(template, open(template_path, 'wb'))
+
+        print("Saved template to:", template_path)
+
         print("Loading database ...", flush=True)
 
     if world_comm.Get_size() > 1:
@@ -198,6 +213,8 @@ def main(config_name, template_file_name, procs_per_node_manager,
 
     world_comm.Barrier()
 
+    cost_fxn = define_cost_function(parameters)
+
     # run the optimizer
     if parameters.get('DEBUG', False):
         if is_master:
@@ -217,10 +234,10 @@ def main(config_name, template_file_name, procs_per_node_manager,
         if is_master:
             print("Running CMAES", flush=True)
 
-        CMAES(parameters, template, node_manager, manager_comm)
+        CMAES(parameters, template, node_manager, manager_comm, cost_fxn)
 
     elif parameters['OPT_TYPE'] == 'COMO':
-        COMO_CMAES(parameters, template, node_manager, manager_comm)
+        COMO_CMAES(parameters, template, node_manager, manager_comm, cost_fxn)
 
     else:
         if is_master:
@@ -416,6 +433,155 @@ def read_config(config_name):
 
     return parameters
 
+
+def define_cost_function(parameters):
+    """
+    Used to define the cost function, which assumes a 2D input where each row is
+    the full fitness vector of a single potential. The cost functions will
+    return a P-dimensional vector corresponding to P-dimensional costs for each
+    potential. It will also optionally return a second 1D vector corresponding
+    to the additional penalties for each potential and/or add it into the cost.
+    """
+
+    N = parameters['NUM_STRUCTS']
+
+    def mae(errors, sum_all=True, return_penalty=False, group_indices=None):
+
+        energy_costs  = np.atleast_2d(errors[:, 0:-4:3])
+        forces_costs  = np.atleast_2d(errors[:, 1:-4:3])
+        penalty_costs = errors[:, -4:].sum(axis=1)
+
+        if group_indices is None:
+            energy_cost_groups = [energy_costs]
+            forces_cost_groups = [forces_costs]
+        else:
+            energy_cost_groups = []
+            forces_cost_groups = []
+
+            for group in group_indices:
+                group_eng_costs = energy_costs[:, group]
+                group_fcs_costs = forces_costs[:, group]
+
+                energy_cost_groups.append(np.average(group_eng_costs, axis=1))
+                forces_cost_groups.append(np.average(group_fcs_costs, axis=1))
+
+
+        energy_cost_groups = [
+            np.atleast_2d(grp_cost) for grp_cost in energy_cost_groups
+        ]
+
+        forces_cost_groups = [
+            np.atleast_2d(grp_cost) for grp_cost in forces_cost_groups
+        ]
+
+        energy_cost_groups = np.vstack(energy_cost_groups)
+        forces_cost_groups = np.vstack(forces_cost_groups)
+
+        new_costs = np.vstack([
+            energy_cost_groups, forces_cost_groups
+        ]).T
+
+        if sum_all:
+            new_costs = np.sum(new_costs, axis=1) + penalty_costs
+
+        if return_penalty:
+            return new_costs, penalty_costs
+        else:
+            return new_costs
+
+
+    def rmse(errors, sum_all=True, return_penalty=False, surf_indices=None):
+
+        energy_costs = errors[:, 0:-4:3]
+
+        surf_eng_costs     = energy_costs[:, surf_indices]
+        non_surf_eng_costs = energy_costs[:, ~surf_indices]
+
+        surf_eng_costs     = np.sqrt(np.average(surf_eng_costs**2, axis=1))
+        non_surf_eng_costs = np.sqrt(np.average(non_surf_eng_costs**2, axis=1))
+
+        forces_costs  = np.sqrt(np.average(errors[:, 1:-4:3]**2, axis=1))
+        penalty_costs = errors[:, -4:].sum(axis=1)
+
+        surf_eng_costs     = np.atleast_2d(surf_eng_costs)
+        non_surf_eng_costs = np.atleast_2d(non_surf_eng_costs)
+
+        forces_costs = np.atleast_2d(forces_costs)
+
+        new_costs = np.vstack([
+            non_surf_eng_costs, surf_eng_costs, forces_costs
+        ]).T
+
+        if sum_all:
+            new_costs = np.sum(new_costs, axis=1) + penalty_costs
+
+        if return_penalty:
+            return new_costs, penalty_costs
+        else:
+            return new_costs
+
+    delta = parameters['HUBER_THRESHOLD']
+
+    def huber(errors, sum_all=True, return_penalty=False, surf_indices=None):
+
+        energy_costs = errors[:, 0:-4:3]
+
+        surf_eng_errors     = energy_costs[:, surf_indices]
+        non_surf_eng_errors = energy_costs[:, ~surf_indices]
+
+        forces_errors  = errors[:, 1:-4:3]
+        penalty_costs = errors[:, -4:].sum(axis=1)
+
+        mask = np.ma.masked_where(surf_eng_errors <= delta, surf_eng_errors)
+
+        energy_costs = np.sum((energy_errors*mask.mask)**2, axis=1)
+        energy_costs += delta*np.sum(np.abs(energy_errors*(~mask.mask)), axis=1)
+        energy_costs -= delta*delta/2
+
+        surf_eng_costs = np.sum((surf_eng_errors*mask.mask)**2, axis=1)
+        surf_eng_costs += delta*np.sum(np.abs(energy_errors*(~mask.mask)), axis=1)
+        surf_eng_costs -= delta*delta/2
+
+        mask = np.ma.masked_where(non_surf_eng_errors <= delta, non_surf_eng_errors)
+
+        energy_costs = np.sum((energy_errors*mask.mask)**2, axis=1)
+        energy_costs += delta*np.sum(np.abs(energy_errors*(~mask.mask)), axis=1)
+        energy_costs -= delta*delta/2
+
+        non_surf_eng_costs = np.sum((non_surf_eng_errors*mask.mask)**2, axis=1)
+        non_surf_eng_costs += delta*np.sum(np.abs(energy_errors*(~mask.mask)), axis=1)
+        non_surf_eng_costs -= delta*delta/2
+
+        mask = np.ma.masked_where(forces_errors <= delta, forces_errors)
+
+        forces_costs = np.sum((forces_errors*mask.mask)**2, axis=1)
+        forces_costs += delta*np.sum(np.abs(forces_errors*(~mask.mask)), axis=1)
+        forces_costs -= delta*delta/2
+
+        new_costs = np.vstack([
+            non_surf_eng_costs, surf_eng_costs, forces_costs
+        ]).T
+
+        if sum_all:
+            new_costs = np.sum(new_costs, axis=1) + penalty_costs
+
+        if return_penalty:
+            return new_costs, penalty_costs
+        else:
+            return new_costs
+
+
+    if parameters['COST_FXN'] == 'MAE':
+        return mae
+    elif parameters['COST_FXN'] == 'RMSE':
+        return rmse
+    elif parameters['COST_FXN'] == 'HUBER':
+        return huber
+    else:
+        raise kill_and_write(
+            'Available cost functions: "MAE" or "RMSE" or "HUBER"'
+        )
+
 def kill_and_write(msg):
     print(msg, flush=True)
     MPI.COMM_WORLD.Abort(1)
@@ -606,15 +772,15 @@ if __name__ == "__main__":
     if len(sys.argv) < 3:
         kill_and_write("Must specify a config and template file")
     else:
-        if len(sys.argv) > 5:  # names file included
+        if len(sys.argv) > 4:  # names file included
             main(
-                config_name=sys.argv[1], template_file_name=sys.argv[2],
-                procs_per_node_manager=sys.argv[3],
-                procs_per_phys_node=sys.argv[4], names_file=sys.argv[5]
+                settings_folder=sys.argv[1],
+                procs_per_node_manager=sys.argv[2],
+                procs_per_phys_node=sys.argv[3], names_file=sys.argv[4]
             )
         else:
             main(
-                config_name=sys.argv[1], template_file_name=sys.argv[2],
-                procs_per_node_manager=sys.argv[3],
-                procs_per_phys_node=sys.argv[4], names_file=None
+                settings_folder=sys.argv[1],
+                procs_per_node_manager=sys.argv[2],
+                procs_per_phys_node=sys.argv[3], names_file=None
             )
