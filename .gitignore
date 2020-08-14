@@ -220,9 +220,7 @@ data.*
 *.Ti
 *.png
 *.dat
-*.spline
 *.out
-*poop*
 
 data/
 src/misc/*
