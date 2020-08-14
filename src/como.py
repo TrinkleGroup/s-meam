@@ -125,7 +125,7 @@ def COMO_CMAES(parameters, template, node_manager, manager_comm, cost_fxn):
                 lambda n: 1 if 'strain' in n else 0,
                 lambda n: 1 if 'surface' in n else 0,
                 lambda n: 1 if 'Vacancy' in n else 0,
-                lambda n: 1 if ('3374_K' in n) and ('Vacancy' not in n) else 0,
+                lambda n: 1 if ('6000_K' in n) and ('Vacancy' not in n) else 0,
         ]
 
         group_indices = []
@@ -160,14 +160,14 @@ def COMO_CMAES(parameters, template, node_manager, manager_comm, cost_fxn):
         )
 
         reference_point = np.max(first_costs, axis=0)*10
-        # reference_point = [1]*(len(groups)+1)
+        # reference_point = [1]*2*len(group_indices)
 
         ideal_hypervolume = np.prod(reference_point)
 
         # set the ni penalty to be extremely large (relative to the ideal cost)
         # to ensure that the ni sampling is optimized early
 
-        parameters['NI_PENALTY'] = ideal_hypervolume*10
+        parameters['NI_PENALTY'] = ideal_hypervolume*0.5
 
         print('Reference point:', reference_point)
         print('Ideal hyper-volume:', np.prod(reference_point), flush=True)
@@ -177,7 +177,8 @@ def COMO_CMAES(parameters, template, node_manager, manager_comm, cost_fxn):
             reference_point=reference_point,
             opts={
                 'verb_disp': 1
-            }
+            },
+            threads_per_node=parameters['PROCS_PER_PHYS_NODE']
         )
 
         cma_start_time = time.time()
@@ -267,6 +268,8 @@ def COMO_CMAES(parameters, template, node_manager, manager_comm, cost_fxn):
             #     moes.reference_point = new_ref_point
 
             moes.disp()
+
+            # seems like the front is kicking things out 
 
             summed = new_costs.sum(axis=0)
 

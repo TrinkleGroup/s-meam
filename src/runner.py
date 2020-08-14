@@ -39,7 +39,7 @@ logger.setLevel(logging.WARNING)
 
 # TODO: have a script that checks the validity of an input script befor qsub
 
-def main(config_name, template_file_name, procs_per_node_manager,
+def main(settings_folder, procs_per_node_manager,
         procs_per_phys_node=32, names_file=None):
     world_comm = MPI.COMM_WORLD
 
@@ -52,8 +52,13 @@ def main(config_name, template_file_name, procs_per_node_manager,
     if is_master:
         print("Random seed:", seed)
 
+        config_name = os.path.join(settings_folder, 'config.in')
+        template_file_name = os.path.join(settings_folder, 'template.in')
+
         parameters = read_config(config_name)
         template = read_template(template_file_name)
+
+        parameters['PROCS_PER_PHYS_NODE'] = procs_per_phys_node
 
     else:
         parameters = None
@@ -767,15 +772,15 @@ if __name__ == "__main__":
     if len(sys.argv) < 3:
         kill_and_write("Must specify a config and template file")
     else:
-        if len(sys.argv) > 5:  # names file included
+        if len(sys.argv) > 4:  # names file included
             main(
-                config_name=sys.argv[1], template_file_name=sys.argv[2],
-                procs_per_node_manager=sys.argv[3],
-                procs_per_phys_node=sys.argv[4], names_file=sys.argv[5]
+                settings_folder=sys.argv[1],
+                procs_per_node_manager=sys.argv[2],
+                procs_per_phys_node=sys.argv[3], names_file=sys.argv[4]
             )
         else:
             main(
-                config_name=sys.argv[1], template_file_name=sys.argv[2],
-                procs_per_node_manager=sys.argv[3],
-                procs_per_phys_node=sys.argv[4], names_file=None
+                settings_folder=sys.argv[1],
+                procs_per_node_manager=sys.argv[2],
+                procs_per_phys_node=sys.argv[3], names_file=None
             )
