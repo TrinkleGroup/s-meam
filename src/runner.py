@@ -20,6 +20,7 @@ from src.database import Database
 from src.nodemanager import NodeManager
 from src.cmaes import CMAES
 from src.como import COMO_CMAES
+from src.ga import GA
 from src.potential_templates import Template
 
 np.set_printoptions(linewidth=1000)
@@ -77,7 +78,8 @@ def main(settings_folder, procs_per_node_manager,
 
     float_params = [
         'MOVE_PROB', 'MOVE_SCALE', 'CMAES_STEP_SIZE', 'NI_PENALTY',
-        'ENERGY_WEIGHT', 'FORCES_WEIGHT', 'STRESS_WEIGHT', 'HUBER_THRESHOLD'
+        'ENERGY_WEIGHT', 'FORCES_WEIGHT', 'STRESS_WEIGHT', 'HUBER_THRESHOLD',
+        'MUT_PB'
     ]
 
     bool_params = [
@@ -239,6 +241,9 @@ def main(settings_folder, procs_per_node_manager,
     elif parameters['OPT_TYPE'] == 'COMO':
         COMO_CMAES(parameters, template, node_manager, manager_comm, cost_fxn)
 
+    elif parameters['OPT_TYPE'] == 'GA':
+        GA(parameters, template, node_manager, manager_comm, cost_fxn)
+
     else:
         if is_master:
             kill_and_write("Invalid optimization type (OPT_TYPE)")
@@ -397,7 +402,9 @@ def read_template(template_file_name):
             template.x_indices = x_indices
             template.cutoffs = template_args['cutoffs']
     else:
-        kill_and_write("Config file does not exist")
+        kill_and_write(
+            "Template file {} does not exist".format(template_file_name)
+        )
 
     return template
 
@@ -429,7 +436,7 @@ def read_config(config_name):
                                 "%d in config file" % i,
                                 )
     else:
-        kill_and_write("Config file does not exist")
+        kill_and_write("Config file {} does not exist".format(config_name))
 
     return parameters
 
