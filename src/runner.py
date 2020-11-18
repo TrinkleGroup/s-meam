@@ -33,8 +33,9 @@ seed = np.random.randint(10000)
 np.random.seed(seed)
 random.seed(seed)
 
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.WARNING)
+loggers = [logging.getLogger(name) for name in logging.root.manager.loggerDict]
+for logger in loggers:
+    logger.setLevel(logging.INFO)
 
 ################################################################################
 
@@ -484,9 +485,9 @@ def define_cost_function(parameters):
         energy_cost_groups = np.vstack(energy_cost_groups)
         forces_cost_groups = np.vstack(forces_cost_groups)
 
-        new_costs = np.vstack([
+        new_costs = np.hstack([
             energy_cost_groups, forces_cost_groups
-        ]).T
+        ])
 
         if sum_all:
             new_costs = np.sum(new_costs, axis=1) + penalty_costs

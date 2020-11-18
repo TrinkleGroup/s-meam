@@ -41,7 +41,7 @@ def build_evaluation_functions(
 
         manager_energies = node_manager.compute(
             'energy', node_manager.loaded_structures, pop, template.u_ranges,
-            stress=True, convert_to_cost=True
+            stress=False, convert_to_cost=True
         )
 
         manager_force_costs = node_manager.compute(
@@ -73,11 +73,11 @@ def build_evaluation_functions(
             )
         ]
 
-        stresses = [  # sort according to structure name
-            x[2] for _, x in sorted(
-                manager_energies.items()
-            )
-        ]
+        # stresses = [  # sort according to structure name
+        #     x[2] for _, x in sorted(
+        #         manager_energies.items()
+        #     )
+        # ]
 
         ni = [retval[1] for retval in manager_energies.values()]
 
@@ -91,7 +91,7 @@ def build_evaluation_functions(
 
         if node_manager.is_node_master:
             mgr_eng = manager_comm.gather(eng, root=0)
-            mgr_stress = manager_comm.gather(stresses, root=0)
+            # mgr_stress = manager_comm.gather(stresses, root=0)
             mgr_force_costs = manager_comm.gather(force_costs, root=0)
 
             mgr_min_ni = manager_comm.gather(c_min_ni, root=0)
@@ -104,7 +104,7 @@ def build_evaluation_functions(
             # note: can't stack mgr_fcs b/c different dimensions per struct
             all_eng = np.vstack(mgr_eng)
 
-            all_stress_costs = np.vstack(mgr_stress)
+            # all_stress_costs = np.vstack(mgr_stress)
 
             all_force_costs = np.vstack(mgr_force_costs)
 
@@ -151,8 +151,8 @@ def build_evaluation_functions(
                 fitnesses[:, 3*fit_id+1] = \
                     all_force_costs[fit_id]#*parameters['FORCES_WEIGHT']
 
-                fitnesses[:, 3*fit_id+2] = \
-                    all_stress_costs[fit_id]#*parameters['STRESS_WEIGHT']
+                # fitnesses[:, 3*fit_id+2] = \
+                #     all_stress_costs[fit_id]#*parameters['STRESS_WEIGHT']
 
             lambda_pen = parameters['NI_PENALTY']
 

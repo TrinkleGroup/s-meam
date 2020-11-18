@@ -184,10 +184,11 @@ class NodeManager:
                 struct_name, potentials, u_domains, stress=stress
             )
 
-            if convert_to_cost:
-                stress_costs = self.stresses_to_costs(ret[2], struct_name)
+            if stress:
+                if convert_to_cost:
+                    stress_costs = self.stresses_to_costs(ret[2], struct_name)
 
-                ret = (ret[0], ret[1], stress_costs)
+                    ret = (ret[0], ret[1], stress_costs)
 
 
         elif compute_type == 'forces':
