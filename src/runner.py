@@ -84,7 +84,7 @@ def main(settings_folder, procs_per_node_manager,
     ]
 
     bool_params = [
-        'DO_LMIN', 'DEBUG', 'OVERWRITE_OLD_FILES', 'PENALTY_ON'
+        'DO_LMIN', 'DEBUG', 'OVERWRITE_OLD_FILES', 'PENALTY_ON', 'DO_GROW'
     ]
 
     for key, val in parameters.items():
