@@ -86,7 +86,7 @@ class MEAM:
         self.energies = None
 
     @classmethod
-    def from_pvec(cls, x_pvec, y_pvec, x_indices, types):
+    def from_pvec(cls, x_pvec, y_pvec, x_indices, types, bc_type=('fixed', 'fixed')):
         """Builds a MEAM object from 1D vectors of parameters.
 
         Args:
@@ -113,7 +113,7 @@ class MEAM:
         for i in range(len(split_x)):
             y, bc = np.split(split_y[i], [-2])
 
-            splines[i] = Spline(split_x[i], y, end_derivs=bc)
+            splines[i] = Spline(split_x[i], y, bc_type=bc_type, end_derivs=bc)
 
         return cls(splines, types)
 

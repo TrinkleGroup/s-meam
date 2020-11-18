@@ -367,8 +367,6 @@ def read_template(template_file_name):
                 )
             )[0]
 
-            print('spline_ranges:', spline_ranges)
-
             template = Template(
                 template_args['types'],
                 pvec_len=len(knot_values),
@@ -490,7 +488,7 @@ def define_cost_function(parameters):
         ])
 
         if sum_all:
-            new_costs = np.sum(new_costs, axis=1) + penalty_costs
+            new_costs = np.average(new_costs, axis=1) + penalty_costs
 
         if return_penalty:
             return new_costs, penalty_costs
