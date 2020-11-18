@@ -584,8 +584,8 @@ class Database(h5py.File):
             knots_split = np.split(knot_xcoords, x_indices[1:])
 
             # TODO: could specify bc outside of Worker and pass in
-            # bc_type = ('natural', 'natural')
-            bc_type = ('fixed', 'fixed')
+            bc_type = ('natural', 'natural')
+            # bc_type = ('fixed', 'fixed')
 
             splines = []
 

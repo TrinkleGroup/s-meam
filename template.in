@@ -1,0 +1,13 @@
+Mo
+2.4 5.2
+-1 1
+
+2.4 5.2 -1 1 7
+2.4 5.2 -1 1 7
+-1 1 -1 1 7
+2.4 5.2 -1 1 7
+-1 1 -1 1 7
+
+load_potential True
+pot_file_name /home/jvita/scripts/s-meam/mlearn/mo_rmse/example_potential.txt
+random_template False

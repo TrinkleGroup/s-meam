@@ -159,8 +159,7 @@ def COMO_CMAES(parameters, template, node_manager, manager_comm, cost_fxn):
             group_indices=group_indices,
         )
 
-        reference_point = np.max(first_costs, axis=0)*10
-        # reference_point = [1]*2*len(group_indices)
+        reference_point = np.average(first_costs, axis=0)*10
 
         ideal_hypervolume = np.prod(reference_point)
 

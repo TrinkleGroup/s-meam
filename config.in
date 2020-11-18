@@ -1,0 +1,66 @@
+#################### Basic algorithm settings ####################
+# OPT_TYPE:        'CMAES' (single-objective) or 'COMO' (multi-objective)
+# NUM_SOLVERS:     number of CMA instances to use (only used for 'COMO')
+# POP_SIZE:        population size for CMAES or CMA instances in COMO
+# NSTEPS:          maximum number of optimization steps to take
+# CMAES_STEP_SIZE: sigma scaling factor for overall width of CMA distribution
+
+OPT_TYPE GA
+
+NUM_SOLVERS 10
+
+POP_SIZE 20
+NSTEPS 10000
+
+CMAES_STEP_SIZE 5.0
+
+####################  Cost function settings  ####################
+# COST_FXN:        MAE, RMSE, or HUBER
+# ENERGY_WEIGHT:   weight for energy errors
+# FORCES_WEIGHT:   weight for forces errors
+# STRESS_WEIGHT:   weight for stress errors
+# HUBER_THRESHOLD: threshold below which the loss function becomes quadratic
+# PENALTY_ON:      whether to include the ni penalty or not
+# NI_PENALTY:      scaling factor for ni penalty; just make it really big
+
+COST_FXN MAE
+
+ENERGY_WEIGHT 1
+FORCES_WEIGHT 1
+STRESS_WEIGHT 0
+
+HUBER_THRESHOLD 0.5
+
+PENALTY_ON True
+NI_PENALTY 1000000
+
+####################    Database settings     ####################
+# DATABASE_FILE:   location of HDF5 database
+# NUM_STRUCTS:     number of structures to use from the databsae (random sample)
+# CHECKPOINT_FREQ: how often to log population and fitnesses
+
+DATABASE_FILE ../data/fitting_databases/mlearn/data/Mo/Mo.hdf5-strain
+NUM_STRUCTS 5
+
+CHECKPOINT_FREQ 1
+
+####################    Advanced settings     ####################
+# DO_GROW: whether to do periodic restarts or not
+# GROW_SCHED: which steps to restart at
+# GROW_SIZE: population size to use at each restart
+# SAVE_DIRECTORY: folder to save populations and fitnesses to
+# OVERWRITE_OLD_FILES: whether to overwrite files if they exist
+# DEBUG: whether to run debug script instead of optimization algorithm
+# DEBUG_FILE: debug script to run after setup; runs main() in script
+
+DO_GROW False
+GROW_SCHED 200 400 600 800
+GROW_SIZE 2000 2000 2000 2000
+
+MUT_PB 0.2
+
+SAVE_DIRECTORY ../data/results/mlearn/Mo/mo_como/
+OVERWRITE_OLD_FILES True
+
+DEBUG False
+DEBUG_FILE src.misc.generate_starters
