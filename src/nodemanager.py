@@ -912,7 +912,7 @@ class NodeManager:
             knot_spacing = new_knots[1] - new_knots[0]
 
             # U splines assumed to have fixed derivatives at boundaries
-            M = build_M(num_knots, knot_spacing, ['fixed', 'fixed'])
+            M = build_M(num_knots, knot_spacing, ['natural', 'natural'])
 
             extrap_dist = (u_ranges[u_idx][1] - u_ranges[u_idx][0]) / 2
 
@@ -1373,7 +1373,7 @@ class NodeManager:
                 knot_spacing = new_knots[1] - new_knots[0]
 
                 # U splines assumed to have fixed derivatives at boundaries
-                M = build_M(num_knots, knot_spacing, ['fixed', 'fixed'])
+                M = build_M(num_knots, knot_spacing, ['natural', 'natural'])
 
                 extrap_dist = (u_range[1] - u_range[0]) / 2
 
@@ -1429,7 +1429,7 @@ class NodeManager:
             knot_spacing = new_knots[1] - new_knots[0]
 
             # U splines assumed to have fixed derivatives at boundaries
-            M = build_M(num_knots, knot_spacing, ['fixed', 'fixed'])
+            M = build_M(num_knots, knot_spacing, ['natural', 'natural'])
 
             extrap_dist = (u_ranges[i][1] - u_ranges[i][0]) / 2
 

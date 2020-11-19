@@ -83,4 +83,4 @@ class ZeroSpline(Spline):
         knotsx = np.array(knotsx)
 
         super(ZeroSpline,self).__init__(knotsx,np.zeros(knotsx.shape[0]),\
-                bc_type=((1,0),(1,0)), end_derivs=(0,0))
+                bc_type=('fixed', 'fixed'), end_derivs=(0,0))
