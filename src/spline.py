@@ -9,7 +9,10 @@ class Spline(CubicSpline):
     def __init__(self, x, y, bc_type=('natural', 'natural'), end_derivs=(0,0)):
 
         # super(Spline,self).__init__(x,y,bc_type=bc_type)#,bc_type=((1,d0),(1,dN)))
-        self.d0, self.dN = end_derivs
+
+        # TODO: d0 dN won't be the end derivatives if bc_type='natural'
+        # self.d0 = end_derivs[0]
+        # self.dN = end_derivs[1]
 
         spline_bcs = []
         for bc, bct in zip(end_derivs, bc_type):
@@ -21,6 +24,18 @@ class Spline(CubicSpline):
         # TODO: don't hard-code in (1, self.d0) ...
         # super(Spline,self).__init__(x, y, bc_type=((1, self.d0),(1, self.dN)))
         super(Spline,self).__init__(x, y, bc_type=spline_bcs)
+
+        # Store end derivatives for extrapolation later
+        if bc_type[0] == 'fixed':
+            self.d0 = end_derivs[0]
+        elif bc_type[0] == 'natural':
+            self.d0 = super(Spline, self).__call__(x[0], 1)
+
+        if bc_type[1] == 'fixed':
+            self.dN = end_derivs[0]
+        elif bc_type[1] == 'natural':
+            self.dN = super(Spline, self).__call__(x[-1], 1)
+
         self.cutoff = (x[0],x[len(x)-1])
 
         self.h = x[1]-x[0]
