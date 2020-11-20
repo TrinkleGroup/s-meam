@@ -118,6 +118,8 @@ def CMAES(parameters, template, node_manager, manager_comm, cost_fxn):
             {
                 'verb_disp': 1,
                 'popsize': parameters['POP_SIZE'],
+                'CMA_mu': parameters['POP_SIZE']//5,
+                'CSA_dampfac': 0.3,
             }
         )
 

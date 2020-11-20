@@ -202,32 +202,9 @@ class WorkerSpline:
             beta[rhs_extrap_indices, -1] += D[rhs_extrap_mask]
 
         # now add internal knots
-        a = lhs_extrap_mask.shape
-
-        # internal_mask = np.zeros(a, dtype=np.int64)
-        # internal_mask[:] = np.logical_not(lhs_extrap_mask + rhs_extrap_mask)
         internal_mask = np.logical_not(lhs_extrap_mask + rhs_extrap_mask)
 
         shifted_indices = spline_bins[internal_mask] - 1
-
-        # shifted_indices = np.zeros(len(internal_mask), dtype=np.int64)
-        #
-        # for idx in range(internal_mask.shape[0]):
-        #     if internal_mask[idx] > 0:
-        #         shifted_indices[idx] = spline_bins[idx] - 1
-
-        # np.add.at(alpha, (np.arange(len(x))[internal_mask], shifted_indices),
-        #           A[internal_mask])
-        #
-        # np.add.at(alpha, (np.arange(len(x))[internal_mask], shifted_indices + 1),
-        #           C[internal_mask])
-        #
-        #
-        # np.add.at(beta, (np.arange(len(x))[internal_mask], shifted_indices),
-        #           B[internal_mask])
-        #
-        # np.add.at(beta, (np.arange(len(x))[internal_mask], shifted_indices + 1),
-        #           D[internal_mask])
 
         rng = np.arange(len(x))[internal_mask]
 
@@ -238,27 +215,8 @@ class WorkerSpline:
             beta[im, si] += B[im]
             beta[im, si+1] += D[im]
 
-        # tmp_counter = 0
-        #
-        # for idx in range(internal_mask.shape[0]):
-        #     if internal_mask[idx] > 0:
-        #         im = idx
-        #         # im = internal_mask[idx]
-        #         si = shifted_indices[tmp_counter]
-        #
-        #         alpha[im, si] += A[im]
-        #         alpha[im, si] += B[im]
-        #         alpha[im, si+1] += C[im]
-        #         alpha[im, si+1] += D[im]
-        #
-        #         tmp_counter += 1
-
-        # big_alpha = np.concatenate((alpha, np.zeros((len(x), 2))), axis=1)
         return np.concatenate((alpha, np.zeros((len(x), 2))), axis=1), beta
 
-        # gamma = np.einsum('ij,ik->kij', M, beta.T)
-        #
-        # return big_alpha + np.sum(gamma, axis=1)
 
     def get_abcd_wrapper(self, x, deriv=0):
 
